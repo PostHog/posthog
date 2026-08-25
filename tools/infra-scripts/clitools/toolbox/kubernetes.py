@@ -103,7 +103,7 @@ def check_context_access(context: str, _namespace: str) -> tuple[bool, str]:
     except FileNotFoundError:
         return False, "kubectl is not installed or is not on PATH"
     except subprocess.TimeoutExpired:
-        return False, "kubectl authentication check timed out"
+        return False, "kubectl authentication check timed out (check that Tailscale is connected)"
 
     diagnostic = "\n".join(part for part in (result.stdout.strip(), result.stderr.strip()) if part)
     if result.returncode == 0:
@@ -167,6 +167,36 @@ def _needs_sso_reset(diagnostic: str) -> bool:
     )
 
 
+# Transport-level fragments in kubectl output. They only count as cluster
+# unreachability (which for the tailnet-gated clusters almost always means
+# Tailscale is down) on lines about the API server connection; the same
+# fragments coming from the AWS credential exec plugin must keep their own
+# diagnostic instead of a misleading Tailscale hint.
+_NETWORK_FAILURE_MARKERS = (
+    "no such host",
+    "no route to host",
+    "i/o timeout",
+    "network is unreachable",
+    "connection refused",
+    "dial tcp",
+    "tls handshake timeout",
+)
+# kubectl's own dialer produces these; the AWS CLI phrases its errors differently.
+_CLUSTER_CONNECTION_CONTEXTS = ("unable to connect to the server", "dial tcp")
+_CREDENTIAL_PLUGIN_FRAGMENTS = ("getting credentials", "executable aws")
+
+
+def _looks_like_network_failure(diagnostic: str) -> bool:
+    for line in diagnostic.lower().splitlines():
+        if any(fragment in line for fragment in _CREDENTIAL_PLUGIN_FRAGMENTS):
+            continue
+        if not any(marker in line for marker in _NETWORK_FAILURE_MARKERS):
+            continue
+        if any(context in line for context in _CLUSTER_CONNECTION_CONTEXTS):
+            return True
+    return False
+
+
 def summarize_diagnostic(diagnostic: str) -> str:
     """Extract a concise, useful reason from noisy kubectl/AWS output."""
     lines = [line.strip() for line in diagnostic.splitlines() if line.strip()]
@@ -175,6 +205,8 @@ def summarize_diagnostic(diagnostic: str) -> str:
             return "AWS reports that this profile currently has no access"
         if _needs_sso_reset(line):
             return "Kubernetes rejected the cached AWS SSO credentials"
+    if _looks_like_network_failure(diagnostic):
+        return "cannot reach the cluster endpoint (check that Tailscale is connected)"
     for line in reversed(lines):
         if not line.startswith(("E", "Unable to connect to the server")):
             return line

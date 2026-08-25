@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 
 import api from 'lib/api'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectClean } from 'lib/utils/objects'
 import { toParams } from 'lib/utils/url'
 import { sessionRecordingEventUsageLogic } from 'scenes/session-recordings/sessionRecordingEventUsageLogic'
@@ -268,8 +269,11 @@ export const sessionRecordingSavedFiltersLogic = kea<sessionRecordingSavedFilter
             //If you want to load a saved filter via GET param, you can do it like this: ?savedFilterId=bndnfkxL
             const { savedFilterId } = router.values.searchParams
             if (savedFilterId) {
+                // Capture the route before the fetch. The load can resolve after the user has already
+                // navigated elsewhere (e.g. to Replay vision) - only redirect if they are still here.
+                const pathnameBeforeLoad = removeProjectIdIfPresent(router.values.location.pathname)
                 const savedFilter = await api.recordings.getPlaylist(savedFilterId)
-                if (savedFilter) {
+                if (savedFilter && removeProjectIdIfPresent(router.values.location.pathname) === pathnameBeforeLoad) {
                     router.actions.push(
                         urls.replay(ReplayTabs.Home, stripSessionIds(asUniversalFilters(savedFilter.filters)))
                     )

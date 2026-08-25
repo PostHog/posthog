@@ -426,11 +426,12 @@ class TestResponsesRoutedModels:
         mock_response.model_dump = MagicMock(return_value={"id": "resp_1", "output": []})
         mock_make_call.return_value = AsyncMock(return_value=mock_response)
 
-        response = authenticated_client.post(
-            "/v1/responses",
-            json={"model": "moonshotai/kimi-k3", "input": "Hello"},
-            headers={"Authorization": "Bearer phx_test_key"},
-        )
+        with patch("llm_gateway.dependencies.evaluate_flag", AsyncMock(return_value=True)):  # entitle the gated model
+            response = authenticated_client.post(
+                "/v1/responses",
+                json={"model": "moonshotai/kimi-k3", "input": "Hello"},
+                headers={"Authorization": "Bearer phx_test_key"},
+            )
 
         assert response.status_code == 200
         mock_make_call.assert_called_once_with("https://kimi.modal.test/v1", "key", "secret")

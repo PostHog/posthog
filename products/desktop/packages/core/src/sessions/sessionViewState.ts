@@ -7,6 +7,7 @@ import {
 import { resolveEffectiveCloudStatus } from "../task-detail/cloudRunState";
 
 export interface SessionViewState {
+  isCloud: boolean;
   isCloudRunNotTerminal: boolean;
   isCloudRunTerminal: boolean;
   cloudStatus: TaskRunStatus | null;
@@ -28,16 +29,19 @@ export function deriveSessionViewState(
   workspace: Workspace | null,
   isCloud: boolean,
 ): SessionViewState {
+  // The live session knows it is cloud before the workspace query or `latest_run`
+  // metadata lands, so trust either source.
+  const effectiveIsCloud = isCloud || session?.isCloud === true;
   const cloudStatus = resolveEffectiveCloudStatus(task, session);
-  const isCloudRunTerminal = isCloud && isTerminalStatus(cloudStatus);
-  const isCloudRunNotTerminal = isCloud && !isCloudRunTerminal;
+  const isCloudRunTerminal = effectiveIsCloud && isTerminalStatus(cloudStatus);
+  const isCloudRunNotTerminal = effectiveIsCloud && !isCloudRunTerminal;
 
   const hasError = session?.status === "error" && !session?.idleKilled;
   const handoffInProgress = session?.handoffInProgress ?? false;
 
   let isRunning = false;
   if (!handoffInProgress) {
-    if (isCloud) {
+    if (effectiveIsCloud) {
       isRunning = !hasError;
     } else {
       isRunning = session?.status === "connected";
@@ -51,8 +55,14 @@ export function deriveSessionViewState(
   const isNewSessionWithInitialPrompt =
     !task.latest_run?.id && !!task.description;
   const isResumingExistingSession = !!task.latest_run?.id;
-  const isInitializing = isCloud
-    ? !hasError && (!session || (events.length === 0 && isCloudRunNotTerminal))
+  const isHydratingEmptyTranscript =
+    effectiveIsCloud &&
+    events.length === 0 &&
+    (session?.isHydratingTranscript ?? false);
+  const isInitializing = effectiveIsCloud
+    ? isHydratingEmptyTranscript ||
+      (!hasError &&
+        (!session || (events.length === 0 && isCloudRunNotTerminal)))
     : !session ||
       (session.status === "connecting" && events.length === 0) ||
       (session.status === "connected" &&
@@ -61,11 +71,12 @@ export function deriveSessionViewState(
           isNewSessionWithInitialPrompt ||
           isResumingExistingSession));
 
-  const cloudBranch = isCloud
+  const cloudBranch = effectiveIsCloud
     ? (workspace?.baseBranch ?? task.latest_run?.branch ?? null)
     : null;
 
   return {
+    isCloud: effectiveIsCloud,
     isCloudRunNotTerminal,
     isCloudRunTerminal,
     cloudStatus,
@@ -79,7 +90,9 @@ export function deriveSessionViewState(
     errorTitle: session?.errorTitle,
     errorMessage:
       session?.errorMessage ??
-      (isCloud ? (session?.cloudErrorMessage ?? undefined) : undefined),
+      (effectiveIsCloud
+        ? (session?.cloudErrorMessage ?? undefined)
+        : undefined),
     errorRetryable: session?.errorRetryable,
   };
 }

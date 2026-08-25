@@ -2,12 +2,10 @@
 
 When a server enables `reportMissing`, the SDK registers a virtual `get_more_tools`
 tool; an agent that calls it says, in its own words, what it wanted and could not
-get. That text lands in `$mcp_intent` and is the most direct product signal the
-dataset carries — "your agents wanted X and you don't support it".
+get. That text lands in `$mcp_intent` and records the capability the agent needed.
 
-Chronological, deliberately not aggregated: per-team volumes are small (median ~3
-reports in 30 days) and agents almost never repeat an ask verbatim, so grouping on
-the text would return a wall of count-1 rows. Semantic clustering is a separate job.
+The feed stays chronological because exact-text grouping would split similar free-form
+requests. Semantic clustering is a separate job.
 """
 
 from functools import cached_property
@@ -43,8 +41,7 @@ if TYPE_CHECKING:
 DEFAULT_LIMIT = 100
 MAX_LIMIT = 500
 
-# The report text itself. Referenced twice — as the returned column and as the search
-# target — so the two can't drift onto different properties.
+# Both the result column and search expression use this property so they cannot drift.
 _REPORT_TEXT = "toString(properties.$mcp_intent)"
 
 # Conversation id, same resolution as the tool-call surfaces: the SDK's own
@@ -58,10 +55,8 @@ class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilit
     Powers the "Missing capabilities" tab and the `query-mcp-missing-capabilities` MCP
     tool from one path. The client label is resolved server-side by `mcp_harness`; unlike the
     aggregating runners this one uses `harness_label_or_token_sql`, because a report
-    row is a single event, not a grouping key: an unrecognized client is worth naming
-    verbatim, and a report that carries no client identity at all (common — the SDK
-    only stamps `$mcp_client_name` on `$mcp_initialize`) must be distinguishable from
-    a client we merely failed to recognize, which "Other" would hide.
+    row is a single event, not a grouping key. An unrecognized client keeps its
+    self-reported name, while an event without client identity gets a distinct label.
     """
 
     query: MCPMissingCapabilitiesQuery
@@ -76,7 +71,7 @@ class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilit
 
     @cached_property
     def limit(self) -> int:
-        return min(self.query.limit or DEFAULT_LIMIT, MAX_LIMIT)
+        return min(max(self.query.limit or DEFAULT_LIMIT, 1), MAX_LIMIT)
 
     @cached_property
     def offset(self) -> int:
@@ -92,14 +87,12 @@ class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilit
         ]
         term = (self.query.search or "").strip()
         if term:
-            # ILIKE, the product's case-insensitive substring idiom; the term is bound
-            # as a constant so a `%` in the user's text can only widen their own match.
             exprs.append(
                 parse_expr(
-                    "{report_text} ILIKE {search}",
+                    "positionCaseInsensitive({report_text}, {search}) > 0",
                     placeholders={
                         "report_text": parse_expr(_REPORT_TEXT),
-                        "search": ast.Constant(value=f"%{term}%"),
+                        "search": ast.Constant(value=term),
                     },
                 )
             )
@@ -142,8 +135,7 @@ class MCPMissingCapabilitiesQueryRunner(AnalyticsQueryRunner[MCPMissingCapabilit
                 "report_text": parse_expr(_REPORT_TEXT),
                 "conversation_id": parse_expr(_CONVERSATION_ID),
                 "where": self._where(),
-                # Over-fetch one row to learn whether a next page exists, without a count
-                # query — the same trick the sessions list uses.
+                # Over-fetch one row to detect the next page without a separate count query.
                 "limit": ast.Constant(value=self.limit + 1),
                 "offset": ast.Constant(value=self.offset),
             },

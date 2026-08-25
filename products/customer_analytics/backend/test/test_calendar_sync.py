@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from parameterized import parameterized
+
 from products.customer_analytics.backend.logic import calendar_sync
 from products.customer_analytics.backend.models import Account, Meeting, MeetingParticipant, MeetingStatus
 
@@ -150,6 +152,20 @@ class TestCalendarSync(BaseTest):
         self._sync([_pages_response([event])])
         assert Meeting.objects.for_team(self.team.id).get().account_id == account.id
 
+    @patch(
+        "products.customer_analytics.backend.logic.email_account_matching.resolve_group_keys_by_email",
+        return_value={"jane@acme.com": "acme"},
+    )
+    def test_matches_account_via_person_group(self, _mock_group_keys: MagicMock) -> None:
+        self.team.customer_analytics_config.account_group_type_index = 0
+        self.team.customer_analytics_config.save()
+        account = Account.objects.for_team(self.team.id).create(team=self.team, name="Acme", external_id="acme")
+
+        counts = self._sync([_pages_response([_event()])])
+
+        assert Meeting.objects.for_team(self.team.id).get().account_id == account.id
+        assert counts.matched == 1
+
     def test_removed_attendee_is_deleted_on_resync(self):
         self._sync([_pages_response([_event()])])
         assert MeetingParticipant.objects.for_team(self.team.id).count() == 2
@@ -182,3 +198,28 @@ class TestCalendarSync(BaseTest):
 
         self._sync([_pages_response([_event()])])
         assert Meeting.objects.for_team(self.team.id).get().account_id is None
+
+    @parameterized.expand(
+        [
+            ("known_email", {"known_emails": [" Jane@Acme.com "]}),
+            ("email_domain", {"email_domains": ["@Acme.com"]}),
+        ]
+    )
+    def test_rematches_unassigned_meeting_after_account_matching_changes(
+        self, _name: str, properties: dict[str, list[str]]
+    ) -> None:
+        account = Account.objects.for_team(self.team.id).create(team=self.team, name="Acme", external_id="acme")
+        meeting = Meeting.objects.for_team(self.team.id).create(
+            team=self.team,
+            ical_uid=f"unassigned-{_name}",
+            start_time="2026-08-04T15:00:00Z",
+        )
+        MeetingParticipant.objects.for_team(self.team.id).create(team=self.team, meeting=meeting, email="jane@acme.com")
+        account.properties = properties
+        account.save()
+
+        updated = calendar_sync.rematch_account_meetings(self.team.id, str(account.id))
+
+        meeting.refresh_from_db()
+        assert updated == 1
+        assert meeting.account_id == account.id

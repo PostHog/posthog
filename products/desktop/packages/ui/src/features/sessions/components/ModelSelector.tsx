@@ -1,7 +1,4 @@
-import type {
-  SessionConfigOption,
-  SessionConfigSelectGroup,
-} from "@agentclientprotocol/sdk";
+import type { SessionConfigSelectGroup } from "@agentclientprotocol/sdk";
 import { CaretDown } from "@phosphor-icons/react";
 import type { SessionService } from "@posthog/core/sessions/sessionService";
 import { SESSION_SERVICE } from "@posthog/core/sessions/sessionService";
@@ -15,14 +12,18 @@ import {
   DropdownMenuTrigger,
   MenuLabel,
 } from "@posthog/quill";
-import { type Adapter, GLM_MODEL_FLAG, KIMI_MODEL_FLAG } from "@posthog/shared";
+import {
+  type Adapter,
+  DEEPSEEK_MODEL_FLAG,
+  GLM_MODEL_FLAG,
+  GLM53_MODEL_FLAG,
+  KIMI_MODEL_FLAG,
+} from "@posthog/shared";
 import { gateRestrictedModelPick } from "@posthog/ui/features/billing/modelGate";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
+import { ModelCostFooter } from "@posthog/ui/features/sessions/components/ModelCostChip";
 import { ModelRadioItem } from "@posthog/ui/features/sessions/components/ModelRadioItem";
-import {
-  stripGlmModelOption,
-  stripKimiModelOption,
-} from "@posthog/ui/features/sessions/modelOptionFilters";
+import { stripDisabledModelOption } from "@posthog/ui/features/sessions/modelOptionFilters";
 import {
   flattenSelectOptions,
   useModelConfigOptionForTask,
@@ -49,10 +50,17 @@ export function ModelSelector({
   const sessionStatus = useSessionSelector(taskId, (s) => s?.status);
   const sessionIsCloud = useSessionIsCloud(taskId);
   const rawModelOption = useModelConfigOptionForTask(taskId);
+  const deepseek = useFeatureFlag(DEEPSEEK_MODEL_FLAG);
   const glmEnabled = useFeatureFlag(GLM_MODEL_FLAG);
+  const glm53Enabled = useFeatureFlag(GLM53_MODEL_FLAG);
   const kimiEnabled = useFeatureFlag(KIMI_MODEL_FLAG);
   const modelOption = rawModelOption
-    ? stripDisabledPreviewModels(rawModelOption, glmEnabled, kimiEnabled)
+    ? stripDisabledModelOption(rawModelOption, {
+        deepseek,
+        glm: glmEnabled,
+        glm53: glm53Enabled,
+        kimi: kimiEnabled,
+      })
     : rawModelOption;
 
   const selectOption = modelOption?.type === "select" ? modelOption : undefined;
@@ -135,16 +143,8 @@ export function ModelSelector({
             ))}
           </DropdownMenuRadioGroup>
         )}
+        <ModelCostFooter />
       </DropdownMenuContent>
     </DropdownMenu>
   );
-}
-
-function stripDisabledPreviewModels(
-  option: SessionConfigOption,
-  glmEnabled: boolean,
-  kimiEnabled: boolean,
-): SessionConfigOption {
-  const withoutGlm = glmEnabled ? option : stripGlmModelOption(option);
-  return kimiEnabled ? withoutGlm : stripKimiModelOption(withoutGlm);
 }

@@ -12,7 +12,7 @@ import structlog
 
 from posthog.hogql_queries.query_metadata import InsightQueryMetadata
 
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
 

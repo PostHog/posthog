@@ -1,6 +1,7 @@
-from django.db import InterfaceError, OperationalError
+from django.db import InterfaceError, InternalError, OperationalError
 
 import deltalake
+import psycopg.errors
 import botocore.exceptions
 from parameterized import parameterized
 
@@ -12,6 +13,13 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     is_transient_maintenance_error,
     is_transient_object_store_error,
 )
+
+
+def _internal_error_with_cause(cause: BaseException) -> InternalError:
+    """Mirrors how Django's DatabaseErrorWrapper re-raises a psycopg error: `raise dj_exc_value ... from exc_value`."""
+    error = InternalError("cannot execute SELECT FOR UPDATE in a read-only transaction")
+    error.__cause__ = cause
+    return error
 
 
 class TestIsTransientObjectStoreError:
@@ -26,6 +34,13 @@ class TestIsTransientObjectStoreError:
                 True,
             ),
             ("unrelated_os_error", OSError("Permission denied: bucket policy forbids this operation"), False),
+            (
+                # s3fs wraps a CopyObject/PutObject 5xx as a plain OSError once boto's own retries
+                # are exhausted - S3's fixed InternalError message, not a bug in our code.
+                "s3_internal_error_os_error",
+                OSError("[Errno 121] We encountered an internal error. Please try again."),
+                True,
+            ),
             (
                 # s3fs/aiobotocore's own credential resolution (distinct from delta-rs's Rust
                 # object_store crate) can raise this bare, unwrapped — same IMDS/STS blip
@@ -99,8 +114,21 @@ class TestIsTransientDeltaMaintenanceError:
                 ),
                 True,
             ),
-            # "File not found" outside the log directory must not match, because a data file missing for
-            # some other reason is a real failure to capture, not this specific log-commit race.
+            # The same race can take a checkpoint instead of a commit JSON, surfaced through delta-rs's
+            # Arrow/object_store kernel message shape (a plain 404/NoSuchKey GET failure) rather than the
+            # older "File not found: ..." shape above — both mean the same thing when scoped to `_delta_log/`.
+            (
+                "missing_delta_log_checkpoint_object_store_kernel_message",
+                deltalake.exceptions.DeltaError(
+                    "Kernel error: Arrow error: External: Object at location "
+                    "dlt/team_1_source_2/table/_delta_log/00000000000000000099.checkpoint.parquet not found: "
+                    "Error performing GET https://s3.example.com/bucket/.../00000000000000000099.checkpoint.parquet "
+                    "in 10.9ms - Server returned non-2xx status code: 404 Not Found: NoSuchKey"
+                ),
+                True,
+            ),
+            # "not found" outside the log directory must not match, because a data file missing for some
+            # other reason is a real failure to capture, not this specific log-commit race.
             ("file_not_found_outside_delta_log", deltalake.exceptions.DeltaError("File not found: some/file"), False),
             # Other DeltaErrors are real failures (e.g. a genuinely corrupt log) and must still be captured.
             ("unrelated_delta_error", deltalake.exceptions.DeltaError("no protocol found in delta log"), False),
@@ -152,6 +180,23 @@ class TestIsTransientMaintenanceError:
                 True,
             ),
             ("genuine_bug", RuntimeError("maintenance blew up"), False),
+            # A primary failover briefly turns the write connection into a read-only standby mid
+            # watermark-persist — Postgres raises ReadOnlySqlTransaction (25006), which psycopg
+            # classifies under InternalError rather than OperationalError.
+            (
+                "watermark_persist_during_failover",
+                _internal_error_with_cause(
+                    psycopg.errors.ReadOnlySqlTransaction("cannot execute SELECT FOR UPDATE in a read-only transaction")
+                ),
+                True,
+            ),
+            # Other InternalError subtypes (e.g. real corruption) must not be swept up by the
+            # ReadOnlySqlTransaction check just because they share the same Django exception class.
+            (
+                "internal_error_unrelated_cause_not_matched",
+                _internal_error_with_cause(psycopg.errors.DataCorrupted("index is corrupted")),
+                False,
+            ),
         ]
     )
     def test_classifies_transient_errors(self, _name: str, error: Exception, expected: bool):

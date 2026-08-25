@@ -78,6 +78,11 @@ export interface Task {
   description: string;
   created_at: string;
   updated_at: string;
+  /**
+   * When something last happened in the session, as opposed to `updated_at` (when the row was
+   * last written). The timestamp a "recent activity" sort reads. Empty on older responses.
+   */
+  last_activity_at?: string;
   created_by?: UserBasic | null;
   origin_product: string;
   repository?: string | null; // Format: "organization/repository" (e.g., "posthog/posthog-js")
@@ -93,11 +98,28 @@ export interface Task {
   latest_run?: TaskRun;
 }
 
+export interface TaskSearchResult {
+  id: string;
+  kind: "task" | "pull_request" | "artifact" | "channel";
+  title: string;
+  subtitle: string;
+  task_id: string | null;
+  task_run_id: string | null;
+  channel_id: string | null;
+  metadata: Record<string, unknown>;
+}
+
 /**
  * A backend task channel — the single channel identity: it owns the task feed,
  * threads, instructions (CONTEXT.md) and filed canvases. `personal` is the
  * user's private "#me" channel. `starred` is per-user.
  */
+export interface ProvisionedTaskChannels {
+  channels: TaskChannel[];
+  personal_created: boolean;
+  general_created: boolean;
+}
+
 export interface TaskChannel {
   id: string;
   name: string;
@@ -107,6 +129,7 @@ export interface TaskChannel {
   repositories?: string[];
   created_at: string;
   created_by?: UserBasic | null;
+  system_role?: "personal" | "general" | null;
 }
 
 /** Lifecycle events a client may post into a channel's feed. */
@@ -148,6 +171,42 @@ export interface TaskThreadMessage {
   author?: UserBasic | null;
   forwarded_to_agent_at?: string | null;
   forwarded_by?: UserBasic | null;
+  /** Users mentioned in the row, indexed at write time. Absent on older backends. */
+  mentioned_user_ids?: number[];
+}
+
+/** The latest resolve or reopen on a comment thread. */
+export interface TaskCommentStateEvent {
+  state: "resolved" | "open";
+  author?: UserBasic | null;
+  created_at: string;
+}
+
+/**
+ * One comment thread on a task, collapsed the way the activity timeline shows it
+ * (`/thread_messages/comment_activity/`). Mirrors `TaskCommentActivityDTO`.
+ */
+export interface TaskCommentThreadSummary {
+  id: string;
+  target: { id: string; type: string; name: string };
+  content: string;
+  content_truncated: boolean;
+  selected_text: string | null;
+  author?: UserBasic | null;
+  created_at: string;
+  last_activity_at: string;
+  reply_count: number;
+  participants: UserBasic[];
+  mentioned_user_ids: number[];
+  resolved: boolean;
+  state_event: TaskCommentStateEvent | null;
+  latest_reply: {
+    author?: UserBasic | null;
+    content: string;
+    /** The excerpt is bounded, so a long reply comes back cut. */
+    content_truncated: boolean;
+    created_at: string;
+  } | null;
 }
 
 /**
@@ -239,14 +298,33 @@ export type ArtifactType =
 export type ArtifactSource =
   | "agent_output"
   | "user_attachment"
-  | "posthog_code_skill";
+  | "posthog_code_skill"
+  | "posthog_object";
 
-export interface TaskRunArtifactMetadata {
+export interface SkillBundleArtifactMetadata {
   skill_name: string;
   skill_source: UploadableSkillSource;
   content_sha256: string;
   bundle_format: "zip";
   schema_version: number;
+}
+
+export interface PostHogObjectArtifactMetadata {
+  reference_type: "posthog_object";
+  object_kind: string;
+  object_id: string;
+  source_message_ids: string[];
+  occurrence_count: number;
+}
+
+export type TaskRunArtifactMetadata =
+  | SkillBundleArtifactMetadata
+  | PostHogObjectArtifactMetadata;
+
+export function isSkillBundleArtifactMetadata(
+  metadata: TaskRunArtifactMetadata | undefined,
+): metadata is SkillBundleArtifactMetadata {
+  return metadata !== undefined && "skill_name" in metadata;
 }
 
 export interface TaskRunArtifact {
@@ -259,6 +337,8 @@ export interface TaskRunArtifact {
   metadata?: TaskRunArtifactMetadata;
   storage_path?: string;
   uploaded_at?: string;
+  uploaded_by?: "agent" | "user";
+  uploaded_by_user_id?: number;
   dismissed_at?: string | null;
 }
 
@@ -405,6 +485,10 @@ export interface CloudTaskSnapshotUpdate extends CloudTaskUpdateBase {
   kind: "snapshot";
   newEntries: StoredLogEntry[];
   totalEntryCount: number;
+  /** Chain index of newEntries[0] when the snapshot is a tail window rather
+   *  than the full history; older entries page in on demand. Absent means
+   *  the snapshot starts at the head of the chain. */
+  windowStart?: number;
   status?: TaskRunStatus;
   stage?: string | null;
   output?: Record<string, unknown> | null;
@@ -531,6 +615,21 @@ export type CommaSeparatedSignalReportStatuses =
   | `${SignalReportStatus},${SignalReportStatus},${SignalReportStatus},${SignalReportStatus}`
   | `${SignalReportStatus},${SignalReportStatus},${SignalReportStatus},${SignalReportStatus},${SignalReportStatus}`;
 
+export type SignalReportChartSize = "small" | "medium" | "large";
+
+/**
+ * One chart attached to a report (`SignalReport.charts` on the backend serializer).
+ * `query` is stored unparsed; the backend only guarantees `kind` is one of
+ * InsightVizNode, DataVisualizationNode, or SavedInsightNode.
+ */
+export interface SignalReportChart {
+  chart_id: string;
+  title: string;
+  query: unknown;
+  caption?: string | null;
+  size?: SignalReportChartSize | null;
+}
+
 export interface SignalReport {
   id: string;
   title: string | null;
@@ -558,6 +657,35 @@ export interface SignalReport {
   source_products?: string[];
   /** PR URL from the latest implementation task run, if available. */
   implementation_pr_url?: string | null;
+  /**
+   * Whether that PR merged (GitHub webhook). A merged PR is history, not work
+   * in flight: a report can outlive its fix when evidence keeps arriving, and
+   * its old PR must not read as reviewable or continuable.
+   */
+  implementation_pr_merged?: boolean;
+  /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
+  charts?: SignalReportChart[];
+  /** The report's PR refund, when one exists (one refund per report, ever). */
+  refund?: SignalReportRefund | null;
+  /** Marks reports that were never billable ("Free"), so there is nothing to refund. */
+  billing_exempt_reason?: string | null;
+  /** Backend-owned refund eligibility: why a refund would be rejected right now, null when it would be accepted. */
+  refund_ineligibility_reason?: string | null;
+  /** The space (task channel) this report is assigned to, or null when unassigned. The general view lists every report regardless of this value. */
+  channel_id?: string | null;
+}
+
+export type SignalReportRefundReason =
+  | "pr_incorrect"
+  | "pr_not_useful"
+  | "duplicate"
+  | "other";
+
+export interface SignalReportRefund {
+  id: string;
+  reason: SignalReportRefundReason;
+  note?: string | null;
+  created_at?: string;
 }
 
 export interface SignalReportArtefactContent {
@@ -890,6 +1018,8 @@ export interface SignalReportsQueryParams {
    * reports, `false` only non-PR reports. Pair with `limit: 1` to count PR reports cheaply.
    */
   has_implementation_pr?: boolean;
+  /** A space (task channel) UUID — only returns reports assigned to that space. Omit for the general view, which returns every report. */
+  channel_id?: string;
 }
 
 export interface SignalTeamConfig {
@@ -898,6 +1028,12 @@ export interface SignalTeamConfig {
   /** Team-wide default `channel_id|#channel-name` target for inbox notifications. `null` = no team default. */
   default_slack_notification_channel?: string | null;
   autostart_base_branches?: Record<string, string> | null;
+  /** Daily cap on new reports reaching the inbox, counted per project-timezone day. `null` = unlimited. */
+  max_reports_per_day?: number | null;
+  /** Reports that first became visible today. `0` when there is no cap. Read-only. */
+  reports_generated_today?: number;
+  /** Whether the cap is reached, pausing new reports until local midnight. `false` when there is no cap. Read-only. */
+  daily_report_limit_reached?: boolean;
   created_at: string;
   updated_at: string;
 }

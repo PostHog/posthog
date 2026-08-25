@@ -10,11 +10,12 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.ph_client import feature_enabled_or_false
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.shared_link_user import SharedLinkUser
 from posthog.synthetic_user import SyntheticUser
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -99,10 +100,17 @@ def get_direct_connection_source(
             id=source_uuid,
         )
         .exclude(deleted=True)
+        .defer("job_inputs")
         .first()
     )
     if source is None or not is_direct_capable(source):
         return None
+
+    managed_warehouse_mode: ManagedWarehouseSQLMode | None = None
+    if source.has_managed_warehouse_prefix:
+        managed_warehouse_mode = source.managed_warehouse_sql_mode
+        if managed_warehouse_mode == ManagedWarehouseSQLMode.UNAVAILABLE:
+            return None
 
     # Synced (warehouse) sources only expose their `should_sync` catalog — raw SQL bypasses that
     # boundary and reads any upstream table, so raw queries are pure-direct only. Pure-direct
@@ -111,8 +119,10 @@ def get_direct_connection_source(
     if require_pure_direct and source.access_method != ExternalDataSource.AccessMethod.DIRECT:
         return None
 
-    if user is not None and not UserAccessControl(user=user, team=team).check_access_level_for_object(
-        source, required_level="viewer"
+    if (
+        user is not None
+        and managed_warehouse_mode != ManagedWarehouseSQLMode.BUILT_IN
+        and not UserAccessControl(user=user, team=team).check_access_level_for_object(source, required_level="viewer")
     ):
         return None
 

@@ -25,6 +25,7 @@ from posthog.hogql.visitor import CloningVisitor, TraversingVisitor
 
 from posthog.clickhouse.events_json import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
 from posthog.clickhouse.materialized_column_types import MATERIALIZATION_VALID_TABLES, MaterializedColumn
+from posthog.dataclasses import frozen
 
 _JSON_EXTRACT_SCALAR_CASTS: dict[str, tuple[str, object]] = {
     "JSONExtractString": ("String", ""),
@@ -126,6 +127,14 @@ class PropertyFinder(TraversingVisitor):
             node.type.resolve_database_field(self.context), DateTimeDatabaseField
         ):
             self.found_timestamps = True
+
+
+@frozen
+class ToTimeZoneParts:
+    bare_field: ast.Expr
+    timezone: str
+    constant: ast.Expr
+    swapped: bool
 
 
 class PropertySwapper(CloningVisitor):
@@ -548,25 +557,23 @@ class PropertySwapper(CloningVisitor):
         We only do this for top-level range comparisons (not inside function
         calls like if(), coalesce()) via the _inside_call_depth guard.
         """
-        bare_field, tz, constant, swapped = self._extract_toTimeZone_parts(node)
-        if bare_field is None or tz is None or constant is None:
+        parts = self._extract_toTimeZone_parts(node)
+        if parts is None:
             return None
 
-        tz_constant = self._ensure_constant_has_timezone(constant, tz)
+        tz_constant = self._ensure_constant_has_timezone(parts.constant, parts.timezone)
 
-        if swapped:
-            return ast.CompareOperation(left=tz_constant, right=bare_field, op=node.op)
+        if parts.swapped:
+            return ast.CompareOperation(left=tz_constant, right=parts.bare_field, op=node.op)
         else:
-            return ast.CompareOperation(left=bare_field, right=tz_constant, op=node.op)
+            return ast.CompareOperation(left=parts.bare_field, right=tz_constant, op=node.op)
 
     @staticmethod
-    def _extract_toTimeZone_parts(
-        node: ast.CompareOperation,
-    ) -> tuple[ast.Expr | None, str | None, ast.Expr | None, bool]:
-        """Extract (bare_field, timezone, constant, swapped) from a comparison
+    def _extract_toTimeZone_parts(node: ast.CompareOperation) -> ToTimeZoneParts | None:
+        """Extract the bare field, timezone, constant and side from a comparison
         where one side is toTimeZone(field, tz).
 
-        Returns (None, None, None, False) if the pattern doesn't match.
+        Returns None if the pattern doesn't match.
         swapped=True means the toTimeZone was on the right side.
         """
         for left_is_tz in (True, False):
@@ -579,9 +586,14 @@ class PropertySwapper(CloningVisitor):
             if isinstance(inner, ast.Call) and inner.name == "toTimeZone" and len(inner.args) == 2:
                 tz_arg = inner.args[1]
                 if isinstance(tz_arg, ast.Constant) and isinstance(tz_arg.value, str):
-                    return inner.args[0], tz_arg.value, const_side, not left_is_tz
+                    return ToTimeZoneParts(
+                        bare_field=inner.args[0],
+                        timezone=tz_arg.value,
+                        constant=const_side,
+                        swapped=not left_is_tz,
+                    )
 
-        return None, None, None, False
+        return None
 
     @staticmethod
     def _ensure_constant_has_timezone(expr: ast.Expr, tz: str) -> ast.Expr:

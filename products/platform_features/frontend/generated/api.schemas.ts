@@ -246,6 +246,13 @@ export interface PatchedOrganizationApi {
     readonly is_pending_deletion?: boolean | null
 }
 
+export interface OrganizationRemoveBlockedMembersResponseApi {
+    /** Whether verified-domain enforcement was turned on. */
+    success: boolean
+    /** How many members with an email outside the verified domains were removed from the organization. Owners are never removed. */
+    removed_members: number
+}
+
 export interface OrganizationAIAccessRequestResponseApi {
     /** Whether the access request was accepted and the organization admins were notified. */
     success: boolean
@@ -1003,6 +1010,14 @@ export type ListParams = {
 
 export type MembersListParams = {
     /**
+     * Only return members whose email address is on this domain (case-insensitive).
+     */
+    email_domain?: string
+    /**
+     * Comma-separated membership levels to return, e.g. `1,8`. Levels are 1 member, 8 admin, 15 owner.
+     */
+    levels?: string
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -1014,6 +1029,10 @@ export type MembersListParams = {
      * Sort order. Defaults to `-joined_at`.
      */
     order?: string
+    /**
+     * When `true`, only return members whose email domain is not one of the organization's verified domains — the members who would lose access under verified-domain enforcement.
+     */
+    outside_verified_domains?: boolean
     /**
      * Match against member `first_name`, `last_name`, and `email`. Returns exact (case-insensitive substring) matches only; if no exact match exists, returns similar (fuzzy trigram — typos, prefix-as-you-type) matches instead. Each result's `search_match_type` is `exact` or `similar`. Capped at 200 characters.
      */
@@ -1094,6 +1113,7 @@ export type ActivityLogListParams = {
      * * `EventDefinition` - EventDefinition
      * * `PropertyDefinition` - PropertyDefinition
      * * `Notebook` - Notebook
+     * * `Canvas` - Canvas
      * * `Endpoint` - Endpoint
      * * `EndpointVersion` - EndpointVersion
      * * `Dashboard` - Dashboard
@@ -1153,9 +1173,11 @@ export type ActivityLogListParams = {
      * * `InstanceSetting` - InstanceSetting
      * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
+     * * `SignalTeamConfig` - SignalTeamConfig
      * * `StreamlitApp` - StreamlitApp
      * * `Metric` - Metric
      * * `TableCertification` - TableCertification
+     * * `DataQualityCheck` - DataQualityCheck
      * * `Billing` - Billing
      * * `Loop` - Loop
      * @minLength 1
@@ -1187,6 +1209,7 @@ export const ActivityLogListScope = {
     EventDefinition: 'EventDefinition',
     PropertyDefinition: 'PropertyDefinition',
     Notebook: 'Notebook',
+    Canvas: 'Canvas',
     Endpoint: 'Endpoint',
     EndpointVersion: 'EndpointVersion',
     Dashboard: 'Dashboard',
@@ -1246,9 +1269,11 @@ export const ActivityLogListScope = {
     InstanceSetting: 'InstanceSetting',
     SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
+    SignalTeamConfig: 'SignalTeamConfig',
     StreamlitApp: 'StreamlitApp',
     Metric: 'Metric',
     TableCertification: 'TableCertification',
+    DataQualityCheck: 'DataQualityCheck',
     Billing: 'Billing',
     Loop: 'Loop',
 } as const
@@ -1267,6 +1292,7 @@ export const ActivityLogListScope = {
  * * `EventDefinition` - EventDefinition
  * * `PropertyDefinition` - PropertyDefinition
  * * `Notebook` - Notebook
+ * * `Canvas` - Canvas
  * * `Endpoint` - Endpoint
  * * `EndpointVersion` - EndpointVersion
  * * `Dashboard` - Dashboard
@@ -1326,9 +1352,11 @@ export const ActivityLogListScope = {
  * * `InstanceSetting` - InstanceSetting
  * * `SignalReport` - SignalReport
  * * `SignalScoutConfig` - SignalScoutConfig
+ * * `SignalTeamConfig` - SignalTeamConfig
  * * `StreamlitApp` - StreamlitApp
  * * `Metric` - Metric
  * * `TableCertification` - TableCertification
+ * * `DataQualityCheck` - DataQualityCheck
  * * `Billing` - Billing
  * * `Loop` - Loop
  */
@@ -1348,6 +1376,7 @@ export const ActivityLogListScopesItem = {
     EventDefinition: 'EventDefinition',
     PropertyDefinition: 'PropertyDefinition',
     Notebook: 'Notebook',
+    Canvas: 'Canvas',
     Endpoint: 'Endpoint',
     EndpointVersion: 'EndpointVersion',
     Dashboard: 'Dashboard',
@@ -1407,9 +1436,11 @@ export const ActivityLogListScopesItem = {
     InstanceSetting: 'InstanceSetting',
     SignalReport: 'SignalReport',
     SignalScoutConfig: 'SignalScoutConfig',
+    SignalTeamConfig: 'SignalTeamConfig',
     StreamlitApp: 'StreamlitApp',
     Metric: 'Metric',
     TableCertification: 'TableCertification',
+    DataQualityCheck: 'DataQualityCheck',
     Billing: 'Billing',
     Loop: 'Loop',
 } as const

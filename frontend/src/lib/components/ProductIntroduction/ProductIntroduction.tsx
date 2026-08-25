@@ -44,6 +44,7 @@ export type ProductIntroductionProps = {
     actionElementOverride?: JSX.Element
     docsURL?: string
     customHog?: React.ComponentType<{ className?: string }>
+    hogClassName?: string
     className?: string
     /**
      * Default hides the hog below `md`. Use `responsive` to keep the hog visible on small screens with a vertical
@@ -93,6 +94,7 @@ export const ProductIntroduction = ({
     actionElementOverride,
     docsURL,
     customHog: CustomHog,
+    hogClassName,
     className,
     hogLayout = 'default',
     useMainContentContainerQueries = false,
@@ -169,7 +171,8 @@ export const ProductIntroduction = ({
                                   ? useMainContentContainerQueries
                                       ? 'block w-56 sm:w-60 lg:w-70 mb-4 @min-[48rem]/main-content:mb-0'
                                       : 'block w-56 sm:w-60 lg:w-70 mb-4 md:mb-0'
-                                  : 'w-60 lg:w-70 mb-4 hidden md:block'
+                                  : 'w-60 lg:w-70 mb-4 hidden md:block',
+                            hogClassName
                         )}
                     >
                         <HogComponent className="w-full h-full" />

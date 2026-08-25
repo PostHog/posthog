@@ -13,6 +13,7 @@ import {
 } from "@posthog/core/sessions/sessionService";
 import { useService } from "@posthog/di/react";
 import { useHostTRPCClient } from "@posthog/host-router/react";
+import { sessionSupportsSideQuestion } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
   resolveLocalSkillPrompt,
@@ -25,6 +26,7 @@ import {
   type AgentSession,
   sessionStoreSetters,
 } from "@posthog/ui/features/sessions/sessionStore";
+import { fireSideQuestion } from "@posthog/ui/features/sessions/sideQuestionStore";
 import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
 import {
   SHELL_CLIENT,
@@ -76,6 +78,16 @@ export function useSessionCallbacks({
             }
           : null,
         taskRun: task.latest_run ?? null,
+        askSideQuestion:
+          currentSession && sessionSupportsSideQuestion(currentSession)
+            ? (question) =>
+                fireSideQuestion(
+                  sessionService,
+                  taskId,
+                  currentSession.taskRunId,
+                  question,
+                )
+            : undefined,
       });
       if (handled) return true;
 

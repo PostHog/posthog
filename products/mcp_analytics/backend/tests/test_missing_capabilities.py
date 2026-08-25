@@ -8,8 +8,7 @@ from parameterized import parameterized
 
 from posthog.schema import DateRange, MCPMissingCapabilitiesItem, MCPMissingCapabilitiesQuery
 
-from posthog.rbac.user_access_control import UserAccessControlError
-
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.mcp_analytics.backend.hogql_queries.missing_capabilities import MCPMissingCapabilitiesQueryRunner
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
@@ -76,6 +75,7 @@ class TestMCPMissingCapabilitiesQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cl
             ("upper_case_term", "PDF", ["export a dashboard as a PDF"]),
             ("mixed_case_term", "DaShBoArD", ["export a dashboard as a PDF"]),
             ("mid_word_substring", "board", ["export a dashboard as a PDF"]),
+            ("wildcard_is_literal", "%", []),
             ("no_match", "webhooks", []),
         ]
     )
@@ -87,9 +87,7 @@ class TestMCPMissingCapabilitiesQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cl
         assert [row.intent for row in self._run(search=term)] == expected
 
     def test_report_without_a_client_name_still_returns_a_row(self) -> None:
-        # The SDK only stamps $mcp_client_name on $mcp_initialize, so most reports carry no
-        # client identity at all. They are the whole point of this surface — they must never
-        # be filtered out, and they must be distinguishable from an unrecognized client.
+        # Reports without client identity must remain visible and distinct from unrecognized clients.
         self._emit(intent="no client identity", client_name=None)
         flush_persons_and_events()
 
@@ -123,6 +121,18 @@ class TestMCPMissingCapabilitiesQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Cl
 
         assert [row.intent for row in response.results] == expected
         assert response.has_next is expected_has_next
+
+    @parameterized.expand(
+        [
+            ("negative", -1, 1),
+            ("zero_uses_default", 0, 100),
+            ("above_maximum", 501, 500),
+        ]
+    )
+    def test_limit_is_bounded(self, _name: str, limit: int, expected_limit: int) -> None:
+        runner = MCPMissingCapabilitiesQueryRunner(query=MCPMissingCapabilitiesQuery(limit=limit), team=self.team)
+
+        assert runner.limit == expected_limit
 
     def test_carries_only_the_person_fields_the_row_renders(self) -> None:
         _create_person(team=self.team, distinct_ids=["d1"], properties={"email": "a@b.com", "plan": "enterprise"})

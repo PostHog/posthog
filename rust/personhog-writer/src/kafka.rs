@@ -15,6 +15,13 @@ pub struct PersonConsumer {
 }
 
 impl PersonConsumer {
+    /// Client-level fatal state, queryable even after the event that
+    /// set it was consumed. A fatal client never recovers, so the
+    /// caller must exit rather than keep polling it.
+    pub fn fatal_error(&self) -> Option<(rdkafka::error::RDKafkaErrorCode, String)> {
+        self.consumer.client().fatal_error()
+    }
+
     pub fn from_config(
         kafka: &KafkaConfig,
         consumer_group: &str,

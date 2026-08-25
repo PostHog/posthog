@@ -13,6 +13,7 @@ import { warehouseProvisioningLogic } from './scene/warehouseProvisioningLogic'
 
 export enum DataWarehouseTab {
     OVERVIEW = 'overview',
+    MONITORING = 'monitoring',
     SETTINGS = 'settings',
     MODELING = 'modeling',
 }
@@ -119,6 +120,7 @@ export const dataWarehouseSceneLogic = kea<dataWarehouseSceneLogicType>([
                 const tabs: DataWarehouseTab[] = []
                 if (featureFlags[FEATURE_FLAGS.DATA_WAREHOUSE_SCENE] && warehouseReady) {
                     tabs.push(DataWarehouseTab.OVERVIEW)
+                    tabs.push(DataWarehouseTab.MONITORING)
                 }
                 if (featureFlags[FEATURE_FLAGS.DATA_MODELING_TAB]) {
                     tabs.push(DataWarehouseTab.MODELING)

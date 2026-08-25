@@ -9,7 +9,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from zoneinfo import ZoneInfo
 
-from django.db import IntegrityError, transaction
+from django.db import DEFAULT_DB_ALIAS
 from django.db.models import Q
 from django.utils import timezone as django_timezone
 
@@ -149,6 +149,17 @@ LAZY_COMPUTATION_JOBS_FINISHED_TOTAL = Counter(
     "lazy_computation_jobs_finished_total",
     "PreaggregationJob rows that reached a terminal status, labeled by outcome and table.",
     ["outcome", "table"],
+)
+
+# Lost create races are otherwise invisible outside Postgres logs. A steady
+# background rate is expected (the baseline warmer, the dimensional DAG, and SWR
+# revalidation race on the same windows by design); a sustained elevated rate
+# means either writers piling onto the same windows or a PENDING row past its
+# own expires_at blocking a window it no longer serves.
+LAZY_COMPUTATION_JOB_CREATE_CONFLICTS_TOTAL = Counter(
+    "lazy_computation_job_create_conflicts_total",
+    "PENDING job inserts skipped because a PENDING row already covers that (team, query_hash, range).",
+    ["table"],
 )
 
 
@@ -515,7 +526,7 @@ def _get_ch_expires_at(job: "PreaggregationJob", table: LazyComputationTable) ->
 
 
 @dataclass
-class QueryInfo:
+class LazyComputationQuery:
     """Normalized query information for lazy computation matching."""
 
     query: ast.SelectQuery
@@ -540,9 +551,9 @@ class LazyComputationResult:
     stale: bool = False
 
 
-def compute_query_hash(query_info: QueryInfo) -> str:
+def compute_query_hash(query_info: LazyComputationQuery) -> str:
     """
-    Compute a stable hash for a QueryInfo object.
+    Compute a stable hash for a LazyComputationQuery object.
     The hash is based on the normalized query structure and timezone.
     """
     # Use repr() to get a deterministic string representation of the AST
@@ -723,17 +734,36 @@ def create_lazy_computation_job(
     time_range_start: datetime,
     time_range_end: datetime,
     ttl_seconds: int = DEFAULT_TTL_SECONDS,
-) -> PreaggregationJob:
-    """Create a new computation job in PENDING status with expiry time."""
-    expires_at = django_timezone.now() + timedelta(seconds=ttl_seconds)
-    return PreaggregationJob.objects.create(
+) -> PreaggregationJob | None:
+    """Create a new PENDING job with expiry time, or return None when another
+    PENDING row already holds the `unique_pending_job_per_range` slot.
+
+    Uses INSERT .. ON CONFLICT DO NOTHING (`ignore_conflicts`) so losing the
+    race is a silent no-op rather than a logged Postgres error with a rolled-back
+    transaction; executors race on these windows by design. Only unique
+    conflicts are suppressed: FK and check-constraint violations still raise
+    IntegrityError to the caller.
+    """
+    job = PreaggregationJob(
         team=team,
         query_hash=query_hash,
         time_range_start=time_range_start,
         time_range_end=time_range_end,
         status=PreaggregationJob.Status.PENDING,
-        expires_at=expires_at,
+        expires_at=django_timezone.now() + timedelta(seconds=ttl_seconds),
     )
+    # ignore_conflicts emits a bare ON CONFLICT DO NOTHING, which relies on the
+    # partial unique index being the only realistic unique conflict on this
+    # table; a future unique constraint would have its violations misreported
+    # as lost races.
+    PreaggregationJob.objects.bulk_create([job], ignore_conflicts=True)
+    # ignore_conflicts suppresses RETURNING and the UUID pk is generated
+    # client-side, so probe by pk to learn whether the row actually landed.
+    # Pinned to the writer: a replica-routed read here would misclassify the
+    # winner as a loser and orphan its own PENDING row.
+    if not PreaggregationJob.objects.using(DEFAULT_DB_ALIAS).filter(id=job.id).exists():
+        return None
+    return job
 
 
 def build_lazy_computation_insert_sql(
@@ -832,7 +862,7 @@ def _written_rows(insert_result: object) -> int:
 def run_lazy_computation_insert(
     team: Team,
     job: PreaggregationJob,
-    query_info: QueryInfo,
+    query_info: LazyComputationQuery,
 ) -> int:
     """Run the INSERT query to populate lazy-computed results in ClickHouse.
 
@@ -923,7 +953,7 @@ class LazyComputationExecutor:
     def execute(
         self,
         team: Team,
-        query_info: QueryInfo,
+        query_info: LazyComputationQuery,
         start: datetime,
         end: datetime,
         run_insert: Callable[[Team, PreaggregationJob], int | None] | None = None,
@@ -956,6 +986,7 @@ class LazyComputationExecutor:
         pubsub: redis_lib.client.PubSub | None = None
         jobs_created = 0
         waited_job_ids: set[uuid.UUID] = set()
+        conflict_passes = 0
 
         had_ready_at_start: bool | None = None
 
@@ -1050,6 +1081,7 @@ class LazyComputationExecutor:
 
                 # Step 3: Insert missing ranges
                 did_work = False
+                lost_create_race = False
                 if ttl_ranges and failures <= self.max_retries:
                     for range_start, range_end, ttl in ttl_ranges:
                         # Each insert runs inline and is bounded only by the ClickHouse
@@ -1065,12 +1097,22 @@ class LazyComputationExecutor:
                             _log_execution("timeout", result)
                             return result
 
-                        try:
-                            with transaction.atomic():
-                                new_job = create_lazy_computation_job(team, query_hash, range_start, range_end, ttl)
-                        except IntegrityError:
-                            # Another executor created a PENDING job for this range — loop will pick it up
-                            did_work = True
+                        new_job = create_lazy_computation_job(team, query_hash, range_start, range_end, ttl)
+                        if new_job is None:
+                            # Another executor created a PENDING job for this range; the
+                            # rescan at the top of the loop will pick it up. The log keeps
+                            # the per-window trace that Postgres logs no longer carry, so
+                            # investigations can still identify which windows are colliding.
+                            LAZY_COMPUTATION_JOB_CREATE_CONFLICTS_TOTAL.labels(table=str(query_info.table)).inc()
+                            logger.info(
+                                "lazy_computation.job_create_conflict",
+                                team_id=team.id,
+                                query_hash=query_hash,
+                                table=str(query_info.table),
+                                time_range_start=str(range_start),
+                                time_range_end=str(range_end),
+                            )
+                            lost_create_race = True
                             continue
 
                         # `had_ready_at_start` is set above before the create loop runs and
@@ -1170,12 +1212,31 @@ class LazyComputationExecutor:
                     _log_execution("max_retries_exceeded", result)
                     return result
 
-                if did_work:
-                    interval = self.poll_interval_seconds
+                if did_work or lost_create_race:
+                    if lost_create_race and not did_work:
+                        # In the healthy race the loser's next rescan sees the winner's
+                        # committed PENDING row and moves to the wait branch, so the
+                        # first conflict pass retries immediately. A conflict that
+                        # repeats with the window still missing means the blocking row
+                        # is PENDING but past its expires_at: invisible to
+                        # find_existing_jobs yet still holding the unique-index slot,
+                        # which would otherwise hot-spin no-op inserts until the wait
+                        # budget runs out. Pace those retries with the same backoff the
+                        # wait branch uses.
+                        conflict_passes += 1
+                        if conflict_passes > 1:
+                            remaining = self.wait_timeout_seconds - (time.monotonic() - start_time)
+                            if remaining > 0:
+                                time.sleep(min(interval, remaining))
+                            interval = min(interval * 2, self.max_poll_interval_seconds)
+                    else:
+                        conflict_passes = 0
+                        interval = self.poll_interval_seconds
                     continue
 
                 # Step 4: Wait for pending jobs
                 if pending_jobs:
+                    conflict_passes = 0
                     waited_job_ids.update(j.id for j in pending_jobs)
 
                     if pubsub is None:
@@ -1438,7 +1499,7 @@ def ensure_precomputed(
     }
     parsed_for_hash = _resolve_insert_query(insert_query, hash_placeholders)
 
-    query_info = QueryInfo(
+    query_info = LazyComputationQuery(
         query=parsed_for_hash,
         table=table,
         timezone=team.timezone,

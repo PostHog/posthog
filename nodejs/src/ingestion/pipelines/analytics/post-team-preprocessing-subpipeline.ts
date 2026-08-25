@@ -25,7 +25,6 @@ import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processi
 import { ChunkPipelineBuilder } from '~/ingestion/framework/builders/chunk-pipeline-builders'
 import { prefetchGroupsStep } from '~/ingestion/pipelines/analytics/steps/prefetchGroupsStep'
 import { prefetchPersonsStep } from '~/ingestion/pipelines/analytics/steps/prefetchPersonsStep'
-import { processPersonlessDistinctIdsChunkStep } from '~/ingestion/pipelines/analytics/steps/processPersonlessDistinctIdsChunkStep'
 import { PluginEvent } from '~/plugin-scaffold'
 import { EventHeaders, Team } from '~/types'
 
@@ -52,8 +51,6 @@ export interface PostTeamPreprocessingSubpipelineConfig {
     personsPrefetchEnabled: boolean
     groupsPrefetchEnabled: boolean
     groupTypeManager: GroupTypeManager
-    flagCalledPersonlessDefaultTeams: string
-    personlessWritesDisabledTeams: string
 }
 
 export function createPostTeamPreprocessingSubpipeline<
@@ -79,8 +76,6 @@ export function createPostTeamPreprocessingSubpipeline<
         personsPrefetchEnabled,
         groupsPrefetchEnabled,
         groupTypeManager,
-        flagCalledPersonlessDefaultTeams,
-        personlessWritesDisabledTeams,
     } = config
 
     return (
@@ -120,22 +115,5 @@ export function createPostTeamPreprocessingSubpipeline<
             // Same best-effort, fire-and-forget cache warming for groups: one
             // batched fetch for the chunk's $groupidentify group keys.
             .pipeChunk(prefetchGroupsStep(groupTypeManager, groupsPrefetchEnabled))
-            // Batch insert personless distinct IDs after prefetch (uses prefetch cache).
-            // This step awaits its DB write, so retry transient persons-Postgres failures
-            // (e.g. PgBouncer scale-down) instead of letting them crash the consumer loop.
-            .pipeChunk(
-                processPersonlessDistinctIdsChunkStep(
-                    personsPrefetchEnabled,
-                    flagCalledPersonlessDefaultTeams,
-                    personlessWritesDisabledTeams
-                ),
-                {
-                    retry: {
-                        tries: 5,
-                        sleepMs: 100,
-                        name: 'personless_distinct_ids',
-                    },
-                }
-            )
     )
 }

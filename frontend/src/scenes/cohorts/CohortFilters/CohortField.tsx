@@ -1,7 +1,7 @@
 import './CohortField.scss'
 
 import clsx from 'clsx'
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { useEffect, useId, useRef } from 'react'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -31,6 +31,7 @@ import {
 } from 'scenes/cohorts/CohortFilters/types'
 import { determineFilterType } from 'scenes/cohorts/cohortUtils'
 
+import { actionsModel } from '~/models/actionsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
     AnyCohortCriteriaType,
@@ -160,6 +161,8 @@ export function CohortTaxonomicField({
     placeholder = 'Choose event',
     onChange: _onChange,
 }: CohortTaxonomicFieldProps): JSX.Element {
+    const supportsActions = taxonomicGroupTypes.includes(TaxonomicFilterGroupType.Actions)
+    useMountedLogic(actionsModel({ shouldLoad: supportsActions }))
     const { logic } = useCohortFieldLogic({
         fieldKey,
         criteria,

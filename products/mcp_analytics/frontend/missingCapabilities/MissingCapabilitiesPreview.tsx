@@ -13,15 +13,12 @@ interface PreviewReport {
     /** The ask in the agent's own words. */
     ask: string
     client: string
-    /** Omitted when the report arrived without a client — the row then reads "Unknown client". */
+    /** Omitted when the report arrived without a client. */
     logo?: string
     time: string
 }
 
-// Hand-authored example reports, not real data. Each one is an agent narrating the dead end it
-// hit, which is how these actually read — not tidy feature-request prose. The client-less row is
-// deliberate: the SDK only stamps $mcp_client_name on $mcp_initialize, so most reports arrive
-// without one and the populated tab is full of them.
+// These examples cover specific tool gaps and a report without client identity.
 const REPORTS: PreviewReport[] = [
     {
         ask: 'Wanted to bulk-close 40 stale tickets but only single-ticket updates exist',
@@ -30,7 +27,7 @@ const REPORTS: PreviewReport[] = [
         time: '2m ago',
     },
     {
-        ask: 'Tried to find issues by assignee — search_issues only takes free text',
+        ask: 'Tried to find issues by assignee, but search_issues only takes free text',
         client: 'Cursor',
         logo: cursorLogo,
         time: '18m ago',
@@ -57,7 +54,7 @@ const REPORTS: PreviewReport[] = [
 /**
  * Example-data preview of the missing-capabilities feed, for the tab's empty state: what lands
  * here once agents start reporting. Static rows, no state, and the only motion is a CSS stagger
- * that settles — per the preview rules in the `building-product-empty-states` skill.
+ * that settles after the initial render.
  */
 export function MissingCapabilitiesPreview(): JSX.Element {
     const isStatic = inStorybook() || inStorybookTestRunner()

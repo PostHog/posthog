@@ -49,7 +49,7 @@ jobs:
                   filter: blob:none
                   token: ${{ steps.app-token.outputs.token }}
 
-            - name: Check labeler is a member of team-posthog-code
+            - name: Check labeler is a member of team-posthog-desktop
               id: labeler
               if: github.event_name == 'pull_request'
               env:
@@ -57,13 +57,13 @@ jobs:
                   COMMENT_TOKEN: ${{ github.token }}
                   REPOSITORY: ${{ github.repository }}
                   PR_NUMBER: ${{ github.event.pull_request.number }}
-                  TEAM_SLUG: team-posthog-code
+                  TEAM_SLUG: team-posthog-desktop
               run: |
                   skip() {
                     echo "$1 Skipping auto-release; the next scheduled release will pick this up."
                     echo "authorized=false" >> "$GITHUB_OUTPUT"
                     GH_TOKEN="$COMMENT_TOKEN" gh pr comment "$PR_NUMBER" --repo "$REPOSITORY" \
-                      --body "$1 Auto-release is limited to members of the team-posthog-code GitHub team, so this will ship with the next scheduled release instead." || true
+                      --body "$1 Auto-release is limited to members of the ${TEAM_SLUG} GitHub team, so this will ship with the next scheduled release instead." || true
                   }
 
                   LABELER=$(gh api "repos/${REPOSITORY}/issues/${PR_NUMBER}/events" --paginate \

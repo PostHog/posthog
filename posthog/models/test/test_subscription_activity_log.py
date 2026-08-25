@@ -11,7 +11,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.exports.backend.models.subscription import Subscription
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 @freeze_time("2022-01-01")

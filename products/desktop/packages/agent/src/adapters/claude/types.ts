@@ -10,6 +10,7 @@ import type {
   Query,
   SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
+import type { BedrockGatewayVariant } from "@posthog/shared";
 import type { EffortLevel } from "@posthog/shared/domain-types";
 import type { PostHogProductId } from "../../posthog-products";
 import type { AgentMode } from "../../types";
@@ -41,14 +42,25 @@ export type BackgroundTerminal =
       pendingOutput: TerminalOutputResponse;
     };
 
+/** A steer folded into a running turn, awaiting evidence it reached the model. */
+export type PendingSteer = {
+  /** Set when the SDK echoes the message back, i.e. it entered the turn. */
+  consumed: boolean;
+  settle: (reachedModel: boolean) => void;
+};
+
 /** One in-flight `prompt()` call, settled by the session's consumer. */
 export type Turn = {
   promptUuid: string;
-  pendingSteerUuids: Set<string>;
+  pendingSteers: Map<string, PendingSteer>;
+  /** Result withheld while a steer has yet to reach the model. */
+  deferredResult?: PromptResponse;
+  steerTimer?: ReturnType<typeof setTimeout>;
   isLocalOnlyCommand: boolean;
   commandName?: string;
   /** Invoked once at activation, matching the pre-consumer broadcast timing. */
   broadcast: () => Promise<void>;
+  pendingInput?: SDKUserMessage;
   settled: boolean;
   resolve: (response: PromptResponse) => void;
   reject: (error: unknown) => void;
@@ -56,6 +68,9 @@ export type Turn = {
 
 export type Session = BaseSession & {
   query: Query;
+  /** Id of the underlying SDK session. Equal to the ACP session id until a
+   * /clear swaps in a fresh SDK session; resume/refresh must target this id. */
+  sdkSessionId: string;
   /** The Options object passed to query() — mutating it affects subsequent prompts */
   queryOptions: Options;
   /** Rebuilds the in-process ("sdk") signed-commit server with a fresh instance
@@ -78,7 +93,6 @@ export type Session = BaseSession & {
   cwd: string;
   taskRunId?: string;
   lastPlanFilePath?: string;
-  lastPlanContent?: string;
   effort?: EffortLevel;
   /** User intent; retained while a non-fast model hides the "fast" option. */
   fastModeEnabled: boolean;
@@ -107,6 +121,10 @@ export type Session = BaseSession & {
   queryGeneration: number;
   /** The query iterator ended and can't be revived; new prompts reject. */
   queryClosed?: boolean;
+  /** Set while a /clear is swapping the SDK query; resolves when it settles
+   * (success or failure). Prompts await it, cancel/refresh refuse during it,
+   * and a second /clear is rejected — the swap must never be raced. */
+  clearing?: Promise<void>;
   cancelController?: AbortController;
   forceCancelTimer?: ReturnType<typeof setTimeout>;
   emitRawSDKMessages: boolean | SDKMessageFilter[];
@@ -210,12 +228,19 @@ export type NewSessionMeta = {
    * runtime whether it needs a repo and clones one only if so.
    */
   channelMode?: boolean;
+  taskOriginProduct?: string;
   /**
    * The user's spoken-narration setting at session start. Gates the speak
    * tool and its prompt instructions. Unset falls back by environment: cloud
    * emits always (consumers gate playback), local stays silent.
    */
   spokenNarration?: boolean;
+  /**
+   * Matched `bedrock-llm-gateway` variant at session start. `test` serves the
+   * session from Bedrock through the gateway. Only the desktop resolves this,
+   * so headless runs leave it unset and keep the gateway's default provider.
+   */
+  bedrockGatewayVariant?: BedrockGatewayVariant;
   jsonSchema?: Record<string, unknown> | null;
   mcpToolApprovals?: McpToolApprovals;
   posthogExecPermissionRegex?: string;

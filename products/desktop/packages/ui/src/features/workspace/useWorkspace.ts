@@ -1,5 +1,6 @@
 import { useHostTRPC } from "@posthog/host-router/react";
 import type { Workspace } from "@posthog/shared";
+import type { Task } from "@posthog/shared/domain-types";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 
@@ -31,6 +32,19 @@ export function useWorkspace(taskId: string | undefined): Workspace | null {
 export function useIsWorkspaceCloudRun(taskId: string | undefined): boolean {
   const workspace = useWorkspace(taskId);
   return workspace?.mode === "cloud";
+}
+
+// The workspace row wins when present: handoff updates it before latest_run refreshes.
+export function isCloudTask(task: Task, workspace: Workspace | null): boolean {
+  if (workspace) {
+    return workspace.mode === "cloud";
+  }
+  return task.latest_run?.environment === "cloud";
+}
+
+export function useIsCloudTask(task: Task): boolean {
+  const workspace = useWorkspace(task.id);
+  return isCloudTask(task, workspace);
 }
 
 export function useWorkspaceLoaded(): boolean {

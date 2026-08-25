@@ -5,6 +5,7 @@ This is the ONLY module other apps are allowed to import.
 """
 
 import uuid
+from collections import Counter, defaultdict
 from collections.abc import Iterable
 
 from django.db.models import Q
@@ -14,13 +15,21 @@ import structlog
 from products.mcp_store.backend.agents import (
     built_in_agent_key_for_task_origin,
     create_gateway_agent_token,
+    credential_owner_eligible,
     get_built_in_agent,
     is_builtin_agent_enforcement_enabled,
 )
-from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
+from products.mcp_store.backend.facade.contracts import ActiveInstallation
+from products.mcp_store.backend.gateway import (
+    agent_grant_owner_label,
+    agent_grant_proxy_path,
+    installation_for_agent_access,
+    reachable_agent_grants,
+)
 from products.mcp_store.backend.models import (
     MCPServerInstallation,
     MCPServerInstallationTool,
+    MCPServiceAccount,
     MCPServiceAccountServerAccess,
 )
 from products.mcp_store.backend.policy import GatewayCaller, PolicyContext
@@ -118,36 +127,130 @@ def _is_oauth_ready(installation: MCPServerInstallation) -> bool:
     return True
 
 
-def _to_info(
-    installation: MCPServerInstallation,
-    team_id: int,
-    *,
-    agent_proxy_token: str | None = None,
-) -> ActiveInstallationInfo:
-    if agent_proxy_token is not None and installation.gateway_server_id is not None:
-        proxy_path = f"/api/mcp_store/gateway/servers/{installation.gateway_server_id}/proxy/"
-    else:
-        proxy_path = f"/api/environments/{team_id}/mcp_server_installations/{installation.id}/proxy/"
-
-    return ActiveInstallationInfo(
+def _to_info(installation: MCPServerInstallation, team_id: int) -> ActiveInstallation:
+    return ActiveInstallation(
         id=str(installation.id),
         name=_resolve_name(installation),
-        proxy_path=proxy_path,
+        proxy_path=f"/api/environments/{team_id}/mcp_server_installations/{installation.id}/proxy/",
         scope=installation.scope,
-        proxy_token=agent_proxy_token,
     )
 
 
-def get_active_installations(team_id: int, user_id: int) -> list[ActiveInstallationInfo]:
-    """Return active, ready-to-use personal MCP installations for a user.
+def _mounts_for_agent_run(
+    team_id: int,
+    agent_account: MCPServiceAccount,
+    credential_owner_id: int | None,
+    allowed_gateway_server_ids: list[str] | None = None,
+) -> list[tuple[MCPServiceAccountServerAccess, MCPServerInstallation]]:
+    """The (grant, credential) pairs this run mounts.
 
-    Filters out disabled installations and OAuth installations that
-    need reauthorization or are still pending token exchange.
+    Health resolution runs before per-server precedence, not after. A grant only
+    becomes a candidate once its credential still resolves, is enabled, sits on a
+    server the team has left on, and (for OAuth) holds a usable token. Precedence
+    is then applied over what survived, so a broken credential of the run's own
+    owner falls out of the way of teammates' working team shares instead of
+    suppressing them and mounting nothing for that server.
+
+    Among the survivors of one server, the run's own credential owner wins
+    outright, so the run acts through its own person's connection rather than
+    borrowing one. Servers the owner has no working grant for mount every
+    surviving team share side by side.
+
+    That precedence is the default mount choice, not a gateway invariant: the
+    agent catalog lists every reachable grant and the proxy's `credential_owner`
+    query parameter lets a run name a teammate's team share instead. Selection
+    is confined to the grants the run already reaches, so it never escalates.
+
+    `allowed_gateway_server_ids` narrows the mounts to the listed gateway
+    servers (a scout's per-scout selection). It gates every grant regardless of
+    scope, so a run that passes it mounts exactly the selected servers and
+    nothing else. None leaves mounts unfiltered; an empty list mounts nothing.
     """
+    allowed = {str(server_id) for server_id in allowed_gateway_server_ids or []}
+    rows = (
+        MCPServiceAccountServerAccess.objects.for_team(team_id)
+        .filter(service_account=agent_account)
+        .filter(reachable_agent_grants(team_id, credential_owner_id))
+        .select_related("installation__template", "installation__gateway_server", "user")
+        .order_by("created_at", "id")
+    )
+
+    healthy_by_server: dict[uuid.UUID, list[tuple[MCPServiceAccountServerAccess, MCPServerInstallation]]] = defaultdict(
+        list
+    )
+    for access in rows:
+        if allowed_gateway_server_ids is not None and str(access.gateway_server_id) not in allowed:
+            continue
+        # Same resolution the gateway proxy and the API serializers use, so a
+        # grant whose credential drifted off its team, server, or owner is
+        # dropped here too instead of being mounted into the sandbox.
+        installation = installation_for_agent_access(access)
+        if installation is None or not installation.is_enabled:
+            continue
+        # The admin kill switch overrides grants: a server turned off for the
+        # team is withheld from agents too.
+        if installation.gateway_server is None or not installation.gateway_server.is_team_enabled:
+            continue
+        if not _is_oauth_ready(installation):
+            continue
+        healthy_by_server[access.gateway_server_id].append((access, installation))
+
+    mounts: list[tuple[MCPServiceAccountServerAccess, MCPServerInstallation]] = []
+    for server_mounts in healthy_by_server.values():
+        own = (
+            [(access, installation) for access, installation in server_mounts if access.user_id == credential_owner_id]
+            if credential_owner_id
+            else []
+        )
+        mounts.extend(own or server_mounts)
+    return mounts
+
+
+def _agent_installation_infos(
+    agent_account: MCPServiceAccount,
+    mounts: list[tuple[MCPServiceAccountServerAccess, MCPServerInstallation]],
+    credential_owner_id: int | None,
+) -> list[ActiveInstallation]:
+    if not mounts:
+        return []
+    proxy_token = create_gateway_agent_token(agent_account, credential_owner_id=credential_owner_id)
+    mounts_per_server = Counter(access.gateway_server_id for access, _installation in mounts)
+
+    infos: list[ActiveInstallation] = []
+    for access, installation in mounts:
+        name = _resolve_name(installation)
+        if mounts_per_server[access.gateway_server_id] > 1:
+            # Sandboxes key MCP servers by name, so two members' credentials for
+            # the same server need distinct ones.
+            name = f"{name} ({agent_grant_owner_label(access)})"
+        infos.append(
+            ActiveInstallation(
+                id=str(installation.id),
+                name=name,
+                proxy_path=agent_grant_proxy_path(access),
+                scope=installation.scope,
+                proxy_token=proxy_token,
+            )
+        )
+    return infos
+
+
+def get_active_installations(team_id: int, user_id: int, *, include_shared: bool = False) -> list[ActiveInstallation]:
+    """Return active, ready-to-use MCP installations a user can mount.
+
+    Personal installations owned by the user by default; ``include_shared`` adds the
+    team's shared-scope installations, mirroring what ``get_installations_for_sandbox``
+    resolves for an unmapped run. Filters out disabled installations and OAuth
+    installations that need reauthorization or are still pending token exchange.
+    """
+    scope_filter = Q(scope="personal", user_id=user_id)
+    if include_shared:
+        scope_filter |= Q(scope="shared")
     try:
         # list() evaluates the lazy queryset here so DB errors hit this handler.
         installations = list(
-            MCPServerInstallation.objects.filter(team_id=team_id, user_id=user_id, is_enabled=True, scope="personal")
+            MCPServerInstallation.objects.filter(team_id=team_id, is_enabled=True)
+            .filter(scope_filter)
             .filter(Q(gateway_server__isnull=True) | Q(gateway_server__is_team_enabled=True))
             .exclude(gateway_server__member_revocations__user_id=user_id)
             .select_related("template")
@@ -156,7 +259,7 @@ def get_active_installations(team_id: int, user_id: int) -> list[ActiveInstallat
         logger.warning("Error fetching MCP installations", error=str(e), team_id=team_id)
         return []
 
-    results: list[ActiveInstallationInfo] = []
+    results: list[ActiveInstallation] = []
     for installation in installations:
         if not _is_oauth_ready(installation):
             logger.debug(
@@ -177,15 +280,23 @@ def get_installations_for_sandbox(
     include_personal: bool = False,
     task_origin: str | None = None,
     task_agent_key: str | None = None,
-) -> list[ActiveInstallationInfo]:
+    credential_owner_id: int | None = None,
+    allowed_gateway_server_ids: list[str] | None = None,
+) -> list[ActiveInstallation]:
     """Return MCP installations for sandbox agent use.
 
     Generic tasks retain the legacy team-shared installation behavior. A
     server-stamped built-in agent task gets only the credentials explicitly
-    delegated through its service-account grants, and only while the gateway
-    server stays enabled for the team. Origin alone is not trusted:
-    the persisted task agent key must match the origin mapping. A mapped origin
-    without that marker gets no MCP Store installations. Built-in agent
+    delegated through its service-account grants: those granted by
+    ``credential_owner_id`` (the person whose credentials the run may borrow,
+    not necessarily the user it acts as) plus any member's team-scoped grants,
+    and only while the gateway server stays enabled for the team. An agent task
+    with no credential owner mounts team-scoped grants alone. A named owner's
+    eligibility (active user with current effective team access) is re-checked
+    on every call, so an offboarded owner's grants stop mounting even though
+    the grant rows persist. Origin alone is not
+    trusted: the persisted task agent key must match the origin mapping. A
+    mapped origin without that marker gets no MCP Store installations. Built-in agent
     handling is gated per team on the `mcp-gateway` rollout flag; teams
     without it resolve mapped origins like unmapped tasks. Unmapped origins
     retain the legacy member behavior and optionally include the user's
@@ -193,6 +304,10 @@ def get_installations_for_sandbox(
     is provided. When the user has a ready personal installation for the same
     URL as a shared one, only the personal one is returned — the user acts as
     themselves rather than through the shared credential.
+
+    ``allowed_gateway_server_ids`` narrows the agent mounts to the listed
+    gateway servers regardless of grant scope (a scout's per-scout selection);
+    see ``_mounts_for_agent_run``. It only applies on the agent path.
     """
     try:
         base_queryset = MCPServerInstallation.objects.filter(team_id=team_id, is_enabled=True).select_related(
@@ -217,28 +332,22 @@ def get_installations_for_sandbox(
         if agent_key is not None and agent_account is not None and agent_account.status != "active":
             return []
 
+        installations: list[MCPServerInstallation] = []
+        agent_mounts: list[tuple[MCPServiceAccountServerAccess, MCPServerInstallation]] = []
         if agent_key is not None:
-            if agent_account is None:
-                installations = []
-            else:
-                access_rows = list(
-                    MCPServiceAccountServerAccess.objects.for_team(team_id)
-                    .filter(service_account=agent_account)
-                    .values_list("installation_id", "gateway_server_id")
-                )
-                bound_servers = {
-                    installation_id: gateway_server_id
-                    for installation_id, gateway_server_id in access_rows
-                    if installation_id is not None
-                }
-                # The admin kill switch overrides grants: a server turned off
-                # for the team is withheld from agents too.
-                candidates = list(base_queryset.filter(id__in=bound_servers, gateway_server__is_team_enabled=True))
-                installations = [
-                    installation
-                    for installation in candidates
-                    if bound_servers.get(installation.id) == installation.gateway_server_id
-                ]
+            if agent_account is not None:
+                if credential_owner_id is not None and not credential_owner_eligible(credential_owner_id, team_id):
+                    # Grants survive offboarding, so an owner who was deactivated
+                    # or lost team access since delegating mounts nothing.
+                    logger.warning(
+                        "Refusing MCP installations for an ineligible credential owner",
+                        team_id=team_id,
+                        task_origin=task_origin,
+                    )
+                else:
+                    agent_mounts = _mounts_for_agent_run(
+                        team_id, agent_account, credential_owner_id, allowed_gateway_server_ids
+                    )
         else:
             shared_queryset = base_queryset.filter(scope="shared")
             shared_queryset = shared_queryset.filter(
@@ -259,24 +368,23 @@ def get_installations_for_sandbox(
         logger.warning("Error fetching MCP installations for sandbox", error=str(e), team_id=team_id)
         return []
 
-    ready = [installation for installation in installations if _is_oauth_ready(installation)]
-    if include_personal and user_id is not None:
-        personal_urls = {installation.url for installation in ready if installation.scope == "personal"}
-        ready = [
-            installation
-            for installation in ready
-            if installation.scope == "personal" or installation.url not in personal_urls
-        ]
-
-    agent_proxy_token = create_gateway_agent_token(agent_account) if agent_account is not None and ready else None
-    results = [
-        _to_info(
-            installation,
-            team_id,
-            agent_proxy_token=agent_proxy_token if agent_account is not None else None,
+    results: list[ActiveInstallation]
+    if agent_key is not None:
+        results = (
+            _agent_installation_infos(agent_account, agent_mounts, credential_owner_id)
+            if agent_account is not None
+            else []
         )
-        for installation in ready
-    ]
+    else:
+        ready = [installation for installation in installations if _is_oauth_ready(installation)]
+        if include_personal and user_id is not None:
+            personal_urls = {installation.url for installation in ready if installation.scope == "personal"}
+            ready = [
+                installation
+                for installation in ready
+                if installation.scope == "personal" or installation.url not in personal_urls
+            ]
+        results = [_to_info(installation, team_id) for installation in ready]
 
     logger.debug(
         "Found MCP installations for sandbox",
@@ -287,3 +395,34 @@ def get_installations_for_sandbox(
         has_trusted_agent_key=agent_key is not None,
     )
     return results
+
+
+def get_sandbox_mcp_server_names(
+    team_id: int,
+    *,
+    user_id: int | None = None,
+    include_personal: bool = False,
+    task_origin: str | None = None,
+    task_agent_key: str | None = None,
+    credential_owner_id: int | None = None,
+    allowed_gateway_server_ids: list[str] | None = None,
+) -> list[str]:
+    """The names of the servers ``get_installations_for_sandbox`` would mount, in mount order.
+
+    For callers that steer an agent at its mounted servers by name before the sandbox launches
+    (the Signals scout run prompt), without being handed the mount credentials. Implemented as a
+    projection of the full resolution so the two can never disagree on what mounts; the signed
+    proxy token that resolution derives is stateless, so discarding it here spends nothing.
+    """
+    return [
+        installation.name
+        for installation in get_installations_for_sandbox(
+            team_id,
+            user_id=user_id,
+            include_personal=include_personal,
+            task_origin=task_origin,
+            task_agent_key=task_agent_key,
+            credential_owner_id=credential_owner_id,
+            allowed_gateway_server_ids=allowed_gateway_server_ids,
+        )
+    ]

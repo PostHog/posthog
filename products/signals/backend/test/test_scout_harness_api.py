@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
@@ -28,6 +29,7 @@ from posthog.temporal.oauth import (
     create_oauth_access_token_for_user,
 )
 
+from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import (
     SignalProjectProfile,
     SignalReport,
@@ -538,6 +540,26 @@ class TestScoutHarnessRecentEmissionsAPI(APIBaseTest):
         assert [row["finding_id"] for row in response.json()] == ["older"]
 
 
+class TestScoutHarnessRecentPerScoutAPI(APIBaseTest):
+    def _url(self) -> str:
+        return f"/api/projects/{self.team.id}/signals/scout/runs/recent-per-scout/"
+
+    def test_returns_each_scouts_newest_runs(self) -> None:
+        # Wiring guard: the action reaches `recent_runs_per_scout` and honours `per_scout_limit`.
+        # The probe rules themselves are covered against the helper in test_scout_harness_tools.
+        for skill_name in ("signals-scout-errors", "signals-scout-surveys"):
+            SignalScoutConfig.objects.create(team=self.team, skill_name=skill_name)
+        busy = [_make_run(self.team, skill_name="signals-scout-errors") for _ in range(3)]
+        quiet = _make_run(self.team, skill_name="signals-scout-surveys")
+        response = self.client.get(self._url(), data={"per_scout_limit": 1})
+        assert response.status_code == status.HTTP_200_OK
+        assert {row["run_id"] for row in response.json()} == {str(busy[-1].id), str(quiet.id)}
+
+    def test_rejects_a_per_scout_limit_over_the_cap(self) -> None:
+        response = self.client.get(self._url(), data={"per_scout_limit": 5000})
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+
 class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
     def _url(self) -> str:
         return f"/api/projects/{self.team.id}/signals/scout/runs/findings/summary/"
@@ -556,6 +578,8 @@ class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
         body = response.json()
         assert body["count"] == 3
         assert body["scout_count"] == 2
+        # The quiet run counts as a run; the other team's does not.
+        assert body["run_count"] == 3
         assert body["latest_at"] is not None
 
     def test_summary_counts_report_channel_activity(self) -> None:
@@ -603,6 +627,7 @@ class TestScoutHarnessFindingsSummaryAPI(APIBaseTest):
         body = response.json()
         assert body["count"] == 1
         assert body["scout_count"] == 1
+        assert body["run_count"] == 1
 
 
 class TestScoutHarnessEmitFindingAPI(APIBaseTest):
@@ -1464,8 +1489,9 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         # notes instead — writes consult the same `llm_skill` RBAC gate as skill edits.
         # Deny only the `llm_skill` resource: a blanket False would also fail unrelated
         # resource checks in the request cycle and 403 the read path for the wrong reason.
-        from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
         from posthog.scopes import APIScopeObject
+
+        from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 
         note = SignalScoutNote.objects.create(team=self.team, content="pre-existing")
         real_check = UserAccessControl.check_access_level_for_resource
@@ -1843,6 +1869,22 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert config.run_interval_minutes == 60
         assert config.enabled_by_id == self.user.id
 
+    def test_partial_update_stores_mcp_gateway_server_ids_as_strings(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        server_id = str(uuid4())
+
+        response = self.client.patch(
+            self._detail_url(str(config.id)),
+            data={"mcp_gateway_server_ids": [server_id]},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["mcp_gateway_server_ids"] == [server_id]
+        config.refresh_from_db()
+        # The JSON column must hold canonical strings, or the row save crashes on UUID instances.
+        assert config.mcp_gateway_server_ids == [server_id]
+
     def test_partial_update_disable_records_a_user_pause(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
 
@@ -1931,21 +1973,29 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("default_marks_exempt", {"enabled": True}, True),
-            ("explicit_false_wins", {"enabled": True, "auto_pause_exempt": False}, False),
+            ("no_output", SignalScoutConfig.PauseReason.NO_OUTPUT, {"enabled": True}, False),
+            ("ignored", SignalScoutConfig.PauseReason.IGNORED, {"enabled": True}, False),
+            ("repeated_failures", SignalScoutConfig.PauseReason.REPEATED_FAILURES, {"enabled": True}, False),
+            (
+                "explicit_true_wins",
+                SignalScoutConfig.PauseReason.IGNORED,
+                {"enabled": True, "auto_pause_exempt": True},
+                True,
+            ),
         ]
     )
-    def test_re_enabling_an_inactivity_paused_scout_marks_it_exempt(
-        self, _name: str, payload: dict, expected_exempt: bool
+    def test_re_enabling_a_system_paused_scout_does_not_mark_it_exempt(
+        self, _name: str, pause_reason: SignalScoutConfig.PauseReason, payload: dict, expected_exempt: bool
     ) -> None:
-        # A re-enable is a human overruling the sweep, and the sweep must not overrule them back:
-        # the same quiet fortnight would re-qualify the scout as soon as its grace window lapses.
+        # A resume re-anchors the cold-start grace, which already keeps the sweep from
+        # re-judging the scout soon; minting the exemption here would remove it from the
+        # sweep's jurisdiction forever on every revert. Exemption stays an explicit choice.
         config = SignalScoutConfig.objects.create(
             team=self.team,
             skill_name="signals-scout-foo",
             enabled=False,
             status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
-            pause_reason=SignalScoutConfig.PauseReason.NO_OUTPUT,
+            pause_reason=pause_reason,
         )
 
         response = self.client.patch(self._detail_url(str(config.id)), data=payload, format="json")
@@ -1977,24 +2027,6 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         (call,) = [c for c in capture.call_args_list if c.kwargs.get("event") == "signals_scout_auto_pause_reverted"]
         assert call.kwargs["properties"]["pause_reason"] == SignalScoutConfig.PauseReason.IGNORED
         assert call.kwargs["properties"]["reverted_within_24h"] is True
-
-    def test_re_enabling_a_breaker_paused_scout_does_not_mark_it_exempt(self) -> None:
-        # The exemption belongs to the inactivity sweep; a re-enable after repeated failures says
-        # nothing about whether the scout's silence is wanted.
-        config = SignalScoutConfig.objects.create(
-            team=self.team,
-            skill_name="signals-scout-foo",
-            enabled=False,
-            status=SignalScoutConfig.Status.PAUSED_BY_SYSTEM,
-            pause_reason=SignalScoutConfig.PauseReason.REPEATED_FAILURES,
-        )
-
-        response = self.client.patch(self._detail_url(str(config.id)), data={"enabled": True}, format="json")
-
-        assert response.status_code == status.HTTP_200_OK
-        config.refresh_from_db()
-        assert config.status == SignalScoutConfig.Status.ACTIVE
-        assert config.auto_pause_exempt is False
 
     def test_exempting_a_scout_clears_its_pending_warning(self) -> None:
         # Exempting takes the scout out of the sweep, so nothing else would ever clear the
@@ -2083,7 +2115,12 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_200_OK
-        assert response.json()["output_destinations"] == destination
+        # A partial update skips the `thread_reports` default, so the flag reaches the reader
+        # through the response only and the stored destination keeps the shape it was sent in.
+        assert response.json()["output_destinations"] == {
+            "slack": {**destination["slack"], "thread_reports": False},
+            "webhook": None,
+        }
         config.refresh_from_db()
         assert config.output_destinations == destination
 
@@ -2817,6 +2854,7 @@ class TestScoutHarnessMetadataAPI(APIBaseTest):
 
 
 _QUOTA = "products.signals.backend.scout_harness.views.is_team_signals_quota_limited"
+_DAILY_GATE = "products.signals.backend.scout_harness.views.daily_report_limit_gate"
 _START = "products.signals.backend.temporal.agentic.scout_scheduler.start_manual_signals_scout_run"
 _CONNECT = "products.signals.backend.scout_harness.views.sync_connect"
 _WITHHELD = "products.signals.backend.scout_harness.views.withheld_skills_for_team"
@@ -2857,6 +2895,18 @@ class TestScoutHarnessConfigRunAPI(APIBaseTest):
     def test_run_over_quota_returns_429_without_dispatching(self) -> None:
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
         with patch(_QUOTA, return_value=True), patch(_START) as start:
+            response = self.client.post(self._run_url(str(config.id)))
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        start.assert_not_called()
+
+    def test_run_over_daily_report_limit_returns_429_without_dispatching(self) -> None:
+        config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-foo")
+        with (
+            patch(_QUOTA, return_value=False),
+            patch(_DAILY_GATE, return_value=DailyReportLimitGate(limited=True, limit=2, reports_today=2)),
+            patch(_START) as start,
+        ):
             response = self.client.post(self._run_url(str(config.id)))
 
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS

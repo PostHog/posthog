@@ -6,4 +6,9 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 @config.config
 class AppleSearchAdsSourceConfig(config.Config):
-    pass
+    org_id: str
+    client_id: str
+    apple_team_id: str
+    key_id: str
+    private_key: str
+    start_date: str | None = None

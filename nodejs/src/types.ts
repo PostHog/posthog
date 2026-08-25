@@ -145,9 +145,7 @@ export interface PluginServerCapabilities {
     cdpCyclotronWorkerBatchResolve?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
-    cdpCyclotronWorkerHogFlowLegacyPg?: boolean
     cdpCyclotronWorkerEmail?: boolean
-    cdpCyclotronWorkerEmailLegacyPg?: boolean
     cdpCohortMembership?: boolean
     cdpApi?: boolean
     appManagementSingleton?: boolean
@@ -380,7 +378,12 @@ export interface ProcessedEvent {
     project_id: ProjectId
     distinct_id: string
     elements_chain: string
-    created_at: null
+    /**
+     * Stamped once when create-event assembles the event, so every table this
+     * event is written to agrees on it. Serializing twice would otherwise read
+     * the wall clock twice and stamp two different values.
+     */
+    created_at: DateTime
     captured_at: Date | null
     person_id: string
     person_properties: Record<string, unknown>

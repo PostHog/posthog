@@ -103,6 +103,28 @@ describe('RichMarkdownEditor', () => {
         expect(counter).toHaveClass('text-danger')
     })
 
+    it.each([
+        [undefined, ['Write', 'Preview', 'Markdown'], []],
+        [['write', 'preview'] as const, ['Write', 'Preview'], ['Markdown']],
+    ])('renders the requested tabs (%p)', (tabs, expectedVisible, expectedHidden) => {
+        render(
+            <RichMarkdownEditor
+                value="hello"
+                tabs={tabs ? [...tabs] : undefined}
+                extensions={[]}
+                markdownToDoc={() => ({ type: 'doc', content: [] })}
+                docToMarkdown={() => 'hello'}
+            />
+        )
+
+        for (const label of expectedVisible) {
+            expect(screen.getByText(label)).toBeInTheDocument()
+        }
+        for (const label of expectedHidden) {
+            expect(screen.queryByText(label)).not.toBeInTheDocument()
+        }
+    })
+
     it('exposes strikethrough in the write toolbar', () => {
         render(
             <RichMarkdownEditor

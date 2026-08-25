@@ -318,6 +318,37 @@ class TestSourceConfigGenerator(ClickhouseTestMixin):
             in output
         )
 
+    @pytest.mark.parametrize("required", [True, False])
+    def test_source_config_select_multiple_emits_optional_list(self, required):
+        # Same contract as the multiple oauth-account select: an optional list either way, so a
+        # config saved before the field existed keeps parsing.
+        config = SourceConfig(
+            name=SchemaExternalDataSourceType.GOOGLE_SEARCH_CONSOLE,
+            iconPath="",
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldSelectConfig(
+                        name="search_types",
+                        label="Search types",
+                        required=required,
+                        defaultValue="web",
+                        multiple=True,
+                        options=[
+                            SourceFieldSelectConfigOption(label="Web", value="web"),
+                            SourceFieldSelectConfigOption(label="Image", value="image"),
+                        ],
+                    ),
+                ],
+            ),
+        )
+
+        output = self._run({ExternalDataSourceType.GOOGLESEARCHCONSOLE: config})
+        assert (
+            "search_types: list[str] | None = config.value(converter=config.str_to_optional_list, default_factory=lambda: None)"
+            in output
+        )
+
     def test_source_config_ssh_tunnel_non_python_identifier(self):
         config = SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,

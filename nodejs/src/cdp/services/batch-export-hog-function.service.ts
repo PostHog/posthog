@@ -12,8 +12,8 @@ import {
     HogFunctionType,
 } from '../types'
 import { convertToHogFunctionInvocationGlobals } from '../utils'
+import { dualWrite } from '../utils/dual-store'
 import { createInvocation } from '../utils/invocation-utils'
-import { mirrorCall } from '../utils/mirror-call'
 import { HogExecutorAsyncService } from './hog-executor-async.service'
 import { InvocationResultsService } from './invocation-results.service'
 import { GroupsManagerService } from './managers/groups-manager.service'
@@ -99,9 +99,10 @@ export class BatchExportHogFunctionService {
         void this.promiseScheduler.schedule(
             Promise.all([
                 this.invocationResultsService.queueInvocationResultsAndFlush([result]),
-                this.hogWatcher.observeResultsBuffered(result),
-                mirrorCall('hog-watcher.observeResultsBuffered', () =>
-                    this.hogWatcherMirror.observeResultsBuffered(result)
+                dualWrite(
+                    'hog-watcher.observeResultsBuffered',
+                    () => this.hogWatcher.observeResultsBuffered(result),
+                    () => this.hogWatcherMirror.observeResultsBuffered(result)
                 ),
             ])
         )

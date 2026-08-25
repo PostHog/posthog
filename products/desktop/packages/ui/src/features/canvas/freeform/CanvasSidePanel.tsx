@@ -28,6 +28,7 @@ import { type Ref, useEffect, useRef } from "react";
 export function CanvasSidePanel({
   effectiveTaskId,
   commentTaskId,
+  interactive,
   onMinimize,
   dashboardId,
   channelId,
@@ -43,6 +44,9 @@ export function CanvasSidePanel({
 }: {
   effectiveTaskId: string | null;
   commentTaskId: string | null;
+  /** Whether the canvas is being edited. The composer is an edit affordance, so
+   * view mode falls back to the conversation that last built the canvas. */
+  interactive?: boolean;
   onMinimize: () => void;
   dashboardId: string;
   channelId: string;
@@ -62,6 +66,9 @@ export function CanvasSidePanel({
   const tab = useCanvasChatPanelStore((state) => state.tab);
   const setTab = useCanvasChatPanelStore((state) => state.setTab);
   const previousTaskId = useRef(effectiveTaskId);
+  // With no run in flight, edit mode gets the composer for the next change,
+  // while view mode gets the chat of the run that produced this canvas.
+  const chatTaskId = effectiveTaskId ?? (interactive ? null : commentTaskId);
 
   useEffect(() => {
     if (effectiveTaskId && effectiveTaskId !== previousTaskId.current) {
@@ -117,8 +124,8 @@ export function CanvasSidePanel({
             commentVersionLabel={commentVersionLabel}
             onCommentOpen={onCommentOpen}
           />
-        ) : effectiveTaskId ? (
-          <CanvasChatLoader taskId={effectiveTaskId} />
+        ) : chatTaskId ? (
+          <CanvasChatLoader taskId={chatTaskId} />
         ) : (
           <div className="flex h-full min-h-0 flex-col gap-3 p-3">
             <FreeformGenerateBar

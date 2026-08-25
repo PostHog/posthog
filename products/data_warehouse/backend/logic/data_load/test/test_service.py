@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest_asyncio
 from asgiref.sync import async_to_sync, sync_to_async
+from parameterized import parameterized
 from temporalio.client import (
     Client as TemporalClient,
     ScheduleActionStartWorkflow,
@@ -25,11 +26,14 @@ from products.data_warehouse.backend.logic.data_load.service import (
     _get_cdc_extraction_schedule_id,
     _get_discover_schemas_schedule_id,
     _jitter_timedelta,
+    a_unpause_external_data_schedule,
     bulk_sync_cdc_extraction_schedules,
     bulk_update_external_data_job_schedules,
     cdc_min_interval,
     get_discover_schemas_schedule,
     get_sync_schedule,
+    pause_external_data_schedule,
+    unpause_external_data_schedule,
 )
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 
@@ -455,3 +459,54 @@ def test_bulk_update_edj_mixed_skip_fail_and_success():
     assert [sid for sid, _ in failures] == [str(broken.id)]
     assert create_mock.call_count == 0
     assert update_mock.call_count == 3
+
+
+# --- pause/unpause: a schedule whose backing workflow already completed (e.g. deleted by a
+# racing request) must be treated as already-paused/unpaused, not as a failure ---
+
+
+@parameterized.expand(
+    [
+        ("pause", "pause_schedule", pause_external_data_schedule),
+        ("unpause", "unpause_schedule", unpause_external_data_schedule),
+    ]
+)
+def test_pause_unpause_swallows_not_found_rpc_error(_name, patched_fn_name, service_fn):
+    with (
+        patch(f"{SERVICE}.sync_connect"),
+        patch(f"{SERVICE}.{patched_fn_name}", side_effect=_not_found()),
+    ):
+        service_fn("some-schedule-id")  # must not raise
+
+
+@parameterized.expand(
+    [
+        ("pause", "pause_schedule", pause_external_data_schedule),
+        ("unpause", "unpause_schedule", unpause_external_data_schedule),
+    ]
+)
+def test_pause_unpause_reraises_other_rpc_errors(_name, patched_fn_name, service_fn):
+    with (
+        patch(f"{SERVICE}.sync_connect"),
+        patch(f"{SERVICE}.{patched_fn_name}", side_effect=RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b"")),
+        pytest.raises(RPCError),
+    ):
+        service_fn("some-schedule-id")
+
+
+def test_a_unpause_swallows_not_found_rpc_error():
+    with (
+        patch(f"{SERVICE}.async_connect", AsyncMock(return_value=MagicMock())),
+        patch(f"{SERVICE}.a_unpause_schedule", AsyncMock(side_effect=_not_found())),
+    ):
+        async_to_sync(a_unpause_external_data_schedule)("some-schedule-id")  # must not raise
+
+
+def test_a_unpause_reraises_other_rpc_errors():
+    other_rpc = RPCError("unavailable", RPCStatusCode.UNAVAILABLE, b"")
+    with (
+        patch(f"{SERVICE}.async_connect", AsyncMock(return_value=MagicMock())),
+        patch(f"{SERVICE}.a_unpause_schedule", AsyncMock(side_effect=other_rpc)),
+        pytest.raises(RPCError),
+    ):
+        async_to_sync(a_unpause_external_data_schedule)("some-schedule-id")

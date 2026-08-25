@@ -16,6 +16,8 @@ import {
     LoopsRunsRetrieveQueryParams,
     TaskChannelsCreateBody,
     TaskChannelsInstructionsRetrieveParams,
+    TaskChannelsInstructionsUpdateBody,
+    TaskChannelsInstructionsUpdateParams,
     TaskChannelsListQueryParams,
     TaskChannelsRetrieveParams,
     TasksCreateBody,
@@ -27,6 +29,7 @@ import {
     TasksRunsSessionLogsRetrieveParams,
     TasksRunsSessionLogsRetrieveQueryParams,
 } from '@/generated/tasks/api'
+import { ChannelInstructionsBaseVersionSchema } from '@/schema/tool-inputs'
 import { getConfirmedActionRuntime } from '@/tools/confirmed-action-registry'
 import {
     executeConfirmedAction,
@@ -46,6 +49,9 @@ const channelCreate = (): ToolBase<typeof ChannelCreateSchema, Schemas.ChannelDT
         const body: Record<string, unknown> = {}
         if (params.name !== undefined) {
             body['name'] = params.name
+        }
+        if (params.star !== undefined) {
+            body['star'] = params.star
         }
         const result = await context.api.request<Schemas.ChannelDTO>({
             method: 'POST',
@@ -71,6 +77,39 @@ const channelInstructionsRetrieve = (): ToolBase<
         const result = await context.api.request<Schemas.ChannelInstructionsDTO>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/${encodeURIComponent(String(params.id))}/instructions/`,
+        })
+        return result
+    },
+})
+
+const ChannelInstructionsUpdateSchema = TaskChannelsInstructionsUpdateParams.omit({ project_id: true })
+    .extend(TaskChannelsInstructionsUpdateBody.shape)
+    .extend({
+        id: TaskChannelsInstructionsUpdateParams.shape['id'].describe(
+            'ID of the channel whose instructions to update.'
+        ),
+        base_version: ChannelInstructionsBaseVersionSchema,
+    })
+
+const channelInstructionsUpdate = (): ToolBase<
+    typeof ChannelInstructionsUpdateSchema,
+    Schemas.ChannelInstructionsDTO
+> => ({
+    name: 'channel-instructions-update',
+    schema: ChannelInstructionsUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof ChannelInstructionsUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.content !== undefined) {
+            body['content'] = params.content
+        }
+        if (params.base_version !== undefined) {
+            body['base_version'] = params.base_version
+        }
+        const result = await context.api.request<Schemas.ChannelInstructionsDTO>({
+            method: 'PUT',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/${encodeURIComponent(String(params.id))}/instructions/`,
+            body,
         })
         return result
     },
@@ -107,6 +146,57 @@ const channelRetrieve = (): ToolBase<typeof ChannelRetrieveSchema, Schemas.Chann
         const result = await context.api.request<Schemas.ChannelDTO>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/${encodeURIComponent(String(params.id))}/`,
+        })
+        return result
+    },
+})
+
+const LoopChannelInstructionsRetrieveSchema = TaskChannelsInstructionsRetrieveParams.omit({ project_id: true }).extend({
+    id: TaskChannelsInstructionsRetrieveParams.shape['id'].describe("ID of the loop's context channel."),
+})
+
+const loopChannelInstructionsRetrieve = (): ToolBase<
+    typeof LoopChannelInstructionsRetrieveSchema,
+    Schemas.ChannelInstructionsDTO
+> => ({
+    name: 'loop-channel-instructions-retrieve',
+    schema: LoopChannelInstructionsRetrieveSchema,
+    handler: async (context: Context, params: z.infer<typeof LoopChannelInstructionsRetrieveSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ChannelInstructionsDTO>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/${encodeURIComponent(String(params.id))}/instructions/`,
+        })
+        return result
+    },
+})
+
+const LoopChannelInstructionsUpdateSchema = TaskChannelsInstructionsUpdateParams.omit({ project_id: true })
+    .extend(TaskChannelsInstructionsUpdateBody.shape)
+    .extend({
+        id: TaskChannelsInstructionsUpdateParams.shape['id'].describe("ID of the loop's context channel."),
+        base_version: ChannelInstructionsBaseVersionSchema,
+    })
+
+const loopChannelInstructionsUpdate = (): ToolBase<
+    typeof LoopChannelInstructionsUpdateSchema,
+    Schemas.ChannelInstructionsDTO
+> => ({
+    name: 'loop-channel-instructions-update',
+    schema: LoopChannelInstructionsUpdateSchema,
+    handler: async (context: Context, params: z.infer<typeof LoopChannelInstructionsUpdateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.content !== undefined) {
+            body['content'] = params.content
+        }
+        if (params.base_version !== undefined) {
+            body['base_version'] = params.base_version
+        }
+        const result = await context.api.request<Schemas.ChannelInstructionsDTO>({
+            method: 'PUT',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/${encodeURIComponent(String(params.id))}/instructions/`,
+            body,
         })
         return result
     },
@@ -418,7 +508,6 @@ const TasksCreateSchema = TasksCreateBody.omit({
     signal_report: true,
     signal_report_task_relationship: true,
     json_schema: true,
-    internal: true,
     archived: true,
     ci_prompt: true,
     branch: true,
@@ -429,6 +518,7 @@ const TasksCreateSchema = TasksCreateBody.omit({
     pending_user_artifact_ids: true,
     auto_publish: true,
     channel: true,
+    naming_source: true,
     sandbox_environment_id: true,
     custom_image_id: true,
     runtime: true,
@@ -489,12 +579,19 @@ const tasksList = (): ToolBase<typeof TasksListSchema, WithPostHogUrl<Schemas.Pa
                 all_team_tasks: params.all_team_tasks,
                 archived: params.archived,
                 channel: params.channel,
+                ci_status: params.ci_status,
+                commented_by: params.commented_by,
                 created_by: params.created_by,
+                exclude_origin_product: params.exclude_origin_product,
                 internal: params.internal,
                 limit: params.limit,
+                mentions: params.mentions,
                 offset: params.offset,
+                ordering: params.ordering,
                 organization: params.organization,
                 origin_product: params.origin_product,
+                pinned: params.pinned,
+                pr_state: params.pr_state,
                 repository: params.repository,
                 search: params.search,
                 stage: params.stage,
@@ -512,6 +609,11 @@ const tasksList = (): ToolBase<typeof TasksListSchema, WithPostHogUrl<Schemas.Pa
                     'origin_product',
                     'repository',
                     'internal',
+                    'channel',
+                    'created_by.first_name',
+                    'created_by.last_name',
+                    'latest_run.id',
+                    'latest_run.status',
                     'created_at',
                     'updated_at',
                 ])
@@ -642,8 +744,11 @@ const tasksRunsSessionLogsRetrieve = (): ToolBase<typeof TasksRunsSessionLogsRet
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'channel-create': channelCreate,
     'channel-instructions-retrieve': channelInstructionsRetrieve,
+    'channel-instructions-update': channelInstructionsUpdate,
     'channel-list': channelList,
     'channel-retrieve': channelRetrieve,
+    'loop-channel-instructions-retrieve': loopChannelInstructionsRetrieve,
+    'loop-channel-instructions-update': loopChannelInstructionsUpdate,
     'loops-create-prepare': loopsCreatePrepare,
     'loops-create-execute': loopsCreateExecute,
     'loops-destroy': loopsDestroy,

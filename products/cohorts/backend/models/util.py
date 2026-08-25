@@ -18,7 +18,7 @@ from pydantic import ValidationError as PydanticValidationError
 from rest_framework.exceptions import ValidationError
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
+from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_default_hogql_global_settings
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
@@ -46,7 +46,7 @@ from posthog.models.person.sql import (
     PERSON_STATIC_COHORT_TABLE,
 )
 from posthog.models.property import Property, PropertyGroup
-from posthog.schema_enums import PersonsOnEventsMode, ProductKey
+from posthog.schema_enums import ChartDisplayType, PersonsOnEventsMode, ProductKey
 from posthog.schema_migrations.upgrade import upgrade
 
 from products.actions.backend.models.action import Action
@@ -323,6 +323,53 @@ def format_person_query(cohort: Cohort, index: int) -> tuple[str, dict[str, Any]
         cohort, team=cohort.team, bypass_warehouse_access_control=True
     )
     return _prefix_cohort_hogql_params(cohort_query, cohort_context.values, cohort=cohort, index=index)
+
+
+def validate_actors_query_for_cohort(query_dict: dict[str, Any]) -> None:
+    """Reject actor queries that would only fail once the populate task compiles them.
+
+    Pydantic validation is not enough here: `day` is optional on `InsightActorsQuery`, but a
+    time-series trends source cannot be compiled without it, so the cohort would save fine and
+    then raise for good in the background populate task.
+    """
+    if query_dict.get("kind") != "ActorsQuery":
+        return
+
+    source = query_dict.get("source")
+    if not isinstance(source, dict) or source.get("kind") != "InsightActorsQuery":
+        return
+
+    insight = source.get("source")
+    if not isinstance(insight, dict) or insight.get("kind") != "TrendsQuery":
+        return
+
+    from posthog.hogql_queries.insights.trends.display import (  # noqa: PLC0415 — keeps posthog.schema off the startup path
+        TrendsDisplay,
+    )
+
+    trends_filter = insight.get("trendsFilter")
+    raw_display = trends_filter.get("display") if isinstance(trends_filter, dict) else None
+    try:
+        display = ChartDisplayType(raw_display) if raw_display else None
+    except ValueError:
+        return  # Pydantic validation owns unknown display types
+    day = source.get("day")
+    if TrendsDisplay(display).is_total_value():
+        if day is not None:
+            raise ValidationError("Do not provide a day for a total value trends insight.")
+        return
+
+    invalid_day_message = (
+        "Provide a valid day for this time series trends insight. "
+        "To choose a day in PostHog, open the insight and click a data point."
+    )
+    if not isinstance(day, str):
+        raise ValidationError(invalid_day_message)
+
+    try:
+        parser.parse(day)
+    except (ValueError, OverflowError):
+        raise ValidationError(invalid_day_message) from None
 
 
 def _sanitize_query_for_cohort(query_dict: dict) -> dict:
@@ -909,7 +956,20 @@ def _recalculate_cohortpeople_for_team_hogql(
             cohort_id=cohort.pk,
             team_id=team.id,
         )
-        hogql_global_settings = HogQLGlobalSettings()
+        settings = get_default_hogql_global_settings(team_id=team.id).model_dump(exclude_none=True)
+        # This runs INSERT INTO cohortpeople; readonly=2 (a HogQLGlobalSettings default) would make
+        # ClickHouse reject the write, so drop it — same as the preaggregation INSERT path.
+        settings.pop("readonly", None)
+        settings.update(
+            {
+                "max_execution_time": COHORT_QUERY_TIMEOUT_SECONDS,
+                "send_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
+                "receive_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
+                "optimize_on_insert": 0,
+                "max_bytes_ratio_before_external_group_by": 0.5,
+                "max_bytes_ratio_before_external_sort": 0.5,
+            }
+        )
 
         return sync_execute(
             recalculate_cohortpeople_sql,
@@ -919,16 +979,7 @@ def _recalculate_cohortpeople_for_team_hogql(
                 "team_id": team.id,
                 "new_version": pending_version,
             },
-            settings={
-                "max_execution_time": COHORT_QUERY_TIMEOUT_SECONDS,
-                "send_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
-                "receive_timeout": COHORT_QUERY_TIMEOUT_SECONDS,
-                "optimize_on_insert": 0,
-                "max_ast_elements": hogql_global_settings.max_ast_elements,
-                "max_expanded_ast_elements": hogql_global_settings.max_expanded_ast_elements,
-                "max_bytes_ratio_before_external_group_by": 0.5,
-                "max_bytes_ratio_before_external_sort": 0.5,
-            },
+            settings=settings,
             workload=Workload.OFFLINE,
             ch_user=ClickHouseUser.COHORTS,
             team_id=team.id,
@@ -1289,7 +1340,7 @@ def insert_cohort_people_into_pg(cohort: Cohort, *, team_id: int):
     def fetch_batch(cursor: str, batch_size: int) -> tuple[list[str], str]:
         # nosemgrep: clickhouse-fstring-param-audit - table name from constant, values parameterized
         rows = sync_execute(
-            f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id > %(cursor)s ORDER BY person_id LIMIT %(limit)s",
+            f"SELECT DISTINCT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s AND person_id > %(cursor)s ORDER BY person_id LIMIT %(limit)s",
             {
                 "cohort_id": cohort.pk,
                 "team_id": team_id,

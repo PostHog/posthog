@@ -50,8 +50,7 @@ function MCPAnalyticsSceneContent(): JSX.Element {
     const { onboardingState, dashboardStage } = useValues(mcpAnalyticsOnboardingLogic)
     const { notificationCount } = useValues(mcpAnalyticsNotificationsLogic)
 
-    // search belongs to the Sessions and Missing capabilities tabs (both free-text filters over their
-    // own list) — drop it for every other tab; the date range stays shared everywhere.
+    // Keep search only on tabs that expose a free-text filter.
     const { search: _search, ...sharedParams } = searchParams
 
     const activityTab: LemonTab<MCPAnalyticsTab> = {

@@ -63,6 +63,7 @@ fn test_issue() -> Issue {
         id: Uuid::now_v7(),
         team_id: 1,
         status: IssueStatus::Active,
+        severity: None,
         name: None,
         description: None,
         created_at: Utc::now(),

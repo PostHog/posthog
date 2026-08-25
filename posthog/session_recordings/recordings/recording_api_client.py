@@ -7,6 +7,7 @@ import aiohttp
 import structlog
 
 from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
+from posthog.session_recordings.recordings.recording_api_jwt import recording_api_auth_headers
 
 logger = structlog.get_logger(__name__)
 
@@ -32,7 +33,9 @@ class RecordingApiClient:
             params["decompress"] = "true"
 
         try:
-            async with self.session.get(url, params=params) as response:
+            async with self.session.get(
+                url, params=params, headers=recording_api_auth_headers(team_id, "read")
+            ) as response:
                 if response.status == 404:
                     raise BlockFetchError("Block not found")
                 if response.status == 410:
@@ -68,7 +71,7 @@ class RecordingApiClient:
         url = f"{self.base_url}/api/projects/{team_id}/recordings/{session_id}/blocks"
 
         try:
-            async with self.session.get(url) as response:
+            async with self.session.get(url, headers=recording_api_auth_headers(team_id, "read")) as response:
                 if response.status == 404:
                     return []
                 response.raise_for_status()
@@ -94,7 +97,11 @@ class RecordingApiClient:
         url = f"{self.base_url}/api/projects/{team_id}/recordings/delete"
 
         try:
-            async with self.session.post(url, json={"session_ids": session_ids, "deleted_by": deleted_by}) as response:
+            async with self.session.post(
+                url,
+                json={"session_ids": session_ids, "deleted_by": deleted_by},
+                headers=recording_api_auth_headers(team_id, "delete"),
+            ) as response:
                 response.raise_for_status()
                 data = await response.json()
                 return [r["sessionId"] for r in data if not r.get("ok")]
@@ -122,13 +129,8 @@ async def recording_api_client() -> AsyncIterator[RecordingApiClient]:
     if not settings.RECORDING_API_URL:
         raise RuntimeError("RECORDING_API_URL is not configured")
 
-    headers: dict[str, str] = {}
-    if settings.INTERNAL_API_SECRET:
-        headers["X-Internal-Api-Secret"] = settings.INTERNAL_API_SECRET
-    elif not settings.DEBUG:
-        logger.warning("recording_api_client.missing_internal_api_secret")
-
     timeout = aiohttp.ClientTimeout(total=30, connect=5)
+    # Authorization is per-request (a team + operation scoped JWT), so no session-level auth header.
     # nosemgrep: aiohttp-missing-trust-env -- internal service call to recording API
-    async with aiohttp.ClientSession(timeout=timeout, headers=headers, trust_env=False) as session:
+    async with aiohttp.ClientSession(timeout=timeout, trust_env=False) as session:
         yield RecordingApiClient(session, settings.RECORDING_API_URL)

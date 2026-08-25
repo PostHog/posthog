@@ -26,7 +26,10 @@ import {
   isTerminalStatus,
   progressNotificationParams,
 } from "../cloud-task/schemas";
-import type { PiSession } from "./piSessionController";
+import type {
+  PiConversationEventContext,
+  PiSession,
+} from "./piSessionController";
 
 function createTerminalPiRpcClient(
   runId: string,
@@ -286,7 +289,10 @@ export class CloudPiSessionClient implements PiSession {
   }
 
   onConversationEvent(
-    onEvent: (event: AgentConversationEvent) => void,
+    onEvent: (
+      event: AgentConversationEvent,
+      context?: PiConversationEventContext,
+    ) => void,
     onError: (error: unknown) => void,
     onCloudStatus?: (status: TaskRunStatus) => void,
   ): () => void {
@@ -332,14 +338,22 @@ export class CloudPiSessionClient implements PiSession {
 
   private handleUpdate(
     update: CloudTaskUpdatePayload,
-    onEvent: (event: AgentConversationEvent) => void,
+    onEvent: (
+      event: AgentConversationEvent,
+      context?: PiConversationEventContext,
+    ) => void,
     onError: (error: unknown) => void,
     onCloudStatus?: (status: TaskRunStatus) => void,
   ): void {
+    // A snapshot's historical pi_run_started only proves the runtime is ready
+    // to take commands when the sandbox behind it is still alive. On a resume
+    // whose sandbox has stopped the sandbox reports dead, so we hold off until a
+    // fresh start arrives over the live log stream. The run status fetched when
+    // the session opened can lag reality, so trust the snapshot's own signals.
     const snapshotCanProveReadiness =
       update.kind === "snapshot" &&
-      this.context.runStatus === "in_progress" &&
-      update.status === "in_progress";
+      update.status === "in_progress" &&
+      update.sandboxAlive !== false;
     const hasCurrentReadinessEvent =
       (update.kind === "logs" || snapshotCanProveReadiness) &&
       update.newEntries.some((entry) => entry.type === "pi_run_started");
@@ -372,7 +386,7 @@ export class CloudPiSessionClient implements PiSession {
       this.markSnapshotReady();
       for (const event of events) {
         if (!event.sourceId || !previousSourceIds.has(event.sourceId)) {
-          onEvent(event);
+          onEvent(event, { isLive: false });
         }
       }
     } else if (update.kind === "logs") {
@@ -392,7 +406,7 @@ export class CloudPiSessionClient implements PiSession {
       this.snapshotEvents = [...this.snapshotEvents, ...newEvents];
       this.markSnapshotReady();
       for (const event of newEvents) {
-        onEvent(event);
+        onEvent(event, { isLive: true });
       }
     }
 
@@ -408,7 +422,16 @@ export class CloudPiSessionClient implements PiSession {
       this.resolveTerminalStatus();
       if (!this.terminalEventSent) {
         this.terminalEventSent = true;
-        onEvent({ type: "turn_completed", timestamp: Date.now() });
+        const stopReason =
+          this.runStatus === "completed"
+            ? "end_turn"
+            : this.runStatus === "cancelled"
+              ? "cancelled"
+              : "failed";
+        onEvent(
+          { type: "turn_completed", timestamp: Date.now(), stopReason },
+          { isLive: update.kind === "status" },
+        );
       }
     }
 

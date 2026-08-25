@@ -13,6 +13,7 @@ import { getSocialLoginUrl } from 'lib/components/SocialLoginButton/socialLoginU
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isWebKitBrowser } from 'lib/utils/dom'
+import { getCurrentTeamIdOrNone } from 'lib/utils/getAppContext'
 import { getRelativeNextPath } from 'lib/utils/url'
 import { devLoginLogic } from 'scenes/authentication/shared/devLoginLogic'
 import { twoFactorResetLogic } from 'scenes/authentication/two-factor-reset/twoFactorResetLogic'
@@ -76,6 +77,22 @@ const BACKEND_ONLY_ROUTES = [
     '/toolbar_oauth/check',
 ]
 
+const PROJECT_PATH_PREFIX = '/project/'
+
+// True when the path targets a project other than the one we're currently in. A client-side
+// history replace can't switch the active project, so `AutoProjectMiddleware` never runs and any
+// team-scoped scene resolves against the wrong project and 404s. The project segment is either a
+// numeric team id or a token (a `phc_` project key, or a legacy api_token from the middleware's
+// switching allowlist), and only the server can resolve a token to a team, so anything that isn't
+// literally the current team id takes the full load.
+function pointsToDifferentProject(path: string): boolean {
+    if (!path.startsWith(PROJECT_PATH_PREFIX)) {
+        return false
+    }
+    const identifier = path.slice(PROJECT_PATH_PREFIX.length).split('/')[0]
+    return !!identifier && identifier !== String(getCurrentTeamIdOrNone())
+}
+
 export function handleLoginRedirect(): void {
     let nextURL = '/'
     try {
@@ -93,6 +110,14 @@ export function handleLoginRedirect(): void {
 
     // Check if this is a backend-only route that shouldn't go through the React router
     if (BACKEND_ONLY_ROUTES.some((route) => nextURL.startsWith(route))) {
+        window.location.href = nextURL
+        return
+    }
+
+    // A cross-project deep link needs a full page load so `AutoProjectMiddleware` can switch the
+    // active project before the scene mounts. A client-side replace would strip the project id and
+    // resolve the scene against the project we were last in, 404ing a resource that really exists.
+    if (pointsToDifferentProject(nextURL)) {
         window.location.href = nextURL
         return
     }

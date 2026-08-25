@@ -37,7 +37,9 @@ Edges are (upstream_id, downstream_id): data flows upstream -> downstream, so a 
 
 import dataclasses
 from collections import defaultdict, deque
+from collections.abc import Iterable, Mapping
 from datetime import timedelta
+from typing import Literal
 
 # A streamed source (e.g. the events table) is continuously fresh, so it imposes no
 # floor: a descendant may be as tight as the buckets allow. Imported sources instead
@@ -48,14 +50,13 @@ from datetime import timedelta
 # timedelta(0) so the intent stays searchable; None (elsewhere) means "unscheduled".
 STREAMING = timedelta(0)
 
-# Intervals build_schedule_spec can realize exactly (minute buckets must divide 60, hour
-# buckets 24, then weekly/monthly); anything else silently degrades or crashes there.
+# Intervals a model tier can run at. 15min is the floor: a model rebuild is not a source sync,
+# and running one every minute costs more than the freshness is worth. Sources still sync as
+# fast as 1min, so a floor derived from one rounds up into this set rather than escaping it.
 # Spelled out literally so this module stays Django-free; a test pins each value to the
 # canonical sync-frequency buckets in warehouse_sources.
 SCHEDULABLE_BUCKETS: frozenset[timedelta] = frozenset(
     {
-        timedelta(minutes=1),
-        timedelta(minutes=5),
         timedelta(minutes=15),
         timedelta(minutes=30),
         timedelta(hours=1),
@@ -73,7 +74,7 @@ class UnsatisfiableFrequencyError(ValueError):
 
 
 class UnsupportedFrequencyTargetError(ValueError):
-    """A declared target is not one of the schedulable cadence buckets (SCHEDULABLE_BUCKETS)."""
+    """A declared target is not one of the cadences a person may pick (SCHEDULABLE_BUCKETS)."""
 
 
 def is_finer_than(cadence: timedelta, other: timedelta) -> bool:
@@ -165,8 +166,47 @@ def compute_effective_cadences(
     return resolved
 
 
-def all_source_floors(edges: list[tuple[str, str]], source_intervals: dict[str, timedelta]) -> dict[str, timedelta]:
-    """Every node's source floor in one forward pass.
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class Bound:
+    """A bound and the node that set it, so a refusal can name what someone has to change.
+
+    `blocker` is the node the value originates from, carried across the whole traversal rather
+    than the immediate neighbour: a floor propagated down four views still points at the source
+    that delivers slowly, which is the thing a person can act on.
+    """
+
+    value: timedelta
+    blocker: str | None  # None when nothing set it (a derived node with no parents)
+
+
+def _bound_sort_key(bound: Bound) -> tuple[timedelta, str]:
+    """Order bounds by cadence, ties broken by blocker id so a graph always yields the same blame."""
+    return (bound.value, bound.blocker or "")
+
+
+def _finest(bounds: list[Bound]) -> Bound:
+    return min(bounds, key=_bound_sort_key)
+
+
+def ancestors_of(node_id: str, edges: list[tuple[str, str]]) -> set[str]:
+    """Every node upstream of `node_id`, however far — the cone whose delivery it inherits."""
+    parents: dict[str, list[str]] = defaultdict(list)
+    for upstream, downstream in edges:
+        parents[downstream].append(upstream)
+
+    seen: set[str] = set()
+    queue = deque(parents[node_id])
+    while queue:
+        current = queue.popleft()
+        if current in seen:
+            continue
+        seen.add(current)
+        queue.extend(parents[current])
+    return seen
+
+
+def all_source_floor_bounds(edges: list[tuple[str, str]], source_intervals: dict[str, timedelta]) -> dict[str, Bound]:
+    """Every node's source floor, with the source that set it, in one forward pass.
 
     A source node's floor is its own sync interval. A derived node's floor is the finest (min)
     among its parents' floors, because its output changes whenever any input changes: a view
@@ -181,13 +221,14 @@ def all_source_floors(edges: list[tuple[str, str]], source_intervals: dict[str, 
     all_ids = set(source_intervals) | {node for edge in edges for node in edge}
     in_degree = {node: len(adj.parents.get(node, [])) for node in all_ids}
     queue = deque(node for node in all_ids if in_degree[node] == 0)
-    floor: dict[str, timedelta] = {}
+    floor: dict[str, Bound] = {}
     while queue:
         node = queue.popleft()
         if node in source_intervals:
-            floor[node] = source_intervals[node]
+            floor[node] = Bound(value=source_intervals[node], blocker=node)
         else:
-            floor[node] = min((floor[parent] for parent in adj.parents.get(node, [])), default=STREAMING)
+            inherited = [floor[parent] for parent in adj.parents.get(node, [])]
+            floor[node] = _finest(inherited) if inherited else Bound(value=STREAMING, blocker=None)
         for child in adj.children.get(node, []):
             in_degree[child] -= 1
             if in_degree[child] == 0:
@@ -195,26 +236,48 @@ def all_source_floors(edges: list[tuple[str, str]], source_intervals: dict[str, 
     return floor
 
 
-def all_consumer_ceilings(
+def all_consumer_ceiling_bounds(
     edges: list[tuple[str, str]], declared_targets: dict[str, timedelta]
-) -> dict[str, timedelta | None]:
-    """Every node's consumer ceiling (finest declared target among strict descendants) in one
-    reverse pass. None when no descendant declares a target. Cyclic nodes are omitted."""
+) -> dict[str, Bound | None]:
+    """Every node's consumer ceiling, with the descendant that declared it, in one reverse pass.
+
+    The ceiling is the finest declared target among strict descendants; None when no descendant
+    declares one. Cyclic nodes are omitted.
+    """
     adj = _adjacency(edges)
     all_ids = set(declared_targets) | {node for edge in edges for node in edge}
     out_degree = {node: len(adj.children.get(node, [])) for node in all_ids}
     queue = deque(node for node in all_ids if out_degree[node] == 0)
-    ceiling: dict[str, timedelta | None] = {}
+    ceiling: dict[str, Bound | None] = {}
     while queue:
         node = queue.popleft()
-        candidates = [declared_targets[child] for child in adj.children.get(node, []) if child in declared_targets]
-        candidates += [c for child in adj.children.get(node, []) if (c := ceiling.get(child)) is not None]
-        ceiling[node] = min(candidates) if candidates else None
+        candidates = [
+            Bound(value=declared_targets[child], blocker=child)
+            for child in adj.children.get(node, [])
+            if child in declared_targets
+        ]
+        candidates += [bound for child in adj.children.get(node, []) if (bound := ceiling.get(child)) is not None]
+        ceiling[node] = _finest(candidates) if candidates else None
         for parent in adj.parents.get(node, []):
             out_degree[parent] -= 1
             if out_degree[parent] == 0:
                 queue.append(parent)
     return ceiling
+
+
+def all_source_floors(edges: list[tuple[str, str]], source_intervals: dict[str, timedelta]) -> dict[str, timedelta]:
+    """Every node's source floor, for callers that need the value and not the blame."""
+    return {node: bound.value for node, bound in all_source_floor_bounds(edges, source_intervals).items()}
+
+
+def all_consumer_ceilings(
+    edges: list[tuple[str, str]], declared_targets: dict[str, timedelta]
+) -> dict[str, timedelta | None]:
+    """Every node's consumer ceiling, for callers that need the value and not the blame."""
+    return {
+        node: (bound.value if bound is not None else None)
+        for node, bound in all_consumer_ceiling_bounds(edges, declared_targets).items()
+    }
 
 
 def nearest_schedulable_bucket_at_least(floor: timedelta) -> timedelta:
@@ -226,17 +289,25 @@ def nearest_schedulable_bucket_at_least(floor: timedelta) -> timedelta:
     coarsest bucket: running more often than a source delivers only wastes a run, never breaks
     freshness. Mirrors nearest_schedulable_bucket_at_most's "fresher is always safe" fallback.
     """
-    coarser_or_equal = [bucket for bucket in SCHEDULABLE_BUCKETS if bucket >= floor]
-    return min(coarser_or_equal) if coarser_or_equal else max(SCHEDULABLE_BUCKETS)
+    return _nearest_at_least(floor, SCHEDULABLE_BUCKETS)
 
 
 def nearest_schedulable_bucket_at_most(cadence: timedelta) -> timedelta:
     """The coarsest schedulable bucket no coarser than `cadence` — round a non-bucket seed down to a
-    finer bucket so "no older than `cadence`" stays honored (fresher is always safe). Falls back to
-    the finest bucket for a sub-minute cadence, the finest anything can actually be scheduled at.
+    finer bucket so "no older than `cadence`" stays honored (fresher is always safe). A cadence
+    finer than every bucket falls back to the finest one, since nothing runs faster than that.
     """
-    finer_or_equal = [bucket for bucket in SCHEDULABLE_BUCKETS if bucket <= cadence]
-    return max(finer_or_equal) if finer_or_equal else min(SCHEDULABLE_BUCKETS)
+    return _nearest_at_most(cadence, SCHEDULABLE_BUCKETS)
+
+
+def _nearest_at_least(value: timedelta, buckets: frozenset[timedelta]) -> timedelta:
+    coarser_or_equal = [bucket for bucket in buckets if bucket >= value]
+    return min(coarser_or_equal) if coarser_or_equal else max(buckets)
+
+
+def _nearest_at_most(value: timedelta, buckets: frozenset[timedelta]) -> timedelta:
+    finer_or_equal = [bucket for bucket in buckets if bucket <= value]
+    return max(finer_or_equal) if finer_or_equal else min(buckets)
 
 
 @dataclasses.dataclass
@@ -289,11 +360,136 @@ def normalize_seed_target(seed: timedelta, source_floor: timedelta) -> timedelta
     to the source floor if the source cannot deliver that fast. So a go-live backfill persists a
     target that equals what the scheduler will run, rather than an unschedulable (45min) or
     unsatisfiable (finer than the source) one that reconcile would have to clamp anyway.
+
+    A sub-15min v1 seed lands on 15min, the same coarsening migration 0031 applied to saved queries.
     """
-    bucket = nearest_schedulable_bucket_at_most(seed)
+    bucket = _nearest_at_most(seed, SCHEDULABLE_BUCKETS)
     if is_finer_than(bucket, source_floor):
-        return nearest_schedulable_bucket_at_least(source_floor)
+        return _nearest_at_least(source_floor, SCHEDULABLE_BUCKETS)
     return bucket
+
+
+BlockedBy = Literal["source", "consumer"]
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class TargetOption:
+    """One cadence a person could pick, and why it is withheld when it is."""
+
+    value: timedelta
+    allowed: bool
+    blocked_by: BlockedBy | None = None
+    blocker: str | None = None  # node id of the source or consumer that withholds it
+
+
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class TargetBounds:
+    """Every selectable cadence for one node, each marked allowed or blocked with its cause.
+
+    `floor` and `ceiling` are reported only when they actually withhold an option. A 5min source
+    delivers faster than any tier runs, so it withholds nothing, and reporting it would explain a
+    restriction the person cannot see.
+    """
+
+    options: tuple[TargetOption, ...]  # ascending by cadence
+    floor: Bound | None = None
+    ceiling: Bound | None = None
+
+    @property
+    def allowed(self) -> tuple[timedelta, ...]:
+        return tuple(option.value for option in self.options if option.allowed)
+
+    @property
+    def satisfiable(self) -> bool:
+        """False when nothing is legal: bounds that cross, or a source slower than every target."""
+        return bool(self.allowed)
+
+    def option_for(self, target: timedelta) -> TargetOption | None:
+        return next((option for option in self.options if option.value == target), None)
+
+
+def compute_target_bounds(
+    *,
+    node_id: str,
+    edges: list[tuple[str, str]],
+    declared_targets: dict[str, timedelta],
+    source_intervals: dict[str, timedelta],
+) -> TargetBounds:
+    """Resolve one node's selectable cadences, marking each blocked option with what blocks it.
+
+    The single answer to "what may this node be set to, and why not the rest" — the validator, the
+    API payload, and any UI that offers a choice all read this, so a refusal and a disabled option
+    can never disagree about the same node.
+    """
+    floor = all_source_floor_bounds(edges, source_intervals).get(node_id, Bound(value=STREAMING, blocker=None))
+    ceiling = all_consumer_ceiling_bounds(edges, declared_targets).get(node_id)
+    return _bounds_from(floor=floor, ceiling=ceiling)
+
+
+def _bounds_from(*, floor: Bound, ceiling: Bound | None) -> TargetBounds:
+    """Mark every cadence against one pair of bounds, reporting each bound only if it blocks."""
+    options: list[TargetOption] = []
+    for value in sorted(SCHEDULABLE_BUCKETS):
+        if is_finer_than(value, floor.value):
+            options.append(TargetOption(value=value, allowed=False, blocked_by="source", blocker=floor.blocker))
+        elif ceiling is not None and is_coarser_than(value, ceiling.value):
+            options.append(TargetOption(value=value, allowed=False, blocked_by="consumer", blocker=ceiling.blocker))
+        else:
+            options.append(TargetOption(value=value, allowed=True))
+
+    blocked = {option.blocked_by for option in options if not option.allowed}
+    return TargetBounds(
+        options=tuple(options),
+        floor=floor if "source" in blocked else None,
+        ceiling=ceiling if "consumer" in blocked else None,
+    )
+
+
+def intersect_target_bounds(bounds: Iterable[TargetBounds]) -> TargetBounds:
+    """Fold one node's bounds across the several DAGs it can appear in, tightest side winning.
+
+    A saved query duplicated into more than one DAG has a node in each, and the write path
+    validates against every one of them. Offering the union of what any single DAG allows would
+    hand someone an option their own save then refuses, so intersect: the coarsest floor and the
+    finest ceiling. Bounds that block nothing are absent, and absent is the identity here.
+    """
+    per_dag = list(bounds)
+    floors = [bound.floor for bound in per_dag if bound.floor is not None]
+    ceilings = [bound.ceiling for bound in per_dag if bound.ceiling is not None]
+    return _bounds_from(
+        floor=max(floors, key=_bound_sort_key) if floors else Bound(value=STREAMING, blocker=None),
+        ceiling=min(ceilings, key=_bound_sort_key) if ceilings else None,
+    )
+
+
+def _describe(node_id: str | None, names: Mapping[str, str] | None, fallback: str) -> str:
+    """Name a blocking node when the caller supplied names, else fall back to a generic phrase."""
+    name = (names or {}).get(node_id or "")
+    return name or fallback
+
+
+def _nothing_satisfiable_message(bounds: TargetBounds, names: Mapping[str, str] | None) -> str:
+    """Explain a node with no legal cadence at all: crossed bounds, or a source slower than 30 days."""
+    floor, ceiling = bounds.floor, bounds.ceiling
+    source = _describe(floor.blocker, names, "an upstream source") if floor else ""
+    consumer = _describe(ceiling.blocker, names, "a view or endpoint built on this one") if ceiling else ""
+    if floor is not None and ceiling is not None:
+        return (
+            f"No cadence works here: {source} only syncs every {humanize_cadence(floor.value)},"
+            f" but {consumer} refreshes every {humanize_cadence(ceiling.value)}."
+            f" Slow down {consumer} or speed up {source}."
+        )
+    if floor is not None:
+        return (
+            f"No cadence works here: {source} only syncs every {humanize_cadence(floor.value)},"
+            f" less often than anything this can refresh at. Speed up {source} first."
+        )
+    if ceiling is not None:
+        return (
+            f"No cadence works here: {consumer} refreshes every {humanize_cadence(ceiling.value)},"
+            f" more often than anything this can refresh at. Slow down {consumer} first."
+        )
+    return "No cadence works here."
 
 
 def validate_declared_target(
@@ -303,27 +499,45 @@ def validate_declared_target(
     edges: list[tuple[str, str]],
     declared_targets: dict[str, timedelta],
     source_intervals: dict[str, timedelta],
+    names: Mapping[str, str] | None = None,
 ) -> None:
-    """Raise if `target` is not a schedulable bucket or falls outside the node's bounds."""
+    """Raise if `target` is not selectable or falls outside the node's bounds.
+
+    `names` maps node ids to display names; supply it to have refusals name the source or view
+    that blocks the target, which is the thing a person has to change to unblock it.
+    """
     if target not in SCHEDULABLE_BUCKETS:
         supported = ", ".join(format_cadence(interval) for interval in sorted(SCHEDULABLE_BUCKETS))
         raise UnsupportedFrequencyTargetError(
             f"Can't refresh every {humanize_cadence(target)}. Pick one of: {supported}."
         )
-    source_floor = all_source_floors(edges, source_intervals).get(node_id, STREAMING)
-    consumer_ceiling = all_consumer_ceilings(edges, declared_targets).get(node_id)
-    # Both messages name the bound itself rather than a direction. Bounds are inclusive, so the
-    # bound is always a legal answer, while "or faster"/"or slower" promises room that may not
-    # exist: a 15min ceiling has nothing faster to offer through the cadence picker.
-    if is_finer_than(target, source_floor):
+
+    bounds = compute_target_bounds(
+        node_id=node_id, edges=edges, declared_targets=declared_targets, source_intervals=source_intervals
+    )
+    option = bounds.option_for(target)
+    if option is None or option.allowed:
+        return
+
+    # Nothing legal to fall back to, so no message here can end in "pick X instead"
+    if not bounds.satisfiable:
+        raise UnsatisfiableFrequencyError(_nothing_satisfiable_message(bounds, names))
+
+    # Suggest a cadence the same call would accept, and name the bound itself rather than a
+    # direction. Bounds are inclusive, so the bound is always a legal answer, while "or slower" /
+    # "or faster" promises room that may not exist: a 15min ceiling has nothing fresher to offer.
+    if option.blocked_by == "source" and bounds.floor is not None:
+        source = _describe(option.blocker, names, "an upstream source")
         raise UnsatisfiableFrequencyError(
-            f"Can't refresh every {humanize_cadence(target)}: the sources this query reads only deliver new data"
-            f" every {humanize_cadence(source_floor)}. Pick {humanize_cadence(source_floor)} instead."
+            f"Can't refresh every {humanize_cadence(target)}: {source} only syncs every"
+            f" {humanize_cadence(bounds.floor.value)}."
+            f" Pick {humanize_cadence(min(bounds.allowed))} instead."
         )
-    if consumer_ceiling is not None and is_coarser_than(target, consumer_ceiling):
+    if option.blocked_by == "consumer" and bounds.ceiling is not None:
+        consumer = _describe(option.blocker, names, "a view or endpoint built on this one")
         raise UnsatisfiableFrequencyError(
-            f"Can't refresh every {humanize_cadence(target)}: a view or endpoint built on this one needs data no"
-            f" older than {humanize_cadence(consumer_ceiling)}. Pick {humanize_cadence(consumer_ceiling)} instead."
+            f"Can't refresh every {humanize_cadence(target)}: {consumer} refreshes every"
+            f" {humanize_cadence(bounds.ceiling.value)}. Pick {humanize_cadence(max(bounds.allowed))} instead."
         )
 
 

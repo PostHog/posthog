@@ -18,7 +18,7 @@ import type {
     AccountRelationshipDefinitionApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
-import { ACCOUNTS_HOGQL_DATA_NODE_KEY, ACCOUNTS_METRICS_DATA_NODE_KEY } from '../../constants'
+import { ACCOUNTS_TABLE_DATA_NODE_KEY, ACCOUNTS_METRICS_DATA_NODE_KEY } from '../../constants'
 import { accountsColumnConfigLogic, ROLE_KEY_BY_NAME } from './accountsColumnConfigLogic'
 import { AccountsEvents } from './constants'
 
@@ -28,7 +28,7 @@ export interface AccountRelationshipsLogicProps {
 
 // Assignments also render as list columns.
 function refreshAccountsList(): void {
-    dataNodeLogic.findMounted({ key: ACCOUNTS_HOGQL_DATA_NODE_KEY })?.actions.loadData('force_async')
+    dataNodeLogic.findMounted({ key: ACCOUNTS_TABLE_DATA_NODE_KEY })?.actions.loadData('force_async')
     dataNodeLogic.findMounted({ key: ACCOUNTS_METRICS_DATA_NODE_KEY })?.actions.loadData('force_async')
 }
 

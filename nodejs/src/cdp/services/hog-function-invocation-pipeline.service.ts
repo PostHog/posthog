@@ -15,13 +15,14 @@ import {
     HogFunctionTypeType,
     MinimalAppMetric,
 } from '../types'
+import { dualRead } from '../utils/dual-store'
 import { buildHogFunctionInvocations } from '../utils/invocation-utils'
-import { mirrorCompare } from '../utils/mirror-call'
 import { HogInputsService } from './hog-inputs.service'
 import { HogFunctionManagerService } from './managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from './monitoring/hog-masker.service'
-import { HogWatcherService, HogWatcherState } from './monitoring/hog-watcher.service'
+import { HogWatcherService, HogWatcherState, sameWatcherStates } from './monitoring/hog-watcher.service'
+import { CdpUsageReporterService } from './usage/cdp-usage-reporter.service'
 
 export interface HogFunctionInvocationPipelineConfig {
     CDP_RATE_LIMITER_BUCKET_SIZE: number
@@ -37,6 +38,7 @@ export interface HogFunctionInvocationPipelineDeps {
     hogWatcherMirror: HogWatcherService
     hogMasker: HogMaskerService
     hogFunctionMonitoringService: HogFunctionMonitoringService
+    cdpUsageReporter?: CdpUsageReporterService
     quotaLimiting: QuotaLimiting
     redis: RedisV2
     valkeyShadow: CdpValkeyShadowPools
@@ -45,6 +47,7 @@ export interface HogFunctionInvocationPipelineDeps {
 export interface BuildHogFunctionInvocationsOptions {
     hogTypes: HogFunctionTypeType[]
     filterFn: (fn: HogFunctionType) => boolean
+    invocationFilterFn?: (fn: HogFunctionType, globals: HogFunctionInvocationGlobals) => boolean
 }
 
 /**
@@ -86,7 +89,9 @@ export class HogFunctionInvocationPipeline {
         const possibleInvocations = (
             await Promise.all(
                 invocationGlobals.map(async (globals) => {
-                    const teamHogFunctions = hogFunctionsByTeam[globals.project.id]
+                    const teamHogFunctions = opts.invocationFilterFn
+                        ? hogFunctionsByTeam[globals.project.id].filter((fn) => opts.invocationFilterFn!(fn, globals))
+                        : hogFunctionsByTeam[globals.project.id]
 
                     const { invocations, metrics, logs } = await buildHogFunctionInvocations(
                         this.deps.hogInputsService,
@@ -103,28 +108,29 @@ export class HogFunctionInvocationPipeline {
         ).flat()
 
         const hogFunctionIds = possibleInvocations.map((x) => x.hogFunction.id)
-        const states = await mirrorCompare(
+        const states = await dualRead(
             'hog-watcher.getEffectiveStates',
             () =>
                 instrumentFn('cdpConsumer.handleEachBatch.hogWatcher.getEffectiveStates', async () => {
                     return await this.deps.hogWatcher.getEffectiveStates(hogFunctionIds)
                 }),
-            () => this.deps.hogWatcherMirror.getEffectiveStates(hogFunctionIds)
+            () => this.deps.hogWatcherMirror.getEffectiveStates(hogFunctionIds),
+            sameWatcherStates
         )
 
         const rateLimitInputs: KeyedRateLimitRequest[] = possibleInvocations.map((x) => ({
             id: x.hogFunction.id,
             cost: 1,
         }))
-        const rateLimits = await mirrorCompare(
-            'hog-rate-limiter.rateLimitGrouped',
+        const rateLimits = await dualRead(
+            'hog-function-rate-limiter.rateLimitGrouped',
             () =>
                 instrumentFn('cdpConsumer.handleEachBatch.hogRateLimiter.rateLimitGrouped', async () => {
                     return await this.hogRateLimiter.rateLimitGrouped(rateLimitInputs)
                 }),
             () => this.hogRateLimiterMirror.rateLimitGrouped(rateLimitInputs),
-            (primary, mirror) =>
-                primary.every(([, result], index) => result.isRateLimited === mirror[index]?.[1].isRateLimited)
+            (primary, secondary) =>
+                primary.every(([, result], index) => result.isRateLimited === secondary[index]?.[1].isRateLimited)
         )
 
         const validInvocations: CyclotronJobInvocationHogFunction[] = []
@@ -224,6 +230,10 @@ export class HogFunctionInvocationPipeline {
                         metric_kind: 'billing',
                         metric_name: 'billable_invocation',
                         count: 1,
+                    })
+                    this.deps.cdpUsageReporter?.reportBillableInvocation({
+                        teamId: item.teamId,
+                        recordId: `event:${eventUuid}`,
                     })
                 }
             }

@@ -6,6 +6,11 @@ Tests cover tree structure rendering, expandable nodes, ASCII art, and options h
 
 from typing import Any
 
+from parameterized import parameterized
+
+from posthog.schema import LLMTrace, LLMTraceEvent
+
+from ..constants import MAX_TREE_DEPTH
 from ..message_formatter import truncate_content
 from ..trace_formatter import (
     _format_cost,
@@ -14,6 +19,7 @@ from ..trace_formatter import (
     _get_event_summary,
     _render_tree,
     format_trace_text_repr,
+    llm_trace_to_formatter_format,
 )
 
 
@@ -31,6 +37,13 @@ class TestFormatHelpers:
         assert _format_cost(0.0023) == "$0.0023"
         assert _format_cost(1.23456) == "$1.2346"
         assert _format_cost(0) == "$0.0000"
+
+    def test_coerces_string_valued_metrics(self):
+        """A string latency or cost must not raise `Unknown format code 'f'`."""
+        assert _format_latency("1.5") == "1.50s"
+        assert _format_cost("0.02") == "$0.0200"
+        # Non-numeric strings fall back to the raw value rather than crashing.
+        assert _format_latency("n/a") == "n/a"
 
 
 class TestGetEventSummary:
@@ -647,3 +660,170 @@ class TestEdgeCases:
         assert "TRACE ERROR:" in result
         # Should serialize error object
         assert "message" in result or "error" in result
+
+
+class TestLLMTraceToFormatterFormat:
+    TRACE_ID = "trace-1"
+
+    def _trace(self, *events: LLMTraceEvent) -> LLMTrace:
+        return LLMTrace(
+            id=self.TRACE_ID,
+            createdAt="2026-08-06T12:00:00Z",
+            distinctId="user-1",
+            events=list(events),
+        )
+
+    def _event(
+        self,
+        event_id: str,
+        properties: dict[str, Any],
+        event: str = "$ai_span",
+        created_at: str = "2026-08-06T12:00:00Z",
+    ) -> LLMTraceEvent:
+        return LLMTraceEvent(id=event_id, event=event, createdAt=created_at, properties=properties)
+
+    def test_defaults_to_a_flat_hierarchy(self):
+        trace = self._trace(
+            self._event("span-1", {"$ai_span_id": "span-1", "$ai_trace_id": self.TRACE_ID}),
+            self._event("gen-1", {"$ai_parent_id": "span-1"}, event="$ai_generation"),
+        )
+
+        _, hierarchy = llm_trace_to_formatter_format(trace)
+
+        assert [node["event"]["id"] for node in hierarchy] == ["span-1", "gen-1"]
+        assert all(node["children"] == [] for node in hierarchy)
+
+    def test_nests_children_under_their_parent(self):
+        trace = self._trace(
+            self._event("span-1", {"$ai_span_id": "span-1", "$ai_trace_id": self.TRACE_ID}),
+            self._event(
+                "gen-1",
+                {"$ai_generation_id": "gen-1", "$ai_parent_id": "span-1"},
+                event="$ai_generation",
+            ),
+            self._event("span-2", {"$ai_span_id": "span-2", "$ai_parent_id": "gen-1"}),
+        )
+
+        _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
+
+        assert [node["event"]["id"] for node in hierarchy] == ["span-1"]
+        assert [node["event"]["id"] for node in hierarchy[0]["children"]] == ["gen-1"]
+        assert [node["event"]["id"] for node in hierarchy[0]["children"][0]["children"]] == ["span-2"]
+
+    def test_promotes_events_whose_parent_is_missing_to_roots(self):
+        trace = self._trace(
+            self._event("span-1", {"$ai_span_id": "span-1", "$ai_trace_id": self.TRACE_ID}),
+            self._event("gen-1", {"$ai_parent_id": "span-never-ingested"}, event="$ai_generation"),
+        )
+
+        _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
+
+        assert sorted(node["event"]["id"] for node in hierarchy) == ["gen-1", "span-1"]
+
+    @parameterized.expand(
+        [
+            ("generation_list", "$ai_generation_id", ["invalid"]),
+            ("span_object", "$ai_span_id", {"invalid": "id"}),
+            ("parent_list", "$ai_parent_id", ["invalid"]),
+            ("trace_object", "$ai_trace_id", {"invalid": "id"}),
+        ]
+    )
+    def test_ignores_non_scalar_hierarchy_ids(
+        self, _case_name: str, property_name: str, malformed_id: list[str] | dict[str, str]
+    ) -> None:
+        properties: dict[str, Any] = {property_name: malformed_id}
+        if property_name in {"$ai_generation_id", "$ai_span_id"}:
+            properties["$ai_trace_id"] = self.TRACE_ID
+        else:
+            properties["$ai_span_id"] = "span-1"
+        trace = self._trace(self._event("event-1", properties))
+
+        _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
+
+        assert [node["event"]["id"] for node in hierarchy] == ["event-1"]
+
+    @parameterized.expand([("integer", 1, "1"), ("boolean", True, "true")])
+    def test_normalizes_scalar_hierarchy_ids(
+        self, _case_name: str, parent_id: int | bool, child_parent_id: str
+    ) -> None:
+        trace = self._trace(
+            self._event("parent", {"$ai_span_id": parent_id, "$ai_trace_id": self.TRACE_ID}),
+            self._event("child", {"$ai_span_id": "child", "$ai_parent_id": child_parent_id}),
+        )
+
+        _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
+
+        assert [node["event"]["id"] for node in hierarchy] == ["parent"]
+        assert [node["event"]["id"] for node in hierarchy[0]["children"]] == ["child"]
+
+    def test_excludes_feedback_and_metric_events(self):
+        trace = self._trace(
+            self._event("span-1", {"$ai_span_id": "span-1", "$ai_trace_id": self.TRACE_ID}),
+            self._event("feedback-1", {"$ai_trace_id": self.TRACE_ID}, event="$ai_feedback"),
+            self._event("metric-1", {"$ai_trace_id": self.TRACE_ID}, event="$ai_metric"),
+        )
+
+        _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
+
+        assert [node["event"]["id"] for node in hierarchy] == ["span-1"]
+
+    def test_preserves_events_in_a_parent_cycle(self) -> None:
+        trace = self._trace(
+            self._event("span-1", {"$ai_span_id": "span-1", "$ai_parent_id": "span-2"}),
+            self._event("span-2", {"$ai_span_id": "span-2", "$ai_parent_id": "span-1"}),
+        )
+
+        _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
+
+        assert [node["event"]["id"] for node in hierarchy] == ["span-1"]
+        assert [node["event"]["id"] for node in hierarchy[0]["children"]] == ["span-2"]
+
+    def test_emits_duplicate_node_ids_once_under_the_retained_parent(self) -> None:
+        trace = self._trace(
+            self._event("root-1", {"$ai_span_id": "root-1", "$ai_trace_id": self.TRACE_ID}),
+            self._event("root-2", {"$ai_span_id": "root-2", "$ai_trace_id": self.TRACE_ID}),
+            self._event("shared-old", {"$ai_span_id": "shared", "$ai_parent_id": "root-1"}),
+            self._event("shared-duplicate", {"$ai_span_id": "shared", "$ai_parent_id": "root-2"}),
+            self._event("shared-retained", {"$ai_span_id": "shared", "$ai_parent_id": "root-2"}),
+        )
+
+        _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
+
+        assert [node["event"]["id"] for node in hierarchy] == ["root-1", "root-2"]
+        assert hierarchy[0]["children"] == []
+        assert [node["event"]["id"] for node in hierarchy[1]["children"]] == ["shared-retained"]
+
+    def test_splits_overdeep_branches_into_additional_roots(self) -> None:
+        events = [self._event("span-0", {"$ai_span_id": "span-0", "$ai_trace_id": self.TRACE_ID})]
+        events.extend(
+            self._event(
+                f"span-{index}",
+                {"$ai_span_id": f"span-{index}", "$ai_parent_id": f"span-{index - 1}"},
+            )
+            for index in range(1, MAX_TREE_DEPTH + 3)
+        )
+        trace = self._trace(*events)
+
+        _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
+
+        assert [node["event"]["id"] for node in hierarchy] == ["span-0", f"span-{MAX_TREE_DEPTH + 1}"]
+        assert [node["event"]["id"] for node in hierarchy[1]["children"]] == [f"span-{MAX_TREE_DEPTH + 2}"]
+
+    def test_orders_siblings_by_when_their_operation_began(self):
+        # Captured on completion, so the event that finished first is not the one that started first.
+        trace = self._trace(
+            self._event(
+                "slow-start-first",
+                {"$ai_span_id": "slow-start-first", "$ai_trace_id": self.TRACE_ID, "$ai_latency": 2},
+                created_at="2026-08-06T12:00:02Z",
+            ),
+            self._event(
+                "quick-start-second",
+                {"$ai_span_id": "quick-start-second", "$ai_trace_id": self.TRACE_ID, "$ai_latency": 0},
+                created_at="2026-08-06T12:00:01Z",
+            ),
+        )
+
+        _, hierarchy = llm_trace_to_formatter_format(trace, nest_children=True)
+
+        assert [node["event"]["id"] for node in hierarchy] == ["slow-start-first", "quick-start-second"]

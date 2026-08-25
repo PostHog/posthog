@@ -1,11 +1,4 @@
-import {
-    daysUntilCapReached,
-    exhaustionForecast,
-    hasBillableSpend,
-    projectQuota,
-    quotaUx,
-    splitProjectedPct,
-} from './quotaProjection'
+import { daysUntilCapReached, exhaustionForecast, hasBillableSpend, projectQuota, quotaUx } from './quotaProjection'
 import { makeQuota } from './quotaTestUtils'
 
 describe('hasBillableSpend', () => {
@@ -29,14 +22,12 @@ describe('projectQuota', () => {
         expect(projectQuota(null)).toMatchObject({ status: 'safe', usedPct: 0, projectedPct: 0 })
         expect(projectQuota(makeQuota({ credit_limit: null, remaining: null }))).toMatchObject({
             status: 'safe',
-            percentLabel: 0,
         })
     })
 
     it('treats a zero limit as fully blocking, not uncapped', () => {
         const proj = projectQuota(makeQuota({ credit_limit: 0, remaining: 0, exhausted: true }))
         expect(proj.status).toBe('danger')
-        expect(proj.percentLabel).toBe(100)
         expect(proj.exhausted).toBe(true)
     })
 
@@ -44,13 +35,11 @@ describe('projectQuota', () => {
         // 3,000/month fleet → 100/day → ends at 3,000 of 10,000.
         const proj = projectQuota(makeQuota({ credits_used: 1_000, projected_monthly_credits: 3_000 }))
         expect(proj.status).toBe('safe')
-        expect(proj.percentLabel).toBe(30)
     })
 
     it('zero fleet rate projects flat usage to period end', () => {
         const proj = projectQuota(makeQuota({ credits_used: 4_000 }))
         expect(proj.projectedPct).toBe(0)
-        expect(proj.percentLabel).toBe(40)
         expect(proj.capReachDate).toBeNull()
     })
 
@@ -58,7 +47,6 @@ describe('projectQuota', () => {
         // 3,000 used + 9,000/month fleet → 300/day × 20 days → ends at 9,000 (90% of cap).
         const proj = projectQuota(makeQuota({ credits_used: 3_000, projected_monthly_credits: 9_000 }))
         expect(proj.status).toBe('warning')
-        expect(proj.percentLabel).toBe(90)
     })
 
     it('danger when projected to exhaust before period end', () => {
@@ -87,7 +75,6 @@ describe('projectQuota', () => {
         const base = projectQuota(makeQuota({ credits_used: 1_000, projected_monthly_credits: 3_000 }))
         const withDelta = projectQuota(makeQuota({ credits_used: 1_000, projected_monthly_credits: 3_000 }), 6_000)
         expect(withDelta.projectedPct).toBeGreaterThan(base.projectedPct)
-        expect(withDelta.percentLabel).toBeGreaterThan(base.percentLabel)
     })
 
     it('a negative scanner delta lowers the projection and clamps at zero', () => {
@@ -112,7 +99,6 @@ describe('projectQuota', () => {
     it('reports unclamped percentages on overshoot', () => {
         // 8,000 used + 30,000/month × 20 days = 20,000 more → 280% of the 10,000 cap.
         const proj = projectQuota(makeQuota({ credits_used: 8_000, projected_monthly_credits: 30_000 }))
-        expect(proj.percentLabel).toBe(280)
         expect(proj.projectedPct).toBeCloseTo(200, 0)
     })
 })
@@ -128,20 +114,6 @@ describe('daysUntilCapReached', () => {
         const days = daysUntilCapReached(projectQuota(makeQuota(overrides)))
         // Rounded: the two `dayjs()` calls behind the diff are milliseconds apart.
         expect(days === null ? null : Math.round(days * 100) / 100).toBe(expected)
-    })
-})
-
-describe('splitProjectedPct', () => {
-    it('apportions by monthly volume', () => {
-        expect(splitProjectedPct(30, 100, 200)).toEqual({ thisScannerPct: 10, othersPct: 20 })
-    })
-
-    it('gives everything to this scanner when the fleet is empty', () => {
-        expect(splitProjectedPct(30, 100, 0)).toEqual({ thisScannerPct: 30, othersPct: 0 })
-    })
-
-    it('defaults the share to zero (no division by zero) when both volumes are zero', () => {
-        expect(splitProjectedPct(30, 0, 0)).toEqual({ thisScannerPct: 0, othersPct: 30 })
     })
 })
 

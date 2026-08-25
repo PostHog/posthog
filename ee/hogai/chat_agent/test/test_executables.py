@@ -23,7 +23,7 @@ class TestChatAgentWebSearchToolInclusion(BaseTest):
         with (
             patch("ee.hogai.chat_agent.toolkit.get_llm_gateway_variant", return_value=variant),
             patch("ee.hogai.chat_agent.toolkit.settings") as mock_settings,
-            patch("ee.hogai.chat_agent.toolkit.has_mcp_servers_feature_flag", return_value=False),
+            patch("ee.hogai.chat_agent.toolkit.has_mcp_gateway_feature_flag", return_value=False),
         ):
             mock_settings.LLM_GATEWAY_URL = "http://gateway:3308"
             mock_settings.LLM_GATEWAY_API_KEY = "test-key"

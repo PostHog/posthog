@@ -129,7 +129,7 @@ const ReorderRules = (): JSX.Element | null => {
             <LemonButton type="secondary" size="small" onClick={cancelReorderingRules}>
                 Cancel
             </LemonButton>
-            <LemonButton type="primary" size="small" onClick={finishReorderingRules} loading={rulesLoading}>
+            <LemonButton type="primary" size="small" onClick={() => finishReorderingRules()} loading={rulesLoading}>
                 Finish reordering
             </LemonButton>
         </>

@@ -40,6 +40,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if let Err(e) = config.validate_lease_timescales() {
         panic!("invalid lease configuration: {e}");
     }
+    if let Err(e) = config.validate_shutdown_budgets() {
+        panic!("invalid shutdown configuration: {e}");
+    }
     // Install the process-wide recorder before anything records: metrics
     // emitted ahead of it land in a no-op recorder and are dropped, and
     // preregistered series never materialize.
@@ -76,10 +79,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     let mut manager = Manager::builder("personhog-router")
-        // Below the pod's 30s termination grace so shutdown always
+        // Below the pod's 40s termination grace so shutdown always
         // concludes process-side — reaching the routing table's lease
         // revoke — rather than racing the kubelet's SIGKILL.
-        .with_global_shutdown_timeout(Duration::from_secs(25))
+        .with_global_shutdown_timeout(config.global_shutdown_timeout())
         .build();
 
     // Shutdown order is the inverse of the leader's: the gRPC server
@@ -90,7 +93,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // router takes over coordination immediately.
     let grpc_handle = manager.register(
         "grpc-server",
-        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(15)),
+        ComponentOptions::new().with_graceful_shutdown(config.grpc_graceful_shutdown()),
     );
     let metrics_handle = manager.register(
         "metrics-server",
@@ -102,14 +105,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let rt = manager.register(
             "routing-table",
             ComponentOptions::new()
-                .with_graceful_shutdown(Duration::from_secs(5))
+                .with_graceful_shutdown(config.phase1_graceful_shutdown())
                 .with_shutdown_phase(1),
         );
         let coord = config.coordinator_enabled.then(|| {
+            // The whole teardown — the keepalive join and then the lease
+            // revoke — is checked against this budget by
+            // `validate_lease_timescales`, which runs before any of this.
             manager.register(
                 "coordinator",
                 ComponentOptions::new()
-                    .with_graceful_shutdown(Duration::from_secs(5))
+                    .with_graceful_shutdown(config.coordinator_graceful_shutdown())
                     .with_shutdown_phase(1),
             )
         });
@@ -124,7 +130,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             manager.register(
                 "replica-discovery",
                 ComponentOptions::new()
-                    .with_graceful_shutdown(Duration::from_secs(5))
+                    .with_graceful_shutdown(config.phase1_graceful_shutdown())
                     .with_shutdown_phase(1),
             ),
         )
@@ -261,6 +267,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             run_retry_budget: config.router_run_retry_budget,
             run_retry_backoff: Duration::from_millis(config.router_run_retry_backoff_ms),
             reconcile_interval: config.router_reconcile_interval(),
+            max_txn_ops: config.etcd_max_txn_ops,
         };
 
         let coordination_routing_table =
@@ -342,7 +349,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     name: config.pod_name.clone(),
                     leader_lease_ttl: config.coordinator_lease_ttl,
                     keepalive_interval: config.coordinator_keepalive_interval(),
-                    election_retry_interval: config.coordinator_election_retry_interval(),
+                    standby_poll_interval: config.coordinator_standby_poll_interval(),
+                    run_retry_backoff: config.coordinator_run_retry_backoff(),
+                    backoff_decay_window: config.coordinator_backoff_decay_window(),
                     rebalance_debounce_interval: config.coordinator_rebalance_debounce_interval(),
                     reconcile_interval: config.coordinator_reconcile_interval(),
                     handoff_deadline: config.coordinator_handoff_deadline(),
@@ -354,9 +363,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
             tokio::spawn(async move {
                 let _guard = coordinator_handle.process_scope();
-                if let Err(e) = coordinator.run(coordinator_handle.shutdown_token()).await {
-                    coordinator_handle.signal_failure(format!("Coordinator error: {e}"));
-                }
+                // No failure path back into the lifecycle manager on
+                // purpose: a peer takes over for free, a restart cannot
+                // mend an unwell etcd, and this process also serves
+                // person writes and strong reads. It retries and
+                // reports.
+                coordinator.run(coordinator_handle.shutdown_token()).await;
                 k8s_cancel.cancel();
             });
         } else {
@@ -412,6 +424,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Must stay equal to `common_metrics::ETCD_PAYLOAD_SIZE_BUCKETS_BYTES`,
+/// which every binary on the shared recorder gets. This binary builds its
+/// own recorder and does not depend on that crate, but the store layer
+/// emits the metric from both, and one name carrying two ladders across
+/// jobs cannot be aggregated. `etcd_payload_ladder_matches_the_shared_one`
+/// enforces the equality rather than leaving it to this comment.
+const ETCD_PAYLOAD_SIZE_BUCKETS_BYTES: &[f64] = &[
+    1024.0, 8192.0, 65536.0, 262144.0, 524288.0, 1048576.0, 1572864.0, 2097152.0, 4194304.0,
+];
+
 /// Build and install the process-wide Prometheus recorder. Runs in
 /// `main` before anything records — including `preregister_metrics` —
 /// because everything emitted ahead of the install lands in the default
@@ -429,9 +451,22 @@ fn install_metrics_recorder() -> PrometheusHandle {
     // Sub-second buckets at the bottom because the source is
     // millisecond-precise; the top still reaches far past the
     // handoff deadline so a stall is never collapsed into +Inf.
+    // Dense through the seconds range: healthy phases finish in
+    // hundreds of milliseconds to a few seconds, and during deploy
+    // churn the interesting question is where in 1–10s a phase landed —
+    // the old 2s → 5s gap rendered any tail there as an interpolated
+    // "4.7s" regardless of the real value. The top still reaches far
+    // past the handoff deadline so a stall is never collapsed into
+    // +Inf.
     const HANDOFF_PHASE_BUCKETS: &[f64] = &[
-        50.0, 250.0, 1000.0, 2000.0, 5000.0, 10000.0, 30000.0, 60000.0, 120000.0, 300000.0,
-        600000.0,
+        50.0, 250.0, 500.0, 1000.0, 1500.0, 2000.0, 3000.0, 5000.0, 7500.0, 10000.0, 15000.0,
+        30000.0, 60000.0, 120000.0, 300000.0, 600000.0,
+    ];
+    // Stash waits span "drained at activation" (hundreds of ms) to
+    // "parked across chained handoffs" (seconds); the ceiling is
+    // max_stash_wait, so resolution past ~30s buys nothing.
+    const STASH_WAIT_BUCKETS: &[f64] = &[
+        100.0, 250.0, 500.0, 1000.0, 2000.0, 3000.0, 5000.0, 7500.0, 10000.0, 15000.0, 30000.0,
     ];
     PrometheusBuilder::new()
         .add_global_label("service", "personhog-router")
@@ -440,6 +475,16 @@ fn install_metrics_recorder() -> PrometheusHandle {
         .set_buckets_for_metric(
             Matcher::Prefix("personhog_router_response_size".into()),
             RESPONSE_SIZE_BUCKETS,
+        )
+        .expect("valid buckets")
+        .set_buckets_for_metric(
+            Matcher::Full("personhog_coordination_plan_bytes".into()),
+            ETCD_PAYLOAD_SIZE_BUCKETS_BYTES,
+        )
+        .expect("valid buckets")
+        .set_buckets_for_metric(
+            Matcher::Full("assignment_coordination_etcd_payload_bytes".into()),
+            ETCD_PAYLOAD_SIZE_BUCKETS_BYTES,
         )
         .unwrap()
         .set_buckets_for_metric(
@@ -450,6 +495,16 @@ fn install_metrics_recorder() -> PrometheusHandle {
         .set_buckets_for_metric(
             Matcher::Full("personhog_coordination_handoff_phase_duration_ms".into()),
             HANDOFF_PHASE_BUCKETS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("personhog_router_stash_wait_duration_ms".into()),
+            STASH_WAIT_BUCKETS,
+        )
+        .unwrap()
+        .set_buckets_for_metric(
+            Matcher::Full("personhog_router_stash_drain_duration_ms".into()),
+            STASH_WAIT_BUCKETS,
         )
         .unwrap()
         // Per-request forwarding spans live in single-digit milliseconds;
@@ -516,4 +571,18 @@ fn preregister_metrics() {
             .increment(0);
     }
     personhog_coordination::preregister_router_coordination_metrics();
+}
+
+#[cfg(test)]
+mod tests {
+    /// The two ladders are separate literals that must agree; this
+    /// test is what enforces it.
+    #[test]
+    fn etcd_payload_ladder_matches_the_shared_one() {
+        assert_eq!(
+            super::ETCD_PAYLOAD_SIZE_BUCKETS_BYTES,
+            common_metrics::ETCD_PAYLOAD_SIZE_BUCKETS_BYTES,
+            "one metric name carrying two bucket ladders cannot be aggregated across jobs"
+        );
+    }
 }

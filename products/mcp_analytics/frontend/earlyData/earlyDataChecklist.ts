@@ -18,9 +18,6 @@ export interface ChecklistItem {
     detail: string
     status: ChecklistStatus
     docsUrl: string
-    /** In-app surface for what this check counted, once there is something to look at.
-     * A passing check whose number has nowhere to go is a dead end; this closes it.
-     * Rendered in place of the "Learn more" docs link. */
     appLink?: { to: string; label: string }
 }
 

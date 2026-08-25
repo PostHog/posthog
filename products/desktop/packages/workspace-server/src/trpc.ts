@@ -69,6 +69,7 @@ import {
   discardFileChangesOutput,
   filePathInput,
   getBranchChangedFilesInput,
+  getCommitChangedFilesInput,
   getCommitConventionsInput,
   getCommitConventionsOutput,
   getCommitsBetweenBranchesInput,
@@ -607,6 +608,13 @@ export function createAppRouter({
         .output(changedFilesOutput)
         .query(({ input }) =>
           gitService().getBranchChangedFiles(input.repo, input.branch),
+        ),
+
+      getCommitChangedFiles: t.procedure
+        .input(getCommitChangedFilesInput)
+        .output(changedFilesOutput)
+        .query(({ input }) =>
+          gitService().getCommitChangedFiles(input.repo, input.sha),
         ),
 
       getLocalBranchChangedFiles: t.procedure

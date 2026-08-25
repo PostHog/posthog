@@ -25,6 +25,7 @@ class WizardClientMetadataView(View):
             "grant_types": ["authorization_code"],
             "response_types": ["code"],
             "token_endpoint_auth_method": "none",
+            "com.posthog": {"provisioning": True},
         }
 
         response = JsonResponse(metadata)

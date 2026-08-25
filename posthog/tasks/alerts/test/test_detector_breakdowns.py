@@ -29,7 +29,7 @@ from products.alerts.backend.evaluation.detector import (
 )
 from products.alerts.backend.evaluation.dispatcher import check_detector_alert
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 def _make_trend_result(label: str, data: list[float], breakdown_value: str = "") -> dict[str, Any]:

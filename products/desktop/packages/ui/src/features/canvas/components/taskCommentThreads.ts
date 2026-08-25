@@ -50,11 +50,12 @@ export type TaskCommentThread = {
   /** Groups threads for the source filter. */
   sourceKey: string;
   sourceLabel: string;
-  sourceKind: "file" | "canvas" | "task" | "pr";
+  sourceKind: "file" | "canvas" | "task" | "posthog_object" | "pr";
   entries: CommentEntry[];
   resolved: boolean;
-  /** Newest comment in the thread, for ordering the list. */
-  lastActivityAt: string;
+  /** When the thread was opened, for ordering the list. Ordering on the newest
+   *  reply instead would re-rank a thread the moment someone replies to it. */
+  startedAt: string;
   origin: ThreadOrigin;
 };
 
@@ -103,8 +104,7 @@ export function resourceCommentThreads(
         sourceKind: source.kind,
         entries: [thread.root, ...visibleReplies].map(resourceEntry),
         resolved: thread.resolved,
-        lastActivityAt:
-          visibleReplies.at(-1)?.created_at ?? thread.root.created_at,
+        startedAt: thread.root.created_at,
         origin: { kind: "resource", source, root: thread.root },
       },
     ];
@@ -145,7 +145,8 @@ export function prCommentThreads(
           format: "markdown" as const,
         })),
         resolved: thread.isResolved,
-        lastActivityAt: humanComments.at(-1)?.created_at ?? root.created_at,
+        // The visible root: a bot may have opened the thread, and bots are filtered out.
+        startedAt: humanComments[0].created_at,
         origin: {
           kind: "pr-review" as const,
           prUrl,
@@ -178,7 +179,7 @@ export function prCommentThreads(
         },
       ],
       resolved: false,
-      lastActivityAt: comment.createdAt,
+      startedAt: comment.createdAt,
       origin: { kind: "pr-conversation", prUrl, url: comment.url },
     });
   }
@@ -186,11 +187,12 @@ export function prCommentThreads(
   return threads;
 }
 
-export function byNewestActivity(
+export function byNewestThread(
   a: TaskCommentThread,
   b: TaskCommentThread,
 ): number {
-  return b.lastActivityAt.localeCompare(a.lastActivityAt);
+  // Total, so threads opened in the same second can't swap places between renders.
+  return b.startedAt.localeCompare(a.startedAt) || a.id.localeCompare(b.id);
 }
 
 export type SourceKind = TaskCommentThread["sourceKind"];

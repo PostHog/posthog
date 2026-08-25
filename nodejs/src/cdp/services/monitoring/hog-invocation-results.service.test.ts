@@ -265,6 +265,30 @@ describe('HogInvocationResultsService', () => {
             expect(rows[0].error_message).toBe('Request timed out after 30s')
         })
 
+        it('writes status=canceled on a finished result flagged canceled, with no error fields', async () => {
+            const invocation = createExampleInvocation()
+            service.queueInvocationResults([
+                {
+                    invocation,
+                    finished: true,
+                    canceled: true,
+                    error: undefined,
+                    logs: [],
+                    metrics: [],
+                    capturedPostHogEvents: [],
+                    warehouseWebhookPayloads: [],
+                    messageAssets: [],
+                } as any,
+            ])
+            await service.flush()
+
+            const rows = parseProducedRows(outputs)
+            expect(rows).toHaveLength(1)
+            expect(rows[0].status).toBe('canceled')
+            expect(rows[0].error_kind).toBe('')
+            expect(rows[0].finished_at).not.toBeNull()
+        })
+
         it('produces no row for an in-flight result that has not finished and has no error', async () => {
             const invocation = createExampleInvocation()
             service.queueInvocationResults([

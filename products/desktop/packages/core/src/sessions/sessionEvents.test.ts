@@ -1,17 +1,23 @@
 import type { ContentBlock } from "@agentclientprotocol/sdk";
-import type { AcpMessage, StoredLogEntry } from "@posthog/shared";
+import type {
+  AcpMessage,
+  OptimisticItem,
+  StoredLogEntry,
+} from "@posthog/shared";
 import { describe, expect, it } from "vitest";
 
 import { makeAttachmentUri } from "./promptContent";
 import {
   collapseSupersededToolCallUpdates,
   convertStoredEntriesToEvents,
+  dropEventsCoveredByTail,
   extractUserPromptsFromEvents,
   hasSessionPromptEvent,
   hasSessionPromptEventForTaskRun,
   isAbsoluteFolderPath,
   isFatalSessionError,
   promptReferencesAbsoluteFolder,
+  selectEchoedOptimisticItemIds,
 } from "./sessionEvents";
 
 describe("isFatalSessionError", () => {
@@ -227,6 +233,141 @@ describe("hasSessionPromptEvent", () => {
       hasSessionPromptEventForTaskRun(events.slice(0, 2), "resume-run"),
     ).toBe(false);
     expect(hasSessionPromptEventForTaskRun(events, "resume-run")).toBe(true);
+  });
+});
+
+describe("selectEchoedOptimisticItemIds", () => {
+  // The floor is compared against stored-log positions, so the events have to
+  // be built the way a cloud commit builds them rather than by hand.
+  const promptLog = (...texts: string[]): AcpMessage[] =>
+    convertStoredEntriesToEvents(
+      texts.map((text) => ({
+        type: "notification",
+        notification: {
+          id: 1,
+          method: "session/prompt",
+          params: { prompt: [{ type: "text", text }] },
+        },
+      })) as StoredLogEntry[],
+      undefined,
+      { taskRunId: "run-1", startEntryIndex: 0 },
+    );
+  const tailItem = (id: string, content: string): OptimisticItem => ({
+    type: "user_message",
+    id,
+    content,
+    timestamp: 1,
+    pinToTop: false,
+  });
+
+  it("keeps a bubble the events carry no echo for", () => {
+    expect(
+      selectEchoedOptimisticItemIds(
+        [tailItem("o1", "steer me")],
+        promptLog("the original task"),
+        0,
+      ),
+    ).toEqual([]);
+  });
+
+  it("drops a bubble once its echo lands", () => {
+    expect(
+      selectEchoedOptimisticItemIds(
+        [tailItem("o1", "steer me")],
+        promptLog("the original task", "steer me"),
+        0,
+      ),
+    ).toEqual(["o1"]);
+  });
+
+  it("matches an echo that omits the bubble's attachment summary", () => {
+    expect(
+      selectEchoedOptimisticItemIds(
+        [tailItem("o1", "look at this\n\nAttached files: notes.txt")],
+        promptLog("look at this"),
+        0,
+      ),
+    ).toEqual(["o1"]);
+  });
+
+  it("leaves a pinned bubble for the merge layer to dedupe", () => {
+    const pinned: OptimisticItem = {
+      type: "user_message",
+      id: "o1",
+      content: "the original task",
+      timestamp: 1,
+    };
+    expect(
+      selectEchoedOptimisticItemIds(
+        [pinned],
+        promptLog("the original task"),
+        0,
+      ),
+    ).toEqual([]);
+  });
+
+  it("keeps a bubble whose repeated text only matches an already-committed prompt", () => {
+    expect(
+      selectEchoedOptimisticItemIds(
+        [tailItem("o1", "yes")],
+        promptLog("yes", "carry on"),
+        2,
+      ),
+    ).toEqual([]);
+  });
+
+  it("retires one bubble per echo when several share the same text", () => {
+    expect(
+      selectEchoedOptimisticItemIds(
+        [tailItem("o1", "yes"), tailItem("o2", "yes")],
+        promptLog("yes"),
+        0,
+      ),
+    ).toEqual(["o1"]);
+  });
+});
+
+describe("dropEventsCoveredByTail", () => {
+  const noteEntry = (method: string): StoredLogEntry =>
+    ({
+      type: "notification",
+      notification: { jsonrpc: "2.0", method },
+    }) as unknown as StoredLogEntry;
+
+  const positionedEvents = (
+    taskRunId: string,
+    startEntryIndex: number,
+    methods: string[],
+  ): AcpMessage[] =>
+    convertStoredEntriesToEvents(methods.map(noteEntry), undefined, {
+      taskRunId,
+      startEntryIndex,
+    });
+
+  it("returns undefined when no existing event is covered by the tail", () => {
+    const events = [
+      ...positionedEvents("run-1", 0, ["a", "b"]),
+      ...positionedEvents("other-run", 5, ["c"]),
+      { type: "acp_message", ts: 1, message: {} } as unknown as AcpMessage,
+    ];
+    expect(dropEventsCoveredByTail(events, "run-1", 2)).toBeUndefined();
+  });
+
+  it("drops the run's events at or after the tail start and keeps the rest", () => {
+    const kept = positionedEvents("run-1", 0, ["a", "b"]);
+    const covered = positionedEvents("run-1", 3, ["c", "d"]);
+    const otherRun = positionedEvents("other-run", 3, ["e"]);
+    const unpositioned = {
+      type: "acp_message",
+      ts: 1,
+      message: {},
+    } as unknown as AcpMessage;
+    const result = dropEventsCoveredByTail(
+      [...kept, unpositioned, ...covered, ...otherRun],
+      "run-1",
+      3,
+    );
+    expect(result).toEqual([...kept, unpositioned, ...otherRun]);
   });
 });
 

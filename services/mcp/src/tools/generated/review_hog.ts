@@ -58,6 +58,9 @@ const reviewHogReviewsTrigger = (): ToolBase<typeof ReviewHogReviewsTriggerSchem
         if (params.pr_url !== undefined) {
             body['pr_url'] = params.pr_url
         }
+        if (params.run_mode !== undefined) {
+            body['run_mode'] = params.run_mode
+        }
         const result = await context.api.request<Schemas.ReviewTriggerResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/review_hog/reviews/trigger/`,

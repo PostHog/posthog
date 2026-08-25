@@ -44,6 +44,29 @@ jobs:
                       echo "No CLI changesets to release"
                   fi
 
+            # No thread reply here: the approval message does not exist yet.
+            - name: Send failure event to PostHog
+              if: ${{ failure() }}
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: '${{ secrets.POSTHOG_PROJECT_API_KEY }}'
+                  event: 'posthog-sdk-github-release-workflow-failure'
+                  properties: >-
+                      {
+                        "commitSha": "${{ github.sha }}",
+                        "jobStatus": "${{ job.status }}",
+                        "ref": "${{ github.ref }}",
+                        "repository": "${{ github.repository }}",
+                        "sdk": "posthog-cli",
+                        "jobName": "check-changesets",
+                        "packageName": "posthog-cli",
+                        "packageVersion": "unknown",
+                        "actionUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+                        "alertText": ":rotating_light: Failed to check posthog-cli changesets :rotating_light:",
+                        "alertContext": "The release stopped before it asked for approval. The changesets stay on master until another CLI change lands."
+                      }
+
     notify-approval-needed:
         name: Notify Slack - Approval Needed
         needs: [check-changesets, cli-release-preview]
@@ -123,6 +146,30 @@ jobs:
                     echo "</details>"
                   } >> "$GITHUB_STEP_SUMMARY"
 
+            # No thread reply here: notify-approval-needed depends on this job, so the approval
+            # message does not exist yet.
+            - name: Send failure event to PostHog
+              if: ${{ failure() }}
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: '${{ secrets.POSTHOG_PROJECT_API_KEY }}'
+                  event: 'posthog-sdk-github-release-workflow-failure'
+                  properties: >-
+                      {
+                        "commitSha": "${{ github.sha }}",
+                        "jobStatus": "${{ job.status }}",
+                        "ref": "${{ github.ref }}",
+                        "repository": "${{ github.repository }}",
+                        "sdk": "posthog-cli",
+                        "jobName": "cli-release-preview",
+                        "packageName": "posthog-cli",
+                        "packageVersion": "unknown",
+                        "actionUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+                        "alertText": ":rotating_light: Failed to build the posthog-cli release preview :rotating_light:",
+                        "alertContext": "The release stopped before it asked for approval. The changesets stay on master until another CLI change lands."
+                      }
+
     release:
         name: Prepare CLI release
         needs: [check-changesets, cli-release-preview, notify-approval-needed]
@@ -137,16 +184,6 @@ jobs:
             release-tag: ${{ steps.release-metadata.outputs.release-tag }}
             release-commit: ${{ steps.commit-release.outputs.commit-hash }}
         steps:
-            - name: Notify Slack - Approved
-              if: needs.notify-approval-needed.outputs.slack_ts != ''
-              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
-              with:
-                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
-                  slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
-                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
-                  message: 'Release approved. Preparing posthog-cli version bump.'
-                  emoji_reaction: 'white_check_mark'
-
             - name: Get GitHub App token
               id: app-token
               uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
@@ -165,7 +202,30 @@ jobs:
             - name: Update to latest master before preparing release
               run: git pull --ff-only origin master
 
+            - name: Check for remaining changesets
+              id: recheck-changesets
+              run: |
+                  changeset_count=$(find cli/.sampo/changesets -name '*.md' 2>/dev/null | wc -l)
+                  if [ "$changeset_count" -gt 0 ]; then
+                      echo "has-changesets=true" >> "$GITHUB_OUTPUT"
+                      echo "Found $changeset_count CLI changeset(s), continuing release preparation"
+                  else
+                      echo "has-changesets=false" >> "$GITHUB_OUTPUT"
+                      echo "No CLI changesets remain; skipping release preparation"
+                  fi
+
+            - name: Notify Slack - Approved
+              if: steps.recheck-changesets.outputs.has-changesets == 'true' && needs.notify-approval-needed.outputs.slack_ts != ''
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  message: 'Release approved. Preparing posthog-cli version bump.'
+                  emoji_reaction: 'white_check_mark'
+
             - name: Install Rust
+              if: steps.recheck-changesets.outputs.has-changesets == 'true'
               uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
               with:
                   toolchain: 1.91.1
@@ -173,17 +233,19 @@ jobs:
 
             - name: Cache Sampo CLI
               id: cache-sampo
+              if: steps.recheck-changesets.outputs.has-changesets == 'true'
               uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
               with:
                   path: ~/.cargo/bin/sampo
                   key: sampo-${{ runner.os }}-${{ runner.arch }}-${{ env.SAMPO_VERSION }}
 
             - name: Install Sampo CLI
-              if: steps.cache-sampo.outputs.cache-hit != 'true'
+              if: steps.recheck-changesets.outputs.has-changesets == 'true' && steps.cache-sampo.outputs.cache-hit != 'true'
               run: cargo install sampo --version "$SAMPO_VERSION" --locked
 
             - name: Prepare release with Sampo
               id: prepare-release
+              if: steps.recheck-changesets.outputs.has-changesets == 'true'
               working-directory: cli
               env:
                   GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
@@ -200,6 +262,7 @@ jobs:
                   echo "Prepared posthog-cli v$new_version"
 
             - name: Check release tag
+              if: steps.prepare-release.outputs.new-version != ''
               env:
                   NEW_VERSION: ${{ steps.prepare-release.outputs.new-version }}
               run: |
@@ -211,6 +274,7 @@ jobs:
 
             - name: Check release changes
               id: check-changes
+              if: steps.prepare-release.outputs.new-version != ''
               run: |
                   changed_files=$(git diff --name-only)
                   if [ -z "$changed_files" ]; then
@@ -233,6 +297,7 @@ jobs:
                   echo "committed=true" >> "$GITHUB_OUTPUT"
 
             - name: Ensure master did not advance during release prep
+              if: steps.check-changes.outputs.committed == 'true'
               run: |
                   git fetch origin master
                   if [ "$(git rev-parse HEAD)" != "$(git rev-parse FETCH_HEAD)" ]; then
@@ -269,27 +334,36 @@ jobs:
                   echo "release-tag=$release_tag" >> "$GITHUB_OUTPUT"
 
             - name: Send failure event to PostHog
-              if: failure()
+              if: ${{ failure() }}
+              continue-on-error: true
               uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
               with:
                   posthog-token: '${{ secrets.POSTHOG_PROJECT_API_KEY }}'
-                  event: 'posthog-cli-github-release-workflow-failure'
+                  event: 'posthog-sdk-github-release-workflow-failure'
                   properties: >-
                       {
                         "commitSha": "${{ github.sha }}",
                         "jobStatus": "${{ job.status }}",
                         "ref": "${{ github.ref }}",
-                        "version": "${{ steps.prepare-release.outputs.new-version }}"
+                        "repository": "${{ github.repository }}",
+                        "sdk": "posthog-cli",
+                        "jobName": "release",
+                        "packageName": "posthog-cli",
+                        "packageVersion": "${{ steps.prepare-release.outputs.new-version || 'unknown' }}",
+                        "actionUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+                        "alertText": ":rotating_light: Failed to prepare release posthog-cli@v${{ steps.prepare-release.outputs.new-version || 'unknown' }} :rotating_light:",
+                        "alertContext": "The version bump step failed before cargo-dist ran."
                       }
 
             - name: Notify Slack - Failed
-              if: failure() && needs.notify-approval-needed.outputs.slack_ts != ''
+              continue-on-error: true # A Slack outage must not hide the PostHog alert
+              if: ${{ failure() && needs.notify-approval-needed.outputs.slack_ts != '' }}
               uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
               with:
                   slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
                   slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
                   thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
-                  message: 'Failed to prepare posthog-cli release. View logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
+                  message: "❌ Failed to prepare `posthog-cli@v${{ steps.prepare-release.outputs.new-version || 'unknown' }}`. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow run>"
                   emoji_reaction: 'x'
 
     # Keep cargo-dist publishing in this workflow so the Release approval gates the full release path.
@@ -317,6 +391,7 @@ jobs:
               run: |
                   installer="$RUNNER_TEMP/cargo-dist-installer.sh"
                   curl --proto '=https' --tlsv1.2 -LsSf \
+                      --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
                       "https://github.com/axodotdev/cargo-dist/releases/download/v${CARGO_DIST_VERSION}/cargo-dist-installer.sh" \
                       -o "$installer"
                   if command -v sha256sum >/dev/null 2>&1; then
@@ -363,11 +438,11 @@ jobs:
     # Build and packages all the platform-specific things
     build-local-artifacts:
         name: build-local-artifacts (${{ join(matrix.targets, ', ') }})
-        # Let the initial task tell us to not run (currently very blunt)
+        # Let the initial task tell us to not run (very blunt)
         needs:
             - release
             - plan-release
-        if: ${{ fromJson(needs.plan-release.outputs.val).ci.github.artifacts_matrix.include != null }}
+        if: ${{ needs.plan-release.result == 'success' && fromJson(needs.plan-release.outputs.val).ci.github.artifacts_matrix.include != null }}
         strategy:
             fail-fast: false
             # Target platforms/runners are computed by dist in create-release.
@@ -407,6 +482,7 @@ jobs:
               run: |
                   installer="$RUNNER_TEMP/cargo-dist-installer.sh"
                   curl --proto '=https' --tlsv1.2 -LsSf \
+                      --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
                       "https://github.com/axodotdev/cargo-dist/releases/download/v${CARGO_DIST_VERSION}/cargo-dist-installer.sh" \
                       -o "$installer"
                   if command -v sha256sum >/dev/null 2>&1; then
@@ -454,6 +530,15 @@ jobs:
               run: |
                   node -e "const { existsSync, statSync } = require('node:fs'); const path = 'cli/lib/posthog-api-cli.mjs'; if (!existsSync(path) || statSync(path).size <= 0) { console.error('::error::API CLI bundle is missing or empty: ' + path); process.exit(1); }"
             - name: Build artifacts
+              env:
+                  CARGO_PROFILE_DIST_SPLIT_DEBUGINFO: ${{ runner.os == 'macOS' && 'packed' || 'off' }}
+                  # Debug symbol uploads derive their chunk id from the GNU build id,
+                  # and zig's lld (used by cargo-zigbuild for cross builds) emits none
+                  # by default. dist reads the ambient RUSTFLAGS and appends its own,
+                  # so this composes with the musl static flags. A config.toml
+                  # rustflags entry would not work: dist always sets the RUSTFLAGS
+                  # env, which overrides cargo config.
+                  RUSTFLAGS: ${{ runner.os == 'Linux' && '-C link-arg=-Wl,--build-id=sha1' || '' }}
               run: |
                   # Actually do builds and make zips and whatnot
                   dist build ${{ needs.plan-release.outputs.tag-flag }} --print=linkage --output-format=json ${{ matrix.dist_args }} > dist-manifest.json
@@ -473,6 +558,49 @@ jobs:
                           exit 1
                       fi
                   done
+            - name: Upload CLI debug symbols
+              if: runner.os != 'Windows'
+              # Dogfooding only: a failed symbol upload degrades our own error
+              # tracking, and must not block shipping the CLI to users.
+              continue-on-error: true
+              shell: bash
+              env:
+                  POSTHOG_CLI_API_KEY: ${{ secrets.POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY }}
+                  POSTHOG_CLI_PROJECT_ID: '2'
+                  RELEASE_VERSION: ${{ needs.release.outputs.new-version }}
+                  TARGETS: ${{ join(matrix.targets, ' ') }}
+              run: |
+                  set -euo pipefail
+
+                  if [ -z "$POSTHOG_CLI_API_KEY" ]; then
+                      echo "::error::POSTHOG_UPLOAD_SOURCEMAPS_CLI_API_KEY is required to upload CLI debug symbols"
+                      exit 1
+                  fi
+
+                  symbols_dir="$RUNNER_TEMP/posthog-cli-symbols"
+                  mkdir -p "$symbols_dir"
+
+                  for target in $TARGETS; do
+                      package_dir="target/distrib/posthog-cli-$target"
+                      target_symbols_dir="$symbols_dir/$target"
+                      mkdir -p "$target_symbols_dir"
+                      cp "$package_dir/posthog-cli" "$target_symbols_dir/posthog-cli"
+                  done
+
+                  # Cargo builds into cli/target (the cargo workspace root is cli/),
+                  # while repo-root target/ only holds cargo-dist's staging area, so
+                  # dSYM bundles produced by split-debuginfo live under cli/target.
+                  # posthog-cli.dSYM is a symlink to a hash-named bundle in deps/,
+                  # so the find must follow links and the copy must dereference.
+                  while IFS= read -r -d '' dsym; do
+                      cp -R -L "$dsym" "$symbols_dir/$(basename "$(dirname "$dsym")")-posthog-cli.dSYM"
+                  done < <(find -L target cli/target -type d -name 'posthog-cli.dSYM' -print0)
+
+                  cargo run --manifest-path cli/Cargo.toml --profile dist -- \
+                      symbol-sets upload --directory "$symbols_dir" \
+                      --release-name posthog-cli \
+                      --release-version "$RELEASE_VERSION"
+
             - id: cargo-dist
               name: Post-build
               # We force bash here just because github makes it really hard to get values up
@@ -545,6 +673,8 @@ jobs:
               run: |
                   dist build ${{ needs.plan-release.outputs.tag-flag }} --output-format=json "--artifacts=global" > dist-manifest.json
                   echo "dist ran successfully"
+
+                  node .github/scripts/patch-cli-npm-installer.mjs target/distrib dist-manifest.json
 
                   # Parse out what we just built and upload it to scratch storage
                   echo "paths<<EOF" >> "$GITHUB_OUTPUT"
@@ -627,7 +757,6 @@ jobs:
               shell: bash
               env:
                   PRERELEASE_FLAG: "${{ fromJson(steps.host.outputs.manifest).announcement_is_prerelease && '--prerelease' || '' }}"
-                  ANNOUNCEMENT_TITLE: '${{ fromJson(steps.host.outputs.manifest).announcement_title }}'
                   ANNOUNCEMENT_BODY: '${{ fromJson(steps.host.outputs.manifest).announcement_github_body }}'
                   RELEASE_COMMIT: '${{ needs.release.outputs.release-commit }}'
                   LATEST_RELEASE_TAG: posthog-cli-latest
@@ -640,7 +769,7 @@ jobs:
                       release_args+=("$PRERELEASE_FLAG")
                   fi
 
-                  gh release create "${{ needs.plan-release.outputs.tag }}" --target "$RELEASE_COMMIT" "${release_args[@]}" --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
+                  gh release create "${{ needs.plan-release.outputs.tag }}" --target "$RELEASE_COMMIT" "${release_args[@]}" --title "${{ needs.plan-release.outputs.tag }}" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
 
                   if [ -z "$PRERELEASE_FLAG" ]; then
                       STAGED_RELEASE_TAG="$LATEST_RELEASE_TAG-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
@@ -677,7 +806,7 @@ jobs:
         env:
             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
             PLAN: ${{ needs.plan-release.outputs.val }}
-        if: ${{ !fromJson(needs.plan-release.outputs.val).announcement_is_prerelease || fromJson(needs.plan-release.outputs.val).publish_prereleases }}
+        if: ${{ needs.plan-release.result == 'success' && (!fromJson(needs.plan-release.outputs.val).announcement_is_prerelease || fromJson(needs.plan-release.outputs.val).publish_prereleases) }}
         permissions:
             id-token: write
         steps:
@@ -722,3 +851,69 @@ jobs:
                   thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
                   message: 'posthog-cli release ${{ needs.release.outputs.new-version }} published for ${{ needs.release.outputs.release-tag }}.'
                   emoji_reaction: 'rocket'
+
+    # cargo-dist generates the jobs below, so per-job failure steps do not survive `dist generate`,
+    # and the 7-target matrix would alert 7 times. The release job stays out of the condition: a
+    # rejected approval marks it failed, and a rejection must not raise a release-failure alert.
+    notify-publish-failed:
+        name: Notify Slack - Publish Failed
+        needs:
+            - notify-approval-needed
+            - release
+            - plan-release
+            - build-local-artifacts
+            - build-global-artifacts
+            - host-release
+            - publish-npm
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        if: >-
+            always() && (needs.plan-release.result == 'failure' || needs.build-local-artifacts.result == 'failure'
+            || needs.build-global-artifacts.result == 'failure' || needs.host-release.result == 'failure'
+            || needs.publish-npm.result == 'failure')
+        steps:
+            - name: Collect failed jobs
+              id: failure-metadata
+              env:
+                  NEEDS_JSON: ${{ toJSON(needs) }}
+              run: |
+                  set -euo pipefail
+
+                  failed_jobs=$(printf '%s' "$NEEDS_JSON" | jq -r '
+                      to_entries | map(select(.value.result == "failure") | .key) | join(", ")
+                  ')
+                  [ -n "$failed_jobs" ] || failed_jobs='unknown'
+                  echo "failed-jobs=$failed_jobs" >> "$GITHUB_OUTPUT"
+
+            - name: Send failure event to PostHog
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: '${{ secrets.POSTHOG_PROJECT_API_KEY }}'
+                  event: 'posthog-sdk-github-release-workflow-failure'
+                  properties: >-
+                      {
+                        "commitSha": "${{ github.sha }}",
+                        "jobStatus": "failure",
+                        "ref": "${{ github.ref }}",
+                        "repository": "${{ github.repository }}",
+                        "sdk": "posthog-cli",
+                        "jobName": "cargo-dist",
+                        "failedJobs": "${{ steps.failure-metadata.outputs.failed-jobs }}",
+                        "packageName": "posthog-cli",
+                        "packageVersion": "${{ needs.release.outputs.new-version || 'unknown' }}",
+                        "actionUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+                        "alertText": ":rotating_light: Failed to publish posthog-cli@v${{ needs.release.outputs.new-version || 'unknown' }} :rotating_light:",
+                        "alertContext": "The release commit landed, so master carries a version cargo-dist did not publish. Failed jobs: ${{ steps.failure-metadata.outputs.failed-jobs }}."
+                      }
+
+            - name: Notify Slack - Failed
+              continue-on-error: true # A Slack outage must not hide the PostHog alert
+              if: needs.notify-approval-needed.outputs.slack_ts != ''
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  message: "❌ Failed to publish `posthog-cli@v${{ needs.release.outputs.new-version || 'unknown' }}` (${{ steps.failure-metadata.outputs.failed-jobs }}). <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow run>"
+                  emoji_reaction: 'x'

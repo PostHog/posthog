@@ -10,6 +10,10 @@ import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { parseHttpsUrl } from "@posthog/ui/utils/posthogLinks";
 import { useCallback, useMemo, useRef, useState } from "react";
+import {
+  selectionAnchor,
+  withSelectionPosition,
+} from "./artifactHtmlCommentPosition";
 import { ArtifactHtmlFrame } from "./artifactHtmlFrame";
 import {
   ARTIFACT_HTML_BRIDGE_MARKER,
@@ -37,7 +41,6 @@ function isFrameRect(value: unknown): value is ArtifactHtmlFrameRect {
 export function AnnotatedArtifactHtml({
   html,
   name,
-  commentsEnabled,
   comments,
   activeThreadId,
   locateRequest,
@@ -48,7 +51,6 @@ export function AnnotatedArtifactHtml({
 }: {
   html: string;
   name: string;
-  commentsEnabled: boolean;
   comments: ResourceComment[];
   activeThreadId: string | null;
   locateRequest: CommentLocateRequest | null;
@@ -73,24 +75,15 @@ export function AnnotatedArtifactHtml({
   );
   const [selection, setSelection] = useState<EditorSelection | null>(null);
   const previewDocument = useMemo(
-    () =>
-      scriptedArtifactHtmlDocument(
-        html,
-        commentsEnabled ? channelRef.current : undefined,
-        initialTheme,
-      ),
-    [commentsEnabled, html, initialTheme],
+    () => scriptedArtifactHtmlDocument(html, channelRef.current, initialTheme),
+    [html, initialTheme],
   );
   const fallbackDocument = useMemo(
-    () =>
-      artifactHtmlDocument(
-        html,
-        commentsEnabled ? channelRef.current : undefined,
-        initialTheme,
-      ),
-    [commentsEnabled, html, initialTheme],
+    () => artifactHtmlDocument(html, channelRef.current, initialTheme),
+    [html, initialTheme],
   );
 
+  const selectionOpen = selection !== null;
   const bridgeItems = useMemo(
     () =>
       comments.flatMap((comment) => {
@@ -110,7 +103,6 @@ export function AnnotatedArtifactHtml({
   );
 
   const messages = useMemo(() => {
-    if (!commentsEnabled) return [];
     const next: Record<string, unknown>[] = [
       {
         marker: ARTIFACT_HTML_BRIDGE_MARKER,
@@ -125,16 +117,24 @@ export function AnnotatedArtifactHtml({
         items: bridgeItems,
       },
     ];
+    if (!selectionOpen) {
+      next.push({
+        marker: ARTIFACT_HTML_BRIDGE_MARKER,
+        channel: channelRef.current,
+        type: "selection-dismissed",
+      });
+    }
     if (locateRequest) {
       next.push({
         marker: ARTIFACT_HTML_BRIDGE_MARKER,
         channel: channelRef.current,
         type: "locate",
         id: locateRequest.id,
+        nonce: locateRequest.nonce,
       });
     }
     return next;
-  }, [bridgeItems, commentsEnabled, locateRequest, theme]);
+  }, [bridgeItems, locateRequest, selectionOpen, theme]);
 
   const receive = useCallback(
     (value: unknown, frameBox: ArtifactHtmlFrameRect) => {
@@ -167,7 +167,14 @@ export function AnnotatedArtifactHtml({
         onResolutionsChange(resolutions);
         return;
       }
-      if (data.type !== "selection" || !isFrameRect(data.triggerRect)) return;
+      if (data.type === "selection-position" && isFrameRect(data.rect)) {
+        const rect = data.rect;
+        setSelection((current) =>
+          withSelectionPosition(current, frameBox, rect),
+        );
+        return;
+      }
+      if (data.type !== "selection" || !isFrameRect(data.rect)) return;
       const parsed = commentAnchorSchema.safeParse(data.anchor);
       if (!parsed.success || parsed.data.kind !== "text") return;
       setPendingAnchor(parsed.data);
@@ -175,11 +182,7 @@ export function AnnotatedArtifactHtml({
         text: parsed.data.quote,
         fromLine: parsed.data.start + 1,
         toLine: parsed.data.end + 1,
-        anchor: {
-          top: frameBox.top + data.triggerRect.top,
-          endX: frameBox.left + data.triggerRect.left,
-          bottom: frameBox.top + data.triggerRect.bottom,
-        },
+        anchor: selectionAnchor(frameBox, data.rect),
       });
     },
     [onActivateThread, onResolutionsChange],

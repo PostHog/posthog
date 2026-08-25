@@ -19,14 +19,17 @@ use serde_json::json;
 use tracing::{debug, instrument, warn, Span};
 
 use crate::api::{CaptureError, CaptureResponse, CaptureResponseCode};
+use crate::events::ai_byte_limit::drop_ai_byte_limited;
 use crate::events::overflow_stamping::stamp_overflow_reason;
 use crate::extractors::extract_body_with_timeout;
 use crate::ingestion_warnings::otel::{
-    emit_no_ai_spans_warning, emit_otel_parse_warning, emit_span_cap_warning, SpanCapStage,
+    emit_no_ai_spans_warning, emit_otel_parse_warning, emit_span_cap_warning,
+    emit_span_too_big_warning, SpanCapStage,
 };
 use crate::prometheus::{report_dropped_events, report_internal_error_metrics};
 use crate::router::State as AppState;
 use crate::token::validate_token;
+use crate::v0_request::exceeds_max_ai_event_bytes;
 
 use self::attribution::otel_request_context;
 
@@ -280,6 +283,49 @@ pub async fn otel_handler(
                 e.into_response()
             })?;
 
+    // Shed spans past the deployment's per-event ceiling rather than refusing
+    // the export.
+    //
+    // Every other AI path answers an oversize event with an error: the legacy
+    // batch path 413s the request and v1 marks the single event dropped. OTEL
+    // diverges because a collector retries a rejected export, so a span that
+    // can never fit would stall every span queued behind it, indefinitely. The
+    // span cap on this endpoint sheds spans for the same reason.
+    //
+    // The cost is that the loss cannot be seen in the response, so it is
+    // reported twice: on `capture_events_dropped_total` for us, and as a
+    // `MessageSizeTooLarge` ingestion warning for whoever owns the project.
+    let before = processed_events.len();
+    processed_events
+        .retain(|e| !exceeds_max_ai_event_bytes(e.event.data.len(), state.ai_max_event_bytes));
+    let dropped = before - processed_events.len();
+    if dropped > 0 {
+        report_dropped_events("ai_event_too_big", dropped as u64);
+        emit_span_too_big_warning(
+            state.ingestion_warning_emitter.as_deref(),
+            &otel_request_context(&token, OTEL_PATH, Some(&request)),
+            dropped,
+            state.ai_max_event_bytes,
+        );
+    }
+
+    // Charge the AI lane's per-project byte budget, shedding the spans that
+    // take the project past it. This endpoint builds its events at the handler
+    // and reaches the sink through neither analytics pipeline, so without this
+    // call a sender could spend an unbounded number of bytes here while the
+    // same bytes on `/i/v0/ai/batch` are capped.
+    //
+    // Shedding rather than refusing, for the reason the size ceiling above
+    // sheds: a collector retries a rejected export, so refusing would stall
+    // every span behind the ones over budget. Unlike the size ceiling this
+    // raises no ingestion warning — a rate drop is ops-imposed, and capture
+    // surfaces those through billing and ops channels rather than the
+    // customer-facing warnings table, which `warning_for_capture_error` pins.
+    //
+    // It runs after the ceiling so an event too big to publish spends none of
+    // the budget, matching the order both analytics pipelines use.
+    drop_ai_byte_limited(&mut processed_events, state.ai_byte_rate_limiter.as_ref()).await;
+
     // Apply the in-process OverflowLimiter governor to every AnalyticsMain
     // span in the batch before handing off to the sink. OTEL bypasses
     // `events::analytics::process_events`, so this call is what preserves
@@ -293,13 +339,17 @@ pub async fn otel_handler(
         state.ai_events_overflow_limiter.as_ref(),
     );
 
+    // Count what the sink was handed, not what arrived: `span_count` predates
+    // the size ceiling and the byte budget, either of which may have shed spans.
+    let ingested = processed_events.len() as u64;
+
     state.sink.send_batch(processed_events).await.map_err(|e| {
         report_internal_error_metrics(e.to_metric_tag(), "otel_sink");
         warn!("Failed to send OTel events to Kafka: {:?}", e);
         e.into_response()
     })?;
 
-    counter!("capture_ai_otel_events_ingested").increment(span_count as u64);
+    counter!("capture_ai_otel_events_ingested").increment(ingested);
     counter!("capture_ai_otel_requests_success").increment(1);
 
     debug!(

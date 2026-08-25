@@ -131,6 +131,14 @@ export const trendsSeries = {
         days,
         labels,
     } satisfies CannedSeries,
+    // Week display labels omit the year, so a multi-year weekly range returns the same label
+    // string for buckets in different years — the shape that folds a chart keyed by labels.
+    weeklyAcrossYears: {
+        label: 'WeeklyAcrossYears',
+        data: [10, 20, 30, 40, 50, 60],
+        days: ['2020-06-01', '2020-06-08', '2020-06-15', '2026-06-01', '2026-06-08', '2026-06-15'],
+        labels: ['1–7 Jun', '8–14 Jun', '15–21 Jun', '1–7 Jun', '8–14 Jun', '15–21 Jun'],
+    } satisfies CannedSeries,
     noActivity: {
         label: 'NoActivity',
         data: [0, 0, 0, 0, 0],
@@ -176,6 +184,7 @@ const seriesByEvent: Record<string, EventSeriesConfig> = {
     ZeroCounts: { default: trendsSeries.withZeroCounts[0], multi: trendsSeries.withZeroCounts },
     Minimal: { default: trendsSeries.minimal },
     NoActivity: { default: trendsSeries.noActivity },
+    WeeklyAcrossYears: { default: trendsSeries.weeklyAcrossYears },
 }
 
 /** Resolver for compare queries — returns current + previous period series. */

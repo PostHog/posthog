@@ -159,27 +159,20 @@ class TestSyncHogFunctionTemplates:
 
         call_command("sync_hog_function_templates")
 
-        # Find the slack template in HOG_FUNCTION_TEMPLATES
-        slack_template = next((t for t in HOG_FUNCTION_TEMPLATES if t.id == TEST_INCLUDE_PYTHON_TEMPLATE_IDS[0]), None)
-        assert slack_template is not None, (
-            f"Template {TEST_INCLUDE_PYTHON_TEMPLATE_IDS[0]} not found in HOG_FUNCTION_TEMPLATES"
-        )
+        python_template = next(t for t in HOG_FUNCTION_TEMPLATES if t.type in TYPES_WITH_JAVASCRIPT_SOURCE)
 
         # Check that the template was stored correctly
-        db_template = HogFunctionTemplate.objects.get(template_id=slack_template.id)
+        db_template = HogFunctionTemplate.objects.get(template_id=python_template.id)
 
         # Verify core template fields
-        assert db_template.name == slack_template.name
-        assert db_template.code == slack_template.code
-        assert db_template.type == slack_template.type
+        assert db_template.template_id == python_template.id
+        assert db_template.name == python_template.name
+        assert db_template.code == python_template.code
+        assert db_template.type == python_template.type
 
         # Only check bytecode if it's not a JavaScript template
         if db_template.type not in TYPES_WITH_JAVASCRIPT_SOURCE:
             assert db_template.bytecode is not None
-
-        assert db_template.template_id == slack_template.id
-        assert db_template.name == slack_template.name
-        assert db_template.code == slack_template.code
 
     @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
     def test_template_version_behavior(self, mock_get_hog_function_templates):

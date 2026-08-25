@@ -35,11 +35,17 @@ const artifactComments = vi.hoisted(() => ({
 }));
 const createComment = vi.hoisted(() => vi.fn());
 const useQuery = vi.hoisted(() => vi.fn());
-const commentsFlag = vi.hoisted(() => ({ enabled: true }));
-const orgMembersOptions = vi.hoisted(() => vi.fn());
-
-vi.mock("@posthog/ui/features/sessions/useCommentsEnabled", () => ({
-  useCommentsEnabled: () => commentsFlag.enabled,
+const taskRuns = vi.hoisted(() => ({
+  data: [] as unknown[],
+  isLoading: false,
+  refreshRuns: vi.fn(),
+}));
+const artifactMocks = vi.hoisted(() => ({
+  getCloudRunArtifacts: vi.fn(),
+  getCloudAttachmentPreviewUrl: vi.fn(),
+  uploadCloudRunArtifactVersion: vi.fn(),
+  invalidateQueries: vi.fn(),
+  openArtifactTab: vi.fn(),
 }));
 
 vi.mock("@posthog/core/sessions/sessionService", () => ({
@@ -47,7 +53,11 @@ vi.mock("@posthog/core/sessions/sessionService", () => ({
 }));
 
 vi.mock("@posthog/di/react", () => ({
-  useService: () => ({}),
+  useService: () => ({
+    getCloudRunArtifacts: artifactMocks.getCloudRunArtifacts,
+    getCloudAttachmentPreviewUrl: artifactMocks.getCloudAttachmentPreviewUrl,
+    uploadCloudRunArtifactVersion: artifactMocks.uploadCloudRunArtifactVersion,
+  }),
   useServiceOptional: () => null,
 }));
 
@@ -60,11 +70,26 @@ vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
   AUTH_SCOPED_QUERY_META: { authScoped: true },
 }));
 
+vi.mock("@posthog/ui/features/panels/panelLayoutStore", () => ({
+  usePanelLayoutStore: () => artifactMocks.openArtifactTab,
+}));
+
+vi.mock("@posthog/ui/features/posthog-objects/PostHogObjectPage", () => ({
+  PostHogObjectPage: ({ fallbackName }: { fallbackName: string }) => (
+    <div data-testid="posthog-object-page">{fallbackName}</div>
+  ),
+}));
+
+vi.mock("@posthog/ui/features/canvas/hooks/useTaskRuns", () => ({
+  useTaskRuns: () => ({
+    runs: taskRuns.data,
+    isLoading: taskRuns.isLoading,
+    refreshRuns: taskRuns.refreshRuns,
+  }),
+}));
+
 vi.mock("@posthog/ui/features/canvas/hooks/useOrgMembers", () => ({
-  useOrgMembers: (options: { enabled?: boolean }) => {
-    orgMembersOptions(options);
-    return { members: [] };
-  },
+  useOrgMembers: () => ({ members: [] }),
 }));
 
 vi.mock("@posthog/ui/features/canvas/components/MentionComposer", () => ({
@@ -93,6 +118,26 @@ vi.mock("@posthog/ui/features/canvas/components/MentionComposer", () => ({
 
 vi.mock("@tanstack/react-query", () => ({
   useQuery,
+  useMutation: (options: {
+    mutationFn: (variables: unknown) => Promise<unknown>;
+    onSuccess?: (data: unknown) => Promise<void> | void;
+    onError?: (error: unknown) => void;
+  }) => ({
+    isPending: false,
+    mutateAsync: async (variables: unknown) => {
+      try {
+        const result = await options.mutationFn(variables);
+        await options.onSuccess?.(result);
+        return result;
+      } catch (error) {
+        options.onError?.(error);
+        throw error;
+      }
+    },
+  }),
+  useQueryClient: () => ({
+    invalidateQueries: artifactMocks.invalidateQueries,
+  }),
 }));
 
 vi.mock("./useComments", () => ({
@@ -105,10 +150,46 @@ vi.mock("./useComments", () => ({
 }));
 
 vi.mock("../../code-editor/components/CodeMirrorEditor", () => ({
-  CodeMirrorEditor: ({ content }: { content: string }) => (
-    <div data-testid="source-view">{content}</div>
-  ),
+  CodeMirrorEditor: ({
+    content,
+    readOnly,
+    onContentChange,
+  }: {
+    content: string;
+    readOnly?: boolean;
+    onContentChange?: (content: string) => void;
+  }) =>
+    readOnly ? (
+      <div data-testid="source-view">{content}</div>
+    ) : (
+      <textarea
+        aria-label="Artifact source editor"
+        defaultValue={content}
+        onChange={(event) => onContentChange?.(event.target.value)}
+      />
+    ),
 }));
+
+function editablePreview(
+  overrides: Record<string, unknown> = {},
+  artifacts?: Record<string, unknown>[],
+) {
+  const artifact = {
+    id: "artifact-1",
+    name: "report.md",
+    type: "output",
+    content_type: "text/markdown",
+    storage_path: "runs/1/report.md",
+    uploaded_at: "2026-08-07T10:00:00Z",
+    ...overrides,
+  };
+  return {
+    artifact,
+    artifacts: artifacts ?? [artifact],
+    preview: "# Report",
+    source: "# Report",
+  };
+}
 
 function textComment(): ResourceComment {
   return {
@@ -135,7 +216,6 @@ function textComment(): ResourceComment {
 
 describe("ArtifactPreview", () => {
   beforeEach(() => {
-    commentsFlag.enabled = true;
     auth.identity = "auth-1";
     useCommentNavigationStore.setState({
       focusByTask: {},
@@ -143,6 +223,10 @@ describe("ArtifactPreview", () => {
     });
     artifactComments.data = [];
     artifactComments.isError = false;
+    taskRuns.data = [];
+    taskRuns.isLoading = false;
+    taskRuns.refreshRuns.mockReset();
+    taskRuns.refreshRuns.mockImplementation(async () => taskRuns.data);
     createComment.mockReset();
     createComment.mockResolvedValue({ id: "created-comment" });
     useQuery.mockReset();
@@ -151,11 +235,18 @@ describe("ArtifactPreview", () => {
       isLoading: false,
       isError: false,
     });
+    artifactMocks.getCloudRunArtifacts.mockReset();
+    artifactMocks.getCloudAttachmentPreviewUrl.mockReset();
+    artifactMocks.uploadCloudRunArtifactVersion.mockReset();
+    artifactMocks.uploadCloudRunArtifactVersion.mockResolvedValue("artifact-2");
+    artifactMocks.invalidateQueries.mockReset();
+    artifactMocks.invalidateQueries.mockResolvedValue(undefined);
+    artifactMocks.openArtifactTab.mockReset();
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:preview");
     vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => undefined);
   });
 
-  it("scopes cached previews to the authenticated identity", () => {
+  it("scopes cached previews to the identity and artifact name", () => {
     render(
       <ArtifactPreview
         taskId="task-1"
@@ -171,12 +262,125 @@ describe("ArtifactPreview", () => {
           "artifactPreview",
           "auth-1",
           "task-1",
+          "report.html",
           "run-1",
           "artifact-1",
         ],
         enabled: true,
         meta: { authScoped: true },
       }),
+    );
+    const queryOptions = useQuery.mock.calls[0]?.[0] as {
+      placeholderData: (
+        previousData: unknown,
+        previousQuery: { queryKey: unknown[] },
+      ) => unknown;
+    };
+    expect(
+      queryOptions.placeholderData("previous preview", {
+        queryKey: [
+          "artifactPreview",
+          "auth-1",
+          "task-1",
+          "other.html",
+          "run-1",
+          "artifact-0",
+        ],
+      }),
+    ).toBeUndefined();
+  });
+
+  it("requests the manifest and the preview URL in parallel", async () => {
+    let resolveArtifacts: (artifacts: unknown[]) => void = () => undefined;
+    artifactMocks.getCloudRunArtifacts.mockReturnValue(
+      new Promise((resolve) => {
+        resolveArtifacts = resolve;
+      }),
+    );
+    artifactMocks.getCloudAttachmentPreviewUrl.mockResolvedValue(null);
+
+    render(
+      <ArtifactPreview
+        taskId="task-1"
+        runId="run-1"
+        artifactId="artifact-1"
+        name="report.html"
+      />,
+    );
+
+    const queryFn = useQuery.mock.calls[0]?.[0]
+      .queryFn as () => Promise<unknown>;
+    const result = queryFn();
+    // The URL request must not wait for the manifest to resolve.
+    expect(artifactMocks.getCloudAttachmentPreviewUrl).toHaveBeenCalledWith(
+      "task-1",
+      "run-1",
+      "artifact-1",
+    );
+    resolveArtifacts([
+      {
+        id: "artifact-1",
+        name: "report.html",
+        type: "output",
+        storage_path: "runs/1/report.html",
+      },
+    ]);
+    await expect(result).rejects.toThrow("Artifact is unavailable");
+  });
+
+  it("renders PostHog references even when no preview URL exists", async () => {
+    const metadata = {
+      reference_type: "posthog_object",
+      object_kind: "insight",
+      object_id: "9pQx3",
+      source_message_ids: ["turn-1"],
+      occurrence_count: 1,
+    } as const;
+    const artifact = {
+      id: "phref-1",
+      name: "Checkout funnel",
+      type: "reference",
+      metadata,
+    };
+    artifactMocks.getCloudRunArtifacts.mockResolvedValue([artifact]);
+    // A reference has no storage path, so the parallel URL read is a no-op.
+    artifactMocks.getCloudAttachmentPreviewUrl.mockResolvedValue(null);
+
+    render(
+      <ArtifactPreview
+        taskId="task-1"
+        runId="run-1"
+        artifactId="phref-1"
+        name="Checkout funnel"
+      />,
+    );
+    const queryFn = useQuery.mock.calls[0]?.[0]
+      .queryFn as () => Promise<unknown>;
+    await expect(queryFn()).resolves.toEqual({
+      artifact,
+      artifacts: [artifact],
+      preview: { kind: "posthog-object", metadata },
+    });
+
+    useQuery.mockReturnValue({
+      data: {
+        artifact,
+        artifacts: [artifact],
+        preview: { kind: "posthog-object", metadata },
+      },
+      isLoading: false,
+      isError: false,
+    });
+    render(
+      <ArtifactPreview
+        taskId="task-1"
+        runId="run-1"
+        artifactId="phref-1"
+        name="Checkout funnel"
+      />,
+    );
+    expect(screen.getByTestId("posthog-object-page")).toHaveTextContent(
+      "Checkout funnel",
     );
   });
 
@@ -241,33 +445,6 @@ describe("ArtifactPreview", () => {
     expect(frame).toHaveAttribute("src", "blob:preview");
     expect(frame).toHaveAttribute("sandbox", "allow-scripts");
     expect(frame).toHaveAttribute("referrerpolicy", "no-referrer");
-  });
-
-  it("keeps comment controls and the HTML bridge out while comments are disabled", async () => {
-    commentsFlag.enabled = false;
-    useQuery.mockReturnValue({
-      data: { kind: "html", html: "<h1>Artifact content</h1>" },
-      isLoading: false,
-      isError: false,
-    });
-
-    render(
-      <ArtifactPreview
-        taskId="task-1"
-        runId="run-1"
-        artifactId="artifact-1"
-        name="report.html"
-      />,
-    );
-
-    expect(orgMembersOptions).toHaveBeenLastCalledWith({ enabled: false });
-
-    expect(screen.queryByText("Comment…")).toBeNull();
-    const documentBlob = vi.mocked(URL.createObjectURL).mock.calls[0]?.[0];
-    expect(documentBlob).toBeInstanceOf(Blob);
-    await expect(
-      new Response(documentBlob as Blob).text(),
-    ).resolves.not.toContain("__POSTHOG_ARTIFACT_COMMENT_BRIDGE__");
   });
 
   // Same zoom-and-annotate surface as a raster image: an <img> renders SVG in a
@@ -506,6 +683,12 @@ describe("ArtifactPreview", () => {
       },
       mentions: [],
     });
+    expect(
+      useCommentNavigationStore.getState().focusByTask["task-1"],
+    ).toMatchObject({
+      threadId: "created-comment",
+      intent: "focus-only",
+    });
   });
 
   it("dismisses the Markdown comment action when clicking away", async () => {
@@ -716,7 +899,9 @@ describe("ArtifactPreview", () => {
         threadId: "comment-1",
         nonce: expect.any(Number),
         openCommentsTab: true,
+        intent: "reveal-thread",
       });
+      expect(scrollIntoView).not.toHaveBeenCalled();
     });
 
     it("scrolls to the anchor the list asks for", async () => {
@@ -798,6 +983,342 @@ describe("ArtifactPreview", () => {
     expect(screen.queryByText("Tighten this summary")).toBeNull();
   });
 
+  it.each([
+    ["text/markdown", "report.bin"],
+    ["text/html", "report.bin"],
+    ["text/plain", "report.bin"],
+    [undefined, "report.md"],
+    [undefined, "report.html"],
+    [undefined, "report.txt"],
+  ])(
+    "offers editing for the latest %s artifact named %s",
+    (contentType, fileName) => {
+      const data = editablePreview({
+        name: fileName,
+        content_type: contentType,
+      });
+      useQuery.mockReturnValue({ data, isLoading: false, isError: false });
+
+      render(
+        <ArtifactPreview
+          taskId="task-1"
+          runId="run-1"
+          artifactId="artifact-1"
+          name={fileName}
+        />,
+      );
+
+      expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    },
+  );
+
+  it.each([
+    {
+      name: "a non-editable type",
+      artifact: { name: "report.json", content_type: "application/json" },
+      newerVersion: false,
+    },
+    {
+      name: "an unsupported extension fallback",
+      artifact: { name: "report.markdown", content_type: undefined },
+      newerVersion: false,
+    },
+    {
+      name: "an old version",
+      artifact: { name: "report.md", content_type: "text/markdown" },
+      newerVersion: true,
+    },
+  ])("does not offer editing for $name", ({ artifact, newerVersion }) => {
+    const data = editablePreview(artifact);
+    if (newerVersion) {
+      taskRuns.data = [
+        { id: "run-1", artifacts: data.artifacts },
+        {
+          id: "run-2",
+          artifacts: [
+            {
+              ...data.artifact,
+              id: "artifact-2",
+              storage_path: "runs/2/report-v2.md",
+              uploaded_at: "2026-08-07T11:00:00Z",
+            },
+          ],
+        },
+      ];
+    }
+    useQuery.mockReturnValue({ data, isLoading: false, isError: false });
+
+    render(
+      <ArtifactPreview
+        taskId="task-1"
+        runId="run-1"
+        artifactId="artifact-1"
+        name={data.artifact.name as string}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+  });
+
+  // The tab header steps through a file's versions in place, retargeting the
+  // preview fetch instead of opening more tabs.
+  it("steps between versions and follows focused comments", () => {
+    taskRuns.data = [
+      {
+        id: "run-1",
+        artifacts: [
+          {
+            id: "artifact-0",
+            name: "report.md",
+            type: "output",
+            storage_path: "runs/1/report-v1.md",
+            uploaded_at: "2026-08-06T10:00:00Z",
+          },
+          {
+            id: "artifact-1",
+            name: "report.md",
+            type: "output",
+            storage_path: "runs/1/report-v2.md",
+            uploaded_at: "2026-08-07T10:00:00Z",
+          },
+        ],
+      },
+    ];
+    const currentPreview = editablePreview({
+      storage_path: "runs/1/report-v2.md",
+    });
+    const olderPreview = editablePreview({
+      id: "artifact-0",
+      storage_path: "runs/1/report-v1.md",
+      uploaded_at: "2026-08-06T10:00:00Z",
+    });
+    let olderVersionLoaded = false;
+    useQuery.mockImplementation(
+      (options: {
+        queryKey: unknown[];
+        placeholderData?: (
+          previousData: unknown,
+          previousQuery: { queryKey: unknown[] },
+        ) => unknown;
+      }) => {
+        const isOlderVersion = options.queryKey.includes("artifact-0");
+        const data =
+          isOlderVersion && !olderVersionLoaded
+            ? options.placeholderData?.(currentPreview, {
+                queryKey: [
+                  "artifactPreview",
+                  "auth-1",
+                  "task-1",
+                  "report.md",
+                  "run-1",
+                  "artifact-1",
+                ],
+              })
+            : isOlderVersion
+              ? olderPreview
+              : currentPreview;
+        return {
+          data,
+          isLoading: data === undefined,
+          isError: false,
+          isPlaceholderData:
+            isOlderVersion && !olderVersionLoaded && data !== undefined,
+        };
+      },
+    );
+
+    const { rerender } = render(
+      <ArtifactPreview
+        taskId="task-1"
+        runId="run-1"
+        artifactId="artifact-1"
+        name="report.md"
+      />,
+    );
+
+    expect(screen.getByText("v2/2")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Newer version" }),
+    ).toHaveAttribute("aria-disabled", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Older version" }));
+
+    expect(screen.getByText("v2/2")).toBeInTheDocument();
+    expect(screen.getByText("Report")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Edit" })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Older version" }),
+    ).toHaveAttribute("aria-disabled", "true");
+    expect(
+      screen.getByRole("button", { name: "Newer version" }),
+    ).toHaveAttribute("aria-disabled", "true");
+    expect(
+      screen.getByRole("button", { name: "Comment…" }),
+    ).toBeInTheDocument();
+
+    olderVersionLoaded = true;
+    rerender(
+      <ArtifactPreview
+        taskId="task-1"
+        runId="run-1"
+        artifactId="artifact-1"
+        name="report.md"
+      />,
+    );
+
+    expect(screen.getByText("v1/2")).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Newer version" }),
+    ).not.toHaveAttribute("aria-disabled", "true");
+    let lastCall = useQuery.mock.calls.at(-1)?.[0] as {
+      queryKey: unknown[];
+    };
+    expect(lastCall.queryKey).toContain("artifact-0");
+
+    act(() => {
+      useCommentNavigationStore
+        .getState()
+        .requestCommentFocus(
+          "task-1",
+          { scope: "task_artifact", itemId: "artifact-1" },
+          "comment-1",
+        );
+    });
+
+    expect(screen.getByText("v2/2")).toBeInTheDocument();
+    lastCall = useQuery.mock.calls.at(-1)?.[0] as { queryKey: unknown[] };
+    expect(lastCall.queryKey).toContain("artifact-1");
+
+    // A focus request that already landed must not keep pulling the pager back.
+    fireEvent.click(screen.getByRole("button", { name: "Older version" }));
+
+    expect(screen.getByText("v1/2")).toBeInTheDocument();
+  });
+
+  it("saves edited source as a new output version under the same name", async () => {
+    const data = editablePreview();
+    taskRuns.data = [{ id: "run-1", artifacts: data.artifacts }];
+    useQuery.mockReturnValue({ data, isLoading: false, isError: false });
+
+    render(
+      <ArtifactPreview
+        taskId="task-1"
+        runId="run-1"
+        artifactId="artifact-1"
+        name="report.md"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(screen.getByLabelText("Artifact source editor"), {
+      target: { value: "# Edited by user" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(artifactMocks.uploadCloudRunArtifactVersion).toHaveBeenCalledWith(
+        "task-1",
+        "run-1",
+        "report.md",
+        "# Edited by user",
+        "text/markdown",
+      ),
+    );
+    expect(artifactMocks.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["task-runs", "task-1"],
+    });
+    expect(artifactMocks.openArtifactTab).toHaveBeenCalledWith("task-1", {
+      runId: "run-1",
+      artifactId: "artifact-2",
+      name: "report.md",
+    });
+  });
+
+  it("asks before saving over a version that arrived during editing", async () => {
+    const data = editablePreview();
+    taskRuns.data = [{ id: "run-1", artifacts: data.artifacts }];
+    taskRuns.refreshRuns.mockResolvedValue([
+      { id: "run-1", artifacts: data.artifacts },
+      {
+        id: "run-2",
+        artifacts: [
+          {
+            ...data.artifact,
+            id: "artifact-2",
+            storage_path: "runs/2/report-v2.md",
+            uploaded_at: "2026-08-07T11:00:00Z",
+          },
+        ],
+      },
+    ]);
+    useQuery.mockReturnValue({ data, isLoading: false, isError: false });
+
+    render(
+      <ArtifactPreview
+        taskId="task-1"
+        runId="run-1"
+        artifactId="artifact-1"
+        name="report.md"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(
+      await screen.findByText(
+        "A newer version of this file arrived while you were editing. Save yours as the latest anyway?",
+      ),
+    ).toBeInTheDocument();
+    expect(artifactMocks.uploadCloudRunArtifactVersion).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Save as latest" }));
+
+    await waitFor(() =>
+      expect(
+        artifactMocks.uploadCloudRunArtifactVersion,
+      ).toHaveBeenCalledOnce(),
+    );
+  });
+
+  it("explains that saving restores a file dismissed during editing", async () => {
+    const data = editablePreview();
+    taskRuns.data = [{ id: "run-1", artifacts: data.artifacts }];
+    taskRuns.refreshRuns.mockResolvedValue([
+      {
+        id: "run-1",
+        artifacts: data.artifacts.map((artifact) => ({
+          ...artifact,
+          dismissed_at: "2026-08-07T11:00:00Z",
+        })),
+      },
+    ]);
+    useQuery.mockReturnValue({ data, isLoading: false, isError: false });
+
+    render(
+      <ArtifactPreview
+        taskId="task-1"
+        runId="run-1"
+        artifactId="artifact-1"
+        name="report.md"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    expect(
+      await screen.findByText(
+        "Every version of this file was dismissed while you were editing. Save your changes to restore it as the latest version?",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Save and restore" }),
+    ).toBeInTheDocument();
+    expect(artifactMocks.uploadCloudRunArtifactVersion).not.toHaveBeenCalled();
+  });
+
   it("preserves authored styles and injects the inline-comment bridge", () => {
     const document = artifactHtmlDocument(
       '<!doctype html><html><head><style>.card{color:red}</style></head><body><div class="card" style="font-size:20px">Report</div></body></html>',
@@ -810,13 +1331,12 @@ describe("ArtifactPreview", () => {
     expect(document).toContain("posthog-artifact-comment-active");
     expect(document).not.toContain("ph-artifact-comment-outline");
     expect(document).toContain("<span>Comment</span>");
-    expect(document).toContain('var CHANNEL="test-channel"');
-    expect(document).toContain('d.type==="locate"');
-    expect(document).toContain('send("open-external",{href:link.href})');
-    expect(document).toContain('target.closest("a[href]")');
-    expect(document).toContain("scrollIntoView");
+    expect(document).toContain('channel: "test-channel"');
     expect(document).toContain("new MutationObserver");
+    expect(document).toContain("scrollIntoView");
     expect(document).toContain("state.renderTimer");
+    expect(document).toContain('send("selection-position"');
+    expect(document).not.toMatch(/__spreadValues|cov_\w+/);
     expect(document).toMatch(/script-src &#39;nonce-[^&]+&#39;/);
     expect(document).not.toContain(
       "script-src &#39;self&#39; &#39;unsafe-inline&#39;",

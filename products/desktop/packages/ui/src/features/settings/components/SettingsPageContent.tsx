@@ -1,3 +1,4 @@
+import { CostManagementSettings } from "@posthog/ui/features/cost-management/CostManagementSettings";
 import { McpServersView } from "@posthog/ui/features/mcp-servers/components/McpServersView";
 import { AdvancedSettings } from "@posthog/ui/features/settings/sections/AdvancedSettings";
 import { AgentsSettings } from "@posthog/ui/features/settings/sections/AgentsSettings";
@@ -9,17 +10,16 @@ import { HarnessSettings } from "@posthog/ui/features/settings/sections/HarnessS
 import { NotificationsSettings } from "@posthog/ui/features/settings/sections/NotificationsSettings";
 import { PersonalizationSettings } from "@posthog/ui/features/settings/sections/PersonalizationSettings";
 import { PlanUsageSettings } from "@posthog/ui/features/settings/sections/PlanUsageSettings";
+import { QuickAskSettings } from "@posthog/ui/features/settings/sections/QuickAskSettings";
 import { ShortcutsSettings } from "@posthog/ui/features/settings/sections/ShortcutsSettings";
 import { SignalSourcesSettings } from "@posthog/ui/features/settings/sections/SignalSourcesSettings";
 import { SlackSettings } from "@posthog/ui/features/settings/sections/SlackSettings";
 import { TerminalSettings } from "@posthog/ui/features/settings/sections/TerminalSettings";
-import { UpdatesSettings } from "@posthog/ui/features/settings/sections/UpdatesSettings";
 import { WorkspacesSettings } from "@posthog/ui/features/settings/sections/WorkspacesSettings";
 import { WorktreesSettings } from "@posthog/ui/features/settings/sections/worktrees/WorktreesSettings";
 import type { SettingsCategory } from "@posthog/ui/features/settings/types";
 import { CustomizeSidebarSettings } from "@posthog/ui/features/sidebar/components/CustomizeSidebarDialog";
 import { SkillsView } from "@posthog/ui/features/skills/SkillsView";
-import { Box, Flex, ScrollArea, Text } from "@radix-ui/themes";
 import type { ComponentType, ReactNode } from "react";
 
 const SETTINGS_PAGE_LAYOUT = {
@@ -47,10 +47,10 @@ function defineSettingsPage(
 const SETTINGS_PAGES: Record<SettingsCategory, SettingsPageDefinition> = {
   general: defineSettingsPage("General", GeneralSettings),
   notifications: defineSettingsPage("Notifications", NotificationsSettings),
-  "plan-usage": defineSettingsPage(
-    "Plan & usage",
-    PlanUsageSettings,
-    SETTINGS_PAGE_LAYOUT.FULL_BLEED,
+  "plan-usage": defineSettingsPage("Plan & usage", PlanUsageSettings),
+  "cost-management": defineSettingsPage(
+    "Cost management",
+    CostManagementSettings,
   ),
   workspaces: defineSettingsPage("Workspaces", WorkspacesSettings),
   worktrees: defineSettingsPage("Worktrees", WorktreesSettings),
@@ -78,15 +78,15 @@ const SETTINGS_PAGES: Record<SettingsCategory, SettingsPageDefinition> = {
   terminal: defineSettingsPage("Terminal", TerminalSettings),
   harness: defineSettingsPage("Harness", HarnessSettings),
   shortcuts: defineSettingsPage("Shortcuts", ShortcutsSettings),
+  "quick-ask": defineSettingsPage("Quick ask", QuickAskSettings),
   github: defineSettingsPage("GitHub", GitHubSettings),
-  slack: defineSettingsPage("Slack integration", SlackSettings),
+  slack: defineSettingsPage("Slack", SlackSettings),
   discord: defineSettingsPage("Discord", DiscordSettings),
   // Slack notification config lives in the dedicated Slack section; the Signals
   // section links out to it rather than duplicating the controls.
   signals: defineSettingsPage("Self-driving", () => (
     <SignalSourcesSettings showSlackNotifications={false} />
   )),
-  updates: defineSettingsPage("Updates", UpdatesSettings),
   advanced: defineSettingsPage("Advanced", AdvancedSettings),
 };
 
@@ -106,16 +106,14 @@ function SettingsPageHeader({
   if (formMode) return null;
 
   return (
-    <Flex
-      align="center"
-      gap="2"
-      className={
-        bordered ? "shrink-0 border-gray-5 border-b px-6 py-4" : undefined
-      }
+    <div
+      className={`flex items-center gap-2 ${
+        bordered ? "shrink-0 border-gray-5 border-b px-6 py-4" : ""
+      }`}
     >
       {icon && <span className="text-gray-10">{icon}</span>}
-      <Text className="font-medium text-lg leading-6.5">{title}</Text>
-    </Flex>
+      <span className="font-medium text-lg leading-6.5">{title}</span>
+    </div>
   );
 }
 
@@ -126,14 +124,14 @@ function ContainedSettingsPageLayout({
   title,
 }: SettingsPageLayoutProps) {
   return (
-    <ScrollArea className="h-full w-full">
-      <Box p="6" mx="auto" className="relative z-[1] max-w-[800px]">
-        <Flex direction="column" gap="4">
+    <div className="h-full w-full overflow-y-auto [scrollbar-gutter:stable_both-edges]">
+      <div className="relative z-[1] mx-auto max-w-[800px] p-6">
+        <div className="flex flex-col gap-5">
           <SettingsPageHeader formMode={formMode} icon={icon} title={title} />
           {children}
-        </Flex>
-      </Box>
-    </ScrollArea>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -144,7 +142,7 @@ function FullBleedSettingsPageLayout({
   title,
 }: SettingsPageLayoutProps) {
   return (
-    <Flex direction="column" className="relative z-[1] h-full min-h-0 w-full">
+    <div className="relative z-[1] flex h-full min-h-0 w-full flex-col">
       <SettingsPageHeader
         bordered
         formMode={formMode}
@@ -152,7 +150,7 @@ function FullBleedSettingsPageLayout({
         title={title}
       />
       <div className="min-h-0 flex-1">{children}</div>
-    </Flex>
+    </div>
   );
 }
 

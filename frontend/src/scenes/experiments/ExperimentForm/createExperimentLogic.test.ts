@@ -3,20 +3,23 @@ import { MOCK_TEAM_ID } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { useMocks } from '~/mocks/jest'
-import { type ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-general'
+import {
+    type ExperimentExposureCriteria,
+    NodeKind,
+    ProductIntentContext,
+    ProductKey,
+} from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import type { Experiment } from '~/types'
 
 import { DEFAULT_MODEL, DEFAULT_PROVIDER } from 'products/replay_vision/frontend/replay_scanners/types'
 
 import { NEW_EXPERIMENT } from '../constants'
-import { createExperimentLogic, DRAFT_STORAGE_KEY } from './createExperimentLogic'
+import { createExperimentLogic } from './createExperimentLogic'
 
 jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: {
@@ -34,6 +37,7 @@ describe('createExperimentLogic', () => {
     let routerPushSpy: jest.SpyInstance
     let scannerCreateSpy: jest.Mock
     let scannerRequestBody: Record<string, unknown> | null
+    let productIntentBodies: Record<string, unknown>[]
     let exposureEventSeenWithSessionId: boolean
 
     beforeEach(() => {
@@ -41,6 +45,7 @@ describe('createExperimentLogic', () => {
         localStorage.clear()
         sessionStorage.clear()
         scannerRequestBody = null
+        productIntentBodies = []
         exposureEventSeenWithSessionId = true
         scannerCreateSpy = jest.fn(async ({ request }: { request: Request }) => {
             scannerRequestBody = (await request.json()) as Record<string, unknown>
@@ -82,7 +87,10 @@ describe('createExperimentLogic', () => {
                 '/api/projects/:team_id/vision/scanners/': scannerCreateSpy,
             },
             patch: {
-                '/api/environments/:team_id/add_product_intent/': () => [200, {}],
+                '/api/environments/:team_id/add_product_intent/': async ({ request }) => {
+                    productIntentBodies.push((await request.json()) as Record<string, unknown>)
+                    return [200, {}]
+                },
             },
         })
         initKeaTests()
@@ -151,10 +159,6 @@ describe('createExperimentLogic', () => {
         })
 
         it('creates a scanner scoped to enrolled experiment sessions when selected', async () => {
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REPLAY_VISION], {
-                [FEATURE_FLAGS.REPLAY_VISION]: true,
-            })
-
             await expectLogic(logic, () => {
                 logic.actions.setCreateReplayVisionScanner(true)
                 logic.actions.setExperiment({
@@ -209,6 +213,19 @@ describe('createExperimentLogic', () => {
                     ],
                 },
             })
+            // A plain product intent is indistinguishable from someone reaching Replay Vision on their
+            // own, so the cross-sell metadata is the only thing that attributes the scanner to experiments
+            expect(productIntentBodies).toContainEqual(
+                expect.objectContaining({
+                    product_type: ProductKey.REPLAY_VISION,
+                    intent_context: ProductIntentContext.EXPERIMENT_REPLAY_VISION_SCANNER_CREATED,
+                    metadata: expect.objectContaining({
+                        from: ProductKey.EXPERIMENTS,
+                        to: ProductKey.REPLAY_VISION,
+                        type: 'cross_sell',
+                    }),
+                })
+            )
             expect(lemonToast.success).toHaveBeenCalledWith(
                 'Experiment created. The Replay Vision scanner is off until you turn it on.',
                 expect.objectContaining({
@@ -245,10 +262,6 @@ describe('createExperimentLogic', () => {
             'creates a scoped scanner anyway when the exposure event looks unlinkable: $name',
             async ({ exposure_criteria, expectedQuery }) => {
                 exposureEventSeenWithSessionId = false
-                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REPLAY_VISION], {
-                    [FEATURE_FLAGS.REPLAY_VISION]: true,
-                })
-
                 await expectLogic(logic, () => {
                     logic.actions.setCreateReplayVisionScanner(true)
                     logic.actions.setExperiment({
@@ -270,10 +283,6 @@ describe('createExperimentLogic', () => {
 
         it('keeps the created experiment when scanner creation fails', async () => {
             scannerCreateSpy.mockResolvedValueOnce([500, { detail: 'Scanner unavailable' }])
-            featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REPLAY_VISION], {
-                [FEATURE_FLAGS.REPLAY_VISION]: true,
-            })
-
             await expectLogic(logic, () => {
                 logic.actions.setCreateReplayVisionScanner(true)
                 logic.actions.setExperiment({
@@ -502,102 +511,28 @@ describe('createExperimentLogic', () => {
             logic.unmount()
         })
 
-        it('draft from sessionStorage is loaded when creating a new experiment', async () => {
-            const storedDraft: Experiment = {
-                ...NEW_EXPERIMENT,
-                name: 'Stored Draft',
-                feature_flag_key: 'stored-draft',
-            }
-
-            sessionStorage.setItem(
-                DRAFT_STORAGE_KEY,
-                JSON.stringify({ experiment: storedDraft, timestamp: Date.now() })
-            )
-
-            const newLogic = createExperimentLogic()
-            newLogic.mount()
-
-            await expectLogic(newLogic).toMatchValues({
-                experiment: partial({
-                    id: 'new',
-                    name: 'Stored Draft',
-                    feature_flag_key: 'stored-draft',
-                }),
-            })
-
-            newLogic.unmount()
-        })
-
-        it('form state does not leak between new experiment sessions', async () => {
+        it('abandoning the form and coming back starts fresh', async () => {
             const firstNew = createExperimentLogic()
             firstNew.mount()
 
             firstNew.actions.setExperimentValue('name', 'First Attempt')
             firstNew.actions.setExperimentValue('feature_flag_key', 'first-attempt')
+            firstNew.actions.setCreateReplayVisionScanner(true)
 
             await expectLogic(firstNew).toMatchValues({
                 experiment: partial({ name: 'First Attempt', feature_flag_key: 'first-attempt' }),
+                createReplayVisionScanner: true,
             })
 
+            // User navigates away — no save
             firstNew.unmount()
-
-            sessionStorage.clear()
 
             const secondNew = createExperimentLogic()
             secondNew.mount()
 
             await expectLogic(secondNew).toMatchValues({
                 experiment: partial({ id: 'new', name: '', feature_flag_key: '' }),
-            })
-
-            secondNew.unmount()
-        })
-
-        it('unmount/remount with no draft starts fresh', async () => {
-            const freshLogic = createExperimentLogic()
-            freshLogic.mount()
-
-            freshLogic.actions.setExperiment({
-                ...NEW_EXPERIMENT,
-                id: 123,
-                name: 'Saved Experiment',
-                description: 'Already saved',
-            })
-
-            freshLogic.unmount()
-
-            const remounted = createExperimentLogic()
-            remounted.mount()
-
-            await expectLogic(remounted).toMatchValues({
-                experiment: partial({ id: 'new', name: '', description: '' }),
-            })
-
-            remounted.unmount()
-        })
-
-        it('draft written on unmount is read back by a freshly-built logic', async () => {
-            const firstNew = createExperimentLogic()
-            firstNew.mount()
-
-            firstNew.actions.setExperimentValue('name', 'Work In Progress')
-            firstNew.actions.setExperimentValue('feature_flag_key', 'wip-flag')
-            firstNew.actions.setCreateReplayVisionScanner(true)
-
-            await expectLogic(firstNew).toMatchValues({
-                experiment: partial({ name: 'Work In Progress', feature_flag_key: 'wip-flag' }),
-                createReplayVisionScanner: true,
-            })
-
-            // Navigating away without saving writes the draft to sessionStorage
-            firstNew.unmount()
-
-            const secondNew = createExperimentLogic()
-            secondNew.mount()
-
-            await expectLogic(secondNew).toMatchValues({
-                experiment: partial({ id: 'new', name: 'Work In Progress', feature_flag_key: 'wip-flag' }),
-                createReplayVisionScanner: true,
+                createReplayVisionScanner: false,
             })
 
             secondNew.unmount()
@@ -638,57 +573,6 @@ describe('createExperimentLogic', () => {
             firstLogic.unmount()
 
             // User navigates back to /experiments/new — component remounts the logic
-            const secondLogic = createExperimentLogic()
-            secondLogic.mount()
-
-            await expectLogic(secondLogic).toMatchValues({
-                experiment: partial({ id: 'new', name: '', feature_flag_key: '' }),
-            })
-
-            secondLogic.unmount()
-        })
-
-        it('navigating away without saving preserves draft for next visit', async () => {
-            const firstLogic = createExperimentLogic()
-            firstLogic.mount()
-
-            firstLogic.actions.setExperimentValue('name', 'Work In Progress')
-            firstLogic.actions.setExperimentValue('feature_flag_key', 'wip-flag')
-
-            await expectLogic(firstLogic).toMatchValues({
-                experiment: partial({ name: 'Work In Progress', feature_flag_key: 'wip-flag' }),
-            })
-
-            // User navigates away — no cancel, no save
-            firstLogic.unmount()
-
-            // User comes back to /experiments/new
-            const secondLogic = createExperimentLogic()
-            secondLogic.mount()
-
-            await expectLogic(secondLogic).toMatchValues({
-                experiment: partial({ id: 'new', name: 'Work In Progress', feature_flag_key: 'wip-flag' }),
-            })
-
-            secondLogic.unmount()
-        })
-
-        it('cancel clears draft so re-entering create mode starts fresh', async () => {
-            const firstLogic = createExperimentLogic()
-            firstLogic.mount()
-
-            firstLogic.actions.setExperimentValue('name', 'Will Cancel')
-            firstLogic.actions.setExperimentValue('feature_flag_key', 'will-cancel')
-
-            await expectLogic(firstLogic).toMatchValues({
-                experiment: partial({ name: 'Will Cancel', feature_flag_key: 'will-cancel' }),
-            })
-
-            // User clicks cancel — clears draft then navigates away
-            firstLogic.actions.cancelForm()
-            firstLogic.unmount()
-
-            // User navigates back to /experiments/new
             const secondLogic = createExperimentLogic()
             secondLogic.mount()
 

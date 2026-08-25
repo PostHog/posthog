@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 
+import io
 import os
 import json
 import time
 import signal
+import contextlib
 import subprocess
 import importlib.util
 
@@ -25,6 +27,7 @@ from toolbox.kubernetes import (
     wait_for_context_access,
 )
 from toolbox.pod import ClaimRaceError, claim_pod, delete_pod, get_toolbox_pod
+from toolbox.tailscale import SKIP_CHECK_ENV_VAR, TAILSCALE_RUNBOOK_URL, ensure_tailscale_connected
 from toolbox.user import get_current_user, parse_arn, sanitize_label
 
 # Load toolbox.py (the script with main() and POOLS) by file path, since the
@@ -36,6 +39,14 @@ _spec.loader.exec_module(toolbox_script)
 
 
 class TestToolbox(unittest.TestCase):
+    def setUp(self):
+        # main() checks Tailscale before anything else; the real check would
+        # exit on hosts without a connected tailnet (CI), so neutralize it here
+        # and exercise the real function via the toolbox.tailscale tests below.
+        ensure_patcher = patch.object(toolbox_script, "ensure_tailscale_connected")
+        self.m_ensure_tailscale = ensure_patcher.start()
+        self.addCleanup(ensure_patcher.stop)
+
     def test_kubectl_cmd_without_context(self):
         """kubectl_cmd with context=None returns the same shape as a bare kubectl call."""
         self.assertEqual(kubectl_cmd("get", "pods"), ["kubectl", "get", "pods"])
@@ -866,6 +877,93 @@ class TestToolbox(unittest.TestCase):
         diagnostic = "error: You must be logged in to the server (Unauthorized)"
         self.assertEqual(summarize_diagnostic(diagnostic), "Kubernetes rejected the cached AWS SSO credentials")
 
+    def test_summarize_diagnostic_flags_unreachable_cluster(self):
+        cases = [
+            "E0810 memcache.go:265 Unable to connect to the server: dial tcp: lookup abc.eks.amazonaws.com: no such host",
+            "Unable to connect to the server: dial tcp 10.1.2.3:443: i/o timeout",
+            "Unable to connect to the server: connect: no route to host",
+        ]
+        for diagnostic in cases:
+            with self.subTest(diagnostic=diagnostic):
+                self.assertEqual(
+                    summarize_diagnostic(diagnostic),
+                    "cannot reach the cluster endpoint (check that Tailscale is connected)",
+                )
+
+    def test_summarize_diagnostic_keeps_credential_plugin_transport_errors(self):
+        aws_error = 'Could not connect to the endpoint URL: "https://portal.sso.us-east-1.amazonaws.com/token": connection refused'
+        diagnostic = (
+            "Unable to connect to the server: getting credentials: exec: executable aws failed with exit code 255\n"
+            + aws_error
+        )
+        self.assertEqual(summarize_diagnostic(diagnostic), aws_error)
+
+    def _tailscale_status_result(self, payload):
+        return MagicMock(returncode=0, stdout=json.dumps(payload))
+
+    def _run_tailscale_check(self):
+        """Run the preflight with the skip var unset; return (exit_code or None, stdout)."""
+        exit_code = None
+        output = io.StringIO()
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop(SKIP_CHECK_ENV_VAR, None)
+            with contextlib.redirect_stdout(output):
+                try:
+                    ensure_tailscale_connected()
+                except SystemExit as exc:
+                    exit_code = exc.code
+        return exit_code, output.getvalue()
+
+    @patch("toolbox.tailscale.subprocess.run")
+    @patch("toolbox.tailscale.shutil.which", return_value="/usr/bin/tailscale")
+    def test_ensure_tailscale_connected_passes_silently_when_running(self, mock_which, mock_run):
+        mock_run.return_value = self._tailscale_status_result({"BackendState": "Running"})
+        exit_code, output = self._run_tailscale_check()
+
+        self.assertIsNone(exit_code)
+        self.assertEqual(output, "")
+
+    @patch("toolbox.tailscale.os.path.isfile", return_value=False)
+    @patch("toolbox.tailscale.shutil.which", return_value=None)
+    def test_ensure_tailscale_connected_exits_when_not_installed(self, mock_which, mock_isfile):
+        exit_code, output = self._run_tailscale_check()
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("Tailscale is not installed", output)
+        self.assertIn(TAILSCALE_RUNBOOK_URL, output)
+
+    @patch("toolbox.tailscale.os.path.isfile", return_value=False)
+    @patch("toolbox.tailscale.subprocess.run")
+    @patch("toolbox.tailscale.shutil.which", return_value="/usr/bin/tailscale")
+    def test_ensure_tailscale_connected_exits_when_not_running(self, mock_which, mock_run, mock_isfile):
+        mock_run.return_value = self._tailscale_status_result({"BackendState": "Stopped"})
+        exit_code, output = self._run_tailscale_check()
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("Tailscale is not connected", output)
+        self.assertIn(TAILSCALE_RUNBOOK_URL, output)
+
+    @patch("toolbox.tailscale.subprocess.run")
+    @patch("toolbox.tailscale.shutil.which", return_value="/usr/bin/tailscale")
+    def test_ensure_tailscale_connected_warns_when_subnet_routes_rejected(self, mock_which, mock_run):
+        mock_run.return_value = self._tailscale_status_result(
+            {
+                "BackendState": "Running",
+                "Health": ["some peers are advertising routes but --accept-routes is false"],
+            }
+        )
+        exit_code, output = self._run_tailscale_check()
+
+        self.assertIsNone(exit_code)
+        self.assertIn("not accepting subnet routes", output)
+        self.assertIn("--accept-routes", output)
+
+    @patch("toolbox.tailscale.shutil.which")
+    def test_ensure_tailscale_connected_skipped_via_env_var(self, mock_which):
+        with patch.dict(os.environ, {SKIP_CHECK_ENV_VAR: "1"}, clear=False):
+            ensure_tailscale_connected()
+        mock_which.assert_not_called()
+
     @patch("toolbox.kubernetes.login_to_sso", return_value=True)
     @patch("toolbox.kubernetes.time.monotonic", return_value=10)
     @patch("subprocess.run")
@@ -1360,6 +1458,31 @@ class TestToolbox(unittest.TestCase):
         m_select.assert_called_once_with("posthog-toolbox-django")
         m_validate.assert_not_called()
         self.assertEqual(m_get_pod.call_args.kwargs["context"], "posthog-dev")
+
+    def test_main_checks_tailscale_before_selecting_context(self):
+        patches = self._patch_main_collaborators()
+        parent = MagicMock()
+
+        with (
+            patches["get_current_user"],
+            patches["get_toolbox_pod"],
+            patches["claim_pod"],
+            patches["connect_to_pod"],
+            patches["delete_pod"],
+            patches["select_context"] as m_select,
+            patches["validate_context"],
+            patch.object(toolbox_script.sys, "argv", ["toolbox.py"]),
+            patch.dict(os.environ, {}, clear=False),
+        ):
+            self._clean_env()
+            parent.attach_mock(self.m_ensure_tailscale, "ensure_tailscale")
+            parent.attach_mock(m_select, "select_context")
+            with self.assertRaises(SystemExit):
+                toolbox_script.main()
+
+        call_names = [name for name, _, _ in parent.mock_calls]
+        self.assertIn("ensure_tailscale", call_names)
+        self.assertLess(call_names.index("ensure_tailscale"), call_names.index("select_context"))
 
     def test_main_kube_context_validate_failure_exits(self):
         """When validate_context returns False, main() exits with status 1."""

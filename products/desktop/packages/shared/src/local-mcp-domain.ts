@@ -42,7 +42,7 @@ export interface McpServerConnection {
 
 /**
  * A desktop-only local MCP server designated for relaying into a cloud run
- * (docs/cloud-mcp-relay.md). Names only — the sandbox never learns the
+ * (docs/CLOUD-MCP-RELAY.md). Names only — the sandbox never learns the
  * server's command, env, URL, or headers; the desktop resolves the name
  * against local config at execution time.
  */

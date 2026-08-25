@@ -106,14 +106,24 @@ class TestFormatFilterDate:
 
 
 class TestBuildInitialParams:
-    def test_full_refresh_only_sends_page_size(self):
+    @pytest.mark.parametrize(
+        "endpoint,expected",
+        [
+            ("messages", {"PageSize": 1000}),
+            # Twilio answers PageSize=1000 on Verify with a 400, so neither Verify endpoint sends
+            # one; a page size we don't send can't be rejected.
+            ("verification_services", {}),
+            ("verification_attempts", {}),
+        ],
+    )
+    def test_full_refresh_sends_only_the_endpoints_page_size(self, endpoint: str, expected: dict[str, Any]):
         params = _build_initial_params(
-            TWILIO_ENDPOINTS["messages"],
+            TWILIO_ENDPOINTS[endpoint],
             should_use_incremental_field=False,
             db_incremental_field_last_value=None,
             incremental_field=None,
         )
-        assert params == {"PageSize": 1000}
+        assert params == expected
 
     def test_incremental_adds_inclusive_date_filter(self):
         params = _build_initial_params(
@@ -143,6 +153,18 @@ class TestBuildInitialParams:
             incremental_field=None,
         )
         assert params["DateSent>"] == "2026-03-04"
+
+    def test_verify_attempts_uses_datecreatedafter_with_iso_datetime(self):
+        # Verify names the filter param outright (no `>` operator) and wants an ISO 8601 GMT datetime,
+        # anchored to the start of the watermark's day so the boundary day is re-fetched and deduped.
+        params = _build_initial_params(
+            TWILIO_ENDPOINTS["verification_attempts"],
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2026, 3, 4, 15, 0, tzinfo=UTC),
+            incremental_field="date_created",
+        )
+        assert params["DateCreatedAfter"] == "2026-03-04T00:00:00Z"
+        assert not any(key.endswith(">") for key in params)
 
     def test_full_refresh_endpoint_never_filters(self):
         # `transcriptions` exposes no server-side filter even if incremental is requested.
@@ -238,13 +260,20 @@ class TestValidateCredentials:
         assert (is_valid, msg) == (False, expected_message)
         assert getter.call_count == 1
 
+    @pytest.mark.parametrize(
+        "schema_name, expected_url",
+        [
+            ("messages", f"https://api.twilio.com/2010-04-01/Accounts/{ACCOUNT_SID}/Messages.json?PageSize=1"),
+            # A Verify table is probed on its own host at its non-account path — not the Account API.
+            ("verification_services", "https://verify.twilio.com/v2/Services?PageSize=1"),
+        ],
+    )
     @mock.patch(TWILIO_SESSION_PATCH)
-    def test_specific_schema_probes_endpoint_path(self, mock_session):
+    def test_specific_schema_probes_endpoint_path(self, mock_session, schema_name, expected_url):
         getter = mock_session.return_value.get
         getter.return_value = mock.MagicMock(status_code=200)
-        validate_credentials((ACCOUNT_SID, "token"), ACCOUNT_SID, "messages")
-        probed_url = getter.call_args.args[0]
-        assert probed_url == f"https://api.twilio.com/2010-04-01/Accounts/{ACCOUNT_SID}/Messages.json?PageSize=1"
+        validate_credentials((ACCOUNT_SID, "token"), ACCOUNT_SID, schema_name)
+        assert getter.call_args.args[0] == expected_url
 
     @pytest.mark.parametrize(
         "schema_name, expected_message",
@@ -334,6 +363,30 @@ class TestPagination:
         assert saved.next_url == "https://api.twilio.com/2010-04-01/Accounts/x/Messages.json?Page=1"
 
     @mock.patch(CLIENT_SESSION_PATCH)
+    def test_verify_endpoint_targets_its_host_and_paginates_via_meta(self, MockSession):
+        # The Verify API lives on its own host and paginates on absolute `meta.next_page_url` rather
+        # than the legacy root-relative `next_page_uri`. Getting either wrong makes Verify tables
+        # unreachable (wrong host) or stops the sync after page one (missed next link).
+        session = MockSession.return_value
+        next_url = "https://verify.twilio.com/v2/Services?Page=1&PageToken=abc"
+        snapshots = _wire(
+            session,
+            [
+                _response({"services": [{"sid": "VA1"}], "meta": {"next_page_url": next_url}}),
+                _response({"services": [{"sid": "VA2"}], "meta": {"next_page_url": None}}),
+            ],
+        )
+        manager = _make_manager()
+
+        rows = _rows(_source("verification_services", manager))
+
+        assert [r["sid"] for r in rows] == ["VA1", "VA2"]
+        assert snapshots[0]["url"] == "https://verify.twilio.com/v2/Services"
+        assert snapshots[1]["url"] == next_url
+        saved = manager.save_state.call_args.args[0]
+        assert saved.next_url == next_url
+
+    @mock.patch(CLIENT_SESSION_PATCH)
     def test_resumes_from_saved_state(self, MockSession):
         session = MockSession.return_value
         resume_url = "https://api.twilio.com/2010-04-01/Accounts/x/Messages.json?Page=5"
@@ -379,20 +432,24 @@ class TestPagination:
 
 class TestTwilioSource:
     @pytest.mark.parametrize(
-        "endpoint, expected_sort, expects_partition",
+        "endpoint, expected_sort, expects_partition, expected_primary_key",
         [
-            ("messages", "desc", True),
-            ("calls", "desc", True),
-            ("recordings", "desc", True),
-            ("conferences", "desc", True),
-            ("addresses", "asc", False),
-            ("transcriptions", "asc", True),
+            ("messages", "desc", True, "sid"),
+            ("calls", "desc", True, "sid"),
+            ("recordings", "desc", True, "sid"),
+            ("conferences", "desc", True, "sid"),
+            ("addresses", "asc", False, "sid"),
+            ("transcriptions", "asc", True, "sid"),
+            # Usage records have no `sid`; each category appears once, so it's the primary key.
+            ("usage_records", "asc", False, "category"),
+            ("verification_services", "asc", True, "sid"),
+            ("verification_attempts", "desc", True, "sid"),
         ],
     )
-    def test_source_response_shape(self, endpoint, expected_sort, expects_partition):
+    def test_source_response_shape(self, endpoint, expected_sort, expects_partition, expected_primary_key):
         response = _source(endpoint, _make_manager())
         assert response.name == endpoint
-        assert response.primary_keys == ["sid"]
+        assert response.primary_keys == [expected_primary_key]
         assert response.sort_mode == expected_sort
         if expects_partition:
             assert response.partition_mode == "datetime"

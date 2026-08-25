@@ -28,6 +28,8 @@ describe("task response normalization", () => {
               type: "legacy_type",
               storage_path: "tasks/result.txt",
               uploaded_at: "2026-07-21T00:00:00Z",
+              uploaded_by: "user",
+              uploaded_by_user_id: 42,
             },
           ],
           created_at: "2026-07-21T00:00:00Z",
@@ -57,12 +59,56 @@ describe("task response normalization", () => {
           type: "artifact",
           storage_path: "tasks/result.txt",
           uploaded_at: "2026-07-21T00:00:00Z",
+          uploaded_by: "user",
+          uploaded_by_user_id: 42,
         },
       ],
       created_at: "2026-07-21T00:00:00Z",
       updated_at: "2026-07-21T00:01:00Z",
       completed_at: null,
     });
+  });
+
+  it("keeps PostHog reference metadata without requiring file storage", () => {
+    expect(
+      normalizeTaskRunResponse(
+        {
+          id: "run-1",
+          artifacts: [
+            {
+              id: "phref-1",
+              name: "Checkout funnel",
+              type: "reference",
+              source: "posthog_object",
+              uploaded_at: "2026-08-19T00:00:00Z",
+              metadata: {
+                reference_type: "posthog_object",
+                object_kind: "insight",
+                object_id: "9pQx3",
+                source_message_ids: ["turn-1"],
+                occurrence_count: 1,
+              },
+            },
+          ],
+        },
+        { teamId: 123, taskId: "task-1" },
+      ).artifacts,
+    ).toEqual([
+      {
+        id: "phref-1",
+        name: "Checkout funnel",
+        type: "reference",
+        source: "posthog_object",
+        uploaded_at: "2026-08-19T00:00:00Z",
+        metadata: {
+          reference_type: "posthog_object",
+          object_kind: "insight",
+          object_id: "9pQx3",
+          source_message_ids: ["turn-1"],
+          occurrence_count: 1,
+        },
+      },
+    ]);
   });
 
   it("normalizes task responses and their generated latest-run records", () => {

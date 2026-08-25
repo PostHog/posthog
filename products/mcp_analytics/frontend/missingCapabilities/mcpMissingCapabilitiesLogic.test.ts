@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 
+import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { MCPMissingCapabilitiesItem } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
@@ -28,34 +29,30 @@ const report = (intent: string, overrides: Partial<MCPMissingCapabilitiesItem> =
     ...overrides,
 })
 
-describe('missing capability row helpers', () => {
-    // A report with no client identity is common (the SDK only stamps $mcp_client_name on
-    // $mcp_initialize), so the table must tell that apart from a named client.
-    it.each([
-        ['an empty label', '', true],
-        ['the backend placeholder', 'Unidentified client', true],
-        ['a known harness', 'Claude Code', false],
-        ['a self-reported client', 'some-inhouse-agent', false],
-    ])('treats %s as unidentified: %s', (_label, harness, expected) => {
-        expect(isUnidentifiedClient(harness)).toBe(expected)
-    })
-
-    it.each([
-        ['a person blob', '{"email":"a@b.com"}', { email: 'a@b.com' }],
-        ['an empty blob', '{}', {}],
-        ['a missing value', '', {}],
-        ['malformed JSON', '{not json', {}],
-        ['a non-object', '"a@b.com"', {}],
-    ])('parses %s', (_label, raw, expected) => {
-        expect(parsePersonProperties(raw)).toEqual(expected)
-    })
-})
-
 describe('mcpMissingCapabilitiesLogic', () => {
+    describe('row helpers', () => {
+        it.each([
+            ['an empty label', '', true],
+            ['the backend placeholder', 'Unidentified client', true],
+            ['a known harness', 'Claude Code', false],
+            ['a self-reported client', 'some-inhouse-agent', false],
+        ])('treats %s as unidentified: %s', (_label, harness, expected) => {
+            expect(isUnidentifiedClient(harness)).toBe(expected)
+        })
+
+        it.each([
+            ['a person blob', '{"email":"a@b.com"}', { email: 'a@b.com' }],
+            ['an empty blob', '{}', {}],
+            ['a missing value', '', {}],
+            ['malformed JSON', '{not json', {}],
+            ['a non-object', '"a@b.com"', {}],
+        ])('parses %s', (_label, raw, expected) => {
+            expect(parsePersonProperties(raw)).toEqual(expected)
+        })
+    })
+
     let logic: MissingCapabilitiesLogic | null = null
 
-    // Mounted per test, not in beforeEach: afterMount fires the first page load, so the
-    // response for it has to be queued before the logic exists.
     function mountLogic(): MissingCapabilitiesLogic {
         logic = mcpMissingCapabilitiesLogic()
         logic.mount()
@@ -70,6 +67,7 @@ describe('mcpMissingCapabilitiesLogic', () => {
     afterEach(() => {
         logic?.unmount()
         logic = null
+        resumeKeaLoadersErrors()
         jest.clearAllMocks()
     })
 
@@ -86,8 +84,6 @@ describe('mcpMissingCapabilitiesLogic', () => {
         )
     })
 
-    // A search or a date change is a different result set, so both reset to page one. The term
-    // itself goes to the backend, which does the case-insensitive matching.
     it.each<[string, (logic: MissingCapabilitiesLogic) => void, Record<string, unknown>]>([
         ['a search term', (l) => l.actions.setSearch('pdf'), { search: 'pdf', offset: 0 }],
         [
@@ -121,8 +117,19 @@ describe('mcpMissingCapabilitiesLogic', () => {
         expect(mounted.values.hasNext).toBe(false)
     })
 
-    // Guards the stale-append race: a "Load more" still in flight when the filters change must
-    // not splice its page onto the new result set.
+    it('keeps a load failure distinct from an empty result and clears it on retry', async () => {
+        silenceKeaLoadersErrors()
+        mockApi.query.mockRejectedValueOnce(new Error('query failed'))
+
+        const mounted = mountLogic()
+        await expectLogic(mounted).toDispatchActions(['loadReportsFailure'])
+        expect(mounted.values.reportsError).toBe('query failed')
+
+        mockApi.query.mockResolvedValueOnce({ results: [], has_next: false } as any)
+        await expectLogic(mounted, () => mounted.actions.loadReports()).toDispatchActions(['loadReportsSuccess'])
+        expect(mounted.values.reportsError).toBeNull()
+    })
+
     it('discards a page whose query changed while it was in flight', async () => {
         mockApi.query.mockResolvedValueOnce({ results: [report('old ask')], has_next: true } as any)
         const mounted = mountLogic()

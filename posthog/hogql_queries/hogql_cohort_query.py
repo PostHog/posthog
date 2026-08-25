@@ -592,7 +592,9 @@ class HogQLCohortQuery:
         return cast(
             ast.SelectQuery,
             parse_select(
-                "SELECT person_id as id FROM static_cohort_people WHERE cohort_id = {cohort_id} AND team_id = {team_id}",
+                # DISTINCT because `person_static_cohort` can hold repeated rows for the same member
+                # (its sort key includes a per-row UUID), and this select is joined into other queries.
+                "SELECT DISTINCT person_id as id FROM static_cohort_people WHERE cohort_id = {cohort_id} AND team_id = {team_id}",
                 {"cohort_id": ast.Constant(value=cohort.pk), "team_id": ast.Constant(value=self.team.pk)},
             ),
         )

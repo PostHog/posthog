@@ -7,7 +7,10 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import type { TeamPublicType, TeamType } from '~/types'
 
 /** New catalog-driven setup requirements: add here — CONTRIBUTING.md */
-export type WidgetAvailabilityRequirementId = 'exception_autocapture' | 'session_replay_enabled'
+export type WidgetAvailabilityRequirementId =
+    | 'exception_autocapture'
+    | 'session_replay_enabled'
+    | 'conversations_enabled'
 
 export type WidgetAvailabilityPresentation = {
     productName: string
@@ -32,6 +35,12 @@ export const WIDGET_AVAILABILITY_PRESENTATION: Record<WidgetAvailabilityRequirem
             thingName: 'session recording',
             settingsUrl: urls.settings('environment-replay'),
         },
+        conversations_enabled: {
+            productName: 'Support',
+            productKey: ProductKey.CONVERSATIONS,
+            thingName: 'support ticket',
+            settingsUrl: urls.supportTickets(),
+        },
     }
 
 export type WidgetAvailabilityConfig = {
@@ -45,6 +54,8 @@ export type WidgetAvailabilityConfig = {
     setupActionLabel: string
     /** Optional docs link for a secondary CTA. */
     docsHref?: string
+    /** Use compact spacing when the setup prompt must fit a short widget tile. */
+    compactSetupPrompt?: boolean
 }
 
 export type WidgetAvailabilityStatus = {
@@ -62,6 +73,8 @@ export function isWidgetAvailabilityRequirementMet(
             return !!team?.autocapture_exceptions_opt_in
         case 'session_replay_enabled':
             return !!team?.session_recording_opt_in
+        case 'conversations_enabled':
+            return !!team?.conversations_enabled
         default: {
             const _exhaustive: never = requirement
             return _exhaustive

@@ -59,7 +59,7 @@ describe("decodeJsxUnicodeEscapes", () => {
 
 describe("buildSandboxDocument", () => {
   it("inlines the unicode-escape decoder into the bootstrap", () => {
-    const html = buildSandboxDocument("edit");
+    const html = buildSandboxDocument();
     expect(html).toContain(
       "const decodeUnicodeEscapes = function decodeJsxUnicodeEscapes(",
     );
@@ -67,7 +67,7 @@ describe("buildSandboxDocument", () => {
   });
 
   it("inlines the external-anchor resolver into the bootstrap", () => {
-    const html = buildSandboxDocument("edit");
+    const html = buildSandboxDocument();
     expect(html).toContain(
       "const resolveExternalAnchorUrl = function resolveExternalAnchorUrl(",
     );
@@ -79,14 +79,14 @@ describe("buildSandboxDocument", () => {
   // theme message arrives. A light fallback there flashed white over a dark
   // app every time a canvas preview scrolled into view.
   it("paints nothing of its own before the host theme lands", () => {
-    const html = buildSandboxDocument("edit");
+    const html = buildSandboxDocument();
     expect(html).toContain("background: var(--background, transparent)");
     expect(html).not.toContain("var(--background, #fff)");
     expect(html).toContain("html.dark { color-scheme: dark; }");
   });
 
   it("installs the persisted comment protocol", () => {
-    const html = buildSandboxDocument("edit");
+    const html = buildSandboxDocument();
     expect(html).toContain('d.type === "set-comment-highlights"');
     expect(html).toContain('type: "comment-activate"');
     expect(html).toContain('d.type === "clear-text-selection"');

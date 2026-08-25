@@ -28,6 +28,7 @@ from posthog.clickhouse.plugin_log_entries import PLUGIN_LOG_ENTRIES_TABLE
 from posthog.dags.common import JobOwners
 from posthog.dags.person_overrides import squash_person_overrides
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
+from posthog.models.deletion_targets import personal_data_tables
 from posthog.models.event.deletion import events_data_tables
 from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.group.sql import GROUPS_TABLE
@@ -601,8 +602,9 @@ def delete_events(
         }
     )
 
-    # The same delete must land on every physical events table (legacy + native-JSON), or the
-    # tables diverge while both exist.
+    # Every registered target must get this delete, or rows survive on the table that got skipped.
+    # The predicate below reads only team_id, person_id, timestamp and uuid, which every target
+    # declares, so it applies unchanged to all of them.
     delete_mutation_runners = [
         LightweightDeleteMutationRunner(
             table=table,
@@ -619,7 +621,7 @@ def delete_events(
                 "adhoc_event_deletes_dictionary": load_and_verify_adhoc_event_deletes_dictionary.qualified_name,
             },
         )
-        for table in events_data_tables(cluster)
+        for table in personal_data_tables(cluster)
     ]
 
     shard_waiters: dict[int, list[MutationWaiter]] = {}
@@ -890,6 +892,9 @@ def cleanup_old_events_by_partition(
     total_partitions = len(partitions)
     # Both events tables partition by toYYYYMM(timestamp), so the same partition list applies;
     # deleting IN PARTITION on a partition a table doesn't have is a no-op.
+    #
+    # Events only, deliberately: this enforces a multi-year retention floor for a named set of
+    # teams, and every other personal-data table already expires sooner under its own TTL.
     event_tables = events_data_tables(cluster)
 
     for idx, partition in enumerate(partitions, 1):

@@ -58,6 +58,10 @@ class NotionSource(ResumableSource[NotionSourceConfig, NotionResumeConfig]):
         return {
             "Notion API error (retryable)",
             "Notion rate limited",
+            # A 2xx whose body is empty or non-JSON is a truncated/garbled response, retried in-process
+            # by `_request`. If those retries exhaust, the condition is transient and self-recovering,
+            # so let Temporal retry the activity instead of surfacing it as tracked exception noise.
+            "Notion returned a non-JSON response",
             # `_request`'s tenacity retry also covers `requests.ConnectionError` (which
             # `requests.exceptions.SSLError` subclasses) and `requests.ReadTimeout`. urllib3
             # wraps both as "... Max retries exceeded with url: ..." regardless of the underlying

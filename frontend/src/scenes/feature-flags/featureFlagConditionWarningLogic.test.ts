@@ -439,6 +439,7 @@ describe('featureFlagConditionWarningLogic', () => {
             logic.mount()
 
             expect(logic.values.warning).toBe('static cohorts')
+            expect(logic.values.hasStaticCohort).toBe(true)
         })
 
         it('does not warn when cohort is not loaded yet', () => {
@@ -459,6 +460,7 @@ describe('featureFlagConditionWarningLogic', () => {
 
             expectLogic(logic).toMatchValues({
                 warning: undefined,
+                hasStaticCohort: false,
             })
         })
 
@@ -488,6 +490,7 @@ describe('featureFlagConditionWarningLogic', () => {
             logic.mount()
 
             expect(logic.values.warning).toBeUndefined()
+            expect(logic.values.hasStaticCohort).toBe(false)
         })
     })
 

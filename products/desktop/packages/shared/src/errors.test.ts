@@ -104,6 +104,11 @@ describe("classifyGatewayLimitError", () => {
       "model_gate",
     ],
     [
+      "Rate limit exceeded: Your team has reached its PostHog Desktop usage limit for this billing period. See https://app.posthog.com/organization/billing for your usage and limits.",
+      "org_limit",
+    ],
+    [
+      // Pre-rename wording still sent by older gateway deployments.
       "Rate limit exceeded: Your team has reached its PostHog Code usage limit for this billing period. See https://app.posthog.com/organization/billing for your usage and limits.",
       "org_limit",
     ],
@@ -119,6 +124,7 @@ describe("classifyGatewayLimitError", () => {
       "org_limit",
     ],
     ["Rate limit exceeded: User sustained rate limit exceeded", "org_limit"],
+    ["Cloud usage limit reached", "org_limit"],
   ])("classifies %j as %s", (message, expected) => {
     expect(classifyGatewayLimitError(message)).toBe(expected);
   });
@@ -145,6 +151,7 @@ describe("classifyGatewayLimitError", () => {
 describe("classifyPromptFailure", () => {
   it.each([
     ["Rate limit exceeded", undefined, "usage_limit", false],
+    ["Cloud usage limit reached", undefined, "usage_limit", false],
     ["API Error: 529 overloaded", undefined, "transient", true],
     ["boom", "upstream_timeout", "transient", true],
     ["Authentication required", undefined, "authentication", true],

@@ -47,3 +47,33 @@ export async function hasRecentAIEvents(): Promise<boolean> {
 
     return (response.results?.length ?? 0) > 0
 }
+
+let seenAiEvents = false
+let inFlightAiEventsCheck: Promise<boolean> | null = null
+
+async function runAiEventsCheck(): Promise<boolean> {
+    try {
+        if (await hasRecentAIEvents()) {
+            seenAiEvents = true
+        }
+        return seenAiEvents
+    } catch {
+        // A transient API failure reads as "not seen yet"; the poll retries on its next tick.
+        return false
+    } finally {
+        inFlightAiEventsCheck = null
+    }
+}
+
+/**
+ * Shares one in-flight check and caches a hit, so the several install-step components polling
+ * at once run at most one ClickHouse probe per tick. The query runs against the current project,
+ * and switching projects reloads the page, so the cache is honest for a whole page load.
+ */
+export function pollRecentAIEvents(): Promise<boolean> {
+    if (seenAiEvents) {
+        return Promise.resolve(true)
+    }
+    inFlightAiEventsCheck ??= runAiEventsCheck()
+    return inFlightAiEventsCheck
+}

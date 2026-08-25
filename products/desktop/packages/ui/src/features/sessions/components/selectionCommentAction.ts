@@ -44,13 +44,6 @@ export const COMMENT_ACTION_BUTTON_THEMES: Record<
 export const COMMENT_ACTION_ICON_SVG =
   '<svg width="14" height="14" viewBox="0 0 256 256" fill="currentColor" aria-hidden="true"><path d="M128,20A108,108,0,0,0,31.85,177.23L21,209.66A20,20,0,0,0,46.34,235l32.43-10.81A108,108,0,1,0,128,20Zm0,192a84,84,0,0,1-42.06-11.27,12,12,0,0,0-6-1.62,12.1,12.1,0,0,0-3.8.62l-29.79,9.93,9.93-29.79a12,12,0,0,0-1-9.81A84,84,0,1,1,128,212Z"/></svg>';
 
-// CSS variables let the host flip the theme of an already-running iframe
-// document with a `theme` message instead of rebuilding (and reloading) it.
-export function commentActionButtonCssVars(theme: CommentSurfaceTheme): string {
-  const palette = COMMENT_ACTION_BUTTON_THEMES[theme];
-  return `--ph-comment-action-bg:${palette.background};--ph-comment-action-fg:${palette.color};--ph-comment-action-border:${palette.border};--ph-comment-action-hover:${palette.hoverBackground};--ph-comment-action-shadow:${palette.shadow};`;
-}
-
 // The one comment action look, shared by every surface: the app renders this
 // class directly and the sandboxed iframes inject the same rules, so a markdown
 // artifact, an HTML artifact and a canvas cannot drift apart. Solid themed
@@ -65,10 +58,11 @@ export function commentActionButtonCss(): string {
 export function setCommentActionTheme(
   theme: string,
   themes: Record<string, CommentActionButtonTheme>,
+  target: HTMLElement,
 ): void {
   const palette = themes[theme] || themes.light;
   if (!palette) return;
-  const style = document.documentElement.style;
+  const style = target.style;
   style.setProperty("--ph-comment-action-bg", palette.background);
   style.setProperty("--ph-comment-action-fg", palette.color);
   style.setProperty("--ph-comment-action-border", palette.border);
@@ -282,7 +276,7 @@ export function installSelectionSettleGate(
     settle();
   };
   const onKeyDown = (event: KeyboardEvent) => {
-    if (!isSelectionKey(event)) {
+    if (inActionUi(event.target) || !isSelectionKey(event)) {
       return;
     }
     keyGesture = true;

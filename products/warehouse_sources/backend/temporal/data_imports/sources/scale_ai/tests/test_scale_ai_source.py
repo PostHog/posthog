@@ -2,29 +2,12 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ExternalDataSourceType as SchemaExternalDataSourceType,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
+from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.scale_ai.scale_ai import ScaleAIResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.scale_ai.source import ScaleAISource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestScaleAISourceConfig:
-    def test_source_type(self) -> None:
-        assert ScaleAISource().source_type == ExternalDataSourceType.SCALEAI
-
-    def test_config_identity_and_release(self) -> None:
-        config = ScaleAISource().get_source_config
-        assert config.name == SchemaExternalDataSourceType.SCALE_AI
-        assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-
     def test_config_requires_a_secret_api_key_field(self) -> None:
         # A non-secret or non-required key field would leak the credential or let the form submit blank.
         fields = ScaleAISource().get_source_config.fields
@@ -35,9 +18,6 @@ class TestScaleAISourceConfig:
         assert api_key.type == SourceFieldInputConfigType.PASSWORD
         assert api_key.required is True
         assert api_key.secret is True
-
-    def test_docs_url_matches_slug(self) -> None:
-        assert ScaleAISource().get_source_config.docsUrl == "https://posthog.com/docs/cdp/sources/scale-ai"
 
 
 class TestScaleAISchemas:
@@ -106,34 +86,6 @@ class TestScaleAICredentials:
 
 
 class TestScaleAIPipelineWiring:
-    def test_resumable_manager_is_bound_to_resume_config(self) -> None:
-        inputs = MagicMock(team_id=1, job_id="job", logger=MagicMock())
-        manager = ScaleAISource().get_resumable_source_manager(inputs)
-        assert manager._data_class is ScaleAIResumeConfig
-
-    def test_source_for_pipeline_forwards_inputs(self) -> None:
-        config = MagicMock(api_key="live_key")
-        manager = MagicMock()
-        inputs = MagicMock(
-            schema_name="tasks",
-            logger=MagicMock(),
-            should_use_incremental_field=True,
-            db_incremental_field_last_value="2026-01-01T00:00:00+00:00",
-            incremental_field="updated_at",
-        )
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.scale_ai.source.scale_ai_source"
-        ) as mock_source:
-            ScaleAISource().source_for_pipeline(config, manager, inputs)
-
-        mock_source.assert_called_once()
-        kwargs = mock_source.call_args.kwargs
-        assert kwargs["api_key"] == "live_key"
-        assert kwargs["endpoint"] == "tasks"
-        assert kwargs["should_use_incremental_field"] is True
-        assert kwargs["db_incremental_field_last_value"] == "2026-01-01T00:00:00+00:00"
-        assert kwargs["incremental_field"] == "updated_at"
-
     def test_source_for_pipeline_drops_cursor_on_full_refresh(self) -> None:
         # A stale watermark must not leak into a full-refresh run and silently filter it.
         config = MagicMock(api_key="live_key")

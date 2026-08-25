@@ -22,11 +22,8 @@ export const MCP_RECURRING_REPORTS: MCPRecurringReport[] = [
         lead: 'Their goals in their own words, grouped and ranked, with the ones that keep failing called out.',
         frequency: 'weekly',
         title: 'MCP intent roundup',
-        // Scoped to $mcp_intent on tool calls, which is set on ~88% of calls, so "couldn't do it"
-        // is inferred from the error flag on the same call. $mcp_missing_capability is a different
-        // and stronger signal — the agent saying outright that the tools it had weren't enough —
-        // and projects do emit it; it has its own surface in the Missing capabilities tab. Whether this
-        // weekly report should also fold it in is an open product question.
+        // This report infers an unmet intent from the error flag on a tool call. Explicit
+        // $mcp_missing_capability reports stay in the Missing capabilities tab.
         prompt: [
             'Summarize what AI agents were trying to do with our MCP server this week,',
             'using the $mcp_intent property on $mcp_tool_call events.',

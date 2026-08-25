@@ -5,12 +5,14 @@ from unittest.mock import patch
 
 from django.utils import timezone as django_timezone
 
+from rest_framework import status
 from rest_framework.exceptions import PermissionDenied, Throttled
 
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models import Integration, User
 
 from products.tasks.backend.facade import (
+    access as tasks_access,
     api as facade,
     contracts,
 )
@@ -48,10 +50,21 @@ WARM_SRC = "products.tasks.backend.logic.services.warm.SandboxWarmer"
 TITLE_SRC = "products.tasks.backend.logic.services.title_generator"
 
 
+def _allow_desktop_access(test_case: APIBaseTest) -> None:
+    access_patcher = patch(
+        "products.tasks.backend.logic.services.code_usage_gate.get_desktop_access_decision",
+        return_value=tasks_access.DesktopAccessDecision.ALLOWED,
+    )
+    access_patcher.start()
+    test_case.addCleanup(access_patcher.stop)
+
+
 class TestWarmTaskSandbox(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.integration = Integration.objects.create(team=self.team, kind="github", config={})
+        # The warm endpoint gates on Desktop access; these tests cover warm forwarding, not the gate.
+        _allow_desktop_access(self)
 
     def _warm(self, **overrides):
         kwargs: dict[str, Any] = {
@@ -169,6 +182,7 @@ class TestWarmTaskSandbox(APIBaseTest):
         run = TaskRun.objects.get(id=result.run_id)
         assert run.state["sandbox_environment_id"] == str(sandbox_environment.id)
         assert run.state["custom_image_id"] == str(custom_image.id)
+        assert "use_modal_network_allowlist" not in run.state
 
     def test_births_draft_task_and_returns_warm_dto(self):
         def fake_warm(self_warmer, **kwargs):
@@ -259,6 +273,20 @@ class TestWarmTaskSandbox(APIBaseTest):
         m_warm.assert_called_once()
         assert Task.objects.filter(team=self.team, deleted=False).count() == 1
 
+    def test_dedups_when_only_reasoning_effort_changes(self):
+        def fake_warm(self_warmer, **kwargs):
+            state = {"await_user_message": True, **kwargs["extra_state"]}
+            run = self_warmer.task.create_run(mode="interactive", extra_state=state, branch=state.get("branch"))
+            return WarmResult(run=run, just_created=True)
+
+        with patch(f"{WARM_SRC}.warm", autospec=True, side_effect=fake_warm) as mock_warm:
+            first = self._warm(runtime_adapter="codex", model="gpt-5.6-sol", reasoning_effort="high")
+            second = self._warm(runtime_adapter="codex", model="gpt-5.6-sol", reasoning_effort="xhigh")
+
+        assert first is not None and second is not None
+        assert second.run_id == first.run_id
+        mock_warm.assert_called_once()
+
     def test_does_not_reuse_warm_run_after_environment_access_is_revoked(self):
         other_user = User.objects.create_and_join(self.organization, "other-warm-owner@posthog.com", None)
         sandbox_environment = SandboxEnvironment.objects.create(
@@ -340,6 +368,7 @@ class TestCreateTaskWarmReuse(APIBaseTest):
             repository_cache=[{"id": 1, "name": "posthog", "full_name": "posthog/posthog"}],
             repository_cache_updated_at=django_timezone.now(),
         )
+        _allow_desktop_access(self)
 
     def _warm_run(
         self,
@@ -396,6 +425,50 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         # must be persisted for the warm run to honor the setting.
         assert run.state.get("auto_publish") is True
 
+    def test_reuses_warm_task_with_new_reasoning_effort_and_attachments(self):
+        warm_task, run = self._warm_run(
+            extra_state={
+                "runtime_adapter": "codex",
+                "model": "gpt-5.6-sol",
+                "reasoning_effort": "high",
+            }
+        )
+        run.artifacts = [_artifact_entry("artifact-1")]
+        run.save(update_fields=["artifacts"])
+
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True) as mock_signal:
+            dto = self._create(
+                runtime_adapter="codex",
+                model="gpt-5.6-sol",
+                reasoning_effort="xhigh",
+                pending_user_message="inspect the attachment",
+                pending_user_artifact_ids=["artifact-1"],
+            )
+
+        assert str(dto.id) == str(warm_task.id)
+        run.refresh_from_db()
+        assert run.state.get("reasoning_effort") == "xhigh"
+        assert "await_user_message" not in run.state
+        _, kwargs = mock_signal.call_args
+        assert kwargs["artifact_ids"] == ["artifact-1"]
+
+    def test_reuses_warm_task_without_reasoning_effort_and_clears_prewarm_value(self):
+        warm_task, run = self._warm_run(
+            extra_state={
+                "runtime_adapter": "codex",
+                "model": "gpt-5.6-sol",
+                "reasoning_effort": "high",
+            }
+        )
+
+        with patch(f"{FACADE}.signal_task_run_user_message", return_value=True):
+            dto = self._create(runtime_adapter="codex", model="gpt-5.6-sol")
+
+        assert str(dto.id) == str(warm_task.id)
+        run.refresh_from_db()
+        assert "reasoning_effort" not in run.state
+        assert "await_user_message" not in run.state
+
     def test_reuses_matching_multi_repository_warm_task(self):
         repositories = ["posthog/posthog", "posthog/posthog-js"]
         warm_task, run = self._warm_run(repositories=repositories)
@@ -423,6 +496,26 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         assert str(dto.id) == str(warm_task.id)
         run.refresh_from_db()
         assert "await_user_message" not in run.state
+
+    def test_create_endpoint_returns_structured_compute_quota_denial_before_warm_activation(self):
+        warm_task, run = self._warm_run()
+
+        with patch(
+            "products.tasks.backend.logic.services.compute_quota.get_compute_quota_denial_reason",
+            return_value="posthog_code_billing_limit_exceeded",
+        ):
+            response = self.client.post(
+                "/api/projects/@current/tasks/",
+                {"description": "fix the bug", "repository": "posthog/posthog", "branch": "main"},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert response.json()["code"] == "posthog_code_billing_limit_exceeded"
+        warm_task.refresh_from_db()
+        run.refresh_from_db()
+        assert warm_task.description == ""
+        assert run.state.get("await_user_message") is True
 
     def test_does_not_overwrite_existing_warm_description(self):
         warm_task, _ = self._warm_run()
@@ -663,6 +756,7 @@ class TestRunTaskWarmActivation(APIBaseTest):
 
     def test_materializes_staged_artifacts_onto_warm_run_before_activation(self):
         task, run = self._warm_run()
+        TaskRun.update_state_atomic(run.id, updates={"reasoning_effort": "high"})
         staged = _artifact_entry("artifact-1")
         get_tasks_cache().set(build_task_staged_artifact_cache_key(str(task.id), "artifact-1"), staged, timeout=60)
 
@@ -676,6 +770,7 @@ class TestRunTaskWarmActivation(APIBaseTest):
                     "branch": "main",
                     "pending_user_message": "do it",
                     "pending_user_artifact_ids": ["artifact-1"],
+                    "reasoning_effort": "xhigh",
                 },
             )
 
@@ -684,6 +779,7 @@ class TestRunTaskWarmActivation(APIBaseTest):
         run.refresh_from_db()
         assert [artifact["id"] for artifact in run.artifacts] == ["artifact-1"]
         assert "await_user_message" not in run.state
+        assert run.state.get("reasoning_effort") == "xhigh"
         _, kwargs = m_signal.call_args
         assert kwargs["artifact_ids"] == ["artifact-1"]
 

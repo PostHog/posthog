@@ -20,8 +20,10 @@ test.describe('Early Access Management', () => {
         await expect(page.locator('h1')).toContainText('Early access features')
         await expect(page).toHaveTitle('Early access features • PostHog')
 
-        // go to create a new feature
-        await page.getByRole('link', { name: 'New feature' }).click()
+        // go to create a new feature. This workspace has no features, so the scene renders its
+        // setup empty state instead of the list; the create button on both carries this attr,
+        // while their labels differ.
+        await page.locator('[data-attr="create-feature"]').click()
 
         // cancel new feature
         await page.locator('[data-attr="cancel-feature"]').click()
@@ -30,7 +32,7 @@ test.describe('Early Access Management', () => {
         const name = randomString('test-feature')
 
         // set feature name & description
-        await page.getByRole('link', { name: 'New feature' }).click()
+        await page.locator('[data-attr="create-feature"]').click()
         await page.click('[data-attr="scene-title-textarea"]')
         await page.locator('[data-attr="scene-title-textarea"]').pressSequentially(name)
         await delay(1000)

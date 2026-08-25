@@ -7,6 +7,7 @@ from unittest.mock import patch
 from django.test import override_settings
 
 from posthog.llm.gateway_client import (
+    AIGatewayConfig,
     Product,
     build_async_anthropic_client,
     build_async_openai_client,
@@ -192,7 +193,7 @@ class TestResolveAIGatewayConfig:
 
     @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
     def test_returns_pair_when_both_set(self):
-        assert resolve_ai_gateway_config() == (AI_GATEWAY_URL, AI_GATEWAY_KEY)
+        assert resolve_ai_gateway_config() == AIGatewayConfig(url=AI_GATEWAY_URL, api_key=AI_GATEWAY_KEY)
 
     @pytest.mark.parametrize(
         "url,key,reason",
