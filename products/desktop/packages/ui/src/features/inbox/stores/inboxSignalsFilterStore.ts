@@ -15,6 +15,9 @@ type SignalSortField = Extract<
 
 type SignalSortDirection = "asc" | "desc";
 
+/** Whether to show every report, only PR-backed ones, or only PR-less ones. */
+export type InboxPrFilter = "all" | "with_pr" | "without_pr";
+
 interface InboxSignalsFilterState {
   sortField: SignalSortField;
   sortDirection: SignalSortDirection;
@@ -23,6 +26,7 @@ interface InboxSignalsFilterState {
   sourceProductFilter: SourceProduct[];
   /** Empty array means "all priorities" (no filter). */
   priorityFilter: SignalReportPriority[];
+  prFilter: InboxPrFilter;
 }
 
 interface InboxSignalsFilterActions {
@@ -31,6 +35,7 @@ interface InboxSignalsFilterActions {
   toggleSourceProduct: (source: SourceProduct) => void;
   togglePriority: (priority: SignalReportPriority) => void;
   setPriorityFilter: (priorities: SignalReportPriority[]) => void;
+  setPrFilter: (prFilter: InboxPrFilter) => void;
   /** Clear the source filter back to "Any" (empty = all sources). */
   clearSourceProductFilter: () => void;
   /** Reset all filters when a deep link arrives so the linked report isn't hidden. */
@@ -54,6 +59,7 @@ export const useInboxSignalsFilterStore = create<InboxSignalsFilterStore>()(
       searchQuery: "",
       sourceProductFilter: [],
       priorityFilter: [],
+      prFilter: "all",
       setSort: (sortField, sortDirection) => set({ sortField, sortDirection }),
       setSearchQuery: (searchQuery) => set({ searchQuery }),
       toggleSourceProduct: (source) =>
@@ -76,12 +82,14 @@ export const useInboxSignalsFilterStore = create<InboxSignalsFilterStore>()(
         set({
           priorityFilter: Array.from(new Set(priorities)),
         }),
+      setPrFilter: (prFilter) => set({ prFilter }),
       clearSourceProductFilter: () => set({ sourceProductFilter: [] }),
       resetFilters: () =>
         set({
           searchQuery: "",
           sourceProductFilter: [],
           priorityFilter: [],
+          prFilter: "all",
         }),
     }),
     {
@@ -104,6 +112,7 @@ export const useInboxSignalsFilterStore = create<InboxSignalsFilterStore>()(
         sortDirection: state.sortDirection,
         sourceProductFilter: state.sourceProductFilter,
         priorityFilter: state.priorityFilter,
+        prFilter: state.prFilter,
       }),
     },
   ),
