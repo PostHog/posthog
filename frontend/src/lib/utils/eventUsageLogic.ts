@@ -701,19 +701,19 @@ export interface eventUsageLogicActions {
         action: 'discarded' | 'kept_editing' | 'shown'
         dashboard: DashboardType<QueryBasedInsightModel<Node<Record<string, any>>>> | null
     }
+    reportDashboardEmptyAddChartClicked: (dashboardId: number | undefined) => {
+        dashboardId: number | undefined
+    }
     reportDashboardEmptyAiPromptClicked: (
         promptLabel: string,
         dashboardId: number | undefined,
-        promptType: 'starter_question' | 'custom_prompt'
+        promptType: 'custom_prompt' | 'starter_question'
     ) => {
         dashboardId: number | undefined
         promptLabel: string
-        promptType: 'starter_question' | 'custom_prompt'
+        promptType: 'custom_prompt' | 'starter_question'
     }
     reportDashboardEmptyAiPromptSubmitted: (dashboardId: number | undefined) => {
-        dashboardId: number | undefined
-    }
-    reportDashboardEmptyAddChartClicked: (dashboardId: number | undefined) => {
         dashboardId: number | undefined
     }
     reportDashboardEmptyWebAnalyticsClicked: (dashboardId: number | undefined) => {
