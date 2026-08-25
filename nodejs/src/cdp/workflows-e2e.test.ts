@@ -474,7 +474,7 @@ describe('Workflows E2E (postgres-v2)', () => {
             await createWorkflow({
                 actions: {
                     trigger: trigger(),
-                    delay_1: delayAction('1s'),
+                    delay_1: delayAction('0.5s'),
                     function_1: fetchAction('https://example.com/delayed-webhook'),
                     exit: exitAction(),
                 },
@@ -739,7 +739,7 @@ describe('Workflows E2E (postgres-v2)', () => {
             hogFlowId = await createWorkflow({
                 actions: {
                     trigger: trigger(),
-                    delay_1: delayAction('1s'),
+                    delay_1: delayAction('0.5s'),
                     function_1: fetchAction('https://example.com/should-not-fire'),
                     exit: exitAction(),
                 },
@@ -829,7 +829,7 @@ describe('Workflows E2E (postgres-v2)', () => {
         /** Shorten the flow's delay so the woken run advances instead of re-parking */
         function shortenDelay(flow: HogFlow, actionId: string): void {
             const delay = flow.actions.find((a) => a.id === actionId)!
-            ;(delay.config as any).delay_duration = '1s'
+            ;(delay.config as any).delay_duration = '0.5s'
         }
 
         it('a content edit made while parked on an upstream delay is honored on wake', async () => {
