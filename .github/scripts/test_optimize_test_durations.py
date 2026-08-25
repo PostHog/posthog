@@ -138,9 +138,11 @@ class TestAverageDurations:
             main()
         assert not out.exists()
 
-    def test_scope_to_junit_refuses_a_missing_junit_shard(self, tmp_path, monkeypatch):
-        # Shard 2's JUnit never uploaded. Scoping to shard 1 alone would drop every
-        # nodeid shard 2 owns, so the script must exit and let the workflow retry unscoped.
+    @pytest.mark.parametrize("broken_shard", [None, b"<testsuite><testcase"])
+    def test_scope_to_junit_refuses_a_shard_without_readable_junit(self, tmp_path, monkeypatch, broken_shard):
+        # Shard 2's JUnit never uploaded (None) or uploaded truncated. Scoping to
+        # shard 1 alone would drop every nodeid shard 2 owns, so the script must
+        # exit and let the workflow retry unscoped.
         artifacts = tmp_path / "timing_artifacts"
         for shard, test_id in (
             ("1", "posthog/test_foo.py::TestThing::test_one"),
@@ -152,6 +154,9 @@ class TestAverageDurations:
         junit_dir = tmp_path / "junit_artifacts"
         (junit_dir / "junit-results-backend-core-1").mkdir(parents=True)
         (junit_dir / "junit-results-backend-core-1" / "junit.xml").write_bytes(_MIN_JUNIT_XML)
+        if broken_shard is not None:
+            (junit_dir / "junit-results-backend-core-2").mkdir()
+            (junit_dir / "junit-results-backend-core-2" / "junit.xml").write_bytes(broken_shard)
         out = tmp_path / "core_durations"
         monkeypatch.setattr(
             sys,

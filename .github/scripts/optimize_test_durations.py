@@ -825,11 +825,13 @@ def main():
         if not junit_shards:
             logger.error("--scope-to-junit requires --junit-dir with matching artifacts")
             sys.exit(1)
-        # A timing shard whose JUnit never uploaded would read as "nothing ran"
-        # and lose every nodeid it owns, so scoping needs one JUnit per shard.
-        # The workflow retries unscoped on this exit.
-        if not shard_sets_match(shards, junit_shards):
-            logger.error("--scope-to-junit needs a JUnit artifact for every timing shard")
+        # A timing shard whose JUnit never uploaded, or uploaded truncated (the
+        # parser turns that into an empty shard), would read as "nothing ran" and
+        # lose every nodeid it owns, so scoping needs one readable JUnit per
+        # shard. The workflow retries unscoped on this exit.
+        unreadable = [shard.name for shard in junit_shards if not shard.call_times]
+        if not shard_sets_match(shards, junit_shards) or unreadable:
+            logger.error("--scope-to-junit needs a readable JUnit artifact for every timing shard: %s", unreadable)
             sys.exit(1)
         ran = set().union(*(s.call_times.keys() for s in junit_shards))
         before_count = len(durations)
