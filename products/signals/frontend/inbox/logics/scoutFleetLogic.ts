@@ -244,8 +244,12 @@ export interface scoutFleetLogicActions {
     removeScoutConfigLocally: (configId: string) => {
         configId: string
     }
-    runScoutNow: (configId: string) => {
+    runScoutNow: (
+        configId: string,
+        surface?: ScoutSurface
+    ) => {
         configId: string
+        surface: ScoutSurface
     }
     runScoutNowFinished: (configId: string) => {
         configId: string
@@ -367,7 +371,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         setScoutSearch: (search: string) => ({ search }),
         setRosterEvaluatedAt: (evaluatedAt: number) => ({ evaluatedAt }),
         setScoutEnabledFilter: (filter: ScoutEnabledFilter) => ({ filter }),
-        runScoutNow: (configId: string) => ({ configId }),
+        runScoutNow: (configId: string, surface: ScoutSurface = 'scout_detail') => ({ configId, surface }),
         runScoutNowFinished: (configId: string) => ({ configId }),
         // Started/stopped by the fleet-list component so the always-mounted setup widget
         // (which only reads configs) doesn't trigger the paginated runs-window polling.
@@ -783,7 +787,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 extra: { search_length: query.length, filter_match_count: values.rosterScouts.length },
             })
         },
-        runScoutNow: async ({ configId }) => {
+        runScoutNow: async ({ configId, surface }) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
                 actions.runScoutNowFinished(configId)
@@ -794,7 +798,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 await signalsScoutConfigRun(String(teamId), configId)
                 captureScoutAction({
                     actionType: 'run_now',
-                    surface: 'scout_detail',
+                    surface,
                     skillName: config?.skill_name ?? null,
                 })
                 lemonToast.success('Run started. It shows up in this scout’s runs when it finishes.')

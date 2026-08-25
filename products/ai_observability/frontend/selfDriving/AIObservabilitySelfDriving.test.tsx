@@ -16,6 +16,8 @@ import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, type AppContext } from '~/types'
 
 import * as alertsApi from 'products/alerts/frontend/generated/api'
+import * as signalsApi from 'products/signals/frontend/generated/api'
+import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
 
 import * as aiObservabilityApi from '../generated/api'
 import { AIObservabilitySelfDriving } from './AIObservabilitySelfDriving'
@@ -34,8 +36,36 @@ jest.mock('lib/utils/newInternalTab')
 
 jest.mock('products/signals/frontend/generated/api', () => ({
     signalsScoutConfigList: jest.fn(() => new Promise(() => {})),
+    signalsScoutConfigRun: jest.fn(),
     signalsScoutMetadataGet: jest.fn(() => new Promise(() => {})),
+    signalsScoutRunsRecentPerScout: jest.fn(),
 }))
+
+const AI_OBSERVABILITY_SCOUT: SignalScoutConfigApi = {
+    id: 'config-costly-users',
+    skill_name: 'signals-scout-costly-users',
+    description: 'Watches which users cost the most.',
+    scout_origin: 'custom',
+    enabled: true,
+    status: 'active',
+    pause_reason: null,
+    emit: true,
+    run_interval_minutes: 1440,
+    run_cron_schedule: null,
+    output_destinations: {},
+    structured_output_schema: null,
+    network_access: 'trusted',
+    model: null,
+    mcp_gateway_server_ids: [],
+    last_run_at: null,
+    consecutive_failure_count: 0,
+    status_changed_at: null,
+    auto_pause_exempt: false,
+    tags: ['ai-observability'],
+    source_product: null,
+    source_id: null,
+    created_at: '2024-01-01T00:00:00Z',
+}
 
 const EVAL_REPORTS_SOURCE_CONFIG = {
     id: 'source-config-eval-reports',
@@ -406,6 +436,34 @@ describe('AIObservabilitySelfDriving', () => {
             ])
         )
         expect(successToast).toHaveBeenCalledWith('AI observability signal source disabled')
+        successToast.mockRestore()
+    })
+
+    // The button is the only way to run a scout off its schedule from this page, so a missing or
+    // misrouted wire leaves the click doing nothing at all.
+    it('runs a scout on demand from the scouts list', async () => {
+        const successToast = jest.spyOn(lemonToast, 'success').mockReturnValue('scout-run-started')
+        jest.mocked(signalsApi.signalsScoutConfigList).mockResolvedValue([AI_OBSERVABILITY_SCOUT])
+        jest.mocked(signalsApi.signalsScoutConfigRun).mockResolvedValue({
+            skill_name: AI_OBSERVABILITY_SCOUT.skill_name,
+            workflow_id: 'workflow-1',
+            started: true,
+        })
+        jest.mocked(signalsApi.signalsScoutRunsRecentPerScout).mockResolvedValue([])
+
+        render(
+            <Provider>
+                <AIObservabilitySelfDriving />
+            </Provider>
+        )
+
+        const runNowButton = await screen.findByTestId('scout-summary-row-run-now')
+        await userEvent.click(runNowButton)
+
+        await waitFor(() =>
+            expect(signalsApi.signalsScoutConfigRun).toHaveBeenCalledWith('997', AI_OBSERVABILITY_SCOUT.id)
+        )
+        expect(successToast).toHaveBeenCalledWith('Run started. It shows up in this scout’s runs when it finishes.')
         successToast.mockRestore()
     })
 
