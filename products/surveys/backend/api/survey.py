@@ -3516,7 +3516,13 @@ def get_surveys_response(team: Team) -> dict[str, Any]:
         # external_survey case in their type enums at all.
         .exclude(type=Survey.SurveyType.EXTERNAL_SURVEY)
         .select_related("linked_flag", "targeting_flag", "internal_targeting_flag")
-        .prefetch_related("actions"),
+        .prefetch_related("actions")
+        # The order decides which survey wins when several match the same person, because SDKs show
+        # the first one in this list that the person is eligible for, and a survey wait period then
+        # blocks the others for the whole period. Order by start date to keep that winner stable and
+        # to give it to the survey that started first. An unordered queryset returns Postgres heap
+        # order instead, which any row update can change, so the winner flips with no survey edit.
+        .order_by("start_date", "id"),
         many=True,
     ).data
 
