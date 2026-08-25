@@ -59,9 +59,13 @@ export const normalizeRelativeDateAmount = (amount: unknown): number => {
 // Keep in sync with parseRelativeDateValue — the backend resolves a wider grammar
 // (see is_relative_date_value in posthog/hogql/variables.py), but values this UI
 // can't parse must not open the relative editor, which would rewrite them on edit.
-export const isRelativeDateValue = (value: string): boolean => /^-\d+[hdwmy]$/.test(value)
+export const isRelativeDateValue = (value: unknown): boolean => typeof value === 'string' && /^-\d+[hdwmy]$/.test(value)
 
-export const parseRelativeDateValue = (value: string): RelativeDateValue | null => {
+export const parseRelativeDateValue = (value: unknown): RelativeDateValue | null => {
+    if (typeof value !== 'string') {
+        return null
+    }
+
     const match = value.match(/^-(\d+)([hdwmy])$/)
     if (!match) {
         return null
@@ -73,10 +77,10 @@ export const parseRelativeDateValue = (value: string): RelativeDateValue | null 
     }
 }
 
-export const formatRelativeDateValue = (value: string): string => {
+export const formatRelativeDateValue = (value: unknown): string => {
     const parsedValue = parseRelativeDateValue(value)
     if (!parsedValue) {
-        return value
+        return typeof value === 'string' ? value : ''
     }
     if (parsedValue.amount === 0) {
         return 'Now'

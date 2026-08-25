@@ -215,7 +215,7 @@ export const VariableInput = ({
                 {variable.type === 'Date' && (
                     <DateField
                         variable={{ ...variable, default_value: String(localInputValue) } as DateVariable}
-                        updateVariable={(updatedVariable) => setLocalInputValue(updatedVariable.default_value)}
+                        updateVariable={(updatedVariable) => setLocalInputValue(updatedVariable.default_value ?? '')}
                         onApply={commit}
                         onSave={() => {}}
                     />
