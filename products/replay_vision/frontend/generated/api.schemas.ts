@@ -2136,9 +2136,9 @@ export interface ResolvedSurfaceApi {
 export interface ResolveScopeResponseApi {
     /** The scope phrase this resolution answers. Echoed from the request. */
     scope: string
-    /** Matched surfaces, closest first. Playlists lead, then pages, then actions, then events. */
+    /** Matched surfaces, closest first: pages, then actions, then events. Playlists appear only when the scope asked for one by name, and lead when they do. */
     surfaces: ResolvedSurfaceApi[]
-    /** `RecordingsQuery` the matched surfaces became, ready to hand to `estimate` or to a new scanner. A matched playlist reuses its saved filters; otherwise matched pages become a single `visited_page` property listing every path, which matches a session that touched any of them. Null when nothing matched — an empty filter is better than one matching everything. `date_from`/`date_to` are stripped; a scanner's window comes from its sweep. */
+    /** `RecordingsQuery` the matched surfaces became, ready to hand to `estimate` or to a new scanner. Matched pages become a single `visited_page` property listing every path, which matches a session that touched any of them. When the scope asks for a saved playlist by name, that playlist's own filters are used instead, exactly as saved. Null when nothing matched — an empty filter is better than one matching everything. `date_from`/`date_to` are stripped; a scanner's window comes from its sweep. */
     query: unknown
     /**
      * Sessions matching `query` within `window_days`. Null when there is no query, or when the count failed — check `degraded_sources`.

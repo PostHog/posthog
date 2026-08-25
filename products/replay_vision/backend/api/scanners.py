@@ -40,6 +40,8 @@ from posthog.rate_limit import (
     AISustainedRateThrottle,
     ReplayVisionEstimateBurstRateThrottle,
     ReplayVisionEstimateSustainedRateThrottle,
+    ReplayVisionResolveBurstRateThrottle,
+    ReplayVisionResolveSustainedRateThrottle,
 )
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
@@ -1239,17 +1241,21 @@ class ResolveScopeResponseSerializer(serializers.Serializer):
     scope = serializers.CharField(help_text="The scope phrase this resolution answers. Echoed from the request.")
     surfaces = ResolvedSurfaceSerializer(
         many=True,
-        help_text="Matched surfaces, closest first. Playlists lead, then pages, then actions, then events.",
+        help_text=(
+            "Matched surfaces, closest first: pages, then actions, then events. Playlists appear only "
+            "when the scope asked for one by name, and lead when they do."
+        ),
     )
     query = extend_schema_field(RecordingsQuery)(  # type: ignore[arg-type, type-var]
         serializers.JSONField(
             allow_null=True,
             help_text=(
                 "`RecordingsQuery` the matched surfaces became, ready to hand to `estimate` or to a new "
-                "scanner. A matched playlist reuses its saved filters; otherwise matched pages become a "
-                "single `visited_page` property listing every path, which matches a session that touched "
-                "any of them. Null when nothing matched — an empty filter is better than one matching "
-                "everything. `date_from`/`date_to` are stripped; a scanner's window comes from its sweep."
+                "scanner. Matched pages become a single `visited_page` property listing every path, which "
+                "matches a session that touched any of them. When the scope asks for a saved playlist by "
+                "name, that playlist's own filters are used instead, exactly as saved. Null when nothing "
+                "matched — an empty filter is better than one matching everything. `date_from`/`date_to` "
+                "are stripped; a scanner's window comes from its sweep."
             ),
         )
     )
@@ -2058,13 +2064,21 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         detail=False,
         methods=["post"],
         url_path="resolve",
-        required_scopes=["replay_scanner:read", "session_recording:read"],
-        throttle_classes=[ReplayVisionEstimateBurstRateThrottle, ReplayVisionEstimateSustainedRateThrottle],
+        # The response names actions and event definitions as well as recordings, so a key needs the
+        # scopes that reading those directly would need — resolving must not widen what a key grants.
+        required_scopes=[
+            "replay_scanner:read",
+            "session_recording:read",
+            "action:read",
+            "event_definition:read",
+        ],
+        throttle_classes=[ReplayVisionResolveBurstRateThrottle, ReplayVisionResolveSustainedRateThrottle],
     )
     def resolve(self, request: Request, **kwargs: Any) -> Response:
         """Turn a free-text scope phrase into matched product surfaces and a recording filter."""
         # The response carries page paths, playlist names and a session count, all of which are
-        # recording metadata; gate it exactly as `estimate` is gated.
+        # recording metadata; gate it exactly as `estimate` is gated. Object-level access for the
+        # other sources is enforced per source inside `resolve_scope`.
         if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
             raise PermissionDenied("Resolving a scanner scope requires session_recording read access.")
 

@@ -135,7 +135,7 @@ class TestScopeResolution(BaseTest):
             },
         )
 
-        resolution = self._resolve("billing")
+        resolution = self._resolve("billing playlist")
 
         assert resolution.query is not None
         assert resolution.query["kind"] == "RecordingsQuery"
@@ -151,7 +151,7 @@ class TestScopeResolution(BaseTest):
         }
         playlist = self._playlist(name="Billing", filters=legacy)
 
-        self._resolve("billing")
+        self._resolve("billing playlist")
 
         playlist.refresh_from_db()
         assert playlist.filters == legacy
@@ -164,15 +164,28 @@ class TestScopeResolution(BaseTest):
             filters={"session_recording_duration": {"type": "recording", "key": "duration", "value": 60}},
         )
 
-        resolution = self._resolve("billing")
+        resolution = self._resolve("billing playlist")
 
         assert _visited_page_values(resolution.query) == ["/billing"]
 
-    def test_playlist_match_suppresses_the_page_property(self) -> None:
+    def test_a_playlist_is_ignored_unless_the_scope_asks_for_one(self) -> None:
+        # The dead-scanner case: a playlist saved with its filters cleared constrains nothing, so
+        # adopting it for a scope that merely shares a word would scan the team's whole replay volume.
         self.paths.return_value = _paths(("/billing", 900))
-        self._playlist(name="Billing deep dive")
+        self._playlist(name="Billing deep dive", filters={"filter_group": {"type": "AND", "values": []}})
 
         resolution = self._resolve("billing")
+
+        assert _visited_page_values(resolution.query) == ["/billing"]
+        assert [s for s in resolution.surfaces if s.kind == "playlist"] == []
+
+    @parameterized.expand([("playlist",), ("saved filter",), ("collection",)])
+    def test_a_requested_playlist_supplies_the_filter_however_wide(self, marker: str) -> None:
+        # Asking for a playlist by name is asking for its filters as saved. Wide is what was asked for.
+        self.paths.return_value = _paths(("/billing", 900))
+        self._playlist(name="Billing deep dive", filters={"filter_group": {"type": "AND", "values": []}})
+
+        resolution = self._resolve(f"billing {marker}")
 
         assert resolution.query is not None
         assert not [p for p in resolution.query.get("properties") or [] if p.get("key") == "visited_page"]
@@ -184,7 +197,7 @@ class TestScopeResolution(BaseTest):
         self._playlist(name="Billing secrets")
         denying = Mock(filter_queryset_by_access_level=lambda queryset, resource=None: queryset.none())
 
-        resolution = self._resolve("billing", user_access_control=denying)
+        resolution = self._resolve("billing playlist", user_access_control=denying)
 
         assert [s.kind for s in resolution.surfaces] == ["page"]
         assert _visited_page_values(resolution.query) == ["/billing"]
@@ -198,7 +211,7 @@ class TestScopeResolution(BaseTest):
     def test_unusable_playlists_are_excluded(self, _name: str, overrides: dict[str, Any]) -> None:
         self._playlist(name="Billing", **overrides)
 
-        resolution = self._resolve("billing")
+        resolution = self._resolve("billing playlist")
 
         assert [s for s in resolution.surfaces if s.kind == "playlist"] == []
 
@@ -209,6 +222,46 @@ class TestScopeResolution(BaseTest):
         resolution = resolve_scope(team=child, scope="billing")
 
         assert [s.name for s in resolution.surfaces if s.kind == "action"] == ["Billing upgrade clicked"]
+
+    def test_action_denied_to_the_caller_is_excluded(self) -> None:
+        # Actions are access-controlled, so a scope phrase must not confirm the name of one the
+        # caller cannot read — the endpoint would otherwise enumerate the team's action catalog.
+        Action.objects.create(team=self.team, name="Billing plan cancelled", description="secret")
+        denying = Mock(
+            check_access_level_for_resource=lambda *a, **k: True,
+            has_any_specific_access_for_resource=lambda *a, **k: True,
+            filter_queryset_by_access_level=lambda queryset, resource=None: queryset.none(),
+        )
+
+        resolution = resolve_scope(team=self.team, scope="billing", user_access_control=denying)
+
+        assert [s for s in resolution.surfaces if s.kind == "action"] == []
+
+    def test_no_action_resource_access_drops_the_whole_source(self) -> None:
+        # filter_queryset_by_access_level passes the queryset through when there is neither resource
+        # access nor an object grant; in a viewset has_permission refuses, but here nothing would.
+        Action.objects.create(team=self.team, name="Billing plan cancelled")
+        denying = Mock(
+            check_access_level_for_resource=lambda *a, **k: False,
+            has_any_specific_access_for_resource=lambda *a, **k: False,
+            filter_queryset_by_access_level=lambda queryset, resource=None: queryset,
+        )
+
+        resolution = resolve_scope(team=self.team, scope="billing", user_access_control=denying)
+
+        assert [s for s in resolution.surfaces if s.kind == "action"] == []
+
+    def test_events_resolve_project_wide_not_just_this_environment(self) -> None:
+        # A definition recorded against the project rather than this environment: a literal team_id
+        # filter misses it, and the events source then looks empty in every non-root environment.
+        sibling = Team.objects.create(organization=self.organization, name="Sibling environment")
+        EventDefinition.objects.create(
+            team=sibling, project_id=self.team.project_id, name="billing_upgraded", last_seen_at=timezone.now()
+        )
+
+        resolution = self._resolve("billing")
+
+        assert [s.key for s in resolution.surfaces if s.kind == "event"] == ["billing_upgraded"]
 
     def test_deleted_actions_are_excluded(self) -> None:
         Action.objects.create(team=self.team, name="Billing upgrade clicked", deleted=True)
@@ -233,7 +286,8 @@ class TestScopeResolution(BaseTest):
         EventDefinition.objects.create(team=self.team, name="billing_upgraded", last_seen_at=timezone.now())
         self._patch(f"{_MODULE}.{_SOURCE_FETCHERS[source]}", side_effect=RuntimeError("source down"))
 
-        resolution = self._resolve("billing")
+        # Asks for a playlist so all four sources run and every one can be the failing one.
+        resolution = self._resolve("billing playlist")
 
         assert resolution.degraded_sources == (source,)
         assert {s.kind for s in resolution.surfaces} == set(_KIND_BY_SOURCE.values()) - {_KIND_BY_SOURCE[source]}

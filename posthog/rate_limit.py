@@ -638,6 +638,20 @@ class ReplayVisionEstimateSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "200/hour"
 
 
+# Scope resolution gets its own bucket rather than sharing the estimate's. The guided creation flow
+# calls resolve and then estimate for the same scanner, so one shared budget would let a single
+# editor's typing spend the whole project's estimate allowance. Roomier on the burst because the
+# caller is a debounced text box, and these buckets are project-wide.
+class ReplayVisionResolveBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_resolve_burst"
+    rate = "40/minute"
+
+
+class ReplayVisionResolveSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "replay_vision_resolve_sustained"
+    rate = "400/hour"
+
+
 class _AIThrottleBase(UserRateThrottle):
     action_name: str
 

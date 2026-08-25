@@ -37,6 +37,11 @@ _STOPWORDS = frozenset(
 # Below this, a prefix match is coincidence rather than a shared stem ("id" vs "identity").
 _MIN_PREFIX_MATCH_CHARS = 4
 
+# Saying one of these is how a caller asks for a saved playlist by name. Absent them, the scope
+# describes the product, not the caller's saved views, and a playlist that happens to share a word
+# with it is a coincidence — see `_playlist_requested`.
+_PLAYLIST_MARKERS = ("playlist", "saved filter", "saved search", "saved view", "collection")
+
 # How many rows each source offers the matcher. Bounded so a large team cannot turn a resolve into a
 # full table read; the matcher only ever keeps a handful.
 _MAX_PLAYLIST_CANDIDATES = 200
@@ -100,14 +105,19 @@ def resolve_scope(
 ) -> ScopeResolution:
     """Turn a free-text scope phrase into the product surfaces it names, one recording filter, and a count.
 
-    Matching is lexical and deterministic — no model call. The four sources (ranked page paths, saved
-    playlists, actions, custom events) are all matched and returned as grounding, but only pages and
-    playlists produce a filter: `RecordingsQuery` ANDs its events together, so filtering on several
-    matched events narrows to nothing.
+    Matching is lexical and deterministic — no model call. Page paths, actions, and custom events are
+    matched as grounding, but only pages build the filter: `RecordingsQuery` ANDs its events together,
+    so filtering on several matched events narrows to nothing.
+
+    Saved playlists are consulted only when the scope asks for one by saying so ("the billing
+    playlist"). A playlist sharing a word with a description of the product is a coincidence, not a
+    request, and adopting its filters would answer a question the caller did not ask. When one is
+    asked for, its filters are used as saved, however wide — that is what was asked for.
 
     Each source is isolated, so one erroring source degrades the answer rather than failing it.
     """
-    scope_tokens = _tokens(scope)
+    playlist_requested = _playlist_requested(scope)
+    scope_tokens = _tokens(scope, drop_playlist_markers=playlist_requested)
     phrase = _normalize(scope)
     if not scope_tokens:
         # A phrase with no content words would match everything, and an everything-filter is worse
@@ -123,18 +133,25 @@ def resolve_scope(
         )
 
     degraded: list[str] = []
-    playlist_matches = _isolated(
-        "playlists", lambda: _playlist_matches(team, scope_tokens, phrase, user_access_control), degraded, team
+    # Not queried at all unless asked for, so an unasked-for playlist cannot reach the response.
+    playlist_matches = (
+        _isolated(
+            "playlists", lambda: _playlist_matches(team, scope_tokens, phrase, user_access_control), degraded, team
+        )
+        if playlist_requested
+        else ()
     )
     pages = _isolated("pages", lambda: _page_surfaces(team, scope_tokens, phrase, ch_user), degraded, team)
-    actions = _isolated("actions", lambda: _action_surfaces(team, scope_tokens, phrase), degraded, team)
+    actions = _isolated(
+        "actions", lambda: _action_surfaces(team, scope_tokens, phrase, user_access_control), degraded, team
+    )
     events = _isolated("events", lambda: _event_surfaces(team, scope_tokens, phrase), degraded, team)
 
-    # Playlists lead because a playlist is a filter a human already wrote; pages next because they are
-    # the only other source that can contribute filter values. Actions and events are evidence only.
+    # Pages lead because they build the filter in the ordinary case. A requested playlist outranks
+    # them, since then it is the thing the caller named. Actions and events are evidence only.
     surfaces = (tuple(m.surface for m in playlist_matches) + pages + actions + events)[:_MAX_SURFACES_TOTAL]
-    best_playlist = playlist_matches[0].playlist if playlist_matches else None
-    query = _build_query(best_playlist, [p.key for p in pages])
+    requested_playlist = playlist_matches[0].playlist if playlist_matches else None
+    query = _build_query(requested_playlist, [p.key for p in pages])
 
     matched_sessions: int | None = None
     window_days: int | None = None
@@ -180,12 +197,24 @@ def _normalize(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", text.casefold()).strip()
 
 
-def _tokens(text: str) -> tuple[str, ...]:
-    return tuple(
+def _playlist_requested(scope: str) -> bool:
+    """Whether the caller asked for a saved playlist rather than describing the product."""
+    normalized = _normalize(scope)
+    return any(marker in normalized for marker in _PLAYLIST_MARKERS)
+
+
+def _tokens(text: str, *, drop_playlist_markers: bool = False) -> tuple[str, ...]:
+    tokens = tuple(
         token
         for token in _normalize(text).split()
         if len(token) > 1 and not token.isdigit() and token not in _STOPWORDS
     )
+    if not drop_playlist_markers:
+        return tokens
+    # "billing playlist" names a playlist called "Billing"; leaving the marker in would score every
+    # candidate whose own name happens to contain it.
+    marker_words = {word for marker in _PLAYLIST_MARKERS for word in marker.split()}
+    return tuple(token for token in tokens if token not in marker_words)
 
 
 def _tokens_match(left: str, right: str) -> bool:
@@ -267,10 +296,24 @@ def _playlist_matches(
     return tuple(matches[:_MAX_SURFACES_PER_KIND])
 
 
-def _action_surfaces(team: Team, scope_tokens: Sequence[str], phrase: str) -> tuple[SurfaceMatch, ...]:
+def _action_surfaces(
+    team: Team, scope_tokens: Sequence[str], phrase: str, user_access_control: UserAccessControl | None
+) -> tuple[SurfaceMatch, ...]:
     # `team_id=` rather than `team=`: only the kwarg form makes RootTeamManager resolve the parent
     # team, so `team=team` silently returns nothing on a child environment.
-    queryset = Action.objects.filter(team_id=team.id, deleted=False).order_by("name")
+    # Ordered by recency, not name: the candidate cap would otherwise cut a fixed alphabetical tail
+    # that no scope phrase could ever reach.
+    queryset = Action.objects.filter(team_id=team.id, deleted=False).order_by("-updated_at")
+    if user_access_control is not None:
+        # Actions are access-controlled, so a scope phrase must not confirm the name of one the
+        # caller cannot read. The resource check is not redundant: filter_queryset_by_access_level
+        # returns the queryset untouched when there is neither resource access nor an object grant,
+        # because in a viewset it is has_permission that refuses the request.
+        if not user_access_control.check_access_level_for_resource(
+            "action", required_level="viewer"
+        ) and not user_access_control.has_any_specific_access_for_resource("action", required_level="viewer"):
+            return ()
+        queryset = user_access_control.filter_queryset_by_access_level(queryset, resource="action")
     matches: list[SurfaceMatch] = []
     for action in queryset[:_MAX_ACTION_CANDIDATES]:
         label = (action.name or "").strip()
@@ -295,7 +338,13 @@ def _action_surfaces(team: Team, scope_tokens: Sequence[str], phrase: str) -> tu
 
 def _event_surfaces(team: Team, scope_tokens: Sequence[str], phrase: str) -> tuple[SurfaceMatch, ...]:
     names = list(
-        EventDefinition.objects.filter(team_id=team.id, last_seen_at__isnull=False)
+        # Project-scoped with a team-scoped fallback, the same predicate core's event-definition
+        # reads use and the one `_event_descriptions` below already used. A literal team_id filter
+        # misses every definition recorded against the project rather than this environment.
+        EventDefinition.objects.filter(
+            Q(project_id=team.project_id) | Q(project_id__isnull=True, team_id=team.project_id),
+            last_seen_at__isnull=False,
+        )
         # PostHog internals ($pageview and friends) are never product surfaces.
         .exclude(name__startswith="$")
         .order_by("-last_seen_at")
