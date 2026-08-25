@@ -26205,7 +26205,9 @@
                 "GooglePostmasterTools",
                 "Growi",
                 "Clarify",
-                "DatoCMS"
+                "DatoCMS",
+                "WPSOffice",
+                "TeraBox"
             ],
             "type": "string"
         },
