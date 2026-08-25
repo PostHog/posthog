@@ -17,6 +17,7 @@ import {
 } from "@posthog/ui/features/cost-management/useCostChecklist";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
+import { skillErrorDescription } from "@posthog/ui/features/skills/skillErrors";
 import { useInstallMarketplaceSkill } from "@posthog/ui/features/skills/useMarketplace";
 import { useDeleteSkill } from "@posthog/ui/features/skills/useSkillMutations";
 import { useSpendAnalysisEnabled } from "@posthog/ui/features/usage/useSpendAnalysisEnabled";
@@ -85,6 +86,10 @@ export function CostManagementSettings() {
         description: "New sessions pick it up. Manage it under Skills.",
         action: { label: "Open skills", onClick: () => openSettings("skills") },
       });
+    } catch (error) {
+      toast.error(`Couldn't install ${skill.name}`, {
+        description: skillErrorDescription(error),
+      });
     } finally {
       setBusySkillId(null);
     }
@@ -99,6 +104,10 @@ export function CostManagementSettings() {
       await deleteSkill.mutateAsync({ skillPath });
       toast.success(`${skill.name} uninstalled`, {
         description: "New sessions start without it.",
+      });
+    } catch (error) {
+      toast.error(`Couldn't uninstall ${skill.name}`, {
+        description: skillErrorDescription(error),
       });
     } finally {
       setBusySkillId(null);
