@@ -166,17 +166,16 @@ def build_opening_brief(facts: OnboardingFacts) -> list[str]:
 
 
 def self_driving_line(reports: Sequence[InboxReportSummary]) -> str:
-    """Where findings actually live, and the button that opens them.
+    """Where findings live, and the button that opens them.
 
     Reports are named with their ids so the agent can offer one directly rather than send someone
     looking. They are a snapshot from session start, which the line says, because a report can be
     archived or resolved before the agent gets around to offering it.
     """
     line = (
-        "Findings do not land in this space's feed. They land in Self-driving, their inbox in the "
-        "sidebar. Never tell them to look for a finding in a space. When findings come up, offer a "
-        "`show_actions` `open_inbox` button instead of describing where to look. That button opens "
-        "Self-driving on its own, or one report when you pass `report_id`."
+        "Findings land in Self-driving, their inbox in the sidebar. When one comes up, offer a "
+        "`show_actions` `open_inbox` button rather than describing where to look. That button "
+        "opens Self-driving on its own, or one report when you pass `report_id`."
     )
     if not reports:
         return line

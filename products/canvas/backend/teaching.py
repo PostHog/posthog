@@ -101,7 +101,7 @@ const TOPICS = [
     tagline: "PostHog watches for problems on its own",
     body: [
       "PostHog watches this project for things like errors, failing health checks, support tickets and metric swings. When something looks wrong, it writes up what it found and what it would do about it.",
-      "Those write-ups go to Self-driving in the left sidebar, not into a space feed. Some arrive with a pull request already open for you to review.",
+      "Those write-ups go to Self-driving, the inbox in the left sidebar. Some arrive with a pull request already open for you to review.",
     ],
     prompts: ["What's waiting for me in Self-driving?"],
   },
