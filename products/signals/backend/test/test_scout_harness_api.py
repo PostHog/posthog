@@ -1272,6 +1272,40 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()[0]["content"] == "abcd"
 
+    @parameterized.expand([("default", "", ["live"]), ("include_expired", "?include_expired=true", ["live", "lapsed"])])
+    def test_search_hides_expired_entries_unless_asked_for(
+        self, _name: str, query: str, expected_keys: list[str]
+    ) -> None:
+        SignalScratchpad.objects.create(team=self.team, key="live", content="still true")
+        SignalScratchpad.objects.create(
+            team=self.team, key="lapsed", content="cooldown", expires_at=timezone.now() - timedelta(days=1)
+        )
+        response = self.client.get(f"{self._list_url()}{query}")
+        assert response.status_code == status.HTTP_200_OK
+        assert sorted(row["key"] for row in response.json()) == sorted(expected_keys)
+
+    def test_remember_stores_and_returns_expires_at(self) -> None:
+        expiry = timezone.now() + timedelta(days=2)
+        response = self.client.post(
+            self._list_url(),
+            data={"key": "cooldown", "content": "hold off", "expires_at": expiry.isoformat()},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["expires_at"] == expiry.isoformat()
+        assert SignalScratchpad.objects.get(team=self.team, key="cooldown").expires_at == expiry
+
+    def test_remember_rejects_expires_at_in_the_past(self) -> None:
+        # A memory that's already lapsed on write is invisible the moment it lands, so it's a
+        # mistake worth a 400 rather than a silently useless row.
+        response = self.client.post(
+            self._list_url(),
+            data={"key": "k1", "content": "v", "expires_at": "2020-01-01T00:00:00Z"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not SignalScratchpad.objects.filter(team=self.team, key="k1").exists()
+
     def test_search_does_not_leak_other_teams_memory(self) -> None:
         other = Team.objects.create(organization=self.organization, name="Other")
         SignalScratchpad.objects.create(team=other, key="theirs", content="leaked?")
@@ -3152,6 +3186,22 @@ class TestScoutRunDerivedMetadata(APIBaseTest):
             created_at=run.created_at + created_offset, updated_at=run.created_at + updated_offset
         )
         assert self._stamp(run)["has_self_validation"] is expected
+
+    def test_self_validation_still_counts_a_followup_entry_that_has_expired(self) -> None:
+        # The follow-up queue is read straight off the manager, deliberately unfiltered: this flag
+        # records that the run did the work, and an entry lapsing afterwards doesn't undo that.
+        # Routing this read through `search_scratchpad` would silently start dropping such runs.
+        run = _make_run(self.team)
+        entry = SignalScratchpad.objects.create(
+            team=self.team,
+            key=f"{FOLLOWUP_KEY_PREFIX}{run.skill_name}:checkout-errors",
+            content="validated",
+            expires_at=timezone.now() - timedelta(days=1),
+        )
+        SignalScratchpad.all_teams.filter(pk=entry.pk).update(
+            created_at=run.created_at - timedelta(hours=2), updated_at=run.created_at + timedelta(minutes=1)
+        )
+        assert self._stamp(run)["has_self_validation"] is True
 
     def test_sibling_skills_queue_does_not_count(self) -> None:
         run = _make_run(self.team)
