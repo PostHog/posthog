@@ -1,3 +1,9 @@
+import {
+  EMPTY_SPEND_LIMITS,
+  pruneSpendNoticesSeen,
+  type SpendLimits,
+  type SpendLimitsPatch,
+} from "@posthog/core/billing/spendLimits";
 import type { UserRepositoryIntegrationRef } from "@posthog/core/integrations/repositories";
 import type {
   Adapter,
@@ -236,6 +242,16 @@ interface SettingsStore {
   diffOpenMode: DiffOpenMode;
   setDiffOpenMode: (mode: DiffOpenMode) => void;
 
+  // Spend limits. A warn line only notifies; a stop line pauses new agent
+  // messages in this app, and the monthly stop also syncs to the gateway
+  // where deployments enforce it.
+  spendLimits: SpendLimits;
+  // Crossing notices already shown, keyed by period/level/anchor/amount so
+  // each line notifies once per day or month at a given amount.
+  spendNoticesSeen: Record<string, string>;
+  setSpendLimits: (limits: SpendLimitsPatch) => void;
+  markSpendNoticeSeen: (key: string, anchor: string, todayIso: string) => void;
+
   // System / power / permissions
   allowBypassPermissions: boolean;
   preventSleepWhileRunning: boolean;
@@ -469,6 +485,24 @@ export const useSettingsStore = create<SettingsStore>()(
       diffOpenMode: "auto",
       setDiffOpenMode: (mode) => set({ diffOpenMode: mode }),
 
+      // Spend limits
+      spendLimits: EMPTY_SPEND_LIMITS,
+      spendNoticesSeen: {},
+      setSpendLimits: (limits) =>
+        set((state) => ({
+          spendLimits: {
+            day: { ...state.spendLimits.day, ...limits.day },
+            month: { ...state.spendLimits.month, ...limits.month },
+          },
+        })),
+      markSpendNoticeSeen: (key, anchor, todayIso) =>
+        set((state) => ({
+          spendNoticesSeen: {
+            ...pruneSpendNoticesSeen(state.spendNoticesSeen, todayIso),
+            [key]: anchor,
+          },
+        })),
+
       // System / power / permissions
       allowBypassPermissions: false,
       preventSleepWhileRunning: false,
@@ -620,6 +654,10 @@ export const useSettingsStore = create<SettingsStore>()(
         // Diff viewer
         diffOpenMode: state.diffOpenMode,
 
+        // Spend limits
+        spendLimits: state.spendLimits,
+        spendNoticesSeen: state.spendNoticesSeen,
+
         // System / power / permissions
         allowBypassPermissions: state.allowBypassPermissions,
         preventSleepWhileRunning: state.preventSleepWhileRunning,
@@ -674,6 +712,54 @@ export const useSettingsStore = create<SettingsStore>()(
           (!merged.customSounds || merged.customSounds.length === 0)
         ) {
           (merged as Record<string, unknown>).completionSound = "none";
+        }
+        // Persisted blobs from before the per-period shape carry flat keys
+        // (and older ones alert keys); every line must come back as a
+        // positive number or null, never undefined.
+        {
+          const raw = (merged.spendLimits ?? {}) as unknown as Record<
+            string,
+            unknown
+          >;
+          const line = (...values: unknown[]): number | null => {
+            for (const value of values) {
+              if (
+                typeof value === "number" &&
+                Number.isFinite(value) &&
+                value > 0
+              ) {
+                return value;
+              }
+            }
+            return null;
+          };
+          const migratedLines = (
+            period: "day" | "month",
+            flatPrefix: "daily" | "monthly",
+          ): SpendLimits["day"] => {
+            const nested = raw[period];
+            const lines =
+              typeof nested === "object" && nested !== null
+                ? (nested as Record<string, unknown>)
+                : {};
+            const stopUsd = line(
+              lines.stopUsd,
+              raw[`${flatPrefix}StopUsd`],
+              raw[`${flatPrefix}AlertUsd`],
+            );
+            const warnUsd = line(lines.warnUsd, raw[`${flatPrefix}WarnUsd`]);
+            return {
+              warnUsd:
+                warnUsd !== null && stopUsd !== null
+                  ? Math.min(warnUsd, stopUsd)
+                  : warnUsd,
+              stopUsd,
+            };
+          };
+          merged.spendLimits = {
+            day: migratedLines("day", "daily"),
+            month: migratedLines("month", "monthly"),
+          };
         }
         return merged;
       },

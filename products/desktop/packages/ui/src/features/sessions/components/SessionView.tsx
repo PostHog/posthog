@@ -12,6 +12,10 @@ import {
 import { useService } from "@posthog/di/react";
 import { type AcpMessage, FAST_MODE_FLAG } from "@posthog/shared";
 import type { Task, TaskRunStatus } from "@posthog/shared/domain-types";
+import {
+  spendStopMessage,
+  useSpendStop,
+} from "@posthog/ui/features/billing/useSpendStop";
 import { showOfflineToast } from "@posthog/ui/features/connectivity/connectivityToast";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import type { AttachmentUploadStatus } from "@posthog/ui/features/message-editor/components/AttachmentsBar";
@@ -185,6 +189,7 @@ export function SessionView({
   const fastModeOption = fastModeFlagEnabled ? liveFastModeOption : undefined;
   const toggleMessagingMode = useToggleMessagingMode(taskId);
   const { allowBypassPermissions } = useSettingsStore();
+  const spendStop = useSpendStop();
   const { isOnline } = useConnectivity();
   const currentModeId = modeOption?.currentValue;
   const handoffInProgress = useSessionHandoffInProgress(taskId);
@@ -770,7 +775,8 @@ export function SessionView({
                             handoffInProgress ||
                             !isOnline ||
                             attachmentsUploading ||
-                            attachmentUploadFailed
+                            attachmentUploadFailed ||
+                            spendStop !== null
                           }
                           clearOnSubmit={false}
                           submitTooltipOverride={
@@ -780,7 +786,9 @@ export function SessionView({
                                 ? "Uploading attachments…"
                                 : attachmentUploadFailed
                                   ? "Attachment upload failed"
-                                  : undefined
+                                  : spendStop
+                                    ? spendStopMessage(spendStop)
+                                    : undefined
                           }
                           isLoading={!!isPromptPending}
                           isActiveSession={isActiveSession}

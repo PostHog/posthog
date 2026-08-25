@@ -2,6 +2,8 @@ import { buildPrOutput, mergePrUrls, readPrUrls } from "@posthog/shared";
 import {
   buildPosthogPropertyHeaderLines,
   buildPosthogPropertyHeaderRecord,
+  buildPosthogUserHeaderLines,
+  buildPosthogUserHeaderRecord,
 } from "@posthog/shared/posthog-property-headers";
 import {
   createAcpConnection,
@@ -106,6 +108,11 @@ export class Agent {
             task_execution_environment: "local" as const,
           };
 
+    // The node the gateway holds a person's spend limit against. Null (a
+    // task-scoped credential) simply carries no user node, so the limit does
+    // not apply rather than applying to the wrong person.
+    const userNode = (await this.posthogAPI?.getUserNode()) ?? null;
+
     let codexModels: ModelInfo[] | undefined;
     let sanitizedModel =
       options.model && !isBlockedModelId(options.model)
@@ -156,8 +163,12 @@ export class Agent {
               this.posthogApiConfig?.projectId != null
                 ? String(this.posthogApiConfig.projectId)
                 : undefined,
-            anthropicCustomHeaders:
+            anthropicCustomHeaders: [
               buildPosthogPropertyHeaderLines(attribution),
+              buildPosthogUserHeaderLines(userNode),
+            ]
+              .filter(Boolean)
+              .join("\n"),
           }
         : undefined;
 
@@ -187,11 +198,14 @@ export class Agent {
               reasoningEffort: options.reasoningEffort,
               developerInstructions: options.developerInstructions,
               httpHeaders: taskId
-                ? buildPosthogPropertyHeaderRecord({
-                    ...attribution,
-                    $ai_session_id: taskId,
-                  })
-                : undefined,
+                ? {
+                    ...buildPosthogPropertyHeaderRecord({
+                      ...attribution,
+                      $ai_session_id: taskId,
+                    }),
+                    ...buildPosthogUserHeaderRecord(userNode),
+                  }
+                : buildPosthogUserHeaderRecord(userNode),
               additionalDirectories: options.additionalDirectories,
             }
           : undefined,
