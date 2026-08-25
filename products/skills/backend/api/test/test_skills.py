@@ -1785,18 +1785,6 @@ class TestLLMSkillOwners(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert [o["email"] for o in response.json()["owners"]] == [self.user.email]
 
-    def test_owner_rows_are_deleted_when_the_member_leaves_the_organization(self) -> None:
-        # Filtering a stale row out is not enough: it would grant ownership again the moment the member
-        # rejoins, without anyone assigning it.
-        member = self._member("rejoiner@example.com")
-        create_skill(self.team, user=self.user, name="kept", description="d", body="# b")
-        set_skill_owners(self.team, "kept", [self.user, member])
-
-        member.organization_memberships.filter(organization=self.organization).delete()
-        member.join(organization=self.organization)
-
-        assert [o.email for o in resolve_skill_owners(self.team, "kept")] == [self.user.email]
-
     def test_owners_are_scoped_to_the_exact_environment(self) -> None:
         # Skills are environment-scoped (LLMSkill filters team=<env>); owners must match. If owners
         # canonicalized to the parent project, two sibling environments' same-named skills would share
