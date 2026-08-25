@@ -225,7 +225,7 @@ export function InboxReportListTab({
               </EmptyTitle>
               <EmptyDescription>
                 {hasActiveFilters
-                  ? `Your ${emptyState.noun} are still here. Clear the filters to see them.`
+                  ? `Clear the filters to check for hidden ${emptyState.noun}.`
                   : emptyState.description}
               </EmptyDescription>
             </EmptyHeader>

@@ -282,7 +282,7 @@ export function ReportsInboxView() {
                     </EmptyTitle>
                     <EmptyDescription>
                       {hasActiveFilters
-                        ? "Your reports are still here. Clear the filters to see them."
+                        ? "Clear the filters to check for hidden reports."
                         : "Reports show up here as your agents find things worth acting on."}
                     </EmptyDescription>
                   </EmptyHeader>
