@@ -1,12 +1,7 @@
-import { BellIcon, ChecksIcon, DotsThreeIcon } from "@phosphor-icons/react";
+import { BellIcon } from "@phosphor-icons/react";
 import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
 import {
-  Button,
   cn,
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
   Empty,
   EmptyDescription,
   EmptyHeader,
@@ -18,8 +13,9 @@ import {
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { ActivityActionsMenu } from "@posthog/ui/features/canvas/components/ActivityActionsMenu";
+import { ActivityRow } from "@posthog/ui/features/canvas/components/ActivityRow";
 import { ActivityUnreadsToggle } from "@posthog/ui/features/canvas/components/ActivityUnreadsToggle";
-import { ActivityRow } from "@posthog/ui/features/canvas/components/ActivityView";
 import { openActivityItem } from "@posthog/ui/features/canvas/components/openActivityItem";
 import { useBlockedTaskIds } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
 import { useLocalDayStart } from "@posthog/ui/features/canvas/hooks/useLocalDayStart";
@@ -33,7 +29,6 @@ import {
   activityReadPayload,
   getUnreadActivityItems,
   groupActivityItemsByDay,
-  markLoadedReadLabel,
 } from "./activityFeed";
 
 interface ActivityFeedListProps {
@@ -104,36 +99,12 @@ export function ActivityFeedList({
         <span className="font-bold text-base">Activity</span>
         <div className="ml-auto flex shrink-0 items-center gap-1">
           <ActivityUnreadsToggle />
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              render={
-                <Button
-                  type="button"
-                  variant="default"
-                  size="icon-sm"
-                  aria-label="Activity actions"
-                  loading={isMarkingRead}
-                  disabled={isMarkingRead}
-                >
-                  <DotsThreeIcon size={14} weight="bold" />
-                </Button>
-              }
-            />
-            <DropdownMenuContent
-              align="end"
-              side="bottom"
-              sideOffset={4}
-              className="w-max"
-            >
-              <DropdownMenuItem
-                disabled={isMarkingRead || unreadItems.length === 0}
-                onClick={markAllRead}
-              >
-                <ChecksIcon size={14} />
-                {markLoadedReadLabel(unreadItems.length, unreadCount)}
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+          <ActivityActionsMenu
+            loadedUnreadCount={unreadItems.length}
+            totalUnreadCount={unreadCount}
+            isMarkingRead={isMarkingRead}
+            onMarkAllRead={markAllRead}
+          />
         </div>
       </div>
       <div
@@ -169,8 +140,6 @@ export function ActivityFeedList({
                   <ActivityRow
                     key={item.id}
                     item={item}
-                    channelId={item.channelId}
-                    onOpen={markRead}
                     onMarkRead={markRead}
                     currentUser={currentUser}
                     blockedTaskIds={blockedTaskIds}

@@ -11,22 +11,22 @@ export function groupActivityItemsByDay<T extends { activityAt: string }>(
   items: readonly T[],
   now: Date = new Date(),
 ): ActivityDayGroup<T>[] {
-  const groups: ActivityDayGroup<T>[] = [];
+  const groups = new Map<string, ActivityDayGroup<T>>();
   for (const item of items) {
     const timestamp = Math.min(new Date(item.activityAt).getTime(), +now);
     const key = `day:${getLocalDayKey(timestamp)}`;
-    const openGroup = groups[groups.length - 1];
-    if (openGroup?.key === key) {
-      openGroup.items.push(item);
+    const group = groups.get(key);
+    if (group) {
+      group.items.push(item);
       continue;
     }
-    groups.push({
+    groups.set(key, {
       key,
       label: formatShortDayLabel(timestamp, now),
       items: [item],
     });
   }
-  return groups;
+  return [...groups.values()];
 }
 
 export function getUnreadActivityItems(

@@ -16,8 +16,7 @@ vi.mock("@posthog/ui/router/navigationBridge", () => ({
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 
 import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
-import { ActivityRow } from "./ActivityView";
-import { activityMetadata } from "./activityMetadata";
+import { ActivityRow } from "./ActivityRow";
 import { openActivityItem } from "./openActivityItem";
 
 function item(overrides: Partial<TaskActivityItem>): TaskActivityItem {
@@ -39,7 +38,7 @@ function item(overrides: Partial<TaskActivityItem>): TaskActivityItem {
 
 const NO_BLOCKED_TASKS: ReadonlySet<string> = new Set();
 
-describe("activityMetadata", () => {
+describe("ActivityRow", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-27T10:00:00Z"));
@@ -51,81 +50,9 @@ describe("activityMetadata", () => {
       resolutionsByTarget: {},
     });
   });
+
   afterEach(() => {
     vi.useRealTimers();
-  });
-  it.each([
-    [
-      "completed run",
-      item({
-        activityKind: "completed",
-        activityAt: "2026-07-26T16:00:00Z",
-      }),
-      "18h ago · Agent completed",
-    ],
-    [
-      "agent reply",
-      item({ activityKind: "message" }),
-      "just now · Agent replied",
-    ],
-    [
-      "thread reply",
-      item({
-        activityKind: "thread_reply",
-        author: {
-          id: 2,
-          uuid: "author",
-          email: "author@posthog.com",
-          first_name: "Ann",
-        },
-      }),
-      "just now · Ann replied to a thread you participated in",
-    ],
-    [
-      "canvas owner comment",
-      item({
-        activityKind: "owned_item_comment",
-        commentTarget: { scope: "desktop_canvas", itemId: "canvas-1" },
-        author: {
-          id: 2,
-          uuid: "author",
-          email: "author@posthog.com",
-          first_name: "Ann",
-        },
-      }),
-      "just now · Ann commented on your canvas",
-    ],
-    [
-      "own reply",
-      item({
-        activityKind: "message",
-        author: {
-          id: 1,
-          uuid: "me",
-          email: "me@posthog.com",
-          first_name: "Me",
-        },
-      }),
-      "just now · You replied",
-    ],
-  ])("labels a %s", (_name, activity, expected) => {
-    expect(activityMetadata(activity, "me@posthog.com")).toBe(expected);
-  });
-
-  it.each([
-    [
-      "shared channel",
-      "engineering",
-      "just now · Agent completed · #engineering",
-    ],
-    ["personal channel", "personal", "just now · Agent completed · Personal"],
-  ])("formats the %s label", (_name, channelName, expected) => {
-    expect(
-      activityMetadata(
-        item({ activityKind: "completed", channelName }),
-        "me@posthog.com",
-      ),
-    ).toBe(expected);
   });
 
   it("leads a completed activity row with the task title", () => {
@@ -136,8 +63,6 @@ describe("activityMetadata", () => {
           taskTitle: "Tell me a joke",
           channelName: "personal",
         })}
-        channelId="channel-1"
-        onOpen={vi.fn()}
         onMarkRead={vi.fn()}
         onActivate={vi.fn()}
         blockedTaskIds={NO_BLOCKED_TASKS}
@@ -177,8 +102,6 @@ describe("activityMetadata", () => {
     render(
       <ActivityRow
         item={activity}
-        channelId="channel-1"
-        onOpen={vi.fn()}
         onMarkRead={vi.fn()}
         onActivate={openActivityItem}
         blockedTaskIds={NO_BLOCKED_TASKS}

@@ -90,15 +90,15 @@ vi.mock("@posthog/ui/features/auth/authClient", () => ({
 vi.mock("@posthog/ui/features/auth/useCurrentUser", () => ({
   useCurrentUser: () => ({ data: null }),
 }));
-vi.mock("@posthog/ui/features/canvas/components/ActivityView", () => ({
+vi.mock("@posthog/ui/features/canvas/components/ActivityRow", () => ({
   ActivityRow: ({
     item,
-    onOpen,
+    onMarkRead,
   }: {
     item: TaskActivityItem;
-    onOpen: (item: TaskActivityItem) => void;
+    onMarkRead: (item: TaskActivityItem) => void;
   }) => (
-    <button type="button" onClick={() => onOpen(item)}>
+    <button type="button" onClick={() => onMarkRead(item)}>
       Activity row
     </button>
   ),

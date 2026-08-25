@@ -18,8 +18,8 @@ describe("activityFeed", () => {
       groupActivityItemsByDay(
         [
           activity("today-late", 25, 11),
-          activity("today-early", 25, 8),
           activity("yesterday", 24, 20),
+          activity("today-early", 25, 8),
           activity("last-wednesday", 19, 9),
         ],
         now,
