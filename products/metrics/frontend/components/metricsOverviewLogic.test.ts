@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, AccessControlResourceType, AppContext, PropertyOperator } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
 import { metricsOverviewRetrieve, metricsValuesRetrieve } from '../generated/api'
 import type { _MetricsOverviewResponseApi } from '../generated/api.schemas'
@@ -63,25 +63,25 @@ describe('metricsOverviewLogic', () => {
         })
     })
 
-    // The row click is the overview -> viewer handoff: a wrong filter shape or
-    // operator silently lands the user on an unfiltered viewer.
-    it('viewService narrows the viewer to the service and switches tab', async () => {
+    // The row click is the overview -> viewer handoff. Asserting the chip alone is not
+    // enough: the viewer drops filter values it cannot send, so a chip can render while
+    // the query goes out unfiltered. These assert `queryFilters` — what actually reaches
+    // the API — including the "unknown" row, whose service_name is empty.
+    it.each([
+        ['a named service', 'api', { key: 'service_name', op: 'eq', value: 'api' }],
+        ['the unknown service', '', { key: 'service_name', op: 'regex', value: '^$' }],
+    ])('viewService sends a service filter for %s and switches tab', async (_name, serviceName, expected) => {
         logic = metricsOverviewLogic()
         logic.mount()
 
         await expectLogic(logic, () => {
-            logic.actions.viewService('api')
+            logic.actions.viewService(serviceName as string)
         }).toDispatchActions([
             metricsViewerLogic.actionTypes.setFilterGroup,
             metricsSceneLogic.actionTypes.setActiveTab,
         ])
 
         expect(metricsSceneLogic.values.activeTab).toBe('viewer')
-        const chip = metricsViewerLogic.values.filterGroup.values[0]
-        expect((chip as any).values[0]).toMatchObject({
-            key: 'service_name',
-            value: ['api'],
-            operator: PropertyOperator.Exact,
-        })
+        expect(metricsViewerLogic.values.queryFilters).toEqual([expected])
     })
 })

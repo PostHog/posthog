@@ -56,22 +56,26 @@ export interface metricsOverviewLogicActions {
 
 export type metricsOverviewLogicType = MakeLogicType<metricsOverviewLogicValues, metricsOverviewLogicActions>
 
-const serviceFilterGroup = (serviceName: string): UniversalFiltersGroup => ({
-    type: FilterLogicalOperator.And,
-    values: [
-        {
-            type: FilterLogicalOperator.And,
-            values: [
-                {
-                    type: PropertyFilterType.MetricAttribute,
-                    key: 'service_name',
-                    value: [serviceName],
-                    operator: PropertyOperator.Exact,
-                },
-            ],
-        },
-    ],
-})
+const serviceFilterGroup = (serviceName: string): UniversalFiltersGroup => {
+    // A sender that omits the `service.name` resource attribute lands with an empty
+    // service_name, which the table shows as "unknown". The viewer drops empty filter
+    // values so a half-typed chip cannot fire a query, so an exact match on "" would
+    // leave the viewer unfiltered while still showing a service chip. Match that group
+    // as an anchored regex, which survives the same pipeline.
+    const matcher = serviceName
+        ? { value: [serviceName], operator: PropertyOperator.Exact }
+        : { value: ['^$'], operator: PropertyOperator.Regex }
+
+    return {
+        type: FilterLogicalOperator.And,
+        values: [
+            {
+                type: FilterLogicalOperator.And,
+                values: [{ type: PropertyFilterType.MetricAttribute, key: 'service_name', ...matcher }],
+            },
+        ],
+    }
+}
 
 export const metricsOverviewLogic = kea<metricsOverviewLogicType>([
     path(['products', 'metrics', 'frontend', 'components', 'metricsOverviewLogic']),
