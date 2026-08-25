@@ -615,7 +615,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         }
         with slo_operation(
             spec=SloSpec(
-                distinct_id=request.user.distinct_id,
+                # `User.distinct_id` is nullable, so fall back to the team like the query service does.
+                distinct_id=request.user.distinct_id or str(team.uuid),
                 area=SloArea.ANALYTIC_PLATFORM,
                 operation=SloOperation.PERSONS_LIST,
                 team_id=team.pk,
