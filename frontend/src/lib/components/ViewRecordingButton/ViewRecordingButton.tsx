@@ -68,6 +68,7 @@ export default function ViewRecordingButton({
     variant = ViewRecordingButtonVariant.Button,
     iconOnly = false,
     noPadding = false,
+    loading,
     ...props
 }: ViewRecordingButtonProps): JSX.Element {
     // $session_id arrives from untyped event properties and can be a non-string (e.g. a malformed
@@ -76,7 +77,7 @@ export default function ViewRecordingButton({
     const isValidSessionId = typeof sessionId === 'string' && sessionId !== ''
 
     const { checkRecordingInfo } = useActions(sessionRecordingInfoLogic)
-    const { getRecordingExists } = useValues(sessionRecordingInfoLogic)
+    const { getRecordingExists, isRecordingExistsLoading } = useValues(sessionRecordingInfoLogic)
 
     useEffect(() => {
         if (!isValidSessionId) {
@@ -86,6 +87,12 @@ export default function ViewRecordingButton({
             checkRecordingInfo(sessionId)
         }
     }, [checkRecordingExists, isValidSessionId, sessionId, checkRecordingInfo])
+
+    // The existence check is still in flight, so hasRecording has not resolved. Show the button as
+    // loading (which disables it) to stop a click opening the player before existence is known.
+    const existenceLoading =
+        hasRecording === undefined && checkRecordingExists && isValidSessionId && isRecordingExistsLoading(sessionId)
+    const effectiveLoading = loading || existenceLoading
 
     if (hasRecording === undefined && checkRecordingExists && isValidSessionId) {
         hasRecording = getRecordingExists(sessionId)
@@ -135,7 +142,7 @@ export default function ViewRecordingButton({
     if (variant === ViewRecordingButtonVariant.Link) {
         const linkContent = (
             <Link
-                onClick={disabledReason || props.loading ? undefined : onClick}
+                onClick={disabledReason || effectiveLoading ? undefined : onClick}
                 disabledReason={
                     typeof disabledReason === 'string'
                         ? disabledReason
@@ -145,13 +152,13 @@ export default function ViewRecordingButton({
                 }
                 className={clsx(
                     props.className,
-                    props.loading && 'opacity-50',
+                    effectiveLoading && 'opacity-50',
                     props.fullWidth && 'w-full',
                     disabledReason && 'opacity-50'
                 )}
                 data-attr={props['data-attr']}
             >
-                {props.loading ? <Spinner className="text-sm" /> : null}
+                {effectiveLoading ? <Spinner className="text-sm" /> : null}
                 {label ?? 'View recording'}
                 {sideIcon}
                 {maybeUnwatchedIndicator}
@@ -174,6 +181,7 @@ export default function ViewRecordingButton({
                 tooltip="View recording"
                 aria-label="View recording"
                 noPadding={noPadding}
+                loading={effectiveLoading}
                 {...captureAttrs}
                 {...props}
             />
@@ -186,6 +194,7 @@ export default function ViewRecordingButton({
             disabledReasonInteractive={isValidElement(disabledReason)}
             onClick={onClick}
             sideIcon={sideIcon}
+            loading={effectiveLoading}
             {...captureAttrs}
             {...props}
         >
