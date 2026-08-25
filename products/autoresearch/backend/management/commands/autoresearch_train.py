@@ -82,19 +82,19 @@ class Command(BaseCommand):
                 raise CommandError(f"Team {options['team_id']} not found.")
 
             safe_name = options["target"].lstrip("$").replace(" ", "_").lower()
-            pipeline = AutoresearchPipeline.objects.create(
-                team=team,
-                name=options["name"],
-                target_event=options["target"],
-                target_definition={},
-                horizon_days=options["horizon"],
-                training_population={},
-                inference_population={},
-                output_person_property=f"predicted_p_{safe_name}_{options['horizon']}d",
-                status=AutoresearchPipeline.Status.DRAFT,
-            )
-            self.stdout.write(self.style.SUCCESS(f"Created pipeline {pipeline.pk} ({pipeline.name})"))
-            with team_scope(pipeline.team_id):
+            with team_scope(team.id):
+                pipeline = AutoresearchPipeline.objects.create(
+                    team=team,
+                    name=options["name"],
+                    target_event=options["target"],
+                    target_definition={},
+                    horizon_days=options["horizon"],
+                    training_population={},
+                    inference_population={},
+                    output_person_property=f"predicted_p_{safe_name}_{options['horizon']}d",
+                    status=AutoresearchPipeline.Status.DRAFT,
+                )
+                self.stdout.write(self.style.SUCCESS(f"Created pipeline {pipeline.pk} ({pipeline.name})"))
                 self._run(pipeline, options)
             return
 
