@@ -19,6 +19,7 @@ the GitHub Release body, so add the entry here before you cut the tag.
 - `untracked: true` on a manifest entry keeps a command out of telemetry.
 - `telemetry.add_command_properties()` attaches custom properties to the `command_completed` event.
 - Events carry `hogli_version` and `is_nested`. `command_completed` carries `outcome`, which separates a signal kill from a real failure.
+- Package metadata now declares support for Python 3.13.
 
 ### Changed
 
@@ -32,7 +33,7 @@ the GitHub Release body, so add the entry here before you cut the tag.
 
 - hogli no longer replaces the calling process when it runs embedded as a library or under `CliRunner`. Only the `hogli` script and `python -m hogli` can exec into the secret wrapper.
 - `flush()` waits on in-flight sends against a shared deadline, so one hung request cannot stall both the post-command flush and the one at exit.
-- Telemetry no longer raises at process exit.
+- Telemetry failures no longer break commands or raise during process exit.
 
 ## 0.1.0
 
