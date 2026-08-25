@@ -78,7 +78,7 @@ export const LogsQueryControls = (): JSX.Element => {
 }
 
 export const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JSX.Element => {
-    const { filters, id, utcDateRange, queryFilterGroup, columnQueryFields } = useValues(logsViewerFiltersLogic)
+    const { filters, id, utcDateRange, queryFilterGroup } = useValues(logsViewerFiltersLogic)
     const { filterGroup } = filters
     const { setFilterGroup } = useActions(logsViewerFiltersLogic)
 
@@ -89,8 +89,6 @@ export const LogsFilterGroup = ({ children }: { children: React.ReactNode }): JS
     const endpointFilters = {
         dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
         filterGroup: queryFilterGroup,
-        // The suggestion lookups read their service scope off this field, not the group.
-        ...columnQueryFields,
     }
 
     return (
@@ -156,7 +154,7 @@ export function addLogsValueFilter(
 
 export const LogsFilterSearch = (): JSX.Element => {
     const [visible, setVisible] = useState<boolean>(false)
-    const { utcDateRange, queryFilterGroup, columnQueryFields } = useValues(logsViewerFiltersLogic)
+    const { utcDateRange, queryFilterGroup } = useValues(logsViewerFiltersLogic)
     const { focusFilter } = useActions(logsViewerFiltersLogic)
     const { addGroupFilter, setGroupValues } = useActions(universalFiltersLogic)
     const { filterGroup } = useValues(universalFiltersLogic)
@@ -175,7 +173,6 @@ export const LogsFilterSearch = (): JSX.Element => {
         endpointFilters: {
             dateRange: { ...utcDateRange, date_to: utcDateRange.date_to ?? dayjs().toISOString() },
             filterGroup: queryFilterGroup,
-            ...columnQueryFields,
         },
         onChange: (taxonomicGroup, value, item) => {
             setVisible(false)
