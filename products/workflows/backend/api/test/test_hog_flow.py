@@ -30,7 +30,6 @@ from posthog.test.fixtures import create_app_metric2
 from products.actions.backend.models.action import Action
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cohorts.backend.models.cohort import Cohort
-from products.mcp_store.backend.models import MCPServerInstallation
 from products.workflows.backend.api.hog_flow import (
     HogFlowActionSerializer,
     _should_validate_strictly,
@@ -5177,17 +5176,10 @@ class TestCreateTaskActionValidation(APIBaseTest):
         assert not HogFlow.objects.filter(team=self.team).exists()
 
     def test_accepts_a_connector_the_workflow_owner_can_mount(self):
-        installation = MCPServerInstallation.objects.create(
-            team=self.team,
-            user=self.user,
-            display_name="Linear",
-            url="https://mcp.linear.app/mcp",
-            auth_type="api_key",
-            is_enabled=True,
-            scope="personal",
-        )
-
-        response = self._post_flow({"connectors": {"value": [str(installation.id)]}})
+        # products.workflows may not depend on products.mcp_store's models directly (tach
+        # boundary) - mocking at the same seam the model-catalogue tests below use.
+        with patch("products.workflows.backend.api.hog_flow.validate_connectors", return_value=None):
+            response = self._post_flow({"connectors": {"value": ["some-installation-id"]}})
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
