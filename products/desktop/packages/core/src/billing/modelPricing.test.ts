@@ -24,16 +24,17 @@ describe("modelPricing", () => {
   });
 
   it("matches specific families before the broader ones they contain", () => {
-    expect(modelListPrice("gpt-5.6-luna")?.inputPerMtok).toBe(0.2);
+    expect(modelListPrice("gpt-5.6-luna")?.inputPerMtok).toBe(1);
     expect(modelListPrice("gpt-5.5")?.inputPerMtok).toBe(5);
     expect(modelListPrice("claude-sonnet-4-5")?.inputPerMtok).toBe(3);
     expect(modelListPrice("claude-sonnet-5")?.inputPerMtok).toBe(2);
   });
 
   it("formats exact rates for tooltips", () => {
-    const price = modelListPrice("gpt-5.6-luna");
+    // A sub-dollar rate exercises the two-decimal formatting branch.
+    const price = modelListPrice("deepseek-v4");
     expect(price && formatModelRates(price)).toBe(
-      "Input $0.20 · Output $1.20 per 1M tokens",
+      "Input $0.13 · Output $0.26 per 1M tokens",
     );
   });
 
@@ -52,17 +53,25 @@ const MONOREPO_ROOT_RELATIVE = "../../../../../..";
 const MONOREPO_SENTINEL_RELATIVE = `${MONOREPO_ROOT_RELATIVE}/pyproject.toml`;
 const GATEWAY_OVERRIDES_RELATIVE = `${MONOREPO_ROOT_RELATIVE}/services/llm-gateway/src/llm_gateway/rate_limiting/model_cost_overrides.py`;
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function gatewayRate(
   source: string,
   block: string,
   key: string,
 ): number | null {
+  const b = escapeRegExp(block);
+  // The gateway holds rates in two shapes: a top-level `NAME = { ... }`
+  // constant (the Baseten/Kimi models) and a quoted `"model-id": { ... }`
+  // entry in the overrides dict (Fable and the GPT-5.6 models).
   const blockMatch = source.match(
-    new RegExp(`${block}[^=]*=\\s*\\{([\\s\\S]*?)\\}`),
+    new RegExp(`(?:"${b}"\\s*:|${b}[^=\\n]*=)\\s*\\{([\\s\\S]*?)\\}`),
   );
   if (!blockMatch?.[1]) return null;
   const rate = blockMatch[1].match(
-    new RegExp(`"${key}":\\s*([0-9][0-9_.e-]*)`),
+    new RegExp(`"${escapeRegExp(key)}":\\s*([0-9][0-9_.e-]*)`),
   );
   return rate?.[1] ? Number(rate[1].replaceAll("_", "")) : null;
 }
@@ -72,6 +81,10 @@ describe("contract rates match the gateway's pinned table", () => {
     ["kimi", "KIMI_K3_COST"],
     ["glm", "BASETEN_GLM_COST"],
     ["deepseek", "BASETEN_DEEPSEEK_COST"],
+    ["fable", "claude-fable-5"],
+    ["gpt-5.6-sol", "gpt-5.6-sol"],
+    ["gpt-5.6-terra", "gpt-5.6-terra"],
+    ["gpt-5.6-luna", "gpt-5.6-luna"],
   ] as const)("%s", async (family, block) => {
     // A dynamic import keeps the pure-layer lint honest: only this test
     // touches the filesystem, and only to read the gateway's table.
