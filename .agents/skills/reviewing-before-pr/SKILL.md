@@ -25,7 +25,9 @@ A finding handled here is an ordinary pre-push edit; the same finding after the 
 2. Run `hogli review`.
 3. Verify each finding's premise against the code before acting on it. Findings carry severity and confidence, and they can be false positives — rejecting one, with a reason, is a valid outcome.
 4. Fix what you agree with and commit the fixes.
-5. Continue the normal PR-opening flow (`hogli ci:preflight`, `gh pr create`).
+5. Decide whether the PR-bot review would be a duplicate. Run `hogli review --check`: it exits 0 only when the current HEAD has a completed review, which happens only when the review came back clean (or every finding was rejected) — any fix commit moves HEAD past the reviewed commit. On exit 0, open the PR with `--label no-greptile` to skip the duplicate bot review. On any other exit (fix commits landed, review still running, signed out), omit the label and let the bot review the final state.
+6. Either way, record the local review in the PR description's Agent context section: the review ID and each finding's disposition (fixed, or rejected with the reason). The findings are otherwise invisible to reviewers — they only appeared in the terminal.
+7. Continue the normal PR-opening flow (`hogli ci:preflight`, `gh pr create`).
 
 ## Notes
 
@@ -34,5 +36,6 @@ A finding handled here is an ordinary pre-push edit; the same finding after the 
 - **Held-back files.** Greptile holds back files that look like they contain secrets. Leave them held back; pass `--include <path>` only when certain the file is safe to send.
 - **Focus.** `--instructions "<text>"` steers the reviewer, the same way an `@greptile` comment does on a PR.
 - **`--force`** starts a fresh paid review even when HEAD already has one — only when the user asks for it.
+- **The `no-greptile` label** works because `.greptile/config.json` lists it in `disabledLabels`. Apply it only through the `--check` gate above — never to silence a bot review you have not run locally. When in doubt, leave the label off; the default is that the bot reviews.
 - Review behavior is configured in `.greptile/` (shared with the PR bot): `config.json` for settings, `files.json` for context files, with nested per-directory configs (`products/desktop/.greptile/` exists).
 - The diff goes to Greptile's API for review. This repo is public, so that is fine for repo content — but it is one more reason not to `--include` held-back files.

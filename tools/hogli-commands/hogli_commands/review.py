@@ -7,6 +7,12 @@ pre-push edits instead of bot comments, stale-thread cleanup, and CI re-runs.
     hogli review                        # review committed changes vs the repo default base
     hogli review --instructions "..."   # focus the reviewer, like an @greptile PR comment
     hogli review --force                # start a new review even when HEAD has one
+    hogli review --check                # exit 0 only when HEAD has a completed review
+
+``--check`` gates the ``no-greptile`` PR label: a completed review for the
+exact HEAD commit means the bot review would duplicate it. Every other state
+(no review, review running, signed out, no CLI) exits nonzero so the PR bot
+stays the fail-safe reviewer of the final state.
 
 On top of ``greptile review`` itself, the wrapper:
 
@@ -61,7 +67,16 @@ def _signed_in(binary: str) -> bool:
     return "not signed in" not in (result.stdout + result.stderr).lower()
 
 
-def run(branch: str | None, instructions: str | None, force: bool, as_json: bool) -> int:
+def check(binary: str) -> int:
+    status = _probe([binary, "review", "status", "--commit", "HEAD"])
+    if status is not None and status.returncode == _STATUS_COMPLETED:
+        click.secho("HEAD has a completed review.", fg="green", err=True)
+        return 0
+    click.secho("HEAD has no completed review.", fg="yellow", err=True)
+    return 1
+
+
+def run(branch: str | None, instructions: str | None, force: bool, as_json: bool, do_check: bool) -> int:
     binary = shutil.which("greptile")
     if binary is None:
         click.secho(f"Greptile CLI not found. {_INSTALL_HINT}", fg="red", err=True)
@@ -69,6 +84,8 @@ def run(branch: str | None, instructions: str | None, force: bool, as_json: bool
     if not _signed_in(binary):
         click.secho(f"Not signed in to Greptile. {_SIGNIN_HINT}", fg="yellow", err=True)
         return EX_CONFIG
+    if do_check:
+        return check(binary)
 
     output_flags = ["--json"] if as_json else []
     resume = False
@@ -105,5 +122,11 @@ def run(branch: str | None, instructions: str | None, force: bool, as_json: bool
 @click.option("--instructions", default=None, help="Extra instructions for this review, like an @greptile PR comment.")
 @click.option("--force", is_flag=True, help="Start a new review even when HEAD already has a completed one.")
 @click.option("--json", "as_json", is_flag=True, help="Print review comments as JSON.")
-def review(branch: str | None, instructions: str | None, force: bool, as_json: bool) -> None:
-    raise SystemExit(run(branch, instructions, force, as_json))
+@click.option(
+    "--check",
+    "do_check",
+    is_flag=True,
+    help="Only report whether HEAD has a completed review (exit 0 when it does); reviews nothing.",
+)
+def review(branch: str | None, instructions: str | None, force: bool, as_json: bool, do_check: bool) -> None:
+    raise SystemExit(run(branch, instructions, force, as_json, do_check))

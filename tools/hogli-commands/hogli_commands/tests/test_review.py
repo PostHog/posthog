@@ -86,6 +86,32 @@ class TestReview:
             if expected_review_flag is not None:
                 assert expected_review_flag in reviews[0]
 
+    @pytest.mark.parametrize(
+        "status_exit,expected_exit",
+        [
+            (0, 0),  # completed review at HEAD: safe to skip the bot
+            (1, 1),  # no review
+            (3, 1),  # review still running counts as not reviewed
+        ],
+    )
+    @patch("hogli_commands.review.subprocess.run")
+    @patch("hogli_commands.review.shutil.which", return_value=_BINARY)
+    def test_check_gates_on_a_completed_head_review(
+        self, mock_which: MagicMock, mock_run: MagicMock, status_exit: int, expected_exit: int
+    ) -> None:
+        def fake_run(cmd: list[str], **kwargs: object) -> MagicMock:
+            if cmd[1] == "config":
+                return _proc(0)
+            return _proc(status_exit)
+
+        mock_run.side_effect = fake_run
+        result = runner.invoke(cli, ["review", "--check"])
+
+        assert result.exit_code == expected_exit
+        # --check must never fall through to a paid review.
+        reviews = [call.args[0] for call in mock_run.call_args_list if call.args[0][1:2] == ["review"]]
+        assert reviews == [[_BINARY, "review", "status", "--commit", "HEAD"]]
+
     @patch("hogli_commands.review.subprocess.run")
     @patch("hogli_commands.review.shutil.which", return_value=_BINARY)
     def test_probe_failure_still_reviews(self, mock_which: MagicMock, mock_run: MagicMock) -> None:

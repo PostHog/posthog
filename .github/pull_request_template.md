@@ -72,7 +72,7 @@
 - Public OSS repo: no internal customers, incidents, or operational metrics.
 - Stack instead of stuffing: if the diff holds two or more separable steps (migration then behavior, rename then rewrite), open a stack rather than one big PR. See AGENTS.md, "Stacked PRs" and /stacking-prs.
 - Simplify before opening: if your agent has a behavior-preserving cleanup pass (Claude Code: `/simplify`), run it on a non-trivial diff before final tests and preflight, since it edits the tree. Skip it for small mechanical changes.
-- Review before opening: run `hogli review` once on the committed branch and address the findings you agree with before `gh pr create` — see the reviewing-before-pr skill. Once per PR, not per push; skip it for changes trivial enough for `skip-agent-review`.
+- Review before opening: run `hogli review` once on the committed branch and address the findings you agree with before `gh pr create` — see the reviewing-before-pr skill. Once per PR, not per push; skip it for changes trivial enough for `skip-agent-review`. If `hogli review --check` exits 0 at open time, add `--label no-greptile` (the local review makes the bot pass a duplicate) and record the review ID and finding dispositions in the Agent context section.
 - Draft by default: open new PRs as drafts (`gh pr create --draft`) — drafts run only a narrow CI subset and save runner credits. Fix CI and run affected tests locally before marking ready for review.
 - Labels: apply `skip-agent-review` for trivial/chore PRs that don't need Copilot or Greptile review.
 - When a human directed the work, the PR must be attributable to that person, even if agent-assisted.
