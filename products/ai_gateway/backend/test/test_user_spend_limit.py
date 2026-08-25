@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 from structlog.testing import capture_logs
 
@@ -13,67 +14,78 @@ from posthog.llm.gateway_internal_client import AIGatewayInternalError, AIGatewa
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization
 from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.models.user_gateway_node import gateway_user_node
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-CLIENT = "products.ai_gateway.backend.api.user_spend_limit"
+LOGIC = "products.ai_gateway.backend.logic"
+
+BUDGET = UserBudget(limit_usd="500", window_seconds=2592000)
+# The gateway answers a team's budget collection, so a 404 means it serves no
+# budgets at all rather than that this person has none.
+NO_BUDGET_SUPPORT = [
+    ("not_configured", AIGatewayNotConfigured()),
+    ("no_budgets_route", AIGatewayInternalError("not found", status_code=404)),
+]
 
 
 class TestUserSpendLimit(APIBaseTest):
     def _url(self, suffix: str = "") -> str:
         return f"/api/projects/{self.team.id}/ai_gateway/@me/spend_limit/{suffix}"
 
-    @patch(f"{CLIENT}.get_user_budget", return_value=None)
+    @property
+    def _node(self) -> str:
+        return self.user.distinct_id or f"user_{self.user.id}"
+
+    @patch(f"{LOGIC}.get_user_budget", return_value=None)
     def test_reports_no_limit_but_enforceable(self, get_user_budget):
         response = self.client.get(self._url())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"limit_usd": None, "window_seconds": None, "enforced": True})
-        get_user_budget.assert_called_once_with(self.team.id, gateway_user_node(self.user))
+        get_user_budget.assert_called_once_with(self.team.id, self._node)
 
-    @patch(
-        f"{CLIENT}.get_user_budget",
-        return_value=UserBudget(team_id=1, scope_value="u", limit_usd="500", window_seconds=2592000),
-    )
+    @patch(f"{LOGIC}.get_user_budget", return_value=BUDGET)
     def test_reads_the_limit(self, _get_user_budget):
         response = self.client.get(self._url())
-        self.assertEqual(response.json(), {"limit_usd": "500", "window_seconds": 2592000, "enforced": True})
+        self.assertEqual(response.json(), {"limit_usd": "500.000000", "window_seconds": 2592000, "enforced": True})
 
-    @patch(f"{CLIENT}.get_user_budget", side_effect=AIGatewayNotConfigured())
-    def test_reads_as_unenforced_where_the_gateway_is_absent(self, _get_user_budget):
-        response = self.client.get(self._url())
+    @parameterized.expand(NO_BUDGET_SUPPORT)
+    def test_reads_as_unenforced_where_the_gateway_holds_no_limits(self, _name, error):
+        with patch(f"{LOGIC}.get_user_budget", side_effect=error):
+            response = self.client.get(self._url())
         self.assertEqual(response.json(), {"limit_usd": None, "window_seconds": None, "enforced": False})
 
-    @patch(
-        f"{CLIENT}.set_user_budget",
-        return_value=UserBudget(team_id=1, scope_value="u", limit_usd="500", window_seconds=2592000),
-    )
+    @patch(f"{LOGIC}.set_user_budget", return_value=BUDGET)
     def test_sets_the_limit_against_the_asserted_user_node(self, set_user_budget):
         response = self.client.post(self._url(), {"limit_usd": "500", "window_seconds": 2592000})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"limit_usd": "500", "window_seconds": 2592000, "enforced": True})
+        self.assertEqual(response.json(), {"limit_usd": "500.000000", "window_seconds": 2592000, "enforced": True})
         # The scope value has to be the node a run's token pins and the desktop
         # asserts, or the gateway counts spend against a node this never
         # configured and the limit silently does nothing.
-        set_user_budget.assert_called_once_with(self.team.id, gateway_user_node(self.user), "500.000000", 2592000)
+        set_user_budget.assert_called_once_with(self.team.id, self._node, "500.000000", 2592000)
 
-    @patch(f"{CLIENT}.clear_user_budget", return_value=None)
+    @patch(f"{LOGIC}.clear_user_budget", return_value=None)
     def test_clears_the_limit(self, clear_user_budget):
         response = self.client.delete(self._url("clear/"))
         self.assertEqual(response.json(), {"limit_usd": None, "window_seconds": None, "enforced": True})
-        clear_user_budget.assert_called_once_with(self.team.id, gateway_user_node(self.user))
+        clear_user_budget.assert_called_once_with(self.team.id, self._node)
 
-    def test_rejects_a_limit_the_gateway_would_refuse(self):
-        for body in ({"limit_usd": "0", "window_seconds": 2592000}, {"limit_usd": "5", "window_seconds": 60}):
-            with self.subTest(body=body):
-                response = self.client.post(self._url(), body)
-                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+    @parameterized.expand(
+        [
+            ("limit_below_the_floor", {"limit_usd": "0", "window_seconds": 2592000}),
+            ("window_below_an_hour", {"limit_usd": "5", "window_seconds": 60}),
+        ]
+    )
+    def test_rejects_a_limit_the_gateway_would_refuse(self, _name, body):
+        response = self.client.post(self._url(), body)
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    @patch(f"{CLIENT}.set_user_budget", side_effect=AIGatewayNotConfigured())
-    def test_write_says_so_when_limits_are_unavailable(self, _set_user_budget):
-        response = self.client.post(self._url(), {"limit_usd": "500", "window_seconds": 2592000})
+    @parameterized.expand(NO_BUDGET_SUPPORT)
+    def test_write_says_so_when_limits_are_unavailable(self, _name, error):
+        with patch(f"{LOGIC}.set_user_budget", side_effect=error):
+            response = self.client.post(self._url(), {"limit_usd": "500", "window_seconds": 2592000})
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
 
-    @patch(f"{CLIENT}.set_user_budget", side_effect=AIGatewayInternalError("boom"))
+    @patch(f"{LOGIC}.set_user_budget", side_effect=AIGatewayInternalError("boom", status_code=500))
     def test_write_surfaces_a_gateway_failure(self, _set_user_budget):
         response = self.client.post(self._url(), {"limit_usd": "500", "window_seconds": 2592000})
         self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
@@ -130,27 +142,25 @@ class TestUserSpendLimit(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
-    def test_gateway_failures_are_logged_with_operation_and_team(self):
-        cases = (
-            ("get_user_budget", "read", lambda: self.client.get(self._url())),
+    @parameterized.expand(
+        [
+            ("read", "get_user_budget", lambda test: test.client.get(test._url())),
             (
-                "set_user_budget",
                 "write",
-                lambda: self.client.post(self._url(), {"limit_usd": "500", "window_seconds": 2592000}),
+                "set_user_budget",
+                lambda test: test.client.post(test._url(), {"limit_usd": "500", "window_seconds": 2592000}),
             ),
-            ("clear_user_budget", "clear", lambda: self.client.delete(self._url("clear/"))),
-        )
-        for helper_name, operation, request in cases:
-            with (
-                self.subTest(operation=operation),
-                patch(f"{CLIENT}.{helper_name}", side_effect=AIGatewayInternalError("boom")),
-            ):
-                with capture_logs() as logs:
-                    response = request()
+            ("clear", "clear_user_budget", lambda test: test.client.delete(test._url("clear/"))),
+        ]
+    )
+    def test_gateway_failures_are_logged_with_operation_and_team(self, operation, helper_name, request):
+        with patch(f"{LOGIC}.{helper_name}", side_effect=AIGatewayInternalError("boom", status_code=500)):
+            with capture_logs() as logs:
+                response = request(self)
 
-            self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
-            failure_logs = [log for log in logs if log.get("event") == "ai_gateway_user_spend_limit_gateway_error"]
-            self.assertEqual(len(failure_logs), 1)
-            self.assertEqual(failure_logs[0]["operation"], operation)
-            self.assertEqual(failure_logs[0]["team_id"], self.team.id)
-            self.assertEqual(failure_logs[0]["error"], "boom")
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        failure_logs = [log for log in logs if log.get("event") == "ai_gateway_user_spend_limit_gateway_error"]
+        self.assertEqual(len(failure_logs), 1)
+        self.assertEqual(failure_logs[0]["operation"], operation)
+        self.assertEqual(failure_logs[0]["team_id"], self.team.id)
+        self.assertEqual(failure_logs[0]["error"], "boom")

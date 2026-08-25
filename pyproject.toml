@@ -683,7 +683,6 @@ ignore_imports = [
     "products.**.backend.routes -> products.**.backend.presentation.**",
     # TODO: views still registered from backend/api/ — move them into presentation/ and drop the line
     "products.actions.backend.routes -> products.actions.backend.api.action",
-    "products.ai_gateway.backend.routes -> products.ai_gateway.backend.api",
     "products.ai_observability.backend.routes -> products.ai_observability.backend.api",
     "products.annotations.backend.routes -> products.annotations.backend.api.annotation",
     "products.approvals.backend.routes -> products.approvals.backend.api",

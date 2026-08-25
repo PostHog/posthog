@@ -157,6 +157,15 @@ path = "products.ai_gateway"
 depends_on = ["posthog"]
 layer = "modules"
 
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.routes.*",
+]
+from = [
+    "products.ai_gateway",
+]
+
 [[modules]]
 path = "products.alerts"
 depends_on = [

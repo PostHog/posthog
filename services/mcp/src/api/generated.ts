@@ -78661,9 +78661,39 @@ export namespace Schemas {
       CountSeries: 'count_series',
     } as const;
 
+    export interface SpendLimit {
+      /**
+         * The limit in USD as a decimal string, or null when no limit is set.
+         * @nullable
+         * @pattern ^-?\d{0,13}(?:\.\d{0,6})?$
+         */
+      limit_usd: string | null;
+      /**
+         * Length of the accounting window the limit applies to, in seconds. The window is fixed rather than sliding: it starts at the first spend after a reset and the counter resets once per window. Null when no limit is set.
+         * @nullable
+         */
+      window_seconds: number | null;
+      /** Whether the gateway can hold spend for this deployment. False means no limit can be set here, so any limit shown in the app informs only. */
+      enforced: boolean;
+    }
+
     export interface SpendLimitError {
       /** What went wrong, in a form that can be shown to a person. */
       detail: string;
+    }
+
+    export interface SpendLimitWrite {
+      /**
+         * The limit in USD. Spend past it is refused for this person until the window resets.
+         * @pattern ^-?\d{0,13}(?:\.\d{0,6})?$
+         */
+      limit_usd: string;
+      /**
+         * Length of the accounting window the limit applies to, in seconds. The window is fixed rather than sliding: it starts at the first spend after a reset and the counter resets once per window. At least an hour and at most 366 days.
+         * @minimum 3600
+         * @maximum 31622400
+         */
+      window_seconds: number;
     }
 
     /**
@@ -82770,35 +82800,6 @@ export namespace Schemas {
     export interface UserSlackLinkableWorkspaceListResponse {
       /** Slack workspaces the user could link to but hasn't yet. */
       results: UserSlackLinkableWorkspaceItem[];
-    }
-
-    export interface UserSpendLimit {
-      /**
-         * The limit in USD as a decimal string, or null when no limit is set.
-         * @nullable
-         */
-      limit_usd: string | null;
-      /**
-         * Length of the accounting window the limit applies to, in seconds. The window is fixed rather than sliding: it starts at the first spend after a reset and the counter resets once per window. Null when no limit is set.
-         * @nullable
-         */
-      window_seconds: number | null;
-      /** Whether the gateway can hold spend for this deployment. False means no limit can be set here, so any limit shown in the app informs only. */
-      enforced: boolean;
-    }
-
-    export interface UserSpendLimitWrite {
-      /**
-         * The limit in USD. Spend past it is refused for this person until the window resets.
-         * @pattern ^-?\d{0,13}(?:\.\d{0,6})?$
-         */
-      limit_usd: string;
-      /**
-         * Length of the accounting window in seconds, at least an hour and at most 366 days.
-         * @minimum 3600
-         * @maximum 31622400
-         */
-      window_seconds: number;
     }
 
     export interface UtmEvent {

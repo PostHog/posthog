@@ -8,7 +8,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import type { UserSpendLimitApi, UserSpendLimitWriteApi } from './api.schemas'
+import type { SpendLimitApi, SpendLimitWriteApi } from './api.schemas'
 
 export const getAiGatewayUserSpendLimitRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/ai_gateway/@me/spend_limit/`
@@ -17,8 +17,8 @@ export const getAiGatewayUserSpendLimitRetrieveUrl = (projectId: string) => {
 export const aiGatewayUserSpendLimitRetrieve = async (
     projectId: string,
     options?: RequestInit
-): Promise<UserSpendLimitApi> => {
-    return apiMutator<UserSpendLimitApi>(getAiGatewayUserSpendLimitRetrieveUrl(projectId), {
+): Promise<SpendLimitApi> => {
+    return apiMutator<SpendLimitApi>(getAiGatewayUserSpendLimitRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -30,14 +30,14 @@ export const getAiGatewayUserSpendLimitCreateUrl = (projectId: string) => {
 
 export const aiGatewayUserSpendLimitCreate = async (
     projectId: string,
-    userSpendLimitWriteApi: UserSpendLimitWriteApi,
+    spendLimitWriteApi: SpendLimitWriteApi,
     options?: RequestInit
-): Promise<UserSpendLimitApi> => {
-    return apiMutator<UserSpendLimitApi>(getAiGatewayUserSpendLimitCreateUrl(projectId), {
+): Promise<SpendLimitApi> => {
+    return apiMutator<SpendLimitApi>(getAiGatewayUserSpendLimitCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(userSpendLimitWriteApi),
+        body: JSON.stringify(spendLimitWriteApi),
     })
 }
 
@@ -48,8 +48,8 @@ export const getAiGatewayUserSpendLimitClearUrl = (projectId: string) => {
 export const aiGatewayUserSpendLimitClear = async (
     projectId: string,
     options?: RequestInit
-): Promise<UserSpendLimitApi> => {
-    return apiMutator<UserSpendLimitApi>(getAiGatewayUserSpendLimitClearUrl(projectId), {
+): Promise<SpendLimitApi> => {
+    return apiMutator<SpendLimitApi>(getAiGatewayUserSpendLimitClearUrl(projectId), {
         ...options,
         method: 'DELETE',
     })

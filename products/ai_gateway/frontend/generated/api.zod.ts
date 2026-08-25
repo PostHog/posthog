@@ -21,5 +21,7 @@ export const AiGatewayUserSpendLimitCreateBody = /* @__PURE__ */ zod.object({
         .number()
         .min(aiGatewayUserSpendLimitCreateBodyWindowSecondsMin)
         .max(aiGatewayUserSpendLimitCreateBodyWindowSecondsMax)
-        .describe('Length of the accounting window in seconds, at least an hour and at most 366 days.'),
+        .describe(
+            'Length of the accounting window the limit applies to, in seconds. The window is fixed rather than sliding: it starts at the first spend after a reset and the counter resets once per window. At least an hour and at most 366 days.'
+        ),
 })

@@ -16,6 +16,12 @@ ADMIN_ACTOR = "posthog-admin"
 class AIGatewayInternalError(Exception):
     """An ai-gateway internal admin API call failed."""
 
+    def __init__(self, *args: object, status_code: int | None = None) -> None:
+        super().__init__(*args)
+        # Lets a caller tell a route the gateway does not serve from a gateway that
+        # broke. None when the call never reached a response.
+        self.status_code = status_code
+
 
 class AIGatewayNotConfigured(AIGatewayInternalError):
     """AI_GATEWAY_INTERNAL_URL / AI_GATEWAY_INTERNAL_TOKEN are not set."""
@@ -92,7 +98,7 @@ def _request(
     except httpx.HTTPError as exc:
         raise AIGatewayInternalError(f"{what} failed: {exc}") from exc
     if not response.is_success and response.status_code not in tolerated_statuses:
-        raise AIGatewayInternalError(_error_detail(response))
+        raise AIGatewayInternalError(_error_detail(response), status_code=response.status_code)
     return response
 
 
@@ -176,28 +182,19 @@ USER_ACTOR = "posthog-user"
 
 @dataclasses.dataclass(frozen=True)
 class UserBudget:
-    team_id: int
-    scope_value: str
     limit_usd: str
     window_seconds: int
 
 
-def _user_budget(team_id: int, row: dict[str, Any]) -> UserBudget:
+def _user_budget(row: dict[str, Any]) -> UserBudget:
     try:
         window_seconds = int(row.get("window_seconds") or 0)
-        row_team_id = int(row.get("team_id", team_id))
     except (TypeError, ValueError) as exc:
-        raise AIGatewayInternalError(f"budget response had a non-numeric field: {exc}") from exc
+        raise AIGatewayInternalError(f"budget response had a non-numeric window: {exc}") from exc
     limit_usd = row.get("limit_usd")
-    scope_value = row.get("scope_value")
-    if not limit_usd or not scope_value or window_seconds <= 0:
-        raise AIGatewayInternalError("budget response missing required fields (limit_usd/scope_value/window_seconds)")
-    return UserBudget(
-        team_id=row_team_id,
-        scope_value=str(scope_value),
-        limit_usd=str(limit_usd),
-        window_seconds=window_seconds,
-    )
+    if not limit_usd or window_seconds <= 0:
+        raise AIGatewayInternalError("budget response missing required fields (limit_usd/window_seconds)")
+    return UserBudget(limit_usd=str(limit_usd), window_seconds=window_seconds)
 
 
 def _budgets_path(team_id: int) -> str:
@@ -210,7 +207,7 @@ def get_user_budget(team_id: int, scope_value: str) -> UserBudget | None:
     data = _json_body(response, "budget")
     for row in data.get("budgets") or []:
         if row.get("scope_type") == USER_SCOPE_TYPE and row.get("scope_value") == scope_value:
-            return _user_budget(team_id, row)
+            return _user_budget(row)
     return None
 
 
@@ -228,7 +225,7 @@ def set_user_budget(team_id: int, scope_value: str, limit_usd: str, window_secon
             "window_seconds": window_seconds,
         },
     )
-    return _user_budget(team_id, _json_body(response, "budget"))
+    return _user_budget(_json_body(response, "budget"))
 
 
 def clear_user_budget(team_id: int, scope_value: str) -> None:

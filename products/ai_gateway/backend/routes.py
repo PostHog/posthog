@@ -1,6 +1,6 @@
 from posthog.api.routing import RouterRegistry
 
-from products.ai_gateway.backend.api import UserSpendLimitViewSet
+from products.ai_gateway.backend.presentation.views import UserSpendLimitViewSet
 
 
 def register_routes(routers: RouterRegistry) -> None:

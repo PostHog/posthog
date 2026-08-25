@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, Any
 
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.models.user_gateway_node import gateway_user_node
 from posthog.user_permissions import UserPermissions
 
 if TYPE_CHECKING:
@@ -134,7 +133,7 @@ def get_task_run_credential_user(task: Task, state: dict[str, Any] | None = None
 
 
 def get_actor_distinct_id(actor: User) -> str:
-    return gateway_user_node(actor)
+    return actor.distinct_id or f"user_{actor.id}"
 
 
 def slack_actor_state_updates(*, user_id: int, slack_user_id: str | None = None) -> dict[str, Any]:

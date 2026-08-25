@@ -185,7 +185,7 @@ class TestUserBudgets:
         assert method == "GET"
         assert url == "http://gw/internal/teams/42/budgets"
         assert budget is not None
-        assert budget.scope_value == "u1"
+        # The team row is first in the payload, so a "5" here proves the user node matched.
         assert budget.limit_usd == "5"
 
     @patch("posthog.llm.gateway_internal_client.settings")
@@ -197,10 +197,9 @@ class TestUserBudgets:
     @pytest.mark.parametrize(
         "row",
         [
-            {"scope_value": "u1", "limit_usd": "5", "window_seconds": 3600, "team_id": "not-a-number"},
-            {"scope_value": "u1", "limit_usd": "5", "window_seconds": "soon", "team_id": 42},
-            {"limit_usd": "5", "window_seconds": 3600, "team_id": 42},
-            {"scope_value": "u1", "window_seconds": 3600, "team_id": 42},
+            {"scope_value": "u1", "limit_usd": "5", "window_seconds": "soon"},
+            {"scope_value": "u1", "limit_usd": "5"},
+            {"scope_value": "u1", "window_seconds": 3600},
         ],
     )
     @patch("posthog.llm.gateway_internal_client.settings")
