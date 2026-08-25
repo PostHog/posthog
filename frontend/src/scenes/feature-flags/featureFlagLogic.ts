@@ -3010,8 +3010,15 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                     try {
                         const retrievedFlag: FeatureFlagType = await api.featureFlags.get(props.id)
                         return variantKeyToIndexFeatureFlagPayloads(retrievedFlag)
-                    } catch {
-                        // Swallow errors — this is a silent background reconciliation, so a
+                    } catch (e: any) {
+                        // The flag was deleted since the list cache painted it. Show the not-found
+                        // scene instead of leaving stale data on screen — the scene renders NotFound
+                        // from this state, so no toast is needed on the cached navigation path.
+                        if (e.status === 404) {
+                            actions.setFeatureFlagMissing()
+                            return null
+                        }
+                        // Swallow other errors — this is a silent background reconciliation, so a
                         // transient failure shouldn't surface a toast or get reported.
                         return null
                     }
