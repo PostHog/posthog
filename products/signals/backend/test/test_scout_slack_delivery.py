@@ -250,7 +250,9 @@ class TestScoutSlackDelivery(BaseTest):
                 edit_note=edit_note,
             )
 
-        marker = get_client().get(_latest_report_delivery_key("ddab8ee5-2bb8-4226-b145-6732d31dc344"))
+        marker = get_client().get(
+            _latest_report_delivery_key("ddab8ee5-2bb8-4226-b145-6732d31dc344", 9, "CSCOUTS|#scout-findings")
+        )
         assert (marker.decode() if marker is not None else None) == expected_marker
 
     def test_enqueue_omits_thread_reports_kwarg_when_off(self) -> None:
@@ -569,10 +571,12 @@ class TestScoutSlackDelivery(BaseTest):
         posted = fake_client.chat_postMessage.call_args_list[0].kwargs
         assert posted["blocks"][0]["text"]["text"] == "fresh"
 
-    def test_rebuilt_delivery_yields_to_a_newer_delivery_of_the_same_report(self) -> None:
-        # A scout edit that changes content enqueues its own full delivery. The delivery that was
-        # mid-render when it landed rebuilds, sees the newer one is queued, and posts nothing, so the
-        # channel gets the edited report once rather than from both.
+    @parameterized.expand(["edit_during_the_build", "edit_before_the_build"])
+    def test_delivery_yields_to_a_newer_delivery_of_the_same_report(self, edit_timing) -> None:
+        # A scout edit that changes content enqueues its own full delivery, which is marked as the
+        # report's latest. This delivery must post nothing either way, so the channel gets the edited
+        # report once rather than from both. An edit landing before this delivery even starts leaves
+        # its build nothing to rebuild, so the yield cannot be conditional on having rebuilt.
         get_client().flushdb()
         emission = self._make_emission()
         report = SignalReport.objects.create(
@@ -584,13 +588,22 @@ class TestScoutSlackDelivery(BaseTest):
         integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
         fake_client = MagicMock()
         delivery_id = "01864f4c-6957-7d3f-8d85-1d775e527265"
-        mark_latest_scout_report_delivery(str(report.id), delivery_id)
+        newer_delivery_id = "0d1b6f3a-1d3f-4a6f-9d2c-7b3e2f1a9c44"
+        channel = "CSCOUTS|#scout-findings"
+        mark_latest_scout_report_delivery(str(report.id), delivery_id, integration.id, channel)
 
-        def _build(report_arg, run_arg, *, delivery_id=None, render_budget=None):
-            edited = SignalReport.objects.get(id=report_arg.id)
+        def _edit_and_supersede() -> None:
+            edited = SignalReport.objects.get(id=report.id)
             edited.title = "Checkout failures (edited)"
             edited.save()
-            mark_latest_scout_report_delivery(str(report_arg.id), "0d1b6f3a-1d3f-4a6f-9d2c-7b3e2f1a9c44")
+            mark_latest_scout_report_delivery(str(report.id), newer_delivery_id, integration.id, channel)
+
+        if edit_timing == "edit_before_the_build":
+            _edit_and_supersede()
+
+        def _build(report_arg, run_arg, *, delivery_id=None, render_budget=None):
+            if edit_timing == "edit_during_the_build":
+                _edit_and_supersede()
             return [{"type": "header", "text": {"type": "plain_text", "text": "stale"}}], "stale"
 
         with (
@@ -608,10 +621,106 @@ class TestScoutSlackDelivery(BaseTest):
                 str(emission.scout_run_id),
                 delivery_id,
                 integration.id,
-                "CSCOUTS|#scout-findings",
+                channel,
             )
 
         fake_client.chat_postMessage.assert_not_called()
+
+    @parameterized.expand(
+        [
+            # A note carries its own content and is never marked as a latest delivery, so a newer
+            # full delivery of the report is not a replacement for it.
+            ("note_only", "Re-validated on the next run", "same_channel", "01234567-89ab-cdef-0123-456789abcdef"),
+            # Another channel's delivery is not competing for this one's channel.
+            ("other_destination", None, "other_channel", "01234567-89ab-cdef-0123-456789abcdef"),
+            # A marker that cannot be decoded reads as absent rather than raising into the task,
+            # which would retry and then drop the report.
+            ("unreadable_marker", None, "same_channel", b"\xff\xfe not utf-8"),
+        ]
+    )
+    def test_delivery_posts_when_the_marker_is_not_a_claim_over_it(
+        self, _name, edit_note, marker_channel, marker_value
+    ) -> None:
+        get_client().flushdb()
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="Checkout failed",
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.return_value = FakeSlackResponse({"ts": "1785418710.000700"})
+        channel = "CSCOUTS|#scout-findings"
+        marked_channel = channel if marker_channel == "same_channel" else "CELSEWHERE|#other"
+        get_client().set(
+            _latest_report_delivery_key(str(report.id), integration.id, marked_channel),
+            marker_value,
+        )
+
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                "01864f4c-6957-7d3f-8d85-1d775e527265",
+                integration.id,
+                channel,
+                edit_note,
+            )
+
+        assert fake_client.chat_postMessage.call_args_list[0].kwargs["channel"] == "CSCOUTS"
+
+    @parameterized.expand(
+        [
+            # Nothing else claimed the report, so the claim this enqueue made goes down with it.
+            ("own_claim_is_released", None, None),
+            # A newer delivery claimed the report between the mark and the failure. That claim names
+            # a task that really is queued, so it has to survive this one's cleanup.
+            ("newer_claim_survives", "0d1b6f3a-1d3f-4a6f-9d2c-7b3e2f1a9c44", "0d1b6f3a-1d3f-4a6f-9d2c-7b3e2f1a9c44"),
+        ]
+    )
+    def test_enqueue_claims_the_report_before_publishing_and_releases_it_on_failure(
+        self, _name, racing_claim, expected_marker
+    ) -> None:
+        # The claim has to be in place before the broker call: an earlier delivery reading the marker
+        # in the gap would see none and post the report this one is about to post again. A publish
+        # that then fails has to take the claim back down, since it names a task that will never run
+        # and would otherwise silence the report for the marker's whole TTL.
+        get_client().flushdb()
+        report_id = "ddab8ee5-2bb8-4226-b145-6732d31dc344"
+        channel = "CSCOUTS|#scout-findings"
+        delivery_id = "b316c1d1-6901-49eb-8223-96d4df69f67f"
+        key = _latest_report_delivery_key(report_id, 9, channel)
+        observed: dict[str, bytes | None] = {}
+
+        def _fail_to_publish(*args, **kwargs):
+            observed["claim_at_publish"] = get_client().get(key)
+            if racing_claim is not None:
+                mark_latest_scout_report_delivery(report_id, racing_claim, 9, channel)
+            raise RuntimeError("broker down")
+
+        with (
+            patch.object(deliver_scout_slack_output, "delay", side_effect=_fail_to_publish),
+            patch("products.signals.backend.tasks.capture_exception"),
+        ):
+            enqueue_scout_slack_delivery(
+                team_id=self.team.id,
+                output_type="report",
+                output_id=report_id,
+                run_id="e3865391-bc89-44e6-86f7-2d4405627daf",
+                delivery_id=delivery_id,
+                integration_id=9,
+                channel=channel,
+            )
+
+        claim_at_publish = observed["claim_at_publish"]
+        assert claim_at_publish is not None and claim_at_publish.decode() == delivery_id
+        marker = get_client().get(key)
+        assert (marker.decode() if marker is not None else None) == expected_marker
 
     def test_task_skips_report_suppressed_during_rebuild(self) -> None:
         # A content edit triggers a rebuild, and the report is then suppressed during that second

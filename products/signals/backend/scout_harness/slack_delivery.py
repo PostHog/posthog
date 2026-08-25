@@ -348,32 +348,63 @@ def _report_summary_chunks(report: SignalReport) -> list[str]:
 
 
 # A content edit made through the scout's edit tool enqueues a fresh full delivery of the report.
-# The latest such delivery is recorded per report so an older delivery that had to rebuild
-# mid-render can yield to it, instead of both posting the same edited report.
+# The latest such delivery is recorded so an older one can yield to it, instead of both posting the
+# same edited report. Scoped to the destination as well as the report: two scouts editing one report
+# into different channels are not competing, and a report-only marker would let either silence the
+# other's channel entirely.
 _LATEST_REPORT_DELIVERY_TTL_SECONDS = 24 * 60 * 60
 
 
-def _latest_report_delivery_key(report_id: str) -> str:
-    return f"signals_scout:slack_report_latest_delivery:{report_id}"
+def _latest_report_delivery_key(report_id: str, integration_id: int, channel: str) -> str:
+    # The resolved channel id, so two configs naming one channel differently share a marker.
+    channel_id = slack_channel_id_from_target(channel)
+    return f"signals_scout:slack_report_latest_delivery:{report_id}:{integration_id}:{channel_id}"
 
 
-def mark_latest_scout_report_delivery(report_id: str, delivery_id: str) -> None:
+def _decoded_marker(latest: object) -> str | None:
+    if latest is None:
+        return None
+    return latest.decode() if isinstance(latest, bytes) else str(latest)
+
+
+def mark_latest_scout_report_delivery(report_id: str, delivery_id: str, integration_id: int, channel: str) -> None:
     try:
-        get_client().set(_latest_report_delivery_key(report_id), delivery_id, ex=_LATEST_REPORT_DELIVERY_TTL_SECONDS)
+        get_client().set(
+            _latest_report_delivery_key(report_id, integration_id, channel),
+            delivery_id,
+            ex=_LATEST_REPORT_DELIVERY_TTL_SECONDS,
+        )
     except Exception:
         logger.warning("signals_scout.slack_report_latest_delivery_mark_failed", report_id=report_id, exc_info=True)
 
 
-def _newer_report_delivery_queued(report_id: str, delivery_id: str) -> bool:
-    """Fails open: an unreadable marker means post, since a duplicate message beats a lost report."""
+def clear_latest_scout_report_delivery(report_id: str, delivery_id: str, integration_id: int, channel: str) -> None:
+    """Drop this delivery's claim on the report, for an enqueue that never reached the broker.
+
+    A marker naming a task that will never run would silence every later delivery of the report for
+    the marker's whole TTL. Only clears a marker still holding this delivery's id, so a newer claim
+    written in between survives; losing that race costs a duplicate message, never the report."""
     try:
-        latest = get_client().get(_latest_report_delivery_key(report_id))
+        client = get_client()
+        key = _latest_report_delivery_key(report_id, integration_id, channel)
+        if _decoded_marker(client.get(key)) == delivery_id:
+            client.delete(key)
+    except Exception:
+        logger.warning("signals_scout.slack_report_latest_delivery_clear_failed", report_id=report_id, exc_info=True)
+
+
+def _newer_report_delivery_queued(report_id: str, delivery_id: str, integration_id: int, channel: str) -> bool:
+    """Fails open: an unreadable marker means post, since a duplicate message beats a lost report.
+
+    The decode is inside the guard on purpose: a marker holding bytes that are not UTF-8 must read as
+    absent, not raise into the delivery task, which would retry and then drop the report."""
+    try:
+        latest_id = _decoded_marker(get_client().get(_latest_report_delivery_key(report_id, integration_id, channel)))
     except Exception:
         logger.warning("signals_scout.slack_report_latest_delivery_read_failed", report_id=report_id, exc_info=True)
         return False
-    if latest is None:
+    if latest_id is None:
         return False
-    latest_id = latest.decode() if isinstance(latest, bytes) else str(latest)
     return latest_id != delivery_id
 
 
@@ -583,11 +614,8 @@ def post_scout_report_to_slack(
     # loop is bounded to one rebuild: a further edit racing the rebuild is ordinary last-writer
     # timing, and unchanged charts are reused from the render cache, so a rebuild only re-renders
     # charts the edit actually changed. A note-only message renders the passed-in note, not live
-    # content, so it has no revision to guard and never rebuilds. An edit path that did enqueue a
-    # replacement delivery marks it as the report's latest, and a rebuilt delivery yields to that
-    # marker, so the channel gets the edited report once.
+    # content, so it has no revision to guard and never rebuilds.
     messages = ScoutReportThreadMessages(lead_blocks=[], fallback="", reply_blocks=[])
-    rebuilt = False
     for _ in range(2):
         content_revision = None if edit_note is not None else report.updated_at
         messages = _build_report_message()
@@ -605,9 +633,15 @@ def post_scout_report_to_slack(
             return
         if content_revision is None or report.updated_at == content_revision:
             break
-        rebuilt = True
         logger.info("signals_scout.slack_delivery_report_rebuilt_after_content_change", report_id=str(report.id))
-    if rebuilt and _newer_report_delivery_queued(str(report.id), delivery_id):
+
+    # An edit path that enqueued a replacement delivery marked it as the report's latest, so yield to
+    # it and let that one post. Checked for every full delivery, not only one that rebuilt: an edit
+    # landing before this delivery starts leaves nothing to rebuild, so the content is already
+    # current and a rebuild-only check would post it here and again under the replacement. A
+    # note-only delivery carries its own note rather than report content, and is never marked as a
+    # latest delivery, so it has no claim to yield and must always post.
+    if edit_note is None and _newer_report_delivery_queued(str(report.id), delivery_id, integration_id, channel):
         logger.info(
             "signals_scout.slack_delivery_yielded_to_newer_delivery",
             report_id=str(report.id),

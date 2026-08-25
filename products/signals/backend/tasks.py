@@ -37,6 +37,7 @@ from products.signals.backend.scout_harness.slack_delivery import (
     DELIVERABLE_REPORT_STATUSES,
     ScoutSlackOutputType,
     ScoutSlackPermanentDeliveryError,
+    clear_latest_scout_report_delivery,
     mark_latest_scout_report_delivery,
     post_scout_emission_to_slack,
     post_scout_report_to_slack,
@@ -221,7 +222,15 @@ def enqueue_scout_slack_delivery(
     thread_reports: bool = False,
 ) -> None:
     """Publish after commit, capturing broker failures without affecting the completed emit."""
+    # Only a full report delivery supersedes an earlier one: a note-only update leaves the
+    # report message to the delivery that is still building it.
+    supersedes = output_type == "report" and edit_note is None
     try:
+        # Claim before publishing: an earlier delivery of the same report reads this marker to decide
+        # whether to yield, and between the two calls it would see no claim and post the report that
+        # this delivery is about to post again.
+        if supersedes:
+            mark_latest_scout_report_delivery(output_id, delivery_id, integration_id, channel)
         # Each optional arg rides as a kwarg only when set, so a delivery without one keeps the
         # payload shape workers running the previous task signature still accept.
         extra_kwargs: dict[str, str | bool] = {}
@@ -239,11 +248,11 @@ def enqueue_scout_slack_delivery(
             channel,
             **extra_kwargs,
         )
-        # Only a full report delivery supersedes an earlier one: a note-only update leaves the
-        # report message to the delivery that is still building it.
-        if output_type == "report" and edit_note is None:
-            mark_latest_scout_report_delivery(output_id, delivery_id)
     except Exception as exc:
+        # The claim now names a delivery that will never run, and would silence every later delivery
+        # of this report until it expired, so give it up before reporting the failure.
+        if supersedes:
+            clear_latest_scout_report_delivery(output_id, delivery_id, integration_id, channel)
         capture_exception(
             exc,
             {
