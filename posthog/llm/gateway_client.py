@@ -304,12 +304,6 @@ def team_trace_id(team_id: int | None) -> str | None:
     return str(uuid5(_TEAM_TRACE_ID_NAMESPACE, f"team-{team_id}"))
 
 
-def _ai_trace_headers(team_id: int | None) -> dict[str, str]:
-    """``X-PostHog-Trace-Id`` header for a team; empty (not None) so callers can splat it."""
-    trace_id = team_trace_id(team_id)
-    return {"X-PostHog-Trace-Id": trace_id} if trace_id else {}
-
-
 def _anthropic_gateway_base_url(openai_base_url: str) -> str:
     """Drop the OpenAI ``/v1`` suffix so the Anthropic SDK, which appends ``/v1/messages``
     itself, hits the same gateway root the OpenAI route uses. ``resolve_ai_gateway_config``
@@ -413,22 +407,22 @@ def build_async_anthropic_client(
     """
     gateway = resolve_ai_gateway_config()
     if gateway:
-        default_headers = {
-            **(
-                _ai_property_headers(
-                    ai_product=ai_product,
-                    ai_stage=ai_stage,
-                    team_id=str(team_id) if team_id is not None else None,
-                )
-                or {}
-            ),
-            **({"X-PostHog-Product": ai_product} if ai_product else {}),
-            **_ai_trace_headers(team_id),
+        properties = {
+            key: value
+            for key, value in {
+                "ai_stage": ai_stage,
+                "team_id": str(team_id) if team_id is not None else None,
+            }.items()
+            if value
         }
         return AsyncAnthropic(
             api_key=gateway.api_key,
             base_url=_anthropic_gateway_base_url(gateway.url),
-            default_headers=default_headers or None,
+            default_headers=ai_gateway_headers(
+                ai_product=ai_product,
+                trace_id=team_trace_id(team_id),
+                properties=properties,
+            ),
             http_client=httpx.AsyncClient(trust_env=False),
         )
     return get_async_anthropic_gateway_client(product, team_id=team_id, use_bedrock_fallback=use_bedrock_fallback)

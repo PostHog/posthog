@@ -342,21 +342,19 @@ class TestBuildAsyncAnthropicClient:
         )
 
         mock_httpx.assert_called_once_with(trust_env=False)
-        mock_anthropic.assert_called_once_with(
-            api_key=AI_GATEWAY_KEY,
-            # The Anthropic SDK appends /v1/messages, so the /v1 OpenAI suffix is stripped.
-            base_url="https://ai-gateway.example",
-            # team_id rides as a property (usage report reads it) since the Go gateway drops the
-            # per-key header form.
-            default_headers={
-                "X-PostHog-Properties": json.dumps(
-                    {"ai_product": "signals_grouping", "ai_stage": "match", "team_id": "42"}
-                ),
-                "X-PostHog-Product": "signals_grouping",
-                "X-PostHog-Trace-Id": TEAM_42_TRACE_ID,
-            },
-            http_client=mock_httpx.return_value,
-        )
+        mock_anthropic.assert_called_once()
+        kwargs = mock_anthropic.call_args.kwargs
+        assert kwargs["api_key"] == AI_GATEWAY_KEY
+        assert kwargs["base_url"] == "https://ai-gateway.example"
+        assert kwargs["http_client"] is mock_httpx.return_value
+        headers = kwargs["default_headers"]
+        assert json.loads(headers["X-PostHog-Properties"]) == {
+            "ai_product": "signals_grouping",
+            "ai_stage": "match",
+            "team_id": "42",
+        }
+        assert headers["X-PostHog-Product"] == "signals_grouping"
+        assert headers["X-PostHog-Trace-Id"] == TEAM_42_TRACE_ID
         assert result is mock_anthropic.return_value
 
     @override_settings(AI_GATEWAY_URL=AI_GATEWAY_URL, AI_GATEWAY_API_KEY=AI_GATEWAY_KEY)
