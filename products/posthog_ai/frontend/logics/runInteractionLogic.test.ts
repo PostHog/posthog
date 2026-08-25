@@ -128,7 +128,7 @@ describe('runInteractionLogic', () => {
         '997',
         TASK_ID,
         RUN_ID,
-        { jsonrpc: '2.0', method: 'user_message', params: { content } },
+        { jsonrpc: '2.0', method: 'user_message', id: expect.any(String), params: { content } },
     ]
 
     const setConfigCommand = (configId: string, value: string): [string, string, string, Record<string, unknown>] => [
@@ -376,6 +376,27 @@ describe('runInteractionLogic', () => {
         expect(tasksRunsCommandCreate).toHaveBeenCalledTimes(2)
         expect(lemonToast.error).not.toHaveBeenCalled()
         expect(logic.values.composerForm.draft).toBe('')
+    })
+
+    it('reuses one message id across retries so the backend can dedupe a resend', async () => {
+        const transient = new ApiError('Agent server request timed out', 504, undefined, {
+            error: 'Agent server request timed out',
+        })
+        ;(tasksRunsCommandCreate as jest.Mock).mockRejectedValueOnce(transient).mockResolvedValueOnce({})
+        setThinking(false)
+        logic.actions.setComposerFormValues({ draft: 'ship it' })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        const calls = (tasksRunsCommandCreate as jest.Mock).mock.calls
+        expect(calls).toHaveLength(2)
+        const firstId = (calls[0][3] as { id: string }).id
+        const secondId = (calls[1][3] as { id: string }).id
+        expect(typeof firstId).toBe('string')
+        expect(firstId).toHaveLength(36)
+        expect(secondId).toBe(firstId)
     })
 
     it('captures and surfaces the backend cause when the send fails unrecoverably', async () => {

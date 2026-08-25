@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { delay } from 'lib/utils/async'
+import { uuid } from 'lib/utils/dom'
 import { projectLogic } from 'scenes/projectLogic'
 import { aiConsentLogic } from 'scenes/settings/organization/aiConsentLogic'
 
@@ -734,6 +735,11 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     actions.resetComposerForm()
                 }
                 let attempt = 0
+                // One JSON-RPC id for the whole send, reused across retries. A transient resend can hit a
+                // signal the backend already accepted (a 502 raised after the signal landed, or an ingress
+                // timeout after the worker finished); the stable id lets the workflow dedupe it instead of
+                // starting a second agent turn on the same message.
+                const messageId = uuid()
                 try {
                     for (;;) {
                         attempt += 1
@@ -802,6 +808,7 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                             await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
                                 jsonrpc: '2.0',
                                 method: 'user_message',
+                                id: messageId,
                                 params: { content: wrapWithPosthogContext(content, pendingContext) },
                             })
                             // The SSE echo (`pushHumanMessage`) reopens the turn — always the raw text the user typed.
