@@ -138,6 +138,39 @@ class TestAverageDurations:
             main()
         assert not out.exists()
 
+    def test_scope_to_junit_refuses_a_missing_junit_shard(self, tmp_path, monkeypatch):
+        # Shard 2's JUnit never uploaded. Scoping to shard 1 alone would drop every
+        # nodeid shard 2 owns, so the script must exit and let the workflow retry unscoped.
+        artifacts = tmp_path / "timing_artifacts"
+        for shard, test_id in (
+            ("1", "posthog/test_foo.py::TestThing::test_one"),
+            ("2", "posthog/test_bar.py::test_two"),
+        ):
+            shard_dir = artifacts / f"timing_data-Core-{shard}"
+            shard_dir.mkdir(parents=True)
+            (shard_dir / ".test_durations").write_text(json.dumps({test_id: 1.0}))
+        junit_dir = tmp_path / "junit_artifacts"
+        (junit_dir / "junit-results-backend-core-1").mkdir(parents=True)
+        (junit_dir / "junit-results-backend-core-1" / "junit.xml").write_bytes(_MIN_JUNIT_XML)
+        out = tmp_path / "core_durations"
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "optimize_test_durations.py",
+                str(artifacts),
+                str(out),
+                "--segment",
+                "Core",
+                "--junit-dir",
+                str(junit_dir),
+                "--scope-to-junit",
+            ],
+        )
+        with pytest.raises(SystemExit):
+            main()
+        assert not out.exists()
+
     def test_run_average_files_refuses_empty_result(self, tmp_path):
         # Newest (anchor) run scoped to nothing must not silently wipe the plan,
         # even when older runs still carry data — refuse to write, don't emit {}.
