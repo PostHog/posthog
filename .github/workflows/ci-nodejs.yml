@@ -471,7 +471,7 @@ jobs:
             - name: Restore compiled hog bytecode
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
-                  path: nodejs/src/cdp/templates/.tmp/cache.json
+                  path: nodejs/.tmp/hog-bytecode.json
                   key: hog-bytecode-${{ matrix.shard }}-${{ hashFiles('posthog/hogql/compiler/**/*.py', 'posthog/hogql/parser.py', 'posthog/hogql/grammar/**', 'common/hogvm/python/**/*.py') }}-${{ github.sha }}
                   # Prefix match, so master's newest entry for this shard is reused. Deliberately
                   # does not fall back past the compiler hash: older bytecode would be stale.
@@ -526,7 +526,7 @@ jobs:
               if: ${{ !cancelled() && github.ref == 'refs/heads/master' }}
               uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
-                  path: nodejs/src/cdp/templates/.tmp/cache.json
+                  path: nodejs/.tmp/hog-bytecode.json
                   key: hog-bytecode-${{ matrix.shard }}-${{ hashFiles('posthog/hogql/compiler/**/*.py', 'posthog/hogql/parser.py', 'posthog/hogql/grammar/**', 'common/hogvm/python/**/*.py') }}-${{ github.sha }}
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
