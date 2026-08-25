@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
-import { IconArrowLeft, IconArchive, IconPullRequest } from '@posthog/icons'
+import { IconArchive, IconArrowLeft, IconArrowRight, IconPullRequest } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
@@ -75,14 +75,13 @@ function HintBarItem({ shortcut, label }: { shortcut: JSX.Element; label: string
 }
 
 function TriageCard({ report, expanded }: { report: SignalReport; expanded: boolean }): JSX.Element {
-    const { canCreatePr, isCreatingPr, aiConsentDisabledReason } = useValues(inboxTriageLogic)
+    const { canCreatePr, isCreatingPr, aiConsentDisabledReason, currentReportUrl } = useValues(inboxTriageLogic)
     const { archiveCurrent, createPrForCurrent, openCurrent, toggleExpanded } = useActions(inboxTriageLogic)
 
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const title = displayConventionalCommitTitle(report.title, 'Untitled report')
     const headline = deriveHeadline(report.summary)
     const showStatus = !isStatusRedundantWithActionability(report.status, report.actionability)
-    const reportUrl = urls.inboxReport('reports', report.id)
 
     return (
         <article
@@ -158,8 +157,12 @@ function TriageCard({ report, expanded }: { report: SignalReport; expanded: bool
                             No summary yet. An agent is still investigating.
                         </p>
                     )}
-                    <Link to={reportUrl} className="text-xs" data-attr="inbox-triage-full-report">
-                        Open the full report, with evidence and activity
+                    <Link
+                        to={currentReportUrl ?? undefined}
+                        className="inline-flex items-center gap-1 text-xs"
+                        data-attr="inbox-triage-full-report"
+                    >
+                        Full report <IconArrowRight className="size-3" />
                     </Link>
                 </div>
             )}
@@ -219,7 +222,7 @@ function TriageCard({ report, expanded }: { report: SignalReport; expanded: bool
  * bottom lists them.
  */
 export function InboxTriageView(): JSX.Element {
-    const { reports, isLoaded, currentReport, previousReport, nextReport, expanded, counter } =
+    const { reports, isLoaded, isRestoringPosition, currentReport, previousReport, nextReport, expanded, counter } =
         useValues(inboxTriageLogic)
     const { navigate, toggleExpanded, setExpanded, archiveCurrent, createPrForCurrent, openCurrent } =
         useActions(inboxTriageLogic)
@@ -296,7 +299,7 @@ export function InboxTriageView(): JSX.Element {
             </div>
 
             <main className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 py-4">
-                {!isLoaded ? (
+                {!isLoaded || isRestoringPosition ? (
                     <div className="flex w-full max-w-3xl flex-col gap-3" aria-hidden>
                         <LemonSkeleton className="h-8 w-full max-w-2xl self-center rounded" />
                         <LemonSkeleton className="h-48 w-full rounded-lg" />

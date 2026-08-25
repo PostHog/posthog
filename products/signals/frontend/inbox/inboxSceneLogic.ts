@@ -7,6 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -803,9 +804,13 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
             router.values.hashParams,
             { replace: false },
         ],
-        setSelectedReportId: () => [
+        setSelectedReportId: ({ openMethod }) => [
             inboxSurfaceUrl(values),
-            router.values.searchParams,
+            // Opened from triage mode: the report page's back control returns to the spot in the
+            // queue, which the triage URL carries at this moment.
+            openMethod === 'triage'
+                ? { back: removeProjectIdIfPresent(router.values.location.pathname) + router.values.location.search }
+                : router.values.searchParams,
             router.values.hashParams,
             { replace: false },
         ],

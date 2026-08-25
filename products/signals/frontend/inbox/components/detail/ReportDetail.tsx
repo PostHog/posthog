@@ -320,6 +320,7 @@ export function InboxDetailFrame({
     const rawBack = searchParams.back
     const backOverride =
         typeof rawBack === 'string' && rawBack.startsWith('/') && !rawBack.startsWith('//') ? rawBack : null
+    const backLabel = backOverride ? (backOverride.startsWith(urls.inboxTriage()) ? 'Triage' : 'Back') : 'Inbox'
     const logicProps = { reportId: report.id, report }
     const {
         reportSignals,
@@ -496,7 +497,7 @@ export function InboxDetailFrame({
                     className="-ml-2 w-fit"
                     data-attr="inbox-report-back"
                 >
-                    {backOverride ? 'Back' : 'Inbox'}
+                    {backLabel}
                 </LemonButton>
                 <div className="flex items-center gap-2">
                     {primaryAction}
