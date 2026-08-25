@@ -138,8 +138,9 @@ _POPULATION_KIND_REQUIRED_DAYS: dict[str, str | None] = {
     "person_first_seen_within_days": "days",
     "active_not_performed_target": "active_within_days",
     "ever_performed_event": None,
+    "ever_performed_target": None,
 }
-_POPULATION_KIND_REQUIRES_EVENT = frozenset({"active_not_performed_target", "ever_performed_event"})
+_POPULATION_KIND_REQUIRES_EVENT = frozenset({"ever_performed_event"})
 _POPULATION_DAYS_MAX = 730
 
 
@@ -152,8 +153,10 @@ _POPULATION_DAYS_MAX = 730
             'or a semantic spec ({"kind": ..., ...}) as returned by autoresearch-resolve-template-create. '
             "Supported kinds: 'performed_event_within_days' (did event, or any event, in last 'days' days), "
             "'person_first_seen_within_days' (first seen within 'days' days), "
-            "'active_not_performed_target' (any event in last 'active_within_days' days and has not done 'event'), "
-            "'ever_performed_event' (did 'event' at least once in the training lookback window). "
+            "'active_not_performed_target' (any event in last 'active_within_days' days and has not done the "
+            "pipeline's target), "
+            "'ever_performed_event' (did 'event' at least once in the training lookback window), "
+            "'ever_performed_target' (did the pipeline's target at least once in the training lookback window). "
             "Use {} for all identified users."
         ),
         "example": {"properties": [{"key": "email", "type": "person", "operator": "is_set"}]},
@@ -200,7 +203,7 @@ class PopulationDefinitionField(serializers.JSONField):
             "model_class, model_params, fit_signature, trained_on, holdout_score, and agent_description."
         ),
         "example": {
-            "feature_sql": "SELECT distinct_id, countIf(event='$pageview') AS pageviews_30d FROM events ...",
+            "feature_sql": "SELECT a.person_id AS distinct_id, countIf(e.event='$pageview') AS pageviews_30d FROM {anchors} a LEFT JOIN events e ON e.person_id = a.person_id AND e.timestamp < fromUnixTimestamp(a.cutoff_ts) GROUP BY a.person_id",
             "feature_transforms": [],
             "model_class": "sklearn.linear_model.LogisticRegression",
             "model_params": {"C": 1.0, "max_iter": 200},

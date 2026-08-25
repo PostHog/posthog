@@ -273,6 +273,9 @@ def _materialize_score_data(
         lookback_days=_feature_lookback_days(pipeline),
         inference_population=pipeline.inference_population,
         cutoff_ts=cutoff_ts,
+        target_event=pipeline.target_event,
+        target_definition=pipeline.target_definition,
+        team=team,
     )
     score_rows = _materialize_rows(team=team, sql=score_sql, values=score_values)
     logger.info(

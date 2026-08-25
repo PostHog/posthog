@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from products.autoresearch.backend.dataset.validation import _run_validation, validate_pipeline_definition
 
 
@@ -109,6 +111,23 @@ class TestValidationWarnings(BaseTest):
         assert result.can_proceed is False
         assert result.error is not None
         assert "CH is down" in result.error
+
+    @parameterized.expand([("short_horizon_floors_at_30", 7, 30), ("long_horizon_is_4x", 14, 56)])
+    def test_inference_preview_uses_scoring_lookback(self, _name, horizon_days, expected_lookback):
+        # Scoring anchors on max(30, 4 * horizon); previewing over the 180-day training
+        # lookback overstates the population that will actually be scored.
+        with patch("products.autoresearch.backend.dataset.validation.run_hogql_rows") as mock_run:
+            mock_run.side_effect = _mock_rows(100, 1000)
+            _run_validation(
+                team=self.team,
+                target_event="$pageview",
+                horizon_days=horizon_days,
+                training_lookback_days=180,
+                training_population={},
+                inference_population={},
+            )
+        inference_query = mock_run.call_args_list[2].kwargs["query"]
+        assert inference_query.values["lookback"] == expected_lookback
 
     def test_zero_users_returns_low_volume_error(self):
         result = self._run(positives=0, total=0)

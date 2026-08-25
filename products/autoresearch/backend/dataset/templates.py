@@ -11,12 +11,15 @@ labeling._build_population_kind_conditions. Supported kinds:
                                 the last `days` days
   person_first_seen_within_days users whose first-seen date is within `days` days
   active_not_performed_target   active users (any event in `active_within_days`) who
-                                have NOT performed `event`
+                                have NOT performed the pipeline's target
   ever_performed_event          users who have performed `event` at least once
+  ever_performed_target         users who have performed the pipeline's target at least once
 
 "Ever" and "has not performed" are bounded to the pipeline's training lookback
-window, and the target-relative kinds are evaluated per user at T0 during
-training — see the compiler's docstring for the semantics.
+window. The target-relative kinds compile against the pipeline's target
+predicate, so an action target matches by its matcher rather than its name.
+Every kind is evaluated per user at T0 during training and as of the cutoff at
+inference — see the compiler's docstring for the semantics.
 """
 
 from __future__ import annotations
@@ -31,6 +34,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 
+from products.autoresearch.backend.dataset.labeling import _identified_users_and_clause
 from products.autoresearch.backend.query import run_hogql_rows
 
 logger = structlog.get_logger(__name__)
@@ -155,8 +159,8 @@ TEMPLATES: dict[str, AutoresearchTemplate] = {
         output_property_prefix="predicted_p_repeat",
         requires_user_event=True,
         requires_activity_resolution=False,
-        training_population_spec={"kind": "ever_performed_event"},
-        inference_population_spec={"kind": "ever_performed_event"},
+        training_population_spec={"kind": "ever_performed_target"},
+        inference_population_spec={"kind": "ever_performed_target"},
         notes=(
             "Population includes only users who have performed the selected event/action at least once. "
             "Continuation mode predicts repeat occurrence."
@@ -177,12 +181,15 @@ def resolve_activity_event(team: Team) -> tuple[str, list[str]]:
     events the user can choose as an override.
     """
     try:
+        # Training and scoring only ever see identified users, so rank candidates on that
+        # same population: anonymous-only traffic must not choose the activity event.
+        identified_clause = _identified_users_and_clause()
         query = HogQLQuery(
-            query="""
+            query=f"""
                 SELECT event, count() AS c
                 FROM events
                 WHERE timestamp >= now() - toIntervalDay(30)
-                  AND timestamp < now()
+                  AND timestamp < now(){identified_clause}
                 GROUP BY event
                 ORDER BY c DESC
                 LIMIT 100
@@ -276,8 +283,8 @@ def resolve_template(
     else:
         output_person_property = f"{template.output_property_prefix}_{horizon_days}d"
 
-    training_population = _fill_population(template.training_population_spec, target_event)
-    inference_population = _fill_population(template.inference_population_spec, target_event)
+    training_population = dict(template.training_population_spec)
+    inference_population = dict(template.inference_population_spec)
 
     if template.requires_user_event and target_event:
         safe_label = target_event.lstrip("$").replace("_", " ")
@@ -299,12 +306,3 @@ def resolve_template(
         suggested_name=suggested_name,
         notes=template.notes,
     )
-
-
-def _fill_population(spec: dict[str, Any], target_event: str) -> dict[str, Any]:
-    """Substitute the resolved target_event into a population spec."""
-    result = dict(spec)
-    kind = result.get("kind", "")
-    if kind in ("active_not_performed_target", "ever_performed_event") and target_event:
-        result["event"] = target_event
-    return result

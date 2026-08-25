@@ -2,7 +2,8 @@
 
 Any agent — the in-house sandbox or an external bring-your-own agent — that records
 a training iteration goes through ``validate_recipe``: the iteration's feature SQL must
-be a read-only ``SELECT`` keyed on ``person_id`` (the one-row-per-person contract).
+be a read-only ``SELECT`` that reads ``{anchors}``, keys each row as ``person_id AS
+distinct_id`` (the one-row-per-person contract), and never reads the wall clock.
 
 The ``model_class`` allowlist (``validate_model_class``) is NOT applied at recording
 time — in the artifact-bundle world the agent's real model runs as arbitrary code in a
@@ -17,6 +18,7 @@ from typing import Any
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
+from posthog.hogql.visitor import TraversingVisitor
 
 from products.autoresearch.backend.dataset.labeling import strip_sql_comments
 
@@ -32,6 +34,11 @@ ALLOWED_MODEL_CLASSES: frozenset[str] = frozenset(
         "xgboost.XGBClassifier",
     }
 )
+
+# Wall-clock functions bind a window to "now" instead of each anchor's cutoff_ts. At
+# training time that reads past the user's T0 into the outcome window, so the holdout
+# AUC is inflated by target leakage. The agent brief promises these are rejected.
+_WALL_CLOCK_FUNCTIONS: frozenset[str] = frozenset({"now", "now64", "today", "yesterday"})
 
 
 class RecipeValidationError(ValueError):
@@ -53,10 +60,17 @@ def validate_feature_sql(feature_sql: str) -> None:
         raise RecipeValidationError(f"feature_sql is not valid HogQL: {e}") from e
     if not isinstance(node, ast.SelectQuery):
         raise RecipeValidationError("feature_sql must be a single SELECT statement (no unions or set operations).")
-    if "person_id" not in _selected_names(node):
+    if not _keys_person_id_as_distinct_id(node):
         raise RecipeValidationError(
-            'feature_sql must select person_id (e.g. "SELECT person_id AS distinct_id, ...") '
-            "so each row keys one person."
+            'feature_sql must select the anchor person_id aliased as distinct_id (e.g. "SELECT '
+            'a.person_id AS distinct_id, ..."). Materialization and the training join read that '
+            "exact column, so each row keys one person."
+        )
+    wall_clock = _WALL_CLOCK_FUNCTIONS & _call_names(node)
+    if wall_clock:
+        raise RecipeValidationError(
+            f"feature_sql must not call {', '.join(sorted(wall_clock))}(). Bound every time "
+            "window to fromUnixTimestamp(a.cutoff_ts) so features stop at each user's T0."
         )
     # The framework substitutes {anchors} with the per-user (person_id, cutoff_ts) table via a
     # plain string replace, which is a silent no-op when the placeholder is absent — the SQL
@@ -70,17 +84,44 @@ def validate_feature_sql(feature_sql: str) -> None:
         )
 
 
-def _selected_names(node: ast.SelectQuery) -> set[str]:
-    """Aliases and trailing field names of the SELECT columns."""
-    names: set[str] = set()
+class _CallNames(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.names: set[str] = set()
+
+    def visit_call(self, node: ast.Call) -> None:
+        self.names.add(node.name)
+        super().visit_call(node)
+
+
+class _FieldTails(TraversingVisitor):
+    def __init__(self) -> None:
+        super().__init__()
+        self.tails: set[str] = set()
+
+    def visit_field(self, node: ast.Field) -> None:
+        if node.chain:
+            self.tails.add(str(node.chain[-1]))
+        super().visit_field(node)
+
+
+def _call_names(node: ast.SelectQuery) -> set[str]:
+    """Every function name called anywhere in the query, subqueries included."""
+    visitor = _CallNames()
+    visitor.visit(node)
+    return visitor.names
+
+
+def _keys_person_id_as_distinct_id(node: ast.SelectQuery) -> bool:
+    """True when some SELECT column is ``<expression over person_id> AS distinct_id``."""
     for col in node.select or []:
-        inner = col
-        if isinstance(col, ast.Alias):
-            names.add(col.alias)
-            inner = col.expr
-        if isinstance(inner, ast.Field) and inner.chain:
-            names.add(str(inner.chain[-1]))
-    return names
+        if not isinstance(col, ast.Alias) or col.alias != "distinct_id":
+            continue
+        fields = _FieldTails()
+        fields.visit(col.expr)
+        if "person_id" in fields.tails:
+            return True
+    return False
 
 
 def validate_unique_distinct_ids(rows: Iterable[Mapping[str, Any]], *, source: str = "feature_sql") -> None:
@@ -124,7 +165,7 @@ def validate_recipe(model_spec: dict, recipe_snapshot: dict) -> None:
     Validate one recorded iteration. The ``model_class`` (in ``model_spec``) is required
     but not allowlisted — it is informational metadata; the agent's real model runs in a
     sandbox. Only the feature SQL (in ``recipe_snapshot``) is sanity-checked: it must be a
-    read-only ``SELECT`` keyed on ``person_id``.
+    read-only ``SELECT`` keyed as ``person_id AS distinct_id``.
     """
     if not (model_spec or {}).get("model_class"):
         raise RecipeValidationError("model_spec.model_class is required.")

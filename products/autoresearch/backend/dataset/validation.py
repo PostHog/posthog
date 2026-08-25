@@ -14,6 +14,7 @@ from products.autoresearch.backend.dataset.labeling import (
     _build_population_conditions,
     _build_population_kind_conditions,
     _identified_users_and_clause,
+    _target_condition_for,
     build_eligible_count_sql,
     build_random_t0_labeler_sql,
 )
@@ -32,6 +33,12 @@ MIN_IDENTIFIED_FRACTION = 0.5
 # Cap the user_window CTE during live wizard estimates — sampled base rate is
 # unbiased for the same quantity the trainer computes unsampled.
 LIVE_ESTIMATE_SAMPLE_LIMIT = 5_000
+
+
+def inference_lookback_days(horizon_days: int) -> int:
+    # The window the scorer binds when it builds inference anchors (4x horizon, min 30),
+    # so the previewed population is the one that will actually be scored.
+    return max(30, horizon_days * 4)
 
 
 @frozen
@@ -118,6 +125,9 @@ def _run_validation(
         horizon_days=horizon_days,
         lookback_days=lookback_days,
         training_population=training_population,
+        target_event=target_event,
+        target_definition=target_definition,
+        team=team,
     )
     eligible_rows = run_hogql_rows(team=team, query=HogQLQuery(query=eligible_sql, values=eligible_values))
     # eligible = identified-only headline (v1); eligible_all = same count without the
@@ -162,10 +172,14 @@ def _run_validation(
     # Template populations carry a `kind` rather than raw properties, so compile it through
     # the same helper scoring uses — counting every identified user would preview a
     # population the pipeline will never score.
-    compiled_inference_kind = _build_population_kind_conditions(inference_population)
+    target_cond, target_values = _target_condition_for(
+        inference_population, target_event=target_event, target_definition=target_definition, team=team
+    )
+    compiled_inference_kind = _build_population_kind_conditions(inference_population, target_cond=target_cond)
     if inference_properties or compiled_inference_kind.where_parts or identified_clause:
         inf_parts, inf_values = _build_population_conditions(inference_properties)
         inf_parts.extend(compiled_inference_kind.where_parts)
+        inf_values.update(target_values)
         inf_values.update(compiled_inference_kind.values)
         inference_clause = f" AND ({' AND '.join(inf_parts)})" if inf_parts else ""
         inference_query = HogQLQuery(
@@ -175,7 +189,7 @@ def _run_validation(
                 WHERE timestamp >= now() - toIntervalDay({{lookback}})
                   AND timestamp < now(){inference_clause}{identified_clause}
             """,
-            values={"lookback": lookback_days, **inf_values},
+            values={"lookback": inference_lookback_days(horizon_days), **inf_values},
         )
         inf_rows = run_hogql_rows(team=team, query=inference_query)
         inference_size = int(inf_rows[0][0] or 0) if inf_rows else 0

@@ -787,7 +787,6 @@ class TestPipelineCreateSerializerValidation(SimpleTestCase):
             ("missing_days", {"kind": "performed_event_within_days"}),
             ("days_not_int", {"kind": "person_first_seen_within_days", "days": "14"}),
             ("days_out_of_range", {"kind": "performed_event_within_days", "days": 100000}),
-            ("missing_event_for_adoption", {"kind": "active_not_performed_target", "active_within_days": 30}),
             ("missing_event_for_repeat", {"kind": "ever_performed_event"}),
         ]
     )
@@ -802,7 +801,8 @@ class TestPipelineCreateSerializerValidation(SimpleTestCase):
             ("properties", {"properties": [{"key": "email", "type": "person", "operator": "is_set"}]}),
             ("kind_any_event", {"kind": "performed_event_within_days", "days": 30}),
             ("kind_with_event", {"kind": "ever_performed_event", "event": "checkout"}),
-            ("kind_adoption", {"kind": "active_not_performed_target", "active_within_days": 30, "event": "x"}),
+            ("kind_adoption", {"kind": "active_not_performed_target", "active_within_days": 30}),
+            ("kind_repeat_target", {"kind": "ever_performed_target"}),
         ]
     )
     def test_compilable_population_accepted(self, _name: str, population: Any) -> None:

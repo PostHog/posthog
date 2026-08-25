@@ -27,14 +27,13 @@ Integer handling notes:
   and modulo work in signed space (HogQL exposes toInt → Int64; toUInt* is
   unsupported).
 - cityHash64 returns UInt64. Casting directly to Int64 can flip sign when the
-  high bit is set, which would make `% positive` return negative offsets and
-  place T0 before first_ts. Truncating to the lower 31 bits via bitAnd
-  guarantees a non-negative dividend without harming uniformity (we only need
-  ~24 bits anyway: max window 365d * 86400s ≈ 3.2e7).
+  high bit is set, which would place T0 before first_ts. Truncating to the
+  lower 31 bits via bitAnd guarantees a non-negative hash without harming
+  uniformity, and the position arithmetic stays inside Int64.
 """
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
 import structlog
 
@@ -52,15 +51,19 @@ NUM_FOLDS = 5
 
 # Semantic population kinds produced by templates.py. Every kind listed here must have a
 # compiler branch in _build_population_kind_conditions below — the write-time validator in
-# api/serializers.py imports this set, so an uncompilable kind is rejected at creation.
+# presentation/views/serializers.py imports this set, so an uncompilable kind is rejected at creation.
 POPULATION_KINDS = frozenset(
     {
         "performed_event_within_days",
         "person_first_seen_within_days",
         "active_not_performed_target",
         "ever_performed_event",
+        "ever_performed_target",
     }
 )
+
+# Kinds whose membership is defined by the pipeline's own target rather than by a named event.
+TARGET_RELATIVE_KINDS = frozenset({"active_not_performed_target", "ever_performed_target"})
 
 # v1 scope: autoresearch models identified users only. Identified persons carry a
 # stable real distinct_id, so scoring-time identity resolution always succeeds and the
@@ -79,11 +82,18 @@ def _identified_users_and_clause() -> str:
     return " AND person.is_identified" if IDENTIFIED_USERS_ONLY else ""
 
 
-def _build_population_conditions(
-    properties: list[dict[str, Any]],
-) -> tuple[list[str], dict[str, Any]]:
+@dataclass(frozen=True, kw_only=True)
+class _CompiledPopulationFilters:
+    # Row-level fragments for an events scan whose ``person`` resolves through the lazy join.
+    where_parts: list[str] = field(default_factory=list)
+    # Event-property fragments, kept apart because training decides them per user at T0.
+    event_parts: list[str] = field(default_factory=list)
+    values: dict[str, Any] = field(default_factory=dict)
+
+
+def _compile_population_filters(properties: list[dict[str, Any]]) -> _CompiledPopulationFilters:
     """
-    Translate a list of PostHog property filter dicts into HogQL WHERE condition
+    Translate a list of PostHog property filter dicts into HogQL condition
     strings and a values dict for parameterized binding.
 
     Property types:
@@ -96,12 +106,12 @@ def _build_population_conditions(
     The property key is bound as a HogQL value (a parameterized subscript,
     ``properties[{param}]``) rather than interpolated into the query text, so any
     key — including PostHog system properties like ``$browser`` — is safe without
-    an allowlist. Unsupported types/operators are skipped with a warning rather
-    than raising. Lives in labeling.py (not inference.py) because labeling.py is
-    the lower-level SQL-building layer that inference.py and validation.py both
-    depend on.
+    an allowlist. A filter that cannot be compiled (a cohort filter, an unknown
+    operator, a missing key) raises ValueError: skipping it would silently widen
+    the population, and inference writes person properties for everyone it scores.
     """
-    parts: list[str] = []
+    person_parts: list[str] = []
+    event_parts: list[str] = []
     values: dict[str, Any] = {}
 
     for i, prop in enumerate(properties):
@@ -111,72 +121,100 @@ def _build_population_conditions(
         value = prop.get("value")
 
         if not key:
-            logger.warning("autoresearch_population_missing_key", key=key)
-            continue
+            raise ValueError("Population property filter is missing a 'key'")
 
         if prop_type == "person":
             map_expr = "person.properties"
+            parts = person_parts
         elif prop_type == "event":
             map_expr = "properties"
+            parts = event_parts
         else:
-            logger.warning("autoresearch_population_unsupported_prop_type", prop_type=prop_type)
-            continue
+            raise ValueError(f"Unsupported population property type '{prop_type}'. Supported: event, person")
 
         # Bind the key as a value (parameterized subscript) — never interpolate it into SQL text.
         key_param = f"pop_k_{i}"
         values[key_param] = str(key)
-        field = f"{map_expr}[{{{key_param}}}]"
+        field_expr = f"{map_expr}[{{{key_param}}}]"
 
         param = f"pop_{i}"
 
         if operator == "is_set":
-            parts.append(f"isNotNull({field}) AND {field} != ''")
+            parts.append(f"isNotNull({field_expr}) AND {field_expr} != ''")
         elif operator == "is_not_set":
-            parts.append(f"(isNull({field}) OR {field} = '')")
+            parts.append(f"(isNull({field_expr}) OR {field_expr} = '')")
+        elif operator in ("exact", "is_not") and isinstance(value, list):
+            if not value:
+                # `IN ()` is not valid HogQL. An empty allowlist matches nobody and an
+                # empty denylist excludes nobody.
+                if operator == "exact":
+                    parts.append("1 = 0")
+                continue
+            for j, v in enumerate(value):
+                values[f"pop_{i}_{j}"] = v
+            in_refs = ", ".join(f"{{pop_{i}_{j}}}" for j in range(len(value)))
+            membership = "IN" if operator == "exact" else "NOT IN"
+            parts.append(f"{field_expr} {membership} ({in_refs})")
         elif operator == "exact":
-            if isinstance(value, list):
-                in_params = [f"pop_{i}_{j}" for j in range(len(value))]
-                for j, v in enumerate(value):
-                    values[f"pop_{i}_{j}"] = v
-                in_refs = ", ".join("{" + p + "}" for p in in_params)
-                parts.append(f"{field} IN ({in_refs})")
-            else:
-                values[param] = value
-                parts.append(f"{field} = {{{param}}}")
+            values[param] = value
+            parts.append(f"{field_expr} = {{{param}}}")
         elif operator == "is_not":
-            if isinstance(value, list):
-                in_params = [f"pop_{i}_{j}" for j in range(len(value))]
-                for j, v in enumerate(value):
-                    values[f"pop_{i}_{j}"] = v
-                in_refs = ", ".join("{" + p + "}" for p in in_params)
-                parts.append(f"{field} NOT IN ({in_refs})")
-            else:
-                values[param] = value
-                parts.append(f"{field} != {{{param}}}")
+            values[param] = value
+            parts.append(f"{field_expr} != {{{param}}}")
         elif operator == "icontains":
             values[param] = f"%{value}%"
-            parts.append(f"{field} ILIKE {{{param}}}")
+            parts.append(f"{field_expr} ILIKE {{{param}}}")
         elif operator == "not_icontains":
             values[param] = f"%{value}%"
-            parts.append(f"{field} NOT ILIKE {{{param}}}")
+            parts.append(f"{field_expr} NOT ILIKE {{{param}}}")
         elif operator in ("gt", "gte", "lt", "lte"):
             op_sql = {"gt": ">", "gte": ">=", "lt": "<", "lte": "<="}[operator]
             values[param] = value
-            parts.append(f"toFloat64OrNull({field}) {op_sql} {{{param}}}")
+            parts.append(f"toFloat64OrNull({field_expr}) {op_sql} {{{param}}}")
         else:
-            logger.warning("autoresearch_population_unsupported_operator", operator=operator)
+            raise ValueError(f"Unsupported population property operator '{operator}'")
 
-    return parts, values
+    return _CompiledPopulationFilters(where_parts=person_parts, event_parts=event_parts, values=values)
+
+
+def _build_population_conditions(
+    properties: list[dict[str, Any]],
+) -> tuple[list[str], dict[str, Any]]:
+    """Row-mode view of ``_compile_population_filters``: every filter applies to the scanned rows."""
+    compiled = _compile_population_filters(properties)
+    return compiled.where_parts + compiled.event_parts, compiled.values
+
+
+# Anchor-mode predicates run inside the labeled_users CTE, where the events scan is aliased
+# ``e`` and each user's T0 comes from the joined ``u`` row.
+_EVENT_TS = "toInt(toUnixTimestamp(e.timestamp))"
+_T0 = "u.t0_ts"
 
 
 @dataclass(frozen=True, kw_only=True)
 class _CompiledPopulationKind:
     where_parts: list[str] = field(default_factory=list)
     values: dict[str, Any] = field(default_factory=dict)
-    # Training-only refinement applied per user at T0 in the labeled_users CTE:
-    # "performed_before" keeps only users who performed the target before their T0,
-    # "not_performed_before" keeps only users who had not. None = fully expressed in where_parts.
-    anchor_target_relation: Literal["performed_before", "not_performed_before"] | None = None
+    # Training-only predicates applied per user at T0 in the labeled_users HAVING clause.
+    anchor_having_parts: list[str] = field(default_factory=list)
+
+
+def _members_within(instant: str, days_param: str, *, predicate: str = "", negate: bool = False) -> str:
+    """Row filter: users with an event matching ``predicate`` in the ``days_param``-day window ending at ``instant``."""
+    membership = "NOT IN" if negate else "IN"
+    return (
+        f"person_id {membership} (SELECT DISTINCT person_id FROM events"
+        f" WHERE timestamp >= {instant} - toIntervalDay({{{days_param}}})"
+        f" AND timestamp < {instant}{predicate})"
+    )
+
+
+def _performed_before_t0(predicate: str, *, days_param: str | None = None) -> str:
+    """Per-user aggregate: 1 when an event matching ``predicate`` precedes T0, within ``days_param`` days of it if given."""
+    window = f"{_EVENT_TS} < {_T0}"
+    if days_param is not None:
+        window = f"{_EVENT_TS} >= {_T0} - {{{days_param}}} * 86400 AND {window}"
+    return f"max(({window}{predicate}))"
 
 
 def _build_population_kind_conditions(
@@ -184,10 +222,11 @@ def _build_population_kind_conditions(
     *,
     now_expr: str = "now()",
     anchor_mode: bool = False,
+    target_cond: str | None = None,
 ) -> _CompiledPopulationKind:
     """
     Compile a semantic population spec (``{"kind": ..., ...}``, produced by
-    templates.py) into row-level HogQL WHERE fragments for an events scan.
+    templates.py) into HogQL fragments for an events scan.
 
     Membership subqueries are bounded to the caller's lookback window, so
     "ever performed" and "has not performed" mean "within the lookback window" —
@@ -196,15 +235,22 @@ def _build_population_kind_conditions(
     population-consuming builder in this module binds.
 
     ``now_expr`` is the anchor instant — ``now()`` for live queries, or a bound
-    backfill cutoff expression for historical scoring. All time windows are
+    backfill cutoff expression for historical scoring. Row-mode windows are
     computed relative to it.
 
-    ``anchor_mode=True`` (training) moves the target-performed test from a
-    row-level filter to a per-user-at-T0 refinement via ``anchor_target_relation``,
-    which ``_build_labeled_users_cte`` applies against each user's T0. This matters
-    for correctness, not just fidelity: excluding "ever performed the target" users
-    with a row filter at training time would remove exactly the users whose post-T0
-    adoption provides the positive labels.
+    ``anchor_mode=True`` (training) decides membership per user at that user's
+    own T0 instead of at ``now_expr``: the tests move from ``where_parts`` into
+    ``anchor_having_parts``, which ``_build_labeled_users_cte`` applies against
+    each user's anchor, exactly as inference decides them as of its cutoff.
+    Deciding training membership as of now() would admit users on activity after
+    T0 (including the outcome window), and a row-level "has not performed the
+    target" filter would delete exactly the users whose post-T0 adoption provides
+    the positive labels. Where a cheap superset exists it stays in ``where_parts``
+    to bound the scan.
+
+    ``target_cond`` is the predicate from ``build_target_condition``. The
+    target-relative kinds require it, so an action target is matched by its
+    compiled matcher rather than by its display name.
 
     Raises ValueError on an unknown kind or a spec missing a required key — a
     population that cannot be compiled must fail loudly rather than silently
@@ -223,59 +269,77 @@ def _build_population_kind_conditions(
             raise ValueError(f"Population kind '{kind}' requires a positive integer '{key}'")
         return raw
 
-    def _event() -> str:
+    def _event_clause() -> str:
         raw = spec.get("event")
         if not raw or not isinstance(raw, str):
             raise ValueError(f"Population kind '{kind}' requires an 'event'")
-        return raw
+        values["popk_event"] = raw
+        return " AND event = {popk_event}"
+
+    def _target_clause() -> str:
+        if target_cond is None:
+            raise ValueError(f"Population kind '{kind}' requires the pipeline's target predicate")
+        return f" AND ({target_cond})"
 
     parts: list[str] = []
     values: dict[str, Any] = {}
-    anchor_target_relation: Literal["performed_before", "not_performed_before"] | None = None
+    having: list[str] = []
 
     if kind == "performed_event_within_days":
         values["popk_days"] = _positive_int("days")
-        event_clause = ""
-        if spec.get("event"):
-            values["popk_event"] = _event()
-            event_clause = " AND event = {popk_event}"
-        parts.append(
-            "person_id IN (SELECT DISTINCT person_id FROM events"
-            f" WHERE timestamp >= {now_expr} - toIntervalDay({{popk_days}})"
-            f" AND timestamp < {now_expr}{event_clause})"
-        )
+        event_clause = _event_clause() if spec.get("event") else ""
+        if anchor_mode:
+            if event_clause:
+                parts.append(_members_within(now_expr, "lookback", predicate=event_clause))
+            having.append(f"{_performed_before_t0(event_clause, days_param='popk_days')} = 1")
+        else:
+            parts.append(_members_within(now_expr, "popk_days", predicate=event_clause))
     elif kind == "person_first_seen_within_days":
         values["popk_days"] = _positive_int("days")
-        parts.append(f"person.created_at >= {now_expr} - toIntervalDay({{popk_days}})")
+        if anchor_mode:
+            having.append(f"min(toInt(toUnixTimestamp(e.person.created_at))) >= {_T0} - {{popk_days}} * 86400")
+        else:
+            parts.append(f"person.created_at >= {now_expr} - toIntervalDay({{popk_days}})")
     elif kind == "active_not_performed_target":
         values["popk_active_days"] = _positive_int("active_within_days")
-        parts.append(
-            "person_id IN (SELECT DISTINCT person_id FROM events"
-            f" WHERE timestamp >= {now_expr} - toIntervalDay({{popk_active_days}})"
-            f" AND timestamp < {now_expr})"
-        )
+        target_clause = _target_clause()
         if anchor_mode:
-            anchor_target_relation = "not_performed_before"
+            having.append(f"{_performed_before_t0('', days_param='popk_active_days')} = 1")
+            having.append(f"{_performed_before_t0(target_clause)} = 0")
         else:
-            values["popk_event"] = _event()
-            parts.append(
-                "person_id NOT IN (SELECT DISTINCT person_id FROM events"
-                f" WHERE event = {{popk_event}} AND timestamp >= {now_expr} - toIntervalDay({{lookback}})"
-                f" AND timestamp < {now_expr})"
-            )
+            parts.append(_members_within(now_expr, "popk_active_days"))
+            parts.append(_members_within(now_expr, "lookback", predicate=target_clause, negate=True))
     elif kind == "ever_performed_event":
-        values["popk_event"] = _event()
-        parts.append(
-            "person_id IN (SELECT DISTINCT person_id FROM events"
-            f" WHERE event = {{popk_event}} AND timestamp >= {now_expr} - toIntervalDay({{lookback}})"
-            f" AND timestamp < {now_expr})"
-        )
+        event_clause = _event_clause()
+        # In anchor mode the row filter is a cheap superset (performed within the lookback
+        # as of now); the HAVING narrows it to "performed before this user's T0".
+        parts.append(_members_within(now_expr, "lookback", predicate=event_clause))
         if anchor_mode:
-            # The row filter is a cheap superset (performed within lookback as of now);
-            # the anchor refinement narrows it to "performed before this user's T0".
-            anchor_target_relation = "performed_before"
+            having.append(f"{_performed_before_t0(event_clause)} = 1")
+    elif kind == "ever_performed_target":
+        target_clause = _target_clause()
+        parts.append(_members_within(now_expr, "lookback", predicate=target_clause))
+        if anchor_mode:
+            having.append(f"{_performed_before_t0(target_clause)} = 1")
 
-    return _CompiledPopulationKind(where_parts=parts, values=values, anchor_target_relation=anchor_target_relation)
+    return _CompiledPopulationKind(where_parts=parts, values=values, anchor_having_parts=having)
+
+
+def _target_condition_for(
+    population: dict[str, Any] | None,
+    *,
+    target_event: str,
+    target_definition: dict[str, Any] | None,
+    team: "Team | None",
+) -> tuple[str | None, dict[str, Any]]:
+    """The compiled target predicate when ``population`` is target-relative, else nothing.
+
+    Resolving an action target reads the Action row, so callers that only need a
+    row-mode population do not pay for it unless a kind consumes it.
+    """
+    if (population or {}).get("kind") not in TARGET_RELATIVE_KINDS:
+        return None, {}
+    return build_target_condition(target_event=target_event, target_definition=target_definition, team=team)
 
 
 def build_target_condition(
@@ -333,13 +397,22 @@ def _build_labeled_users_cte(
         labeled_users(person_id, t0_ts, positive)
     Caller appends `SELECT ... FROM labeled_users` to use it.
 
+    Population membership is decided per user at T0. Person-property filters and
+    the kinds' cheap superset fragments narrow the events scan; event-property
+    filters and the semantic kinds are evaluated in the labeled_users HAVING
+    against each user's own anchor, so the training population is the same one
+    inference selects as of its cutoff.
+
     sample_limit caps user_window for fast wizard previews; None = full
     materialization (trainer).
     """
     training_properties = (training_population or {}).get("properties", []) if training_population else []
-    train_parts, train_values = _build_population_conditions(training_properties)
-    compiled_kind = _build_population_kind_conditions(training_population, anchor_mode=True)
-    all_parts = train_parts + compiled_kind.where_parts
+    compiled_filters = _compile_population_filters(training_properties)
+    target_cond, target_values = build_target_condition(
+        target_event=target_event, target_definition=target_definition, team=team
+    )
+    compiled_kind = _build_population_kind_conditions(training_population, anchor_mode=True, target_cond=target_cond)
+    all_parts = compiled_filters.where_parts + compiled_kind.where_parts
     training_clause = f" AND ({' AND '.join(all_parts)})" if all_parts else ""
     identified_clause = _identified_users_and_clause()
     # A bare LIMIT would hand back whatever ClickHouse reads first, which correlates with
@@ -350,20 +423,14 @@ def _build_labeled_users_cte(
         if sample_limit is not None
         else ""
     )
-    target_cond, target_values = build_target_condition(
-        target_event=target_event, target_definition=target_definition, team=team
-    )
 
-    # Per-user-at-T0 population refinement for target-relative kinds (see
-    # _build_population_kind_conditions): membership is decided against each
-    # user's own T0, exactly as inference decides it against its cutoff.
-    anchor_having = ""
-    if compiled_kind.anchor_target_relation is not None:
-        wanted = 1 if compiled_kind.anchor_target_relation == "performed_before" else 0
-        anchor_having = (
-            f"\n              HAVING max(({target_cond}) AND toInt(toUnixTimestamp(e.timestamp)) < u.t0_ts) = {wanted}"
-        )
+    having_parts = [f"{_performed_before_t0(f' AND ({part})')} = 1" for part in compiled_filters.event_parts]
+    having_parts.extend(compiled_kind.anchor_having_parts)
+    anchor_having = f"\n              HAVING {' AND '.join(having_parts)}" if having_parts else ""
 
+    # T0 sits at a fixed fraction (hash / 2^31) of the user's [first_ts, cutoff_ts) span. A
+    # `hash % span` remainder would change every time cutoff_ts moved with now(), handing the
+    # same person a different T0, features, and label on each run.
     cte = f"""
         WITH user_window AS (
             SELECT
@@ -380,7 +447,7 @@ def _build_labeled_users_cte(
             SELECT
                 person_id,
                 first_ts
-                  + (toInt(bitAnd(cityHash64(toString(person_id)), 2147483647)) % (cutoff_ts - first_ts))
+                  + intDiv((cutoff_ts - first_ts) * toInt(bitAnd(cityHash64(toString(person_id)), 2147483647)), 2147483648)
                   AS t0_ts
             FROM user_window
         ),
@@ -404,7 +471,7 @@ def _build_labeled_users_cte(
         "horizon": horizon_days,
         "lookback": lookback_days,
         **target_values,
-        **train_values,
+        **compiled_filters.values,
         **compiled_kind.values,
     }
     return cte, values
@@ -455,6 +522,9 @@ def build_eligible_count_sql(
     horizon_days: int,
     lookback_days: int,
     training_population: dict[str, Any] | None,
+    target_event: str = "",
+    target_definition: dict[str, Any] | None = None,
+    team: "Team | None" = None,
 ) -> tuple[str, dict[str, Any]]:
     """
     Build a HogQL query returning the count of users eligible to be labeled by the
@@ -472,7 +542,10 @@ def build_eligible_count_sql(
     # Row mode: the target-relative kinds are evaluated as of now() here, which is an
     # approximation of the trainer's per-user-at-T0 semantics — acceptable for an
     # advisory headline count.
-    compiled_kind = _build_population_kind_conditions(training_population)
+    target_cond, target_values = _target_condition_for(
+        training_population, target_event=target_event, target_definition=target_definition, team=team
+    )
+    compiled_kind = _build_population_kind_conditions(training_population, target_cond=target_cond)
     all_parts = train_parts + compiled_kind.where_parts
     training_clause = f" AND ({' AND '.join(all_parts)})" if all_parts else ""
 
@@ -490,6 +563,7 @@ def build_eligible_count_sql(
     values: dict[str, Any] = {
         "horizon": horizon_days,
         "lookback": lookback_days,
+        **target_values,
         **train_values,
         **compiled_kind.values,
     }
@@ -501,6 +575,9 @@ def build_inference_anchors_sql(
     lookback_days: int,
     inference_population: dict[str, Any] | None,
     cutoff_ts: int | None = None,
+    target_event: str = "",
+    target_definition: dict[str, Any] | None = None,
+    team: "Team | None" = None,
 ) -> tuple[str, dict[str, Any]]:
     """
     Build a HogQL query producing (person_id, cutoff_ts) rows for scoring.
@@ -525,7 +602,12 @@ def build_inference_anchors_sql(
 
     # Row mode anchored at the cutoff: population membership is decided as of the
     # scoring instant, mirroring how training decides it as of each user's T0.
-    compiled_kind = _build_population_kind_conditions(inference_population, now_expr=cutoff_expr)
+    target_cond, target_values = _target_condition_for(
+        inference_population, target_event=target_event, target_definition=target_definition, team=team
+    )
+    compiled_kind = _build_population_kind_conditions(
+        inference_population, now_expr=cutoff_expr, target_cond=target_cond
+    )
     all_parts = inf_parts + compiled_kind.where_parts
     inf_clause = f" AND ({' AND '.join(all_parts)})" if all_parts else ""
     identified_clause = _identified_users_and_clause()
@@ -540,6 +622,7 @@ def build_inference_anchors_sql(
     """
     values: dict[str, Any] = {
         "lookback": lookback_days,
+        **target_values,
         **inf_values,
         **compiled_kind.values,
     }
@@ -673,6 +756,9 @@ def build_inference_features_sql(
     lookback_days: int,
     inference_population: dict[str, Any] | None,
     cutoff_ts: int | None = None,
+    target_event: str = "",
+    target_definition: dict[str, Any] | None = None,
+    team: "Team | None" = None,
 ) -> tuple[str, dict[str, Any]]:
     """
     Build the inference-time query: the agent's feature_sql with {anchors}
@@ -687,6 +773,9 @@ def build_inference_features_sql(
         lookback_days=lookback_days,
         inference_population=inference_population,
         cutoff_ts=cutoff_ts,
+        target_event=target_event,
+        target_definition=target_definition,
+        team=team,
     )
     # Wrap the inference anchors query as the {anchors} subquery — agent's
     # feature_sql references columns (person_id, cutoff_ts) just like training.

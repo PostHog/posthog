@@ -237,12 +237,6 @@ class TestBuildPopulationConditions(TeamScopedTestMixin, BaseTest):
         assert hostile_key not in parts[0]
         assert values["pop_k_0"] == hostile_key
 
-    def test_unsupported_prop_type_skipped(self):
-        parts, values = _build_population_conditions(
-            [{"key": "cohort_id", "type": "cohort", "operator": "exact", "value": "123"}]
-        )
-        assert parts == []
-
     def test_multiple_conditions_all_included(self):
         parts, values = _build_population_conditions(
             [
@@ -434,12 +428,12 @@ class TestFetchPopulationDistinctIds(TeamScopedTestMixin, BaseTest):
             (
                 "ever_performed_event",
                 {"kind": "ever_performed_event", "event": "downloaded_file"},
-                ["person_id IN (SELECT DISTINCT person_id FROM events WHERE event = {popk_event}"],
+                ["person_id IN (SELECT DISTINCT person_id FROM events WHERE", "AND event = {popk_event})"],
             ),
             (
                 "active_not_performed_target",
-                {"kind": "active_not_performed_target", "active_within_days": 30, "event": "downloaded_file"},
-                ["person_id NOT IN (SELECT DISTINCT person_id FROM events WHERE event = {popk_event}"],
+                {"kind": "active_not_performed_target", "active_within_days": 30},
+                ["person_id NOT IN (SELECT DISTINCT person_id FROM events WHERE", "AND (event = {target}))"],
             ),
             (
                 "performed_event_within_days",
@@ -456,7 +450,9 @@ class TestFetchPopulationDistinctIds(TeamScopedTestMixin, BaseTest):
         # must compile them or a template pipeline silently scores all identified users.
         mock_rows.return_value = [("person-1",)]
 
-        allowed = _fetch_population_distinct_ids(team=self.team, population=population, lookback_days=30)
+        allowed = _fetch_population_distinct_ids(
+            team=self.team, population=population, lookback_days=30, target_event="downloaded_file"
+        )
 
         assert allowed == frozenset({"person-1"})
         sent_query = mock_rows.call_args.kwargs["query"]

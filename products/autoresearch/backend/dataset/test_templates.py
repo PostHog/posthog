@@ -9,7 +9,7 @@ from products.autoresearch.backend.dataset.labeling import _build_population_kin
 from products.autoresearch.backend.dataset.templates import (
     TEMPLATES,
     ResolvedTemplate,
-    _fill_population,
+    resolve_activity_event,
     resolve_template,
 )
 from products.autoresearch.backend.testing import TeamScopedTestMixin
@@ -67,35 +67,26 @@ class TestTemplateSpecsCompile(TestCase):
     @parameterized.expand(list(TEMPLATES.keys()))
     def test_population_specs_compile_in_both_modes(self, key: str) -> None:
         t = TEMPLATES[key]
-        for spec in (t.training_population_spec, t.inference_population_spec):
-            population = _fill_population(spec, "some_target_event")
-            row = _build_population_kind_conditions(population)
-            anchor = _build_population_kind_conditions(population, anchor_mode=True)
+        for population in (t.training_population_spec, t.inference_population_spec):
+            row = _build_population_kind_conditions(population, target_cond="event = {target}")
+            anchor = _build_population_kind_conditions(population, anchor_mode=True, target_cond="event = {target}")
             self.assertTrue(row.where_parts)
-            self.assertTrue(anchor.where_parts or anchor.anchor_target_relation)
+            self.assertTrue(anchor.anchor_having_parts)
 
 
-class TestFillPopulation(TestCase):
-    def test_ever_performed_event_gets_event_key(self) -> None:
-        spec = {"kind": "ever_performed_event"}
-        result = _fill_population(spec, "my_event")
-        self.assertEqual(result, {"kind": "ever_performed_event", "event": "my_event"})
-
-    def test_active_not_performed_target_gets_event_key(self) -> None:
-        spec = {"kind": "active_not_performed_target", "active_within_days": 30}
-        result = _fill_population(spec, "feature_clicked")
-        self.assertEqual(result["event"], "feature_clicked")
-        self.assertEqual(result["kind"], "active_not_performed_target")
-
-    def test_performed_event_within_days_unchanged(self) -> None:
-        spec = {"kind": "performed_event_within_days", "days": 30}
-        result = _fill_population(spec, "$pageview")
-        self.assertNotIn("event", result)
-
-    def test_original_spec_not_mutated(self) -> None:
-        spec = {"kind": "ever_performed_event"}
-        _fill_population(spec, "my_event")
-        self.assertNotIn("event", spec)
+class TestResolveActivityEvent(TestCase):
+    def test_ranks_candidates_over_identified_users_only(self) -> None:
+        # Training and scoring only see identified users, so an event that only anonymous
+        # traffic emits must not be chosen as the activity signal.
+        team = MagicMock()
+        team.pk = 1
+        with patch(
+            "products.autoresearch.backend.dataset.templates.run_hogql_rows",
+            return_value=[["$pageview", 10]],
+        ) as mock_run:
+            resolved, _alternatives = resolve_activity_event(team)
+        self.assertEqual(resolved, "$pageview")
+        self.assertIn("person.is_identified", mock_run.call_args.kwargs["query"].query)
 
 
 class TestResolveTemplate(TestCase):
@@ -149,13 +140,13 @@ class TestResolveTemplate(TestCase):
         self.assertEqual(result.target_event, "feature_clicked")
         self.assertEqual(result.horizon_days, 14)
         self.assertIn("predicted_p_adopt_feature_clicked", result.output_person_property)
-        self.assertEqual(result.training_population["event"], "feature_clicked")
+        self.assertEqual(result.training_population, {"kind": "active_not_performed_target", "active_within_days": 30})
         self.assertIsNone(result.resolved_activity_event)
 
     def test_repeat_key_behavior_with_target_event(self) -> None:
         result = resolve_template(self._make_team(), "repeat_key_behavior", target_event_override="$pageview")
         self.assertEqual(result.target_event, "$pageview")
-        self.assertEqual(result.training_population["event"], "$pageview")
+        self.assertEqual(result.training_population, {"kind": "ever_performed_target"})
         self.assertIn("pageview", result.output_person_property)
 
     def test_feature_adoption_suggested_name_includes_event(self) -> None:

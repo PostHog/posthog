@@ -7,7 +7,7 @@ This is the expensive half of the product. A real run costs roughly a dollar in 
 
 The other half is `../inference/`, which consumes what this package produces and must never re-fit.
 
-This package landed ahead of its callers. `../api/`, `../temporal/`, `../management/`, and `../evaluation/` arrive in later pieces of the split tracked in [#60081](https://github.com/PostHog/posthog/pull/60081), so the references to them below describe where they will sit.
+This package landed ahead of its callers. `../presentation/`, `../temporal/`, `../management/`, and `../evaluation/` arrive in later pieces of the split tracked in [#88464](https://github.com/PostHog/posthog/pull/88464), so the references to them below describe where they will sit.
 
 ## What lives here
 
@@ -30,7 +30,7 @@ This package landed ahead of its callers. `../api/`, `../temporal/`, `../managem
   Keys are prefixed by team / pipeline / training-run (`bundle_prefix()`), so history is preserved naturally and bundles can never collide across tenants.
   `normalize_artifact_path()` and `MAX_ARTIFACT_BYTES` (10 MiB) are the guardrails on agent-supplied paths — the agent chooses these strings, so treat them as untrusted input.
 - `recipe_validation.py`
-  Server-side validation of whatever an agent records. `validate_feature_sql()` parses the SQL and enforces the one-row-per-person contract: a read-only `SELECT` keyed on `person_id`, with the `{anchors}` placeholder required so every feature query is cut off at each person's T0 (SQL without it would read outcome-window events — target leakage). `validate_unique_distinct_ids()` re-checks the one-row-per-person contract on actual materialized rows, where duplicates first become visible.
+  Server-side validation of whatever an agent records. `validate_feature_sql()` parses the SQL and enforces the one-row-per-person contract: a read-only `SELECT` keyed as `person_id AS distinct_id` (the exact column the training join and materialization read), with the `{anchors}` placeholder required so every feature query is cut off at each person's T0, and no wall-clock functions (`now()`, `today()`, ...) because a window bound to "now" reads outcome-window events at training time (target leakage). It does not prove every event read is bounded by `cutoff_ts`; that remains the agent's contract. `validate_unique_distinct_ids()` re-checks the one-row-per-person contract on actual materialized rows, where duplicates first become visible.
   `validate_model_class()` is deliberately **not** applied at recording time — in the bundle world the agent's real model is arbitrary sandboxed code, so a recorded `model_class` is informational. The allowlist is enforced only where it is a genuine code-execution surface: the legacy in-process path in `../inference/scoring.py`, which resolves it through `importlib`.
 
 ## Mental model
@@ -52,10 +52,10 @@ Two things routinely surprise people:
 
 ## Where the rest of the system meets this package
 
-- **Launched by** — the `train` API action in `../api/views.py`, the `autoresearch_train` management command, and `activity_kickoff_training` in `../temporal/workflows.py`.
+- **Launched by** — the `train` API action in `../presentation/views/views.py`, the `autoresearch_train` management command, and `activity_kickoff_training` in `../temporal/workflows.py`.
 - **Finalized by** — the `complete` action on the training-run viewset, or `ingestion.py` via the `TaskRun` `post_save` signal wired in `../apps.py`.
 - **Consumed by** — `../inference/`, which reads the champion's `artifact_prefix` and runs its bundle. `fit_champion_model()` in `../inference/sandbox.py` is what actually fits and persists `model.pkl` at completion time.
-- **Agent-facing surface** — the `autoresearch-training-runs-*` MCP tools in `../../mcp/tools.yaml`, backed by the viewsets in `../api/views.py`. The sandbox agent has no other way to write.
+- **Agent-facing surface** — the `autoresearch-training-runs-*` MCP tools in `../../mcp/tools.yaml`, backed by the viewsets in `../presentation/views/views.py`. The sandbox agent has no other way to write.
 - **Labels and features** — `../dataset/labeling.py` builds the training population the bundle is fitted against.
 
 ## When editing this flow

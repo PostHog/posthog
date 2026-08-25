@@ -47,6 +47,7 @@ from products.autoresearch.backend.dataset.labeling import (
     _build_population_conditions,
     _build_population_kind_conditions,
     _identified_users_and_clause,
+    _target_condition_for,
     build_inference_features_sql,
     build_target_condition,
     build_training_features_sql,
@@ -400,6 +401,8 @@ def _fetch_feature_rows(
         team=team,
         population=pipeline.inference_population,
         lookback_days=lookback_days,
+        target_event=pipeline.target_event,
+        target_definition=pipeline.target_definition,
     )
     if allowed_ids is not None:
         before = len(rows)
@@ -418,6 +421,8 @@ def _fetch_population_distinct_ids(
     team: Team,
     population: dict[str, Any],
     lookback_days: int,
+    target_event: str = "",
+    target_definition: dict[str, Any] | None = None,
 ) -> frozenset[str] | None:
     """
     Return the set of person_ids that match the inference_population filter, further
@@ -440,8 +445,12 @@ def _fetch_population_distinct_ids(
     """
     properties = (population or {}).get("properties", [])
     parts, values = _build_population_conditions(properties)
-    compiled_kind = _build_population_kind_conditions(population)
+    target_cond, target_values = _target_condition_for(
+        population, target_event=target_event, target_definition=target_definition, team=team
+    )
+    compiled_kind = _build_population_kind_conditions(population, target_cond=target_cond)
     parts.extend(compiled_kind.where_parts)
+    values.update(target_values)
     values.update(compiled_kind.values)
     identified_clause = _identified_users_and_clause()
 
@@ -667,6 +676,9 @@ def _fetch_inference_rows(
         lookback_days=lookback_days,
         inference_population=pipeline.inference_population,
         cutoff_ts=cutoff_ts,
+        target_event=pipeline.target_event,
+        target_definition=pipeline.target_definition,
+        team=team,
     )
     try:
         tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
