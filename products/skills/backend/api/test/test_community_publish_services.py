@@ -291,7 +291,10 @@ class TestCommunitySkillsPublisher:
             self._response(201, {"token": "ghs_x"}),
         ]
 
-        assert get_community_skills_publisher() is not None
+        publisher = get_community_skills_publisher()
+        assert publisher is not None
+        # Every write the publisher makes must share the App-JWT calls' egress label.
+        assert publisher.source == "community_skills"
 
         mint_body = mock_request.call_args.kwargs["json_body"]
         assert mint_body["repositories"] == ["community-skills"]

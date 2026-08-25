@@ -515,7 +515,8 @@ def get_community_skills_publisher() -> GitHubIntegration | None:
         config={"account": {"name": account["login"], "type": account.get("type")}},
         sensitive_config={"access_token": token},
     )
-    return _CommunitySkillsPublisher(integration)
+    # The same source as the App-JWT calls above, so every publish request lands under one label.
+    return _CommunitySkillsPublisher(integration, source=_EGRESS_SOURCE)
 
 
 def _community_pr_body(*, name: str, slug: str, author_handle: str) -> str:
