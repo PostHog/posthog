@@ -80,6 +80,29 @@ export type InboxReportActionType =
     | 'remove_suggested_reviewer'
 
 /**
+ * Where the text of an "Ask AI" question came from. `suggested` is a scout-authored question sent as
+ * written, `edited_suggestion` one the reader changed first, and `typed` one written from scratch.
+ */
+export type InboxQuestionSource = 'suggested' | 'edited_suggestion' | 'typed'
+
+/**
+ * Extra properties the `discuss` {@link captureInboxReportAction} carries. Without them the event
+ * records that a question was asked and nothing about where it came from, so there is no way to tell
+ * whether the suggestions are worth offering. `suggestion_count` is what makes `question_source`
+ * readable: a `typed` question on a report that offered none is not evidence against suggestions.
+ *
+ * The question text itself is deliberately absent, like the list's search term: it is incidental
+ * typing that can name a customer's own entities.
+ */
+// pinned: analytics property names — renaming breaks dashboards
+export function discussQuestionProperties(params: {
+    source: InboxQuestionSource
+    suggestionCount: number
+}): Record<string, unknown> {
+    return { question_source: params.source, suggestion_count: params.suggestionCount }
+}
+
+/**
  * Whether a task-kickoff action (`discuss` / `create_pr`) actually produced a task. The press itself
  * is already an {@link captureInboxReportAction} event; without the outcome the two are
  * indistinguishable, so an attempted PR counts the same as a created one. `limited` is a server

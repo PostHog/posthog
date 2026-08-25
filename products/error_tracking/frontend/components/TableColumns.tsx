@@ -7,6 +7,7 @@ import { LemonCheckbox, LemonSkeleton, Link } from '@posthog/lemon-ui'
 import { ErrorTrackingRuntime } from 'lib/components/Errors/types'
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -20,6 +21,7 @@ import { AssigneeSelect } from './Assignee/AssigneeSelect'
 import { issueActionsLogic } from './IssueActions/issueActionsLogic'
 import { issueFiltersLogic, updateFilterSearchParams } from './IssueFilters/issueFiltersLogic'
 import { issueQueryOptionsLogic } from './IssueQueryOptions/issueQueryOptionsLogic'
+import { IssueSeveritySelect } from './IssueSeveritySelect'
 import { IssueStatusSelect } from './IssueStatusSelect'
 import { RuntimeIcon } from './RuntimeIcon'
 
@@ -68,9 +70,11 @@ export const IssueListTitleColumn = (props: {
     const { recordIndex, results } = props
     const { selectedIssueIds, shiftKeyHeld, previouslyCheckedRecordIndex } = useValues(bulkSelectLogic)
     const { setSelectedIssueIds, setPreviouslyCheckedRecordIndex } = useActions(bulkSelectLogic)
-    const { updateIssueAssignee, updateIssueStatus } = useActions(issueActionsLogic)
+    const { updateIssueAssignee, updateIssueSeverity, updateIssueStatus } = useActions(issueActionsLogic)
+    const { severityUpdateInFlightIds } = useValues(issueActionsLogic)
     const { dateRange, filterGroup, filterTestAccounts, searchQuery } = useValues(issueFiltersLogic)
     const { orderBy } = useValues(issueQueryOptionsLogic)
+    const hasSeverityRules = useFeatureFlag('ERROR_TRACKING_SEVERITY_RULES')
 
     const checked = selectedIssueIds.includes(record.id)
     const runtime = getRuntimeFromLib(record.library)
@@ -126,7 +130,10 @@ export const IssueListTitleColumn = (props: {
                 <IssueMetadata
                     record={record}
                     orderBy={orderBy}
+                    showSeverity={hasSeverityRules}
+                    severityLoading={severityUpdateInFlightIds.includes(record.id)}
                     onStatusChange={(status) => updateIssueStatus(record.id, status)}
+                    onSeverityChange={(severity) => updateIssueSeverity(record.id, severity)}
                     onAssigneeChange={(assignee) => updateIssueAssignee(record.id, assignee)}
                 />
             </div>
@@ -165,17 +172,29 @@ const IssueTitle = ({
 const IssueMetadata = ({
     record,
     orderBy,
+    showSeverity,
+    severityLoading,
     onStatusChange,
+    onSeverityChange,
     onAssigneeChange,
 }: {
     record: ErrorTrackingIssue
     orderBy: string
+    showSeverity: boolean
+    severityLoading: boolean
     onStatusChange: (status: ErrorTrackingIssue['status']) => void
+    onSeverityChange: (severity: NonNullable<ErrorTrackingIssue['severity']> | null) => void
     onAssigneeChange: (assignee: ErrorTrackingIssue['assignee']) => void
 }): JSX.Element => (
     <div className="flex items-center text-secondary h-[calc(var(--line-height)*1.3)]">
         <IssueStatusSelect status={record.status} onChange={onStatusChange} />
         <CustomSeparator />
+        {showSeverity ? (
+            <>
+                <IssueSeveritySelect severity={record.severity} onChange={onSeverityChange} loading={severityLoading} />
+                <CustomSeparator />
+            </>
+        ) : null}
         <AssigneeSelect assignee={record.assignee} onChange={onAssigneeChange}>
             {(anyAssignee) => (
                 <div

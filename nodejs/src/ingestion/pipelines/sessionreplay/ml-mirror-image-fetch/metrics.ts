@@ -21,6 +21,7 @@ export type DedupScope = 'batch' | 'store'
 export type SchedulerWaitScope = 'origin_crawl_delay' | 'registrable_domain_rate' | 'request_capacity'
 export type HttpRequestOutcome = '2xx' | '3xx' | '4xx' | '5xx' | 'other' | 'network_error'
 export type RepublishDestination = 'frontier' | 'delay'
+export type RepublishTopic = 'frontier' | 'retry_1m' | 'retry_10m' | 'retry_1h'
 type PolicyAndBudgetReason = FetchRefusalReason | RequestScheduleBlockReason | 'none'
 
 export class ImageFetchConsumerMetrics {
@@ -51,6 +52,16 @@ export class ImageFetchConsumerMetrics {
         name: 'ml_image_fetch_consumer_origins_per_batch',
         help: 'Distinct origins in one poll batch',
         buckets: [1, 2, 4, 8, 16, 32, 64],
+    })
+    private static readonly distinctOriginsPerBatch = new Histogram({
+        name: 'ml_image_fetch_consumer_distinct_origins_per_batch',
+        help: 'Distinct origins in one poll batch, including empty batches and the full configured batch range',
+        buckets: [0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16_384],
+    })
+    private static readonly registrableDomainsPerBatch = new Histogram({
+        name: 'ml_image_fetch_consumer_registrable_domains_per_batch',
+        help: 'Distinct registrable domains in one poll batch',
+        buckets: [0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16_384],
     })
     private static readonly urlsPerRecord = new Histogram({
         name: 'ml_image_fetch_consumer_urls_per_record',
@@ -114,8 +125,10 @@ export class ImageFetchConsumerMetrics {
     ): void {
         this.storeDuration.labels(operation, outcome).observe(durationSeconds)
     }
-    public static observeBatch(origins: number, durationSeconds: number): void {
+    public static observeBatch(origins: number, registrableDomains: number, durationSeconds: number): void {
         this.originsPerBatch.observe(origins)
+        this.distinctOriginsPerBatch.observe(origins)
+        this.registrableDomainsPerBatch.observe(registrableDomains)
         this.batchDuration.observe(durationSeconds)
     }
     public static startBatch(nowMs = performance.now()): void {
@@ -331,8 +344,35 @@ export class ImageFetchRequestMetrics {
     })
     private static readonly republishFailed = new Counter({
         name: 'ml_image_fetch_republish_failed_total',
-        help: 'URLs that could not be put back. Each one is dropped without a crawl history entry, so it returns only when a session refers to it again',
+        help: 'URLs in a Kafka message whose republish delivery failed. The input batch throws and leaves its offsets uncommitted',
         labelNames: ['reason'],
+    })
+    private static readonly republishMessagesPerBatch = new Histogram({
+        name: 'ml_image_fetch_republish_messages_per_batch',
+        help: 'Kafka record delivery attempts by one fetch batch for each destination topic class',
+        labelNames: ['topic'],
+        buckets: [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16_384],
+    })
+    private static readonly republishRegistrableDomainsPerBatch = new Histogram({
+        name: 'ml_image_fetch_republish_registrable_domains_per_batch',
+        help: 'Distinct registrable-domain keys in delivery attempts by one fetch batch for each destination topic class',
+        labelNames: ['topic'],
+        buckets: [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16_384],
+    })
+    private static readonly republishDuration = new Histogram({
+        name: 'ml_image_fetch_republish_duration_seconds',
+        help: 'Wall time from scheduling one destination topic class until all its started Kafka delivery attempts settle',
+        labelNames: ['topic'],
+        buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 240, 300],
+    })
+    private static readonly republishFlushDuration = new Histogram({
+        name: 'ml_image_fetch_republish_flush_duration_seconds',
+        help: 'Total wall time to group, serialize, and wait for every started republish delivery in one fetch batch',
+        buckets: [0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 240, 300],
+    })
+    private static readonly republishFlushDeadlineExceeded = new Counter({
+        name: 'ml_image_fetch_republish_flush_deadline_exceeded_total',
+        help: 'Fetch batches that stopped starting Kafka republish records to preserve final history-write and poll-interval margin',
     })
     /**
      * Zero is the common case. The tail shows redirect chains and retries.
@@ -348,6 +388,22 @@ export class ImageFetchRequestMetrics {
     }
     public static incRepublishFailed(reason: RepublishReason): void {
         this.republishFailed.labels(reason).inc()
+    }
+    public static observeRepublishBatch(
+        topic: RepublishTopic,
+        messages: number,
+        registrableDomains: number,
+        durationSeconds: number
+    ): void {
+        this.republishMessagesPerBatch.labels(topic).observe(messages)
+        this.republishRegistrableDomainsPerBatch.labels(topic).observe(registrableDomains)
+        this.republishDuration.labels(topic).observe(durationSeconds)
+    }
+    public static observeRepublishFlush(durationSeconds: number): void {
+        this.republishFlushDuration.observe(durationSeconds)
+    }
+    public static incRepublishFlushDeadlineExceeded(): void {
+        this.republishFlushDeadlineExceeded.inc()
     }
     public static observeHops(hops: number): void {
         this.hopsUsed.observe(hops)

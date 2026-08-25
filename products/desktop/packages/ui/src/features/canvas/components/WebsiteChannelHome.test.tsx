@@ -56,6 +56,9 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelTasks", () => ({
 vi.mock("@posthog/ui/hooks/useSetHeaderContent", () => ({
   useSetHeaderContent: () => {},
 }));
+vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
+  useFeatureFlag: () => false,
+}));
 vi.mock("@posthog/ui/shell/analytics", () => ({ track: vi.fn() }));
 vi.mock("@tanstack/react-query", () => ({
   useQueryClient: () => ({ setQueryData: vi.fn(), invalidateQueries: vi.fn() }),

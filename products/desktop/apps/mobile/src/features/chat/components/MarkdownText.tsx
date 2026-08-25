@@ -367,9 +367,10 @@ function renderInline(
       const githubRef = parseGithubIssueUrl(url);
       if (githubRef) {
         const isAutoLink = linkText === url;
-        const label = isAutoLink
-          ? `${githubRef.owner}/${githubRef.repo}#${githubRef.number}`
-          : linkText;
+        const autoLinkLabel = githubRef.isReviewComment
+          ? `Comment on PR #${githubRef.number}`
+          : `${githubRef.owner}/${githubRef.repo}#${githubRef.number}`;
+        const label = isAutoLink ? autoLinkLabel : linkText;
         nodes.push(
           <GithubRefChip
             key={match.index}

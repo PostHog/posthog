@@ -16,6 +16,9 @@ from posthog.models.team import Team
 from posthog.storage import object_storage
 
 from products.tasks.backend.constants import (
+    ANALYSIS_TARGET_IMAGE_ID_STATE_KEY,
+    ANALYSIS_TARGET_IMAGE_NAME_STATE_KEY,
+    ANALYSIS_TARGET_REPOSITORY_STATE_KEY,
     ANALYSIS_TARGET_RUN_ID_STATE_KEY,
     ANALYSIS_TARGET_TASK_ID_STATE_KEY,
     TASK_ANALYSIS_INSIGHTS_STATE_KEY,
@@ -27,12 +30,12 @@ from products.tasks.backend.logic.services.staged_artifacts import (
     build_task_run_artifact_storage_path,
     tag_task_artifact,
 )
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import SandboxCustomImage, Task, TaskRun
 
 logger = structlog.get_logger(__name__)
 
 TASK_ANALYSIS_MODEL = "gpt-5.6-luna"
-TASK_ANALYSIS_INACTIVITY_TIMEOUT_SECONDS = 600
+TASK_ANALYSIS_INACTIVITY_TIMEOUT_SECONDS = 180
 TASK_ANALYSIS_RUNTIME_ADAPTER = "codex"
 TASK_ANALYSIS_REASONING_EFFORT = "high"
 RUN_LOG_ARTIFACT_NAME = "run-log.jsonl"
@@ -186,6 +189,26 @@ def _write_analysis_artifact(*, run: TaskRun, artifact_id: str, log_keys: list[s
     return storage_path
 
 
+def _target_context_state(target_task: Task, target_run: TaskRun) -> dict[str, Any]:
+    """Grouping keys copied from the target at creation, so insight events can be sliced
+    by repository and sandbox image without joining other datasets."""
+    context: dict[str, Any] = {}
+    if target_task.repository:
+        context[ANALYSIS_TARGET_REPOSITORY_STATE_KEY] = target_task.repository
+    target_state = target_run.state if isinstance(target_run.state, dict) else {}
+    image_id = target_state.get("custom_image_id")
+    if isinstance(image_id, str) and image_id:
+        context[ANALYSIS_TARGET_IMAGE_ID_STATE_KEY] = image_id
+        image = SandboxCustomImage.get_accessible_for_task(
+            image_id=image_id,
+            team_id=target_run.team_id,
+            task_created_by_id=target_task.created_by_id,
+        )
+        if image is not None:
+            context[ANALYSIS_TARGET_IMAGE_NAME_STATE_KEY] = image.name
+    return context
+
+
 def create_task_analysis(*, team: Team, user_id: int, target_task: Task, target_run: TaskRun) -> tuple[Task, bool]:
     """Create (or return the existing) analysis task for ``target_run``; returns ``(task, created)``."""
     from products.tasks.backend.logic.services.workflow_dispatch import (  # noqa: PLC0415 — temporal client stays off the module import path
@@ -222,6 +245,7 @@ def create_task_analysis(*, team: Team, user_id: int, target_task: Task, target_
         ANALYSIS_TARGET_RUN_ID_STATE_KEY: str(target_run.id),
         "pending_user_artifact_ids": [artifact_id],
         "reasoning_effort": TASK_ANALYSIS_REASONING_EFFORT,
+        **_target_context_state(target_task, target_run),
     }
 
     origin_key = _analysis_origin_key(str(target_run.id), attempt)
@@ -342,6 +366,7 @@ def _capture_insight_event(run: TaskRun, insight: dict[str, Any], index: int) ->
             "wasted_tool_calls": wasted.get("tool_calls"),
             "wasted_seconds": wasted.get("seconds"),
             "wasted_tokens": wasted.get("tokens"),
+            "wasted_output_bytes": wasted.get("output_bytes"),
             "recurrence": insight.get("recurrence"),
             "confidence_basis": insight.get("confidence_basis"),
             "suggested_fix_change": fix.get("change"),
@@ -349,5 +374,9 @@ def _capture_insight_event(run: TaskRun, insight: dict[str, Any], index: int) ->
             "evidence_count": len(evidence) if isinstance(evidence, list) else 0,
             "analysis_target_task_id": state.get(ANALYSIS_TARGET_TASK_ID_STATE_KEY),
             "analysis_target_run_id": state.get(ANALYSIS_TARGET_RUN_ID_STATE_KEY),
+            ANALYSIS_TARGET_REPOSITORY_STATE_KEY: state.get(ANALYSIS_TARGET_REPOSITORY_STATE_KEY),
+            ANALYSIS_TARGET_IMAGE_ID_STATE_KEY: state.get(ANALYSIS_TARGET_IMAGE_ID_STATE_KEY),
+            ANALYSIS_TARGET_IMAGE_NAME_STATE_KEY: state.get(ANALYSIS_TARGET_IMAGE_NAME_STATE_KEY),
+            "repository": state.get(ANALYSIS_TARGET_REPOSITORY_STATE_KEY),
         },
     )

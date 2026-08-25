@@ -31,6 +31,7 @@ import { FeatureRequestStatusBadge } from './FeatureRequestStatusBadge'
 export function FeatureRequestDetail({ request }: { request: FeatureRequestApi }): JSX.Element {
     const {
         mutatingArchive,
+        featureRequestBackLabel,
         featureRequestBackUrl,
         activeRequestAccountLinks,
         activeRequestEvidenceCount,
@@ -67,8 +68,10 @@ export function FeatureRequestDetail({ request }: { request: FeatureRequestApi }
                         icon={<IconArrowLeft />}
                         to={featureRequestBackUrl}
                         className="-ml-2"
+                        aria-label={featureRequestBackLabel ?? 'Back'}
+                        tooltip={featureRequestBackLabel ? undefined : 'Back'}
                     >
-                        Feature requests
+                        {featureRequestBackLabel}
                     </LemonButton>
                     <div className="flex items-center gap-2">
                         {!request.is_archived && (

@@ -1,4 +1,3 @@
-import { happyHog } from "@posthog/ui/assets/hedgehogs";
 import { SignInCard } from "@posthog/ui/features/auth/SignInCard";
 import { FullScreenLayout } from "@posthog/ui/primitives/FullScreenLayout";
 import { Callout, Flex } from "@radix-ui/themes";
@@ -30,11 +29,7 @@ export function AuthScreen() {
                     </Callout.Text>
                   </Callout.Root>
                 )}
-                <SignInCard
-                  hogSrc={happyHog}
-                  hogMessage="Welcome back. Let's get shipping."
-                  subtitle="Connect your PostHog account to continue."
-                />
+                <SignInCard />
               </Flex>
             </Flex>
           </Flex>

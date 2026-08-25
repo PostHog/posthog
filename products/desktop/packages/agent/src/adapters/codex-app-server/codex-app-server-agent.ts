@@ -121,6 +121,7 @@ type AppServerSessionMeta = {
   taskId?: string;
   persistence?: { taskId?: string };
   environment?: "local" | "cloud";
+  mode?: string;
   channelMode?: boolean;
   spokenNarration?: boolean;
   baseBranch?: string;
@@ -678,6 +679,7 @@ export class CodexAppServerAgent extends BaseAcpAgent {
     if (!meta) return undefined;
     return {
       environment: meta.environment,
+      background: meta.mode === "background",
       channelMode: meta.channelMode,
       spokenNarration: resolveSpokenNarration(meta),
       taskId: meta.taskId,

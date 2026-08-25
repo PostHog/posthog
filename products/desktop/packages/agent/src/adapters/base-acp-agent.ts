@@ -34,10 +34,9 @@ import {
 } from "../gateway-models";
 import { Logger } from "../utils/logger";
 /**
- * Shared settings manager interface that both Claude's SettingsManager
- * and Codex's CodexSettingsManager implement. BaseAcpAgent only calls
- * dispose() on this; each adapter's Session type narrows it to the
- * concrete implementation.
+ * Shared settings manager interface that Claude's SettingsManager
+ * implements. BaseAcpAgent only calls dispose() on this; each adapter's
+ * Session type narrows it to the concrete implementation.
  */
 export interface BaseSettingsManager {
   dispose(): void;

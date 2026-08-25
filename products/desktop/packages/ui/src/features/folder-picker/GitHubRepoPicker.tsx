@@ -1,5 +1,6 @@
 import {
   ArrowClockwise,
+  CaretDown,
   GithubLogo,
   MagnifyingGlass,
 } from "@phosphor-icons/react";
@@ -18,6 +19,7 @@ import {
   Text,
 } from "@posthog/quill";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
+import { FIELD_TRIGGER_CLASS } from "@posthog/ui/styles/fieldTrigger";
 import { defaultFilter } from "cmdk";
 import { type RefObject, useEffect, useMemo, useRef, useState } from "react";
 
@@ -61,6 +63,8 @@ interface GitHubRepoPickerProps {
   hasMore?: boolean;
   onLoadMore?: () => void;
   triggerClassName?: string;
+  /** "field" matches FolderPicker's select-style trigger. */
+  variant?: "button" | "field";
 }
 
 export function GitHubRepoPicker({
@@ -83,6 +87,7 @@ export function GitHubRepoPicker({
   hasMore: controlledHasMore,
   onLoadMore,
   triggerClassName,
+  variant = "button",
 }: GitHubRepoPickerProps) {
   const buttonSize = size === "2" ? "lg" : "sm";
   const buttonTextClass = size === "2" ? "text-[13px]" : "";
@@ -221,17 +226,38 @@ export function GitHubRepoPicker({
     >
       <ComboboxTrigger
         render={
-          <Button
-            ref={triggerRef}
-            variant="outline"
-            size={buttonSize}
-            disabled={disabled}
-            aria-label="Repository"
-            className={`${buttonTextClass} ${triggerClassName ?? ""}`}
-          >
-            <GithubLogo size={14} weight="regular" className="shrink-0" />
-            <span className="min-w-0 truncate">{value ?? placeholder}</span>
-          </Button>
+          variant === "field" ? (
+            <button
+              ref={triggerRef}
+              type="button"
+              disabled={disabled}
+              aria-label="Repository"
+              className={`${FIELD_TRIGGER_CLASS} ${triggerClassName ?? ""}`}
+            >
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <GithubLogo size={16} className="shrink-0 text-(--gray-12)" />
+                <span
+                  className="min-w-0 max-w-full truncate text-left font-medium text-(--gray-12)"
+                  title={value ?? undefined}
+                >
+                  {value ?? placeholder}
+                </span>
+              </div>
+              <CaretDown size={14} className="shrink-0 text-(--gray-9)" />
+            </button>
+          ) : (
+            <Button
+              ref={triggerRef}
+              variant="outline"
+              size={buttonSize}
+              disabled={disabled}
+              aria-label="Repository"
+              className={`${buttonTextClass} ${triggerClassName ?? ""}`}
+            >
+              <GithubLogo size={14} weight="regular" className="shrink-0" />
+              <span className="min-w-0 truncate">{value ?? placeholder}</span>
+            </Button>
+          )
         }
       />
       <ComboboxContent

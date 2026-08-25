@@ -154,13 +154,16 @@ describe('featureRequestsLogic', () => {
         expect(logic.values.evidenceRequestedOn).toBeNull()
     })
 
-    it('keeps the selected account name and external key while search results reload', () => {
-        logic.actions.loadAccountsSuccess([account])
+    it('keeps selected account options while search results reload', () => {
+        const filterAccount = { ...account, id: 'account-2', name: 'Globex', external_id: 'cust_globex_001' }
+        logic.actions.loadAccountsSuccess([account, filterAccount])
         logic.actions.setAccountId(account.id)
+        logic.actions.setAccountFilter([filterAccount.id])
         logic.actions.loadAccountsSuccess([])
 
         expect(logic.values.accountOptions).toEqual([
-            { key: account.id, label: `${account.name} (${account.external_id})` },
+            { key: filterAccount.id, label: filterAccount.name },
+            { key: account.id, label: account.name },
         ])
     })
 
@@ -238,6 +241,29 @@ describe('featureRequestsLogic', () => {
 
         expect(logic.values.featureRequestsResponse.results).toEqual([renamedRequest])
         expect(logic.values.productAreaFormOpen).toBe(false)
+    })
+
+    it('applies the created-by filter on the first change', async () => {
+        router.actions.push(urls.customerAnalyticsFeatureRequests())
+        await expectLogic(logic).toFinishAllListeners()
+        const listSpy = jest.spyOn(generatedApi, 'featureRequestsList').mockResolvedValue({
+            count: 1,
+            next: null,
+            previous: null,
+            results: [createdRequest],
+        })
+
+        logic.actions.setCreatedByFilter([1])
+        expect(logic.values.createdByFilter).toEqual([1])
+        expect(parseFeatureRequestSearchParams(router.values.searchParams).createdByFilter).toEqual([1])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.createdByFilter).toEqual([1])
+        expect(parseFeatureRequestSearchParams(router.values.searchParams).createdByFilter).toEqual([1])
+        expect(listSpy).toHaveBeenLastCalledWith(
+            String(MOCK_DEFAULT_TEAM.id),
+            expect.objectContaining({ created_by_ids: [1] })
+        )
     })
 
     it('loads the requested page with 20 requests per page', async () => {
@@ -471,9 +497,7 @@ describe('featureRequestsLogic', () => {
         logic.actions.setAddAccountId(otherAccount.id)
         logic.actions.setEvidenceSummary('Globex needs a weekly export.')
         logic.actions.setEvidenceSource('meeting')
-        expect(logic.values.addAccountOptions).toEqual([
-            { key: otherAccount.id, label: `${otherAccount.name} (${otherAccount.external_id})` },
-        ])
+        expect(logic.values.addAccountOptions).toEqual([{ key: otherAccount.id, label: otherAccount.name }])
 
         await expectLogic(logic, () => logic.actions.saveEvidence()).toFinishAllListeners()
 

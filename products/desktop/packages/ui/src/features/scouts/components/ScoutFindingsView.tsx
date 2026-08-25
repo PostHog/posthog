@@ -121,7 +121,7 @@ export function ScoutFindingsView() {
         <Text className="max-w-2xl text-pretty text-[12.5px] text-gray-11 leading-relaxed">
           Every signal your scouts have emitted recently, in one place — newest
           first. See what&apos;s been surfaced across the whole troop, which
-          scout found it, and the inbox report it fed into.
+          scout found it, and the Self-driving report it fed into.
         </Text>
         <Flex
           align="center"
@@ -150,7 +150,7 @@ export function ScoutFindingsView() {
         </Flex>
         <Text className="text-[12px] text-gray-9">
           Covers signals from the most recent {SCOUT_RUNS_WINDOW_SPAN} of troop
-          runs. Older signals live on in the inbox reports they produced.
+          runs. Older signals live on in the Self-driving reports they produced.
         </Text>
       </Flex>
 

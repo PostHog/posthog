@@ -11,41 +11,47 @@ import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import {
-    domainsPartialUpdate,
+    domainsDestroy,
     identityProviderConfigsCreate,
     identityProviderConfigsDestroy,
+    identityProviderConfigsList,
     identityProviderConfigsPartialUpdate,
-    identityProviderConfigsRetrieve,
     identityProviderConfigsScimTokenCreate,
 } from '~/generated/core/api'
-import { IdentityProviderConfigApi } from '~/generated/core/api.schemas'
+import { ConfigScopeEnumApi, IdentityProviderConfigApi } from '~/generated/core/api.schemas'
 import { AvailableFeature, OrganizationDomainType, PaginatedSCIMRequestLogs, UserType } from '~/types'
 
 /**
- * Resolve the `IdentityProviderConfig` id that backs a domain, creating and linking an empty
- * config first if the domain doesn't have one yet. The config is the sole read/write interface
- * for SAML/SCIM/ID-JAG settings, so all IdP-config CRUD targets it rather than the domain.
- * If linking fails, the freshly created config is deleted so we don't leave an orphan behind.
+ * Resolve the identity provider configuration for a domain, creating one through the
+ * configuration API when needed so the join table remains the only mapping source.
  */
+export function getIdentityProviderConfigForDomain(
+    configs: IdentityProviderConfigApi[],
+    domainId: string,
+    configScope: ConfigScopeEnumApi
+): IdentityProviderConfigApi | undefined {
+    const linkedConfigs = configs.filter((config) => config.organization_domain_ids?.includes(domainId))
+    return (
+        linkedConfigs.find((config) => config.config_scope === configScope) ??
+        linkedConfigs.find((config) => config.config_scope == null)
+    )
+}
+
 async function ensureIdpConfig(
     organizationId: string,
     domain: OrganizationDomainType,
-    replaceDomain: (domain: OrganizationDomainType) => void
+    configScope: ConfigScopeEnumApi
 ): Promise<IdentityProviderConfigApi> {
-    if (domain.identity_provider_config) {
-        return identityProviderConfigsRetrieve(organizationId, domain.identity_provider_config)
+    const configs = (await identityProviderConfigsList(organizationId)).results
+    const existingConfig = getIdentityProviderConfigForDomain(configs, domain.id, configScope)
+    if (existingConfig) {
+        return existingConfig
     }
-    const config = await identityProviderConfigsCreate(organizationId, { name: domain.domain })
-    try {
-        const linkedDomain = await domainsPartialUpdate(organizationId, domain.id, {
-            identity_provider_config: config.id,
-        })
-        replaceDomain(linkedDomain as OrganizationDomainType)
-    } catch (error) {
-        await identityProviderConfigsDestroy(organizationId, config.id).catch(() => undefined)
-        throw error
-    }
-    return config
+    return identityProviderConfigsCreate(organizationId, {
+        name: domain.domain,
+        config_scope: configScope,
+        organization_domain_ids: [domain.id],
+    })
 }
 
 /** Re-fetch a single domain and replace it in local state (e.g. after linking/updating its IdP config). */
@@ -129,6 +135,8 @@ export interface verifiedDomainsLogicValues {
         >,
         ValidationErrorType
     >
+    identityProviderConfigs: IdentityProviderConfigApi[]
+    identityProviderConfigsLoading: boolean
     isIdJagConfigSubmitting: boolean
     isIdJagConfigValid: boolean
     isSAMLAvailable: boolean
@@ -272,6 +280,21 @@ export interface verifiedDomainsLogicActions {
     }
     hideAddDomainModal: () => {
         value: true
+    }
+    loadIdentityProviderConfigs: () => any
+    loadIdentityProviderConfigsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadIdentityProviderConfigsSuccess: (
+        identityProviderConfigs: IdentityProviderConfigApi[],
+        payload?: any
+    ) => {
+        identityProviderConfigs: IdentityProviderConfigApi[]
+        payload?: any
     }
     loadScimConfig: (domainId: string) => string
     loadScimConfigFailure: (
@@ -771,6 +794,13 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
         ],
     }),
     loaders(({ values, actions }) => ({
+        identityProviderConfigs: [
+            [] as IdentityProviderConfigApi[],
+            {
+                loadIdentityProviderConfigs: async () =>
+                    (await identityProviderConfigsList(values.currentOrganizationId)).results,
+            },
+        ],
         verifiedDomains: [
             [] as OrganizationDomainType[],
             {
@@ -787,7 +817,15 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                     return [...values.verifiedDomains, response]
                 },
                 deleteVerifiedDomain: async (id: string) => {
-                    await api.delete(`api/organizations/${values.currentOrganizationId}/domains/${id}`)
+                    const configs = values.identityProviderConfigs.filter(
+                        (config) =>
+                            config.organization_domain_ids?.length === 1 && config.organization_domain_ids[0] === id
+                    )
+                    await domainsDestroy(values.currentOrganizationId, id)
+                    await Promise.all(
+                        configs.map((config) => identityProviderConfigsDestroy(values.currentOrganizationId, config.id))
+                    )
+                    actions.loadIdentityProviderConfigs()
                     return values.verifiedDomains.filter((domain) => domain.id !== id)
                 },
             },
@@ -832,7 +870,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                     const config = await ensureIdpConfig(
                         values.currentOrganizationId as string,
                         domain,
-                        actions.replaceDomain
+                        ConfigScopeEnumApi.Scim
                     )
                     return {
                         id: domainId,
@@ -846,11 +884,11 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                     if (!domain) {
                         return values.scimConfig
                     }
-                    const ensuredConfig = await ensureIdpConfig(orgId, domain, actions.replaceDomain)
+                    const ensuredConfig = await ensureIdpConfig(orgId, domain, ConfigScopeEnumApi.Scim)
                     const config = await identityProviderConfigsPartialUpdate(orgId, ensuredConfig.id, {
                         scim_enabled: true,
                     })
-                    // Refresh the domain so its SCIM base URL and identity_provider_config link are current.
+                    actions.loadIdentityProviderConfigs()
                     const refreshed = await refreshDomain(orgId, domainId, actions.replaceDomain)
                     lemonToast.success('SCIM enabled successfully!')
                     return {
@@ -866,10 +904,11 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                     if (!domain) {
                         return values.scimConfig
                     }
-                    const ensuredConfig = await ensureIdpConfig(orgId, domain, actions.replaceDomain)
+                    const ensuredConfig = await ensureIdpConfig(orgId, domain, ConfigScopeEnumApi.Scim)
                     const config = await identityProviderConfigsPartialUpdate(orgId, ensuredConfig.id, {
                         scim_enabled: false,
                     })
+                    actions.loadIdentityProviderConfigs()
                     const refreshed = await refreshDomain(orgId, domainId, actions.replaceDomain)
                     lemonToast.success('SCIM disabled successfully!')
                     return {
@@ -881,13 +920,17 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                 regenerateScimToken: async (domainId: string) => {
                     const orgId = values.currentOrganizationId as string
                     const domain = values.verifiedDomains.find(({ id }) => id === domainId)
-                    if (!domain?.identity_provider_config) {
+                    const config = domain
+                        ? getIdentityProviderConfigForDomain(
+                              values.identityProviderConfigs,
+                              domain.id,
+                              ConfigScopeEnumApi.Scim
+                          )
+                        : undefined
+                    if (!domain || !config) {
                         return values.scimConfig
                     }
-                    const response = await identityProviderConfigsScimTokenCreate(
-                        orgId,
-                        domain.identity_provider_config
-                    )
+                    const response = await identityProviderConfigsScimTokenCreate(orgId, config.id)
                     lemonToast.success('SCIM token regenerated successfully!')
                     return {
                         id: domainId,
@@ -939,7 +982,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                 const config = await ensureIdpConfig(
                     values.currentOrganizationId as string,
                     domain,
-                    actions.replaceDomain
+                    ConfigScopeEnumApi.Saml
                 )
                 actions.setSamlConfigValues({
                     id,
@@ -963,7 +1006,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                 const config = await ensureIdpConfig(
                     values.currentOrganizationId as string,
                     domain,
-                    actions.replaceDomain
+                    ConfigScopeEnumApi.Xaa
                 )
                 actions.setIdJagConfigValues({
                     id,
@@ -1047,7 +1090,10 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                 hasAvailableFeature(AvailableFeature.XAA_AUTHENTICATION),
         ],
     }),
-    afterMount(({ actions }) => actions.loadVerifiedDomains()),
+    afterMount(({ actions }) => {
+        actions.loadIdentityProviderConfigs()
+        actions.loadVerifiedDomains()
+    }),
     bindModalToUrl({
         urlKey: 'add-domain',
         openActionKey: 'showAddDomainModal',
@@ -1073,12 +1119,13 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                 if (!domain) {
                     return
                 }
-                const config = await ensureIdpConfig(orgId, domain, actions.replaceDomain)
+                const config = await ensureIdpConfig(orgId, domain, ConfigScopeEnumApi.Saml)
                 await identityProviderConfigsPartialUpdate(orgId, config.id, {
                     saml_acs_url,
                     saml_entity_id,
                     saml_x509_cert,
                 })
+                actions.loadIdentityProviderConfigs()
                 breakpoint()
                 const refreshed = await refreshDomain(orgId, id, actions.replaceDomain)
                 actions.setConfigureSAMLModalId(null)
@@ -1108,12 +1155,13 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                 if (!domain) {
                     return
                 }
-                const config = await ensureIdpConfig(orgId, domain, actions.replaceDomain)
+                const config = await ensureIdpConfig(orgId, domain, ConfigScopeEnumApi.Xaa)
                 await identityProviderConfigsPartialUpdate(orgId, config.id, {
                     id_jag_issuer_url: id_jag_issuer_url?.trim() || null,
                     id_jag_jwks_url: id_jag_jwks_url?.trim() || null,
                     id_jag_allowed_clients: id_jag_allowed_clients ?? [],
                 })
+                actions.loadIdentityProviderConfigs()
                 breakpoint()
                 const refreshed = await refreshDomain(orgId, id, actions.replaceDomain)
                 actions.setConfigureIdJagModalId(null)

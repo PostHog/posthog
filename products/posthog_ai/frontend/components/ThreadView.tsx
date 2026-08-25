@@ -7,6 +7,7 @@ import { runStreamLogic } from '../logics/runStreamLogic'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
 import type { ThreadItem } from '../types/streamTypes'
 import { getRandomThinkingMessage } from '../utils/thinkingMessages'
+import { type TurnTrailer, computeTurnTrailers } from '../utils/turnTrailers'
 import { ContextUsageBar } from './ContextUsageBar'
 import { PullRequestCard } from './PullRequestCard'
 import { RunAlertActivity } from './RunAlertActivity'
@@ -56,6 +57,8 @@ interface ThreadViewProps {
      * non-scout runs.
      */
     showContextUsage?: boolean
+    /** Renders per-turn UI (e.g. feedback actions) at each completed turn's end. */
+    renderTurnTrailer?: (trailer: TurnTrailer) => JSX.Element | null
     className?: string
     listClassName?: string
     rowClassName?: string
@@ -75,6 +78,7 @@ interface ThreadViewProps {
 export function ThreadView({
     virtualized = true,
     showContextUsage = false,
+    renderTurnTrailer,
     className,
     listClassName,
     rowClassName,
@@ -98,6 +102,11 @@ export function ThreadView({
     const anchorItemKey = useMemo(
         () => threadItems.findLast((item) => item.type === 'human_message')?.id ?? null,
         [threadItems]
+    )
+    // Only computed when a trailer renderer is supplied — bare ThreadViews pay nothing.
+    const turnTrailers = useMemo(
+        () => (renderTurnTrailer ? computeTurnTrailers(threadItems) : null),
+        [threadItems, renderTurnTrailer]
     )
     const hasActiveProgressItem = threadItems.some(
         (item) => item.type === 'progress' && item.progressSteps?.some((step) => step.status === 'in_progress')
@@ -158,19 +167,38 @@ export function ThreadView({
     )
 
     const renderItem = useCallback(
-        (item: ThreadItem, index: number): JSX.Element => (
-            <VirtualizedThread.Row className={rowClassName}>
-                <ThreadRow
-                    item={item}
-                    isLast={index === threadItems.length - 1}
-                    isThinking={isThinking}
-                    toolInvocations={toolInvocations}
-                    turnComplete={turnComplete}
-                    turnCancelled={turnCancelled}
-                />
-            </VirtualizedThread.Row>
-        ),
-        [threadItems.length, isThinking, toolInvocations, turnComplete, turnCancelled, rowClassName]
+        (item: ThreadItem, index: number): JSX.Element => {
+            if (item.type === 'turn_separator' && renderTurnTrailer) {
+                const trailer = turnTrailers?.get(item.id)
+                return (
+                    <VirtualizedThread.Row className={rowClassName}>
+                        {trailer ? renderTurnTrailer(trailer) : null}
+                    </VirtualizedThread.Row>
+                )
+            }
+            return (
+                <VirtualizedThread.Row className={rowClassName}>
+                    <ThreadRow
+                        item={item}
+                        isLast={index === threadItems.length - 1}
+                        isThinking={isThinking}
+                        toolInvocations={toolInvocations}
+                        turnComplete={turnComplete}
+                        turnCancelled={turnCancelled}
+                    />
+                </VirtualizedThread.Row>
+            )
+        },
+        [
+            threadItems.length,
+            isThinking,
+            toolInvocations,
+            turnComplete,
+            turnCancelled,
+            rowClassName,
+            renderTurnTrailer,
+            turnTrailers,
+        ]
     )
 
     return (

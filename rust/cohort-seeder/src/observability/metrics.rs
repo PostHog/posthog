@@ -22,6 +22,11 @@ pub const CHUNKS_CONFIRMED: &str = "seeder_chunks_confirmed_total";
 pub const CHUNKS_VACUOUS: &str = "seeder_chunks_vacuous_total";
 pub const CHUNKS_FAILED: &str = "seeder_chunks_failed_total";
 pub const CHUNKS_POISONED: &str = "seeder_chunks_poisoned_total";
+/// Runs terminally failed because ≥1 chunk exhausted its retry budget, labelled by `kind`.
+/// Such a run would otherwise park in `seeding` forever and hold its cohort's uniqueness slot,
+/// blocking every future run for that cohort. The paired `warn!` carries the chunk and its error,
+/// which is what an operator reads once this counter points them at a run.
+pub const RUNS_FAILED_EXHAUSTED_CHUNKS: &str = "seeder_runs_failed_exhausted_chunks_total";
 pub const CHUNK_SCAN_DURATION_SECONDS: &str = "seeder_chunk_scan_duration_seconds";
 pub const ROWS_SCANNED: &str = "seeder_rows_scanned_total";
 pub const EVENTS_SKIPPED: &str = "seeder_events_skipped_total";

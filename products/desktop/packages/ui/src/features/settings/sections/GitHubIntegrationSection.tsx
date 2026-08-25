@@ -145,7 +145,7 @@ export function GitHubIntegrationSection({
         ? describeGithubConnectError(connectError)
         : timedOut
           ? GITHUB_CONNECT_TIMEOUT_MESSAGE
-          : "Required for the Inbox pipeline to work"}
+          : "Required for Self-driving to work"}
     </Text>
   );
 

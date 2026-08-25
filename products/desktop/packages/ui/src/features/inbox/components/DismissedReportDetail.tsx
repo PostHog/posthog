@@ -110,7 +110,7 @@ function RestoreReportButton({ report }: { report: SignalReport }) {
       size="sm"
       disabled={restore.isPending}
       className="gap-1"
-      title="Restore this report to the inbox"
+      title="Restore this report to Self-driving"
       onClick={() =>
         restore.mutate(report.id, {
           onSuccess: () => navigate({ to: "/inbox/dismissed" }),

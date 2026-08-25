@@ -12,7 +12,7 @@ specific error when something does not check out; fix and retry once, then drop 
   "observation": "<what happened, 1-3 sentences, 80-500 chars>",
   "evidence": [
     {
-      "quote": "<verbatim span copied from your jq query output, 20-300 chars>",
+      "quote": "<verbatim span copied from your jq query output, 10-300 chars>",
       "evidence_type": "transcript_quote | command_output | measured_count"
     }
   ],
@@ -54,9 +54,14 @@ specific error when something does not check out; fix and retry once, then drop 
   - `tokens` — sum completed turns wholly inside the wasted span. Pi records `totalTokens` on
     `turn_completed`; ACP may record it in `_posthog/turn_complete`. Omit tokens for a partial
     turn or a completion without usage.
+  - `output_bytes` — sum of tool-output sizes across the span (the output-bytes recipe). Works in
+    both formats even when the log has no token records.
     If a dimension cannot be measured from the log or its measured value is zero, leave it out —
     do not estimate.
-- `recurrence` anchors: `every_run_in_this_repo` — structural, any agent in this repo hits it;
+    When the same pattern occurs in separate, non-contiguous spans, measure each span on its own and
+    report the sum — never bracket from the first occurrence to the last, because that counts the
+    unrelated work in between as waste.
+- `recurrence` anchors: `every_run_in_this_repo` — structural to the repo or its sandbox image, any agent there hits it;
   `runs_touching_this_area` — conditional on the task area; `one_off` — specific to this run.
 - `confidence_basis`: `directly_observed` — visible in the transcript; `inferred` — plausible but
   not directly evidenced. Never report a numeric confidence.

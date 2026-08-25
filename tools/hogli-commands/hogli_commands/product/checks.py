@@ -815,10 +815,10 @@ class IsolationChainCheck(ProductCheck):
         if has_narrowed and status.uncovered_model_surface:
             surface_globs = ", ".join(location_input_glob(p) for p in status.uncovered_model_surface)
             result.issues.append(
-                "turbo.json narrows contract-check inputs but omits the watched-models surface "
-                f"{', '.join(status.uncovered_model_surface)} — the facade hands out model classes under the "
-                f"watched-models allowance, so a change there would skip the Django suite. Add the matching "
-                f"input(s) ({surface_globs})"
+                "turbo.json narrows contract-check inputs but omits the model surface "
+                f"{', '.join(status.uncovered_model_surface)} — a model is reachable without an import "
+                "(apps.get_model, migrations, admin), so a model or migration change must re-run the Django "
+                f"suite. Add the matching input(s) ({surface_globs})"
             )
 
         # Earned but not turned on: a fully sealed, eligible product that already carries
@@ -843,8 +843,9 @@ class IsolationChainCheck(ProductCheck):
                 "'backend:contract-check', but turbo.json does not narrow contract-check inputs to "
                 "facade/presentation — the skip is inert (every change still re-runs the full Django "
                 'suite). Add a turbo.json narrowing inputs to ["backend/facade/**", '
-                '"backend/presentation/**"] plus any wiring locations the product has '
-                "(backend/tasks/**, backend/temporal/**, …) to turn the skip on"
+                '"backend/presentation/**"] plus the model surface (backend/models.py or '
+                "backend/models/**, and backend/migrations/**) and any wiring locations the "
+                "product has (backend/tasks/**, backend/temporal/**, …) to turn the skip on"
             )
         # When needs_turn_on is suppressed purely because of a facade violation (the other four
         # conjuncts hold), the facade_violations warning above already explains what blocks narrowing,

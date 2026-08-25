@@ -3,9 +3,9 @@ import { useServiceOptional } from "@posthog/di/react";
 import { Switch } from "@posthog/quill";
 import type { Adapter } from "@posthog/shared";
 import { isSupportedReasoningEffort } from "@posthog/shared";
-import { RepositoriesField } from "@posthog/ui/features/canvas/components/RepositoriesField";
 import { SpaceSelect } from "@posthog/ui/features/canvas/components/SpaceSelect";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
+import { RepositoriesField } from "@posthog/ui/features/integrations/components/RepositoriesField";
 import {
   QUICK_ASK_SETTINGS_CLIENT,
   type QuickAskSettingsClient,
@@ -34,7 +34,6 @@ function AgentDefaults({
   const { modelOption, thoughtOption, isLoading, setConfigOption } =
     usePreviewConfig(adapter);
 
-  // Reflect the persisted defaults into the fetched options once per load.
   const seeded = useRef(false);
   useEffect(() => {
     if (seeded.current || isLoading) return;
@@ -153,7 +152,6 @@ export function QuickAskSettings() {
   const personal = channels.find(
     (channel) => channel.channelType === "personal",
   );
-  // The stored empty id means the personal space (the backend's default).
   const selectedSpaceId = state.defaultChannelId || (personal?.id ?? "");
   const selectedSpace = channels.find(
     (channel) => channel.id === selectedSpaceId,

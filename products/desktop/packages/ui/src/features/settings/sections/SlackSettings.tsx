@@ -71,12 +71,12 @@ export function SlackSettings() {
 
       {hasSlackIntegration ? (
         <SettingsSection
-          label="Inbox notifications"
+          label="Self-driving notifications"
           description={
             <>
-              New inbox reports are posted to Slack with the suggested reviewers
-              @mentioned. PostHog must be in the channel, so invite it with{" "}
-              <code className="text-[12px]">/invite @PostHog</code>.
+              New Self-driving reports are posted to Slack with the suggested
+              reviewers @mentioned. PostHog must be in the channel, so invite it
+              with <code className="text-[12px]">/invite @PostHog</code>.
             </>
           }
         >

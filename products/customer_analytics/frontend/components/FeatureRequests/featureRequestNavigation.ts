@@ -33,3 +33,7 @@ function isInternalOrigin(origin: unknown): origin is string {
 export function getFeatureRequestBackUrl(origin: unknown, listSearchParams: Record<string, string>): string {
     return isInternalOrigin(origin) ? origin : combineUrl(urls.customerAnalyticsFeatureRequests(), listSearchParams).url
 }
+
+export function getFeatureRequestBackLabel(origin: unknown): string | null {
+    return isInternalOrigin(origin) ? null : 'Feature requests'
+}

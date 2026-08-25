@@ -313,6 +313,39 @@ impl RedisClient {
     }
 }
 
+/// Run a Lua script and decode its integer-array reply. Behind a trait so callers
+/// can be unit-tested against an in-memory fake, including a failing one that
+/// proves a limiter fails open.
+#[async_trait]
+pub trait ScriptRunner: Send + Sync {
+    async fn eval_int_vec(
+        &self,
+        script: &str,
+        keys: Vec<String>,
+        args: Vec<String>,
+    ) -> Result<Vec<i64>, CustomRedisError>;
+
+    /// Rebuild the underlying connection after a connection-class failure; see
+    /// [`Client::heal`]. The default no-op keeps test fakes trivial.
+    async fn heal(&self) {}
+}
+
+#[async_trait]
+impl ScriptRunner for RedisClient {
+    async fn eval_int_vec(
+        &self,
+        script: &str,
+        keys: Vec<String>,
+        args: Vec<String>,
+    ) -> Result<Vec<i64>, CustomRedisError> {
+        RedisClient::eval_int_vec(self, script, keys, args).await
+    }
+
+    async fn heal(&self) {
+        self.heal_connection().await;
+    }
+}
+
 #[async_trait]
 impl Client for RedisClient {
     async fn heal(&self) {
@@ -1292,7 +1325,7 @@ mod integration_tests {
         }
         assert!(ready, "redis container never came back");
 
-        healed_client.heal().await;
+        Client::heal(&healed_client).await;
         assert!(healed_client
             .set("k".to_string(), "v".to_string())
             .await

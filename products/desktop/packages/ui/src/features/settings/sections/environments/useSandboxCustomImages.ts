@@ -39,6 +39,8 @@ export function useSandboxCustomImages() {
     data: images,
     isLoading,
     error,
+    isError,
+    refetch,
   } = useAuthenticatedQuery(
     sandboxCustomImageKeys.list,
     (client) => client.listSandboxCustomImages(),
@@ -177,6 +179,8 @@ export function useSandboxCustomImages() {
   return {
     images: images ?? [],
     isLoading,
+    isError,
+    refetch,
     customImagesEnabled,
     customImagesDisabled,
     createMutation,

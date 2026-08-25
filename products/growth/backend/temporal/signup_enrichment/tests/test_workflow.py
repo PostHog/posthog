@@ -6,7 +6,9 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from products.growth.backend.enrichment.core import EnrichmentOutcome
 from products.growth.backend.enrichment.fields import EnrichmentFields
+from products.growth.backend.enrichment.fit_score import IcpFitResult
 from products.growth.backend.temporal.signup_enrichment.workflow import (
     SignupEnrichmentInputs,
     SignupEnrichmentWorkflow,
@@ -54,7 +56,9 @@ async def _run(enrich_side_effect) -> tuple[dict, MagicMock, AsyncMock, MagicMoc
 
 async def test_miss_then_recheck_upgrades_without_a_second_completed_event():
     fields = EnrichmentFields(company_type="STARTUP", headcount=130, industry="Fintech")
-    result, pha_client, enrich, snapshot = await _run([None, fields])
+    miss = EnrichmentOutcome(provider_fields=None, fit=IcpFitResult(status="not_found"))
+    match = EnrichmentOutcome(provider_fields=fields, fit=IcpFitResult(status="scored", score=61))
+    result, pha_client, enrich, snapshot = await _run([miss, match])
 
     assert result == {"matched": True, "fields_filled": 3}
     assert enrich.await_count == 2
@@ -70,18 +74,21 @@ async def test_miss_then_recheck_upgrades_without_a_second_completed_event():
         "upgraded": True,
         "fields_filled": 3,
         "organization_id": "org-1",
+        "icp_fit_status": "scored",
     }
     # The launch signal fires exactly once — on the first attempt, unchanged.
     completed = _events(pha_client, "signup_enrichment_completed")
     assert len(completed) == 1
     assert completed[0].kwargs["properties"]["matched"] is False
+    assert completed[0].kwargs["properties"]["icp_fit_status"] == "not_found"
 
 
 async def test_match_on_first_attempt_still_runs_the_recheck():
     """The recheck now runs for every org, matched or not — it also re-scores against Clay's
     bridge columns, which may not have landed yet at the first attempt."""
     fields = EnrichmentFields(company_type="STARTUP", headcount=130)
-    result, pha_client, enrich, snapshot = await _run([fields, fields])
+    match = EnrichmentOutcome(provider_fields=fields, fit=IcpFitResult(status="scored", score=61))
+    result, pha_client, enrich, snapshot = await _run([match, match])
 
     assert result == {"matched": True, "fields_filled": 2}
     assert enrich.await_count == 2

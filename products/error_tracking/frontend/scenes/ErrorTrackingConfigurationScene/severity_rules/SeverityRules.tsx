@@ -1,10 +1,9 @@
-import { LemonTag } from '@posthog/lemon-ui'
-
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 
+import { IssueSeverityTag } from '../../../components/IssueSeverityTag'
 import { RuleList } from '../rules/RuleList'
 import { ErrorTrackingRuleType, ErrorTrackingSeverityRule } from '../rules/types'
-import { SeverityRuleModal, severityLabel, severityTagType } from './SeverityRuleModal'
+import { SeverityRuleModal } from './SeverityRuleModal'
 import { severityRuleModalLogic } from './severityRuleModalLogic'
 
 export function SeverityRules(): JSX.Element {
@@ -25,7 +24,7 @@ export function SeverityRules(): JSX.Element {
             renderCardHeaderExtra={(rule: ErrorTrackingSeverityRule) => (
                 <>
                     <span className="text-muted">·</span>
-                    <LemonTag type={severityTagType(rule.severity)}>{severityLabel(rule.severity)}</LemonTag>
+                    <IssueSeverityTag severity={rule.severity} />
                 </>
             )}
         />

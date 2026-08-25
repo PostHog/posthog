@@ -2588,6 +2588,8 @@ class ExternalDataSourceType(StrEnum):
     GROWI = "Growi"
     CLARIFY = "Clarify"
     DATO_CMS = "DatoCMS"
+    WPS_OFFICE = "WPSOffice"
+    TERA_BOX = "TeraBox"
 
 
 class ExternalQueryErrorCode(StrEnum):

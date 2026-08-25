@@ -15,6 +15,7 @@ import {
     PROJECT_SECRET_API_KEY_SCOPE_PRESETS,
     ProjectSecretAPIKeyAllowedScope,
     ProjectSecretAPIKeyScopePreset,
+    scopeMatchesSearch,
 } from 'lib/scopes'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
@@ -374,11 +375,7 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
                     label: PROJECT_SECRET_SCOPE_OBJECT_NAMES[key] ?? capitalizeFirstLetter(key.replace(/_/g, ' ')),
                     disabledActions: allActions.filter((a) => !allowed.has(a)),
                 }))
-                if (!searchTerm.trim()) {
-                    return scopes
-                }
-                const lowerSearch = searchTerm.toLowerCase()
-                return scopes.filter(({ label }) => label.toLowerCase().includes(lowerSearch))
+                return scopes.filter((scope) => scopeMatchesSearch(scope, searchTerm))
             },
         ],
         availablePresets: [

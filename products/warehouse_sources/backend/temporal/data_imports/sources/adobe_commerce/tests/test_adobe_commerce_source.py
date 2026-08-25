@@ -109,6 +109,17 @@ class TestAdobeCommerceSource:
     def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
         assert not any(key in unrelated_error for key in self.source.get_non_retryable_errors())
 
+    @parameterized.expand(
+        [
+            ("server_error", "Adobe Commerce admin token request failed (retryable): status=500"),
+            ("rate_limited", "Adobe Commerce admin token request failed (retryable): status=429"),
+        ]
+    )
+    def test_retryable_errors_match_admin_token_failures(self, _name: str, observed_error: str) -> None:
+        # The admin token exchange only raises this once its own transport-level retries for
+        # 429/5xx are exhausted, so it's self-recovering — it must stay out of error tracking.
+        assert any(key in observed_error for key in self.source.get_retryable_errors())
+
     @mock.patch(f"{_MODULE}.adobe_commerce_source")
     def test_source_for_pipeline_plumbs_incremental_inputs(self, mock_source: mock.MagicMock) -> None:
         inputs = mock.MagicMock()

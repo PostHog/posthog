@@ -519,8 +519,16 @@ export class CommonTeamStage<
         return new CommonBuildStage(this.config, this.beforeBatchCallback, this.completeTransform(), callback)
     }
 
-    build(): BatchingPipeline<TInput, TCurrent, TContext, CBatch, BatchContext<TContext>, ROut> {
-        return new CommonBuildStage(this.config, this.beforeBatchCallback, this.completeTransform()).build()
+    build<CFeed extends object = Record<never, never>>(): BatchingPipeline<
+        TInput,
+        TCurrent,
+        TContext,
+        CBatch,
+        BatchContext<TContext>,
+        ROut,
+        CFeed
+    > {
+        return new CommonBuildStage(this.config, this.beforeBatchCallback, this.completeTransform()).build<CFeed>()
     }
 
     private completeTransform(): SubpipelineTransform<TInput, TContext, CBatch, TCurrent, ROut> {
@@ -612,7 +620,15 @@ export class CommonBuildStage<
         private readonly afterBatchCallback?: AfterBatchCallback<TFinal, TContext, CBatch, ROut>
     ) {}
 
-    build(): BatchingPipeline<TInput, TFinal, TContext, CBatch, BatchContext<TContext>, ROut> {
+    build<CFeed extends object = Record<never, never>>(): BatchingPipeline<
+        TInput,
+        TFinal,
+        TContext,
+        CBatch,
+        BatchContext<TContext>,
+        ROut,
+        CFeed
+    > {
         const { outputs, promiseScheduler, concurrentBatches, awaitSideEffects } = this.config
         const pipelineConfig: PipelineConfig<ROut> = { outputs, promiseScheduler }
         const sideEffectOptions = { await: awaitSideEffects ?? false }
@@ -625,7 +641,7 @@ export class CommonBuildStage<
 
         // The hooks handle their own side effects, so nothing rides out on
         // `BatchResult.sideEffects` and drivers only ever drain results.
-        return newBatchingPipeline<TInput, TFinal, TContext, CBatch, TContext, ROut, KafkaDebugContext>(
+        return newBatchingPipeline<TInput, TFinal, TContext, CBatch, TContext, ROut, KafkaDebugContext, CFeed>(
             (builder) => this.beforeBatchCallback(builder).handleSideEffects(promiseScheduler, sideEffectOptions),
             (batch) =>
                 batch

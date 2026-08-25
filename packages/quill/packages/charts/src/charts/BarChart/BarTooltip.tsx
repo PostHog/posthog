@@ -36,6 +36,7 @@ export function BarTooltip<Meta>({
     tooltipConfig,
 }: BarTooltipProps<Meta>): React.ReactElement | null {
     const { scales, labels } = useChartLayout()
+    const { hitArea = 'bar', ...defaultTooltipConfig } = tooltipConfig ?? {}
     const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
     if (d3Scales && ctx.hoverPosition && ctx.dataIndex >= 0) {
         const narrowed = narrowSeriesByCursor(
@@ -46,14 +47,15 @@ export function BarTooltip<Meta>({
             stackedData,
             topStackedKeyByAxis,
             labels,
-            allSeries
+            allSeries,
+            hitArea
         )
         if (!narrowed) {
             return null
         }
-        return <>{userTooltip ? userTooltip(narrowed) : <DefaultTooltip {...narrowed} {...tooltipConfig} />}</>
+        return <>{userTooltip ? userTooltip(narrowed) : <DefaultTooltip {...narrowed} {...defaultTooltipConfig} />}</>
     }
-    return <>{userTooltip ? userTooltip(ctx) : <DefaultTooltip {...ctx} {...tooltipConfig} />}</>
+    return <>{userTooltip ? userTooltip(ctx) : <DefaultTooltip {...ctx} {...defaultTooltipConfig} />}</>
 }
 
 /** Filters seriesData to only the segments hit by the cursor, and (for sparse-stacked overlap)
@@ -66,7 +68,8 @@ function narrowSeriesByCursor<Meta>(
     stackedData: Map<string, StackedBand> | undefined,
     topStackedKeyByAxis: Map<string, string>,
     labels: string[],
-    allSeries: Series<Meta>[]
+    allSeries: Series<Meta>[],
+    hitArea: 'bar' | 'band'
 ): TooltipContext<Meta> | null {
     const cursor = ctx.hoverPosition
     if (!cursor) {
@@ -101,13 +104,13 @@ function narrowSeriesByCursor<Meta>(
             stackedData,
             topStackedKeyByAxis,
         })
-        // No filled segment under the cursor — it's in the empty track past the bar's value
-        // extent (e.g. right of the longest horizontal bar). Suppress rather than show a tooltip.
-        if (!visible) {
+        // Nothing filled under the cursor, so it sits in the empty track past the bar's value
+        // extent, such as right of the longest horizontal bar.
+        if (!visible && hitArea === 'bar') {
             return null
         }
-        visibleKey = visible.series.key
-        visibleDataIndex = visible.dataIndex
+        visibleKey = visible?.series.key ?? null
+        visibleDataIndex = visible?.dataIndex ?? null
     }
     // Surface the hovered identity so consumer tooltips can single out the segment/bar the
     // cursor is actually over — stacked keeps every segment in seriesData, so index 0 is not it.

@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   isLoading: false,
   channelMissing: false,
   pathname: "/spaces/channel-1",
+  channelReportsFlag: false,
   open: vi.fn(),
 }));
 
@@ -22,7 +23,14 @@ vi.mock("@posthog/ui/features/canvas/hooks/useChannelItems", () => ({
   }),
 }));
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
-  useFeatureFlag: () => false,
+  useFeatureFlag: (flag: string) =>
+    flag === "posthog-desktop-channel-reports"
+      ? mocks.channelReportsFlag
+      : false,
+}));
+// Reaches for a QueryClient and auth this suite has no stack for.
+vi.mock("@posthog/ui/features/inbox/hooks/useOpenInboxReport", () => ({
+  useOpenInboxReport: () => vi.fn(),
 }));
 vi.mock("@tanstack/react-router", () => ({
   useNavigate: () => vi.fn(),
@@ -114,6 +122,7 @@ describe("ChannelSidebar", () => {
     mocks.isLoading = false;
     mocks.channelMissing = false;
     mocks.pathname = "/spaces/channel-1";
+    mocks.channelReportsFlag = false;
   });
 
   it.each([

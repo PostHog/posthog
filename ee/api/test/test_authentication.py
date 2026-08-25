@@ -25,6 +25,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee.api.authentication import CustomGoogleOAuth2, MultitenantSAMLAuth
@@ -495,7 +496,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
             organization=cls.organization,
             jit_provisioning_enabled=True,
         )
-        cls.organization_domain.identity_provider_config = IdentityProviderConfig.objects.create(
+        config = IdentityProviderConfig.objects.create(
             organization=cls.organization,
             saml_entity_id="http://www.okta.com/exk1ijlhixJxpyEBZ5d7",
             saml_acs_url="https://idp.hogflix.io/saml",
@@ -517,7 +518,9 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
     dcKmj4EG6bfcI3KY6wK46JoogXZdHDaFP+WOJNj/pJ165hYsYLcqkJktj/rEgGQmqAXWPOXHmFJb
     5FPleoJTchctnzUw+QfmSsLWQ838/lUQsN7FsQ==""",
         )
-        cls.organization_domain.save()
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=cls.organization_domain, identity_provider_config=config
+        )
 
     def _assert_saml_login_social_failure_redirect(self, response, error_detail_substring: str) -> None:
         """SocialAuthExceptionMiddleware catches AuthFailed and redirects instead of propagating."""
@@ -587,15 +590,15 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
     def test_saml_config_can_back_multiple_verified_domains(self):
         self._grant_saml()
 
-        config = self.organization_domain.identity_provider_config
+        config = self.organization_domain.saml_identity_provider_configs.first()
         assert config is not None
         config.refresh_from_db()
-        OrganizationDomain.objects.create(
+        second_domain = OrganizationDomain.objects.create(
             domain="posthog.co.uk",
             verified_at=timezone.now(),
             organization=self.organization,
-            identity_provider_config=config,
         )
+        LinkedIdentityProviderConfig.objects.create(organization_domain=second_domain, identity_provider_config=config)
 
         auth = object.__new__(MultitenantSAMLAuth)
         idp = auth.get_idp(config.saml_relay_state)
@@ -604,7 +607,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
     def test_relay_state_minted_before_the_move_to_configs_still_resolves(self):
         self._grant_saml()
-        config = self.organization_domain.identity_provider_config
+        config = self.organization_domain.saml_identity_provider_configs.first()
         assert config is not None
         config.saml_relay_state = str(self.organization_domain.id)
         config.save(update_fields=["saml_relay_state"])
@@ -619,15 +622,15 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         # the config backs. Checking the email against a single one of them locks out everyone on the
         # others.
         self._grant_saml()
-        config = self.organization_domain.identity_provider_config
+        config = self.organization_domain.saml_identity_provider_configs.first()
         assert config is not None
         config.refresh_from_db()
-        OrganizationDomain.objects.create(
+        second_domain = OrganizationDomain.objects.create(
             domain="posthog.co.uk",
             verified_at=timezone.now(),
             organization=self.organization,
-            identity_provider_config=config,
         )
+        LinkedIdentityProviderConfig.objects.create(organization_domain=second_domain, identity_provider_config=config)
 
         auth = object.__new__(MultitenantSAMLAuth)
         details = auth.get_user_details(
@@ -656,7 +659,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         )
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
 
-        config = self.organization_domain.identity_provider_config
+        config = self.organization_domain.saml_identity_provider_configs.first()
         assert config is not None
         config.refresh_from_db()
         relay_state = json.loads(parse_qs(urlparse(response.headers["Location"]).query)["RelayState"][0])
@@ -903,7 +906,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
 
     @freeze_time("2021-08-25T22:09:14.252Z")
     def test_cannot_login_with_improperly_signed_payload(self):
-        config = self.organization_domain.identity_provider_config
+        config = self.organization_domain.saml_identity_provider_configs.first()
         assert config is not None
         config.saml_x509_cert = """MIIDPjCCAiYCCQC864/0fftWQTANBgkqhkiG9w0BAQsFADBhMQswCQYDVQQGEwJV
 UzELMAkGA1UECAwCVVMxCzAJBgNVBAcMAlVTMQswCQYDVQQKDAJVUzELMAkGA1UE
@@ -1188,7 +1191,7 @@ YotAcSbU3p5bzd11wpyebYHB"""
             organization=other_org,
             jit_provisioning_enabled=True,
         )
-        my_config = self.organization_domain.identity_provider_config
+        my_config = self.organization_domain.saml_identity_provider_configs.first()
         assert my_config is not None
         other_config = IdentityProviderConfig.objects.create(
             organization=other_org,
@@ -1196,8 +1199,9 @@ YotAcSbU3p5bzd11wpyebYHB"""
             saml_acs_url=my_config.saml_acs_url,
             saml_x509_cert=my_config.saml_x509_cert,
         )
-        other_domain.identity_provider_config = other_config
-        other_domain.save()
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=other_domain, identity_provider_config=other_config
+        )
 
         response = self.client.get("/login/saml/?email=engineering@posthog.com")
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
@@ -1427,7 +1431,7 @@ class TestSSOEnforcement(APILicensedTest):
             verified_at=timezone.now(),
             sso_enforcement="google-oauth2",
         )
-        org_domain_saml.identity_provider_config = IdentityProviderConfig.objects.create(
+        config = IdentityProviderConfig.objects.create(
             organization=self.organization,
             saml_entity_id="http://www.okta.com/exk1ijlhixJxpyEBZ5d7",
             saml_acs_url="https://my.posthog.app/complete/saml/",
@@ -1449,7 +1453,9 @@ jSjV4Oxsv3ogajnnGYGv22iBgS1qccK/cg41YkpgfP36HbiwA10xjUMv5zs97Ljep4ejp6yoKrGL
 dcKmj4EG6bfcI3KY6wK46JoogXZdHDaFP+WOJNj/pJ165hYsYLcqkJktj/rEgGQmqAXWPOXHmFJb
 5FPleoJTchctnzUw+QfmSsLWQ838/lUQsN7FsQ==""",
         )
-        org_domain_saml.save()
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=org_domain_saml, identity_provider_config=config
+        )
 
         # Set the SAML state in session (required for SAML authentication)
         _session = self.client.session

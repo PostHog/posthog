@@ -25,7 +25,7 @@ class SCIMProvisionedUserManager(models.Manager["SCIMProvisionedUser"]):
             models.Q(identity_provider_config=config)
             | models.Q(
                 identity_provider_config__isnull=True,
-                organization_domain__identity_provider_config=config,
+                organization_domain__in=config.organization_domains,
             )
         )
 

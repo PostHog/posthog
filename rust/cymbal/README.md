@@ -9,7 +9,66 @@ pipeline, the `cymbal.resolution.v1` gRPC symbol-resolution service
 (`CYMBAL_MODE=resolution`), or the Kafka notification consumer
 (`CYMBAL_MODE=notifications`). The notification consumer starts the matching
 Temporal lifecycle workflow for every issue-created, issue-reopened, or
-issue-spiking notification.
+issue-spiking notification. Issue-created is capped per team per hour (see
+[Issue-created rate limit](#issue-created-rate-limit-notifications-mode)).
+
+## Issue-created rate limit (notifications mode)
+
+Notifications mode caps issue-created workflow starts per team. One Redis token
+bucket per team, so a team that exhausts it gets no issue-created workflow, and
+therefore no embedding and no alert for new issues, until the bucket refills.
+
+The setting is both the bucket size and the hourly refill. A team that sits idle,
+spends the full bucket, then waits out the refill, gets up to twice the setting
+inside one rolling hour. The sustained rate is the setting. Size Temporal worker
+and embedding capacity against the peak rather than the sustained rate.
+
+Only issue-created is charged. It is the one notification type with no ceiling of
+its own, because a high-cardinality fingerprint mints issues as fast as a team
+sends events. Reopens need somebody to have resolved the issue first, and spikes
+already carry a per-issue Redis cooldown. Issue-created is also the only type
+that runs an embedding. A throttled team therefore keeps its reopen and spike
+alerts.
+
+The gate sits in the consumer rather than in processing mode, because the
+consumer is what starts the workflows. The Kafka payload carries no decision, so
+a replayed notification is judged the same way every time. `start_workflow` is
+idempotent on the workflow id, so a replay starts nothing, and the token it
+charged is credited back. `cymbal_issue_created_rate_limit_refunds` counts those
+credits, under an `error` label when the credit itself failed and the team kept
+the charge.
+
+A Redis failure while the consumer is running fails open: the notification is
+admitted and `cymbal_issue_created_rate_limit_fail_open` goes up, because a
+limiter outage must not silence alerts. A Redis that is configured but
+unreachable at startup is fatal instead, so a pod cannot come up and quietly run
+without the limit it was told to enforce.
+
+The variables are prefixed by the service, while the metrics and the Redis key
+are named for what is actually capped. Only issue-created is charged.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_REDIS_URL` | none | Required. The service does not start without it. |
+| `ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_PER_HOUR` | `1000` | Bucket size, and the tokens a team earns back per hour. Zero or less disables the limit. |
+| `ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_KEY_PREFIX` | `@posthog/error-tracking-notifications-rate-limiter` | Key namespace. It must differ from the event limiter's prefix. |
+| `ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_BUCKET_TTL_SECONDS` | `3600` | Idle buckets expire and free the memory. A value below 3600 is raised to 3600, because a bucket takes an hour to refill and a shorter TTL would loosen the limit. |
+
+The limit covers every team. To size it before it cuts anything, set `PER_HOUR`
+far above real traffic, watch `cymbal_issue_created_rate_limit_outcomes`, then
+lower it. Setting `PER_HOUR` to zero or less switches the limit off.
+
+Set the Redis URL in every environment before this ships. It carries no default,
+so a pod without it fails to start.
+
+That counter carries an `outcome` label of `admitted` or `limited`, never both,
+so the two series sum to the notifications the limiter judged.
+
+The bucket lives in
+[`src/modes/notifications/token_bucket.rs`](src/modes/notifications/token_bucket.rs).
+It is deliberately separate from the per-event limiter in processing mode, which
+runs at event volume and charges a variable number of tokens against two fused
+keys.
 
 Symbol resolution runs in resolution-mode pods via the
 `cymbal.resolution.v1` contract. Processing has no inline fallback.

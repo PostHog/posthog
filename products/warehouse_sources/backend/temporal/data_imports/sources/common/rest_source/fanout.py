@@ -1,9 +1,11 @@
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any, Literal, Protocol
 
 import structlog
 
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.datetime_utils import parse_datetime_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resources,
@@ -102,6 +104,7 @@ def build_dependent_resource(
     initial_paginator_state: dict[str, Any] | None = None,
     source_id: str | None = None,
     use_warehouse_parent: bool = False,
+    parent_snapshot_at: datetime | None = None,
 ) -> Iterable[Any]:
     parent_config = endpoint_configs[fanout.parent_name]
     child_config = endpoint_configs[child_endpoint]
@@ -251,4 +254,34 @@ def build_dependent_resource(
         initial_paginator_state=initial_paginator_state,
     )
     child_dlt_resource = next(r for r in resources if getattr(r, "name", None) == child_endpoint)
-    return child_dlt_resource.add_map(rename_parent_fields(fanout.parent_name, fanout.parent_field_renames))
+    child = child_dlt_resource.add_map(rename_parent_fields(fanout.parent_name, fanout.parent_field_renames))
+
+    # Capping belongs here rather than in the caller because only this function knows whether the
+    # run ended up on the warehouse parent: `warehouse_parent` is false when the table turned out
+    # to be unresolvable, and a caller reading its own config would still see "warehouse" and cap a
+    # live API response, dropping rows that path had no reason to hold back.
+    if warehouse_parent and parent_snapshot_at is not None:
+        # `getattr` because a source that never merges can omit the field entirely, and the read
+        # has to stay off the path those sources take.
+        cursor_field = incremental_field or getattr(child_config, "default_incremental_field", None)
+        if not cursor_field:
+            raise ValueError(
+                f"'{child_endpoint}' asks for a parent snapshot cap but declares no incremental field to "
+                "cap on; capping nothing would let its watermark run past the snapshot"
+            )
+        child = child.add_filter(_not_newer_than(cursor_field, parent_snapshot_at))
+    return child
+
+
+def _not_newer_than(field: str, snapshot_at: datetime) -> Callable[[dict[str, Any]], bool]:
+    """Keep rows the parent snapshot could already account for.
+
+    A row without the field carries no recency signal and is kept, matching how the parent row
+    filter treats NULLs.
+    """
+
+    def _keep(row: dict[str, Any]) -> bool:
+        value = parse_datetime_value(row.get(field))
+        return value is None or value <= snapshot_at
+
+    return _keep

@@ -12,6 +12,7 @@ from hogli_commands.product import crossings
 from hogli_commands.product.crossings import CrossingClass, classify_use, kind_is_allowed
 
 ALERT = CrossingClass("alerts", "AlertConfiguration", "products.alerts.backend.models.alert")
+LOOKUP = {ALERT.label.lower(): ALERT.label}
 
 
 def _candidate(source: str, dotted: str = "posthog.api.consumer") -> crossings._Candidate:
@@ -153,12 +154,44 @@ class TestGetModelStrings:
     )
     def test_every_string_form_is_counted(self, call: str) -> None:
         tree = ast.parse(f"m = {call}")
-        found = crossings._get_model_uses(tree, {"alerts": "alerts"}, {"alerts.AlertConfiguration"})
+        found = crossings._get_model_uses(tree, {"alerts": "alerts"}, LOOKUP)
         assert found == {"alerts.AlertConfiguration": 1}
 
     def test_unlisted_class_is_ignored(self) -> None:
         tree = ast.parse("m = apps.get_model('alerts', 'AlertCheck')")
-        assert crossings._get_model_uses(tree, {"alerts": "alerts"}, {"alerts.AlertConfiguration"}) == {}
+        assert crossings._get_model_uses(tree, {"alerts": "alerts"}, LOOKUP) == {}
+
+    def test_unknown_app_label_is_ignored(self) -> None:
+        tree = ast.parse("m = apps.get_model('posthog', 'AlertConfiguration')")
+        assert crossings._get_model_uses(tree, {"alerts": "alerts"}, LOOKUP) == {}
+
+
+class TestProductModelLabels:
+    @pytest.mark.parametrize(
+        "label,product",
+        [
+            # The first two are off MODEL_CROSSINGS, and cover the two model-surface shapes the
+            # scan has to walk: a models package, and a flat models.py.
+            ("alerts.AlertConfiguration", "alerts"),
+            ("error_tracking.ErrorTrackingIssue", "error_tracking"),
+            ("product_analytics.Insight", "product_analytics"),
+        ],
+    )
+    def test_model_surface_classes_resolve_to_their_product(self, label: str, product: str) -> None:
+        assert crossings.product_model_labels().get(label) == product
+
+    def test_products_filter_keeps_only_the_named_product(self) -> None:
+        labels = crossings.product_model_labels(["alerts"])
+        assert labels and set(labels.values()) == {"alerts"}
+
+    def test_baseline_never_records_a_products_own_get_model_calls(self) -> None:
+        own = []
+        for line in crossings.read_baseline():
+            crossing, consumer, kind, _ = line.split()
+            owner = crossing.split(".")[0]
+            if kind == "get_model" and consumer.startswith(f"products.{owner}."):
+                own.append(line)
+        assert own == []
 
 
 class TestRenderReport:

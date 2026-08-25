@@ -182,6 +182,34 @@ describe("ChannelFeedView", () => {
     expect(screen.getByText(task.title)).toBeInTheDocument();
   });
 
+  it("shows the kind's empty note, not the channel welcome, when a filter empties the feed", () => {
+    render(
+      <Theme>
+        <ChannelFeedView
+          channelId="channel-1"
+          tasks={[]}
+          reports={[]}
+          isLoading={false}
+          emptyState={<div>Welcome to space</div>}
+          onOpenTask={vi.fn()}
+          onOpenThread={vi.fn()}
+        />
+      </Theme>,
+    );
+
+    // A genuinely empty, unfiltered feed still shows the channel welcome.
+    expect(screen.getByText("Welcome to space")).toBeInTheDocument();
+
+    // Selecting an empty kind must show its own note, not the welcome screen.
+    fireEvent.click(screen.getByText("Reports"));
+    expect(
+      screen.getByText(
+        "No reports here yet. Open the filter to widen the list.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("Welcome to space")).not.toBeInTheDocument();
+  });
+
   it.each([
     {
       name: "options menu",

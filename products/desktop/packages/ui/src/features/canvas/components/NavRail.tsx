@@ -233,7 +233,8 @@ export function NavRail() {
     // state, so isolated providers never share it.
     <TooltipProvider delay={400}>
       <div
-        className="flex h-full shrink-0 flex-col items-center gap-1.5 bg-chrome py-2"
+        data-testid="nav-rail"
+        className="relative z-[60] flex h-full shrink-0 flex-col items-center gap-1.5 bg-chrome py-2"
         style={{ width: NAV_RAIL_WIDTH }}
       >
         {destinations.map((destination) => {

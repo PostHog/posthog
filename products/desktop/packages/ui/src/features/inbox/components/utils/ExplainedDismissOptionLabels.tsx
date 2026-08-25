@@ -4,10 +4,10 @@ import { RadioGroup, Tooltip } from "@radix-ui/themes";
 import type { ReactNode } from "react";
 
 const PAUSE_OPTION_TOOLTIP =
-  "Snoozes this report: it briefly leaves your inbox while more context is gathered, and it can come back if new signals match.";
+  "Snoozes this report: it briefly leaves Self-driving while more context is gathered, and it can come back if new signals match.";
 
 const SUPPRESS_OPTION_TOOLTIP =
-  "Archives permanently: the report leaves your inbox and matching signals will not surface it again. Your reason is saved with the report.";
+  "Archives permanently: the report leaves Self-driving and matching signals will not surface it again. Your reason is saved with the report.";
 
 function dismissReasonOptionDomId(value: DismissalReasonOptionValue): string {
   return `dismiss-report-dialog-reason-${value}`;

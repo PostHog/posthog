@@ -9,7 +9,8 @@ See `posthog/query_cache/storage.py`.
 ## Semantics
 
 - **Expiry is governed by the Redis pointer's TTL** (`CACHED_RESULTS_TTL`), not by S3. Once the pointer expires or is evicted, the entry is gone regardless of whether the S3 object still exists.
-- **The S3 lifecycle rule is garbage collection only.** It deletes blobs once nothing can reference them (expired or evicted pointers, shadow-mode uploads, rolled-back teams).
+- **Blobs are deleted eagerly once nothing references them.** Replacing or evicting a pointer entry enqueues a best-effort Celery delete, delayed by `BLOB_DELETE_DELAY_SECONDS` (60s) so a reader that just fetched the pointer from Redis can still complete its S3 read. An upload whose pointer swap lost to a newer write deletes its own blob immediately, since that pointer never entered Redis.
+- **The S3 lifecycle rule is the garbage collection backstop.** It deletes whatever the eager path misses: pointers that expired by TTL, shadow-mode uploads, rolled-back teams, failed deletes, and writes from a process that could not reach the Celery broker.
 - Rollout is controlled by the `query-cache-s3-writes` multivariate feature flag on the organization group. It gates writes only; reads never evaluate the flag, they follow whatever the stored record says.
   - Disabled: every result is stored inline in Redis, as always.
   - `shadow`: write the cache entry to both S3 and Redis, testing the write path; nothing reads the S3 copy.
@@ -17,7 +18,7 @@ See `posthog/query_cache/storage.py`.
 
 ## Object layout and tagging
 
-Objects are written to `s3://{QUERY_CACHE_S3_BUCKET}/{OBJECT_STORAGE_S3_QUERY_CACHE_FOLDER}/{team_id}/{cache_key}/{upload_id}` with attribution tags (`cache_type=query_data`, `team_id=<id>`). Tags carry no expiry meaning. The per-upload suffix keeps overlapping recomputes of one query from overwriting each other's blob. Superseded objects sit unreferenced until the lifecycle rule collects them; eager deletion was considered and dropped, since 7-day retention of churn costs little and the machinery does not.
+Objects are written to `s3://{QUERY_CACHE_S3_BUCKET}/{OBJECT_STORAGE_S3_QUERY_CACHE_FOLDER}/{team_id}/{cache_key}/{upload_id}` with attribution tags (`cache_type=query_data`, `team_id=<id>`). Tags carry no expiry meaning. The per-upload suffix keeps overlapping recomputes of one query from overwriting each other's blob. A superseded upload deletes its own object on the spot, and replaced or evicted pointers get theirs deleted by the delayed Celery task, so a frequently recomputed query does not accumulate a week of dead blobs.
 
 ## Required S3 lifecycle rule
 

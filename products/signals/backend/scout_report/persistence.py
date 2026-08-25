@@ -55,6 +55,7 @@ from products.signals.backend.models import ArtefactAttribution, SignalReport, S
 from products.signals.backend.report_charts import ReportChart, chart_batch_error
 from products.signals.backend.report_generation.reviewer_telemetry import capture_suggested_reviewers_resolved
 from products.signals.backend.report_generation.select_repo import RepoSelectionResult
+from products.signals.backend.report_prompts import normalize_suggested_prompts, suggested_prompts_batch_error
 from products.signals.backend.scout_harness.tools.emit import SCOUT_SIGNAL_WEIGHT, SOURCE_PRODUCT, SOURCE_TYPE
 
 logger = logging.getLogger(__name__)
@@ -119,6 +120,7 @@ def create_scout_report(
     priority: PriorityAssessment | None = None,
     suggested_reviewers: SuggestedReviewers | None = None,
     charts: Sequence[ReportChart] = (),
+    suggested_prompts: Sequence[str] = (),
     emit_signals: bool = True,
     run: SignalScoutRun | None = None,
 ) -> PersistedScoutReport:
@@ -147,6 +149,9 @@ def create_scout_report(
     Unlike the autostart inputs they're written whatever the judged status, so a suppressed report
     keeps the exhibits behind it for whoever reviews the suppression.
 
+    `suggested_prompts`, when supplied, become the questions the inbox offers above the report's
+    "Ask AI" box. Written on the same terms as `charts`, and for the same reason.
+
     `emit_signals` gates whether the backing observations are written to `document_embeddings`. It
     defaults to True; callers pass False for a report the safety judge marked unsafe (born SUPPRESSED)
     so the adversarial-looking descriptions are never indexed — an unsafe report's signals must not
@@ -156,6 +161,9 @@ def create_scout_report(
     """
     _validate_create_inputs(title, summary, signals)
     if batch_error := chart_batch_error(charts):
+        raise InvalidScoutReportError(batch_error)
+    prompts = normalize_suggested_prompts(suggested_prompts)
+    if batch_error := suggested_prompts_batch_error(prompts):
         raise InvalidScoutReportError(batch_error)
     # Defense-in-depth: refuse to author against a run another team owns, so the tally write below
     # can't corrupt a foreign team's `emitted_report_ids`. The harness tool already gates this with
@@ -175,6 +183,7 @@ def create_scout_report(
             signal_count=len(signals),
             total_weight=total_weight,
             charts=[chart.model_dump(mode="json") for chart in charts],
+            suggested_prompts=prompts,
             # Born directly in a user-visible status without passing through transition_to (which
             # stamps this for pipeline reports), so the daily report limit counts it from creation.
             first_visible_at=(
@@ -433,6 +442,63 @@ def set_report_charts(
     logger.info(
         "signals_scout.edit_report: charts set",
         extra={"team_id": team_id, "report_id": report_id, "count": len(charts)},
+    )
+    return True
+
+
+def set_report_suggested_prompts(
+    *,
+    team_id: int,
+    report_id: str,
+    suggested_prompts: Sequence[str],
+    attribution: ArtefactAttribution | None = None,
+    author: str | None = None,
+) -> bool:
+    """Replace an existing report's suggested prompts (the `edit_report` prompt path).
+
+    The same contract `set_report_charts` has, one level down: team-scoped fail-closed, the sequence
+    is the full set the report should offer rather than an addition, and an empty sequence is a real
+    write that takes the questions down. A caller that means "leave them alone" does not call this.
+
+    Returns whether the stored set actually changed, so a re-send of what is already there doesn't
+    count as an edit and notify the report's destination a second time about nothing. Compared after
+    normalizing, since a question that differs only in trailing whitespace is the same question.
+    """
+    _validate_report_id(report_id)
+    payload = normalize_suggested_prompts(suggested_prompts)
+    if batch_error := suggested_prompts_batch_error(payload):
+        raise InvalidScoutReportError(batch_error)
+
+    with transaction.atomic():
+        stored = (
+            SignalReport.objects.select_for_update()
+            .filter(team_id=team_id, id=report_id)
+            .values_list("suggested_prompts", flat=True)
+            .first()
+        )
+        if stored is None:
+            raise InvalidScoutReportError(f"report {report_id} not found for team {team_id}")
+        if stored == payload:
+            logger.info(
+                "signals_scout.edit_report: suggested prompts unchanged",
+                extra={"team_id": team_id, "report_id": report_id, "count": len(payload)},
+            )
+            return False
+        SignalReport.objects.filter(team_id=team_id, id=report_id).update(
+            suggested_prompts=payload,
+            updated_at=timezone.now(),
+        )
+        if attribution is not None:
+            SignalReportArtefact.add_log(
+                team_id=team_id,
+                report_id=report_id,
+                content=NoteArtefact(note=_suggested_prompts_edit_note(len(payload)), author=author),
+                attribution=attribution,
+            )
+
+    logger.info(
+        "signals_scout.edit_report: suggested prompts set",
+        extra={"team_id": team_id, "report_id": report_id, "count": len(payload)},
     )
     return True
 
@@ -785,6 +851,12 @@ def _chart_edit_note(count: int) -> str:
     if count == 0:
         return "Removed the report's charts via edit_report."
     return f"Replaced report charts ({count}) via edit_report."
+
+
+def _suggested_prompts_edit_note(count: int) -> str:
+    if count == 0:
+        return "Removed the report's suggested prompts via edit_report."
+    return f"Replaced report suggested prompts ({count}) via edit_report."
 
 
 def _validate_report_id(report_id: str) -> None:

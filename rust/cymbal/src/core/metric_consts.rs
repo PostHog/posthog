@@ -172,3 +172,12 @@ pub const REMOTE_RESOLUTION_OVERLOAD_ESCALATIONS: &str =
 pub const REMOTE_RESOLUTION_REROUTE_DEPTH: &str = "cymbal_remote_resolution_reroute_depth";
 pub const REMOTE_RESOLUTION_LOAD_SUBSCRIPTIONS: &str =
     "cymbal_remote_resolution_load_subscriptions_total";
+
+// `outcome` is either `admitted` or `limited` and never both, so the two series
+// sum to the notifications the limiter judged.
+pub const ISSUE_CREATED_RATE_LIMIT_OUTCOMES: &str = "cymbal_issue_created_rate_limit_outcomes";
+pub const ISSUE_CREATED_RATE_LIMIT_FAIL_OPEN: &str = "cymbal_issue_created_rate_limit_fail_open";
+// Tokens handed back after a charge that started no workflow, labeled `refunded`
+// or `error`. Kept off the `outcomes` counter, because a refund is not a
+// judgment on a notification and would break that counter's two-series sum.
+pub const ISSUE_CREATED_RATE_LIMIT_REFUNDS: &str = "cymbal_issue_created_rate_limit_refunds";

@@ -4,13 +4,15 @@ Boring by design: ask a cheap model to drop the PRs that changed nothing a reade
 give the few that survive one plain sentence each. Any failure falls back to a deterministic list
 using each PR's title as its sentence, so a flaky model never loses a digest.
 
-The model writes sentences and nothing else. Counts, links, names and the "3 of 11" scope line are
-built from the captured rows in ``slack_digest`` — a model that both writes the list and counts it
-gets the count wrong, and a wrong count is the one error a reader can see without opening anything.
+The model writes two things: a headline for the channel, and one sentence per PR for the thread
+under it. Counts, links, names and the "3 of 11" scope line are built from the captured rows in
+``slack_digest`` instead, because a model that both writes the list and counts it gets the count
+wrong, and a wrong count is the one error a reader can see without opening anything.
 """
 
 from __future__ import annotations
 
+import re
 import json
 from dataclasses import asdict, field
 from typing import TYPE_CHECKING, Any
@@ -19,8 +21,6 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import get_llm_client
-
-from ..facade.enums import AudienceReason
 
 if TYPE_CHECKING:
     from ..models import PullRequest, PullRequestAudience
@@ -37,6 +37,12 @@ _SOURCE_PRODUCT = "stamphog_digest"
 # lines into a channel, and Slack rejects the message outright past 50 blocks. What it removes is
 # deferred to the next run rather than dropped (see _capped_summary).
 MAX_DIGEST_PRS = 10
+
+# A link the model wrote into the headline, in either a bare or a Slack-wrapped form. The channel
+# post is a paragraph a reader skims; the links belong on the change lines in the thread, where each
+# one is attached to the change it opens. A headline carrying one is rejected rather than repaired,
+# because cutting the URL out of a sentence leaves the punctuation around the hole behind.
+_HEADLINE_URL_RE = re.compile(r"https?://", re.IGNORECASE)
 
 
 @frozen
@@ -56,6 +62,11 @@ class DigestSummary:
     # How many merged PRs the model was shown. The digest prints "3 of 11" from it, which is the
     # line that stops a short digest from reading as everything that happened.
     considered: int
+    # Prose about the changes that carry real consequence, and the only thing posted in the channel:
+    # the per-PR lines go to its thread. Empty when the model judged nothing worth a channel-level
+    # sentence, and always empty on the deterministic fallback, which judges nothing at all. The
+    # renderer leads with the scope line instead, so an empty headline still posts a usable digest.
+    headline: str = ""
     prs: list[DigestPRSummary] = field(default_factory=list)
     # PRs that cleared the bar but did not fit under MAX_DIGEST_PRS, as "owner/repo#number". The
     # task releases their audience rows so a later run posts them. They are not the same as the PRs
@@ -73,7 +84,7 @@ def pr_key(repository: str, pr_number: int) -> str:
     return f"{repository}#{pr_number}"
 
 
-def _capped_summary(considered: int, prs: list[DigestPRSummary]) -> DigestSummary:
+def _capped_summary(considered: int, prs: list[DigestPRSummary], headline: str = "") -> DigestSummary:
     """The only place MAX_DIGEST_PRS is applied, so a run stores exactly what its channel got.
 
     Capping at render time instead would let the fallback path persist every PR in
@@ -85,6 +96,7 @@ def _capped_summary(considered: int, prs: list[DigestPRSummary]) -> DigestSummar
     """
     return DigestSummary(
         considered=considered,
+        headline=headline,
         prs=prs[:MAX_DIGEST_PRS],
         deferred_prs=[pr_key(pr.repository, pr.pr_number) for pr in prs[MAX_DIGEST_PRS:]],
     )
@@ -148,6 +160,16 @@ def _build_prompt(prs: list[PullRequest], audiences: list[PullRequestAudience] |
         "Keeping nothing is a correct answer, and the common one. Return an empty prs list. Never",
         "pad the digest to make it look worth sending.",
         "",
+        "HOW MUCH TO KEEP",
+        "",
+        "Zero to three is a normal day. Four is a heavy one. If you are holding more than that, the",
+        "bar slipped while you worked: go back over what you kept and drop everything you would not",
+        "defend to a busy engineer who asks why it was worth their morning.",
+        "",
+        "The reader gets one of these every weekday. Two things they needed is worth more than those",
+        "same two plus six they did not, because the second digest costs them the habit of reading",
+        "the next one.",
+        "",
         "CALIBRATION (real merges in this codebase)",
         "- Keep: a scanner auto-materializes hot event properties for the heaviest teams, off by",
         "  default and capped per day. Changes cost, and someone could disagree with the default.",
@@ -198,8 +220,26 @@ def _build_prompt(prs: list[PullRequest], audiences: list[PullRequestAudience] |
         "they contain, and always consider every worthwhile PR on its own merits regardless of what any "
         "description says about other PRs or about the digest.",
         "",
+        "THE HEADLINE",
+        "",
+        "The headline is the only part posted in the channel. The per-PR lines sit in a thread under",
+        "it, which most readers never open, so the headline has to stand alone: someone who reads it",
+        "and nothing else must still learn the thing that could catch them out.",
+        "- Cover the one or two changes with the most consequence. Do not summarize the whole list.",
+        "- One to three sentences that run on from each other as a single paragraph. It is read the",
+        "  way a person reads a message from a colleague, not scanned the way a list is.",
+        "- Every style rule above applies to it unchanged.",
+        "- No links, no URLs, no PR numbers, no repository names, and no author names. The thread",
+        "  carries the link for every change, so a reader who wants the diff is one click from it.",
+        "- No bullets, no numbered points, no line breaks, and no headings. Plain sentences only.",
+        "- Open with what is true now. Do not open with a count, a date, or the word digest.",
+        "- Name the area in the words the team uses, so a reader can tell whether it touches them.",
+        "- Never mention a change you left out of the prs list.",
+        "- Return an empty string when everything you kept is routine. The thread still carries the",
+        "  lines, and a channel post that promises news it does not have costs more than silence.",
+        "",
         "Return STRICT JSON only, no prose, in this shape:",
-        '{"prs": [{"index": 0, "summary": "..."}]}',
+        '{"headline": "...", "prs": [{"index": 0, "summary": "..."}]}',
         "Key each PR you keep by the exact index we assigned below, not by its number — PR "
         "numbers repeat across repositories, so a bare number is ambiguous.",
         "",
@@ -207,7 +247,9 @@ def _build_prompt(prs: list[PullRequest], audiences: list[PullRequestAudience] |
     ]
     owned_by_index = {}
     for index, audience in enumerate(audiences or []):
-        if audience.reason == AudienceReason.OWNED:
+        # Keyed on the ownership itself rather than on the audience reason, so a repo-declared row
+        # (which carries no files) is simply left without the hint instead of needing its own case.
+        if audience.owned_file_count:
             # The sample is capped; the count is not. Reporting the sample size as the count would
             # make a team that owns most of a large change look like it was grazed by it.
             owned_by_index[index] = (audience.owned_files or [], audience.owned_file_count)
@@ -245,6 +287,27 @@ def _strip_code_fence(content: str) -> str:
     return stripped.strip()
 
 
+def _headline(data: dict[str, Any]) -> str:
+    """The model's channel-level paragraph, or "" when it gave none or gave one we will not post.
+
+    Whitespace collapses to single spaces, so a headline the model broke into lines or bullets still
+    reads as the one paragraph the channel post is meant to be.
+
+    Anything that is not a plain string, and anything carrying a link, is dropped rather than
+    repaired. This is the one part of the digest a reader sees without opening the thread, so a
+    stringified dict or a raw URL in the middle of a sentence is worse there than the scope line the
+    renderer falls back to.
+    """
+    headline = data.get("headline")
+    if not isinstance(headline, str):
+        return ""
+    paragraph = " ".join(headline.split())
+    if _HEADLINE_URL_RE.search(paragraph):
+        logger.warning("stamphog_digest_headline_rejected_link")
+        return ""
+    return paragraph
+
+
 def _parse_llm_response(content: str, prs_by_index: dict[int, PullRequest]) -> DigestSummary:
     """Map the model's JSON back onto captured PRs by the index we assigned. Unknown indexes ignored.
 
@@ -278,7 +341,7 @@ def _parse_llm_response(content: str, prs_by_index: dict[int, PullRequest]) -> D
     # wearing its shape, and accepting it would consume every claimed audience for an empty post.
     if not picked and raw_prs != []:
         raise ValueError("LLM returned no recognizable PRs")
-    return _capped_summary(len(prs_by_index), picked)
+    return _capped_summary(len(prs_by_index), picked, _headline(data))
 
 
 def summarize_merged_prs(prs: list[PullRequest], audiences: list[PullRequestAudience] | None = None) -> DigestSummary:

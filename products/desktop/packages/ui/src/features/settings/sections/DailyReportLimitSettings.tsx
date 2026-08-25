@@ -79,7 +79,7 @@ export function DailyReportLimitSettings({
           Daily report limit
         </Text>
         <Text className="text-(--gray-11) text-[13px]">
-          Cap how many new reports reach the inbox each day. Leave the field
+          Cap how many new reports reach Self-driving each day. Leave the field
           empty for no limit.
         </Text>
       </div>

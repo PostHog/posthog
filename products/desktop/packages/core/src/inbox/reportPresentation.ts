@@ -194,6 +194,20 @@ export function displayConventionalCommitTitle(
   return trimmed ? trimmed : fallback;
 }
 
+/**
+ * The human display title: conventional-commit prefixes stripped and the first
+ * letter capitalized, so "fix(oauth): validate scopes" reads "Validate scopes".
+ * Reports present as briefs, not commits — the commit-shaped title still lives
+ * on the PR itself.
+ */
+export function humanizeReportTitle(
+  title: string | null | undefined,
+  fallback: string,
+): string {
+  const display = displayConventionalCommitTitle(title, fallback);
+  return display.charAt(0).toUpperCase() + display.slice(1);
+}
+
 export interface ParsedPrUrl {
   owner: string;
   repo: string;
@@ -204,6 +218,12 @@ export interface ParsedPrUrl {
 export function parsePrUrl(prUrl: string): ParsedPrUrl | null {
   try {
     const url = new URL(prUrl);
+    // Only a real GitHub PR URL may drive "Open in GitHub" affordances —
+    // implementation_pr_url flows in from task-run output, so an arbitrary
+    // host here would let a task point reviewers at an attacker's site.
+    if (url.protocol !== "https:" || url.hostname !== "github.com") {
+      return null;
+    }
     const match = url.pathname.match(
       /^\/([^/]+)\/([^/]+)\/pull\/(\d+)(?:$|[/?#])/,
     );
@@ -213,4 +233,53 @@ export function parsePrUrl(prUrl: string): ParsedPrUrl | null {
   } catch {
     return null;
   }
+}
+
+export interface ReportSummarySplit {
+  /** Prose before the first `##` heading — the summary's own tl;dr. */
+  lede: string;
+  /** The `##` sections, in document order, bodies untrimmed of markdown. */
+  sections: { title: string; body: string }[];
+}
+
+/**
+ * Split a report summary into its labeled slots: the tl;dr lede and each
+ * `##` section (Problem, Impact, Solution, ...). The reader jumps to the slot
+ * they need instead of reconstructing the structure by reading linearly —
+ * nothing is cut, it's sorted. Summaries without `##` headings return an
+ * empty section list, and callers render them whole.
+ */
+export function splitReportSummary(
+  summary: string | null | undefined,
+): ReportSummarySplit {
+  if (typeof summary !== "string" || !summary.trim()) {
+    return { lede: "", sections: [] };
+  }
+  const lines = summary.split(/\r?\n/);
+  const sections: { title: string; body: string }[] = [];
+  const lede: string[] = [];
+  let current: { title: string; body: string[] } | null = null;
+  for (const line of lines) {
+    const heading = /^##\s+(.+?)\s*$/.exec(line);
+    if (heading) {
+      if (current) {
+        sections.push({
+          title: current.title,
+          body: current.body.join("\n").trim(),
+        });
+      }
+      current = { title: heading[1], body: [] };
+    } else if (current) {
+      current.body.push(line);
+    } else {
+      lede.push(line);
+    }
+  }
+  if (current) {
+    sections.push({
+      title: current.title,
+      body: current.body.join("\n").trim(),
+    });
+  }
+  return { lede: lede.join("\n").trim(), sections };
 }

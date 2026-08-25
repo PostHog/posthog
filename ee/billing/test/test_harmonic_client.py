@@ -43,6 +43,14 @@ def _found(company):
     return _response(json_data={"data": {"enrichCompanyByIdentifiers": {"companyFound": True, "company": company}}})
 
 
+def _missing_company_found_key():
+    return _response(json_data={"data": {"enrichCompanyByIdentifiers": {}}})
+
+
+def _graphql_errors():
+    return _response(json_data={"errors": [{"message": "internal error"}]})
+
+
 def _http_500():
     error = aiohttp.ClientResponseError(request_info=MagicMock(), history=(), status=500, message="Server Error")
     return _response(raise_status=error)
@@ -71,6 +79,77 @@ async def test_strict_falls_back_to_second_variation_after_error():
     client = _client_with_responses(_http_500(), _found({"name": "PostHog"}))
     result = await client.enrich_company_by_domain_strict("posthog.com")
     assert result == {"name": "PostHog"}
+
+
+@pytest.mark.asyncio
+@patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock())
+async def test_strict_clean_not_found_is_authoritative_when_the_other_variation_errored():
+    # One variation errored, the other returned a clean companyFound=false: that clean answer
+    # is an authoritative not-found. Raising here made a deterministically-failing variation
+    # exhaust the caller's retries and leave the org with no archive row at all.
+    client = _client_with_responses(_http_500(), _not_found())
+    assert await client.enrich_company_by_domain_strict("posthog.com") is None
+
+
+@pytest.mark.asyncio
+@patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock())
+async def test_strict_clean_not_found_first_then_error_is_also_not_found():
+    client = _client_with_responses(_not_found(), _http_500())
+    assert await client.enrich_company_by_domain_strict("posthog.com") is None
+
+
+@pytest.mark.asyncio
+@patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock())
+async def test_strict_raises_when_companyfound_key_missing_and_sibling_errored():
+    client = _client_with_responses(_http_500(), _missing_company_found_key())
+    with pytest.raises(aiohttp.ClientResponseError):
+        await client.enrich_company_by_domain_strict("posthog.com")
+
+
+@pytest.mark.asyncio
+@patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock())
+async def test_strict_graphql_error_with_clean_not_found_sibling_returns_none():
+    client = _client_with_responses(_graphql_errors(), _not_found())
+    assert await client.enrich_company_by_domain_strict("posthog.com") is None
+
+
+@pytest.mark.asyncio
+@patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock())
+@patch("ee.billing.salesforce_enrichment.harmonic_client.capture_exception")
+async def test_strict_captures_swallowed_error_on_mixed_path(mock_capture_exception):
+    client = _client_with_responses(_graphql_errors(), _not_found())
+    assert await client.enrich_company_by_domain_strict("posthog.com") is None
+    mock_capture_exception.assert_called_once()
+
+
+@pytest.mark.asyncio
+@patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock())
+async def test_strict_sends_api_key_as_header_not_in_url_or_params():
+    client = _client_with_responses(_found({"name": "PostHog"}))
+    await client.enrich_company_by_domain_strict("posthog.com")
+
+    client.session.post.assert_called_once()
+    call = client.session.post.call_args
+    url = call.args[0]
+    params = call.kwargs.get("params")
+
+    assert call.kwargs["headers"]["apikey"] == "test-key"
+    assert "test-key" not in url
+    assert params is None or "test-key" not in str(params)
+
+
+@pytest.mark.asyncio
+@patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock())
+async def test_non_strict_sends_api_key_as_header_not_in_url_or_params():
+    client = _client_with_responses(_found({"name": "PostHog"}))
+    await client.enrich_company_by_domain("posthog.com")
+
+    call = client.session.post.call_args
+    params = call.kwargs.get("params")
+
+    assert call.kwargs["headers"]["apikey"] == "test-key"
+    assert "test-key" not in call.args[0]
+    assert params is None or "test-key" not in str(params)
 
 
 @pytest.mark.asyncio

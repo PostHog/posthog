@@ -14,6 +14,7 @@ semantic layers — fetched lazily only when these tables are queried.
 """
 
 import json
+import uuid
 import hashlib
 from collections import defaultdict
 from typing import TYPE_CHECKING, Any, NamedTuple, Optional
@@ -173,9 +174,11 @@ def _classify_table(name: str, table: Table, warehouse: set[str], views: set[str
         return "information_schema", "information_schema"
     if name.startswith("system."):
         return "system", "system"
+    if isinstance(table, SavedQuery):
+        return "view", "views"
     if name in warehouse:
         return "data_warehouse", "warehouse"
-    if name in views or isinstance(table, SavedQuery):
+    if name in views:
         return "view", "views"
     return "posthog", "public"
 
@@ -207,25 +210,26 @@ class _CollectedRelationship(NamedTuple):
 class _WarehouseMetadata(NamedTuple):
     row_counts: dict[str, Optional[int]]
     view_row_counts: dict[str, Optional[int]]
-    materialized_view_ids: dict[str, str]
+    saved_query_ids_by_name: dict[str, str]
     column_stats: dict[tuple[str, str], _ColumnStats]
 
 
 def _warehouse_metadata(team_id: Optional[int]) -> _WarehouseMetadata:
     """Lazily load warehouse row counts and column statistics for the team.
 
-    Returns `(row_counts, view_row_counts, materialized_view_ids, column_stats)`. The view IDs retain
-    saved-query identity when a materialized view resolves to its backing warehouse table. Only runs
-    when an information_schema table is actually queried, so it never touches the hot
-    `create_hogql_database` path. Mirrors how `serialize_database` sources counts so the catalog and
-    the SQL-editor schema agree.
+    Returns `(row_counts, view_row_counts, saved_query_ids_by_name, column_stats)`. The name→id map
+    covers every live saved query, so a view keeps its saved-query identity even when the catalog
+    object resolves to something else (a materialized backing table, or a revenue-analytics view
+    whose `id` is not a saved-query id). Only runs when an information_schema table is actually
+    queried, so it never touches the hot `create_hogql_database` path. Mirrors how
+    `serialize_database` sources counts so the catalog and the SQL-editor schema agree.
     """
     row_counts: dict[str, Optional[int]] = {}
     view_row_counts: dict[str, Optional[int]] = {}
-    materialized_view_ids: dict[str, str] = {}
+    saved_query_ids_by_name: dict[str, str] = {}
     column_stats: dict[tuple[str, str], _ColumnStats] = {}
     if team_id is None:
-        return _WarehouseMetadata(row_counts, view_row_counts, materialized_view_ids, column_stats)
+        return _WarehouseMetadata(row_counts, view_row_counts, saved_query_ids_by_name, column_stats)
 
     # Inline imports: keeps the products dependency off the hogql import path (avoids an import
     # cycle, since products import hogql) and off every non-information_schema query.
@@ -251,13 +255,15 @@ def _warehouse_metadata(team_id: Optional[int]) -> _WarehouseMetadata:
             ):
                 row_counts[table_name] = row_count
             # Views carry their row count on the materialized backing table (`saved_query.table`).
-            for view_id, view_name, row_count in (
+            for view_id, view_name, table_id, row_count in (
                 DataWarehouseSavedQuery.objects.exclude(deleted=True)
-                .filter(team_id=team_id, table__isnull=False)
-                .values_list("id", "name", "table__row_count")
+                .filter(team_id=team_id)
+                .order_by("created_at")
+                .values_list("id", "name", "table_id", "table__row_count")
             ):
-                view_row_counts[view_name] = row_count
-                materialized_view_ids[view_name] = str(view_id)
+                if table_id is not None:
+                    view_row_counts[view_name] = row_count
+                saved_query_ids_by_name[view_name] = str(view_id)
             # Per-column profiling stats (keyed by table UUID + column). Only the columns that have been
             # profiled appear; everything else stays absent (NULL in the catalog).
             for stats in list_column_statistics(team_id):
@@ -272,7 +278,7 @@ def _warehouse_metadata(team_id: Optional[int]) -> _WarehouseMetadata:
         logger.exception("information_schema: failed to load warehouse metadata", team_id=team_id)
         return _WarehouseMetadata({}, {}, {}, {})
 
-    return _WarehouseMetadata(row_counts, view_row_counts, materialized_view_ids, column_stats)
+    return _WarehouseMetadata(row_counts, view_row_counts, saved_query_ids_by_name, column_stats)
 
 
 def _unwrap(expr: ast.Expr) -> ast.Expr:
@@ -468,7 +474,7 @@ class _Introspection:
         warehouse_metadata = _warehouse_metadata(context.team_id)
         self.row_counts = warehouse_metadata.row_counts
         self.view_row_counts = warehouse_metadata.view_row_counts
-        self.materialized_view_ids = warehouse_metadata.materialized_view_ids
+        self.saved_query_ids_by_name = warehouse_metadata.saved_query_ids_by_name
         self.column_stats = warehouse_metadata.column_stats
         self.table_descriptions = TableDescriptions.load(context.team_id)
         self._collected: Optional[_CollectedCatalog] = None
@@ -570,7 +576,7 @@ class _Introspection:
             table_type, table_schema = _classify_table(name, table, self.warehouse, self.views)
             row_count = self._row_count(name, table, table_type)
             table_rows.append([name, table_schema, name, table_type, self._table_description(table), row_count])
-            certification_keys.append(_certification_key(name, table, table_type, self.materialized_view_ids))
+            certification_keys.append(_certification_key(name, table, table_type, self.saved_query_ids_by_name))
 
             self._collect_fields(
                 name,
@@ -596,7 +602,7 @@ class _Introspection:
             return self._data_catalog_enriched_table_rows
 
         table_rows = self.table_rows()
-        certifications = _catalog_certifications(self.context, self.allowed_tables)
+        certifications = _catalog_certifications(self.context, self._table_certification_keys)
         # Match each certification to the introspected row by that resource's own id (warehouse table
         # id / saved-query id), not its name: warehouse table names are not unique per team, so a
         # name-keyed lookup could show one table's certification on a same-named sibling.
@@ -1199,7 +1205,7 @@ def _data_quality_health(context: "HogQLContext", allowed: Optional[frozenset[st
 
 
 def _certification_key(
-    table_name: str, table: Table, table_type: str, materialized_view_ids: dict[str, str]
+    table_name: str, table: Table, table_type: str, saved_query_ids_by_name: dict[str, str]
 ) -> Optional[_CertificationKey]:
     """Certification lookup key `(table_type, resource_id)` for an introspected table, or None.
 
@@ -1212,20 +1218,31 @@ def _certification_key(
         table_id = getattr(table, "table_id", None)
         return ("data_warehouse", str(table_id)) if table_id else None
     if table_type == "view":
-        saved_query_id = getattr(table, "id", None) or materialized_view_ids.get(table_name)
-        return ("view", str(saved_query_id)) if saved_query_id else None
+        saved_query_id = saved_query_ids_by_name.get(table_name) or getattr(table, "id", None)
+        return ("view", str(saved_query_id)) if saved_query_id and _is_uuid(str(saved_query_id)) else None
     return None
 
 
-def _catalog_certifications(context: "HogQLContext", allowed: Optional[frozenset[str]]) -> dict[tuple[str, str], str]:
+def _is_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(value)
+        return True
+    except ValueError:
+        return False
+
+
+def _catalog_certifications(
+    context: "HogQLContext", keys: Optional[list[Optional[_CertificationKey]]]
+) -> dict[_CertificationKey, str]:
     """Map each certified/deprecated resource to its certification status (fail-soft).
 
     Keyed by `(table_type, resource_id)` — a warehouse table cert keys on `("data_warehouse",
     str(table_id))`, a view cert on `("view", str(saved_query_id))`. Keying by the resource's own id
     (not its name) is required because `(team, name)` is not unique on `DataWarehouseTable`: two live
     tables can share a name yet each carry its own certification, and a name-keyed lookup would let one
-    clobber the other. Soft-deleted targets are excluded (their marks read as absent). `allowed` still
-    filters by name to trim the query to the pushed-down set.
+    clobber the other. `keys` — the certification keys of the introspected rows — bounds the query to
+    the exact resources being returned; a name-based bound would miss certs behind the dotted catalog
+    aliases. `None` means unbounded. Soft-deleted targets are excluded (their marks read as absent).
     """
     team_id = context.team_id
     if team_id is None or not _can_read_catalog(context):
@@ -1233,9 +1250,17 @@ def _catalog_certifications(context: "HogQLContext", allowed: Optional[frozenset
     from products.data_catalog.backend.facade.enums import CertificationStatus  # noqa: PLC0415
     from products.data_catalog.backend.facade.models import TableCertification  # noqa: PLC0415
 
+    table_ids: Optional[set[str]] = None
+    view_ids: Optional[set[str]] = None
+    if keys is not None:
+        table_ids = {key[1] for key in keys if key is not None and key[0] == "data_warehouse"}
+        view_ids = {key[1] for key in keys if key is not None and key[0] == "view"}
+        if not table_ids and not view_ids:
+            return {}
+
     record_catalog_read("tables")
     try:
-        result: dict[tuple[str, str], str] = {}
+        result: dict[_CertificationKey, str] = {}
         certs = TableCertification.objects.for_team(team_id).filter(
             status__in=(CertificationStatus.CERTIFIED, CertificationStatus.DEPRECATED)
         )
@@ -1245,9 +1270,10 @@ def _catalog_certifications(context: "HogQLContext", allowed: Optional[frozenset
             .exclude(table__external_data_source__deleted=True)
         )
         view_certs = certs.filter(saved_query__isnull=False).exclude(saved_query__deleted=True)
-        if allowed is not None:
-            table_certs = table_certs.filter(table__name__in=allowed)
-            view_certs = view_certs.filter(saved_query__name__in=allowed)
+        if table_ids is not None:
+            table_certs = table_certs.filter(table_id__in=table_ids)
+        if view_ids is not None:
+            view_certs = view_certs.filter(saved_query_id__in=view_ids)
         for table_id, status in table_certs.values_list("table_id", "status"):
             result[("data_warehouse", str(table_id))] = status
         for saved_query_id, status in view_certs.values_list("saved_query_id", "status"):

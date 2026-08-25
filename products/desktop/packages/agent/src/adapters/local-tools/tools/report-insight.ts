@@ -94,6 +94,18 @@ function errorResult(message: string): LocalToolResult {
   return { content: [{ type: "text", text: message }], isError: true };
 }
 
+// Desktop ships on its own schedule with no orchestration against backend deploys, so a
+// report can hit an older server contract (a 10-19 char quote, an output_bytes-only
+// finding). The API throws a raw `Failed request: [400] {...}` blob that loses the finding
+// silently. Turn a rejection into an actionable error so the model can correct the input
+// and retry, matching the coaching style of every other rejection path in this tool.
+function reportRejectionResult(error: unknown, what: string): LocalToolResult {
+  const message = error instanceof Error ? error.message : String(error);
+  return errorResult(
+    `The ${what} was rejected by the server and was not recorded. Correct the flagged field and call report_insight again. Server response: ${message}`,
+  );
+}
+
 // biome-ignore lint/suspicious/noControlCharactersInRegex: matching the ESC byte is the point
 const ANSI_PATTERN = /(?:\u001b|\\u001b)\[[0-9;]*m/g;
 
@@ -251,6 +263,14 @@ export const reportInsightTool = defineLocalTool({
           .describe(
             "Tokens consumed across the wasted span, measured from the run log.",
           ),
+        output_bytes: z
+          .number()
+          .int()
+          .min(1)
+          .optional()
+          .describe(
+            "Sum of tool-output sizes across the wasted span, measured from the log. Works in both log formats even when token counters are absent.",
+          ),
       })
       .optional()
       .describe(
@@ -282,20 +302,6 @@ export const reportInsightTool = defineLocalTool({
         );
       }
 
-      const run = await withReportDeadline(
-        (signal) =>
-          client.getTaskRun(
-            ctx.taskId as string,
-            ctx.taskRunId as string,
-            signal,
-          ),
-        "analysis run lookup",
-      );
-      const state = (run.state ?? {}) as Record<string, unknown>;
-      const existing = Array.isArray(state[INSIGHTS_STATE_KEY])
-        ? (state[INSIGHTS_STATE_KEY] as StoredInsight[])
-        : [];
-
       if (args.no_findings_reason) {
         const findingFields = [
           args.observation,
@@ -308,21 +314,20 @@ export const reportInsightTool = defineLocalTool({
             "no_findings_reason cannot be combined with a finding. Either report the finding (drop no_findings_reason) or report no findings (drop every other field).",
           );
         }
-        if (existing.length > 0) {
-          return errorResult(
-            "Findings were already reported for this run, so a no-findings report is contradictory. Stop reporting.",
+        try {
+          await withReportDeadline(
+            (signal) =>
+              client.reportAnalysisInsight(
+                ctx.taskId as string,
+                ctx.taskRunId as string,
+                { no_findings_reason: args.no_findings_reason },
+                signal,
+              ),
+            "no-findings report",
           );
+        } catch (error) {
+          return reportRejectionResult(error, "no-findings report");
         }
-        await withReportDeadline(
-          (signal) =>
-            client.reportAnalysisInsight(
-              ctx.taskId as string,
-              ctx.taskRunId as string,
-              { no_findings_reason: args.no_findings_reason },
-              signal,
-            ),
-          "no-findings report",
-        );
         return {
           content: [
             {
@@ -338,16 +343,6 @@ export const reportInsightTool = defineLocalTool({
           "A finding requires observation, evidence, and category (or use only no_findings_reason for a clean run).",
         );
       }
-      if (existing.some((entry) => "no_findings_reason" in entry)) {
-        return errorResult(
-          "This run was already reported as having no findings; a finding now is contradictory. Stop reporting.",
-        );
-      }
-      if (existing.length >= MAX_INSIGHTS_PER_RUN) {
-        return errorResult(
-          `The ${MAX_INSIGHTS_PER_RUN}-finding cap for this run is reached. Stop reporting; summarize what you filed.`,
-        );
-      }
       if (args.category === "other" && !args.other_justification) {
         return errorResult(
           "category 'other' requires other_justification (50-200 chars).",
@@ -361,7 +356,7 @@ export const reportInsightTool = defineLocalTool({
         wastedDimensions.length === 0
       ) {
         return errorResult(
-          `category '${args.category}' requires wasted_effort with at least one measured dimension (tool_calls, seconds, or tokens) — count or subtract it from the log.`,
+          `category '${args.category}' requires wasted_effort with at least one measured dimension (tool_calls, seconds, tokens, or output_bytes) — count or subtract it from the log.`,
         );
       }
       if (!args.recurrence || !args.confidence_basis || !args.suggested_fix) {
@@ -420,25 +415,29 @@ export const reportInsightTool = defineLocalTool({
         confidence_basis: args.confidence_basis,
         suggested_fix: args.suggested_fix,
       };
-      await withReportDeadline(
-        (signal) =>
-          client.reportAnalysisInsight(
-            ctx.taskId as string,
-            ctx.taskRunId as string,
-            insight,
-            signal,
-          ),
-        "insight report",
-      );
+      try {
+        const { insight_index } = await withReportDeadline(
+          (signal) =>
+            client.reportAnalysisInsight(
+              ctx.taskId as string,
+              ctx.taskRunId as string,
+              insight,
+              signal,
+            ),
+          "insight report",
+        );
 
-      const remaining = MAX_INSIGHTS_PER_RUN - existing.length - 1;
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Recorded finding ${existing.length + 1} (${args.category}). ${remaining} more allowed; only report findings that clear the evidence bar.`,
-          },
-        ],
-      };
+        const remaining = MAX_INSIGHTS_PER_RUN - insight_index - 1;
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Recorded finding ${insight_index + 1} (${args.category}). ${remaining} more allowed; only report findings that clear the evidence bar.`,
+            },
+          ],
+        };
+      } catch (error) {
+        return reportRejectionResult(error, "finding");
+      }
     }),
 });

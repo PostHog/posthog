@@ -1,6 +1,7 @@
 import { buildCreatePrReportPrompt } from "@posthog/core/inbox/reportActions";
 import { buildPostHogUrl } from "@posthog/core/settings/posthogUrl";
 import type { TaskCreationInput } from "@posthog/core/task-detail/taskService";
+import type { Task } from "@posthog/shared/types";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import {
   type InboxCloudTaskInputContext,
@@ -13,6 +14,8 @@ interface UseCreatePrReportOptions {
   reportId: string;
   reportTitle: string | null;
   cloudRepository: string | null;
+  /** Fires once the implementation task exists (the chat dock binds to it). */
+  onTaskCreated?: (task: Task) => void;
 }
 
 interface UseCreatePrReportReturn {
@@ -44,6 +47,7 @@ export function useCreatePrReport({
   reportId,
   reportTitle,
   cloudRepository,
+  onTaskCreated,
 }: UseCreatePrReportOptions): UseCreatePrReportReturn {
   const { data: teamConfig } = useSignalTeamConfig();
   const baseBranchOverrides = teamConfig?.autostart_base_branches ?? null;
@@ -82,8 +86,6 @@ export function useCreatePrReport({
       return {
         content: prompt,
         taskDescription: prompt,
-        repository: ctx.cloudRepository,
-        githubUserIntegrationId: ctx.githubUserIntegrationId ?? undefined,
         workspaceMode: "cloud",
         executionMode: "auto",
         adapter: ctx.adapter,
@@ -128,6 +130,7 @@ export function useCreatePrReport({
     buildInput,
     analyticsExtras,
     redirectOnSuccess: false,
+    onTaskCreated,
   });
 
   const createPrReport = useCallback(

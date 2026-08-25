@@ -4,12 +4,16 @@ import {
 } from "@posthog/core/inbox/artefacts";
 import { selectSuggestedReviewersArtefact } from "@posthog/core/inbox/reportArtefacts";
 import {
+  Accordion,
+  AccordionContent,
+  AccordionItem,
+  AccordionTrigger,
   Button,
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
 } from "@posthog/quill";
+import type { InboxReportActionSurface } from "@posthog/shared";
 import type {
   SignalReport,
   SignalReportArtefactsResponse,
@@ -26,16 +30,20 @@ import { useReportActionTracker } from "@posthog/ui/features/inbox/hooks/useRepo
 const MAX_VISIBLE = 4;
 // Keep this stable because autocapture insights and UI tests can depend on it.
 const REMOVE_SELF_DATA_ATTR = "inbox-remove-self-from-reviewers";
-const REMOVE_SELF_TOOLTIP = "remove me from reviewers";
+const REMOVE_SELF_LABEL = "Remove me from reviewers";
 
 interface SuggestedReviewerAvatarStackProps {
   report: SignalReport;
   artefacts?: SignalReportArtefactsResponse | null;
+  /** Analytics surface for the remove-self action; the stack lives on list
+   * cards by default, but the detail header reuses it. */
+  surface?: InboxReportActionSurface;
 }
 
 export function SuggestedReviewerAvatarStack({
   report,
   artefacts,
+  surface = "list_row",
 }: SuggestedReviewerAvatarStackProps) {
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client, enabled: !!client });
@@ -47,7 +55,7 @@ export function SuggestedReviewerAvatarStack({
   const { mutate: updateReviewers, isPending } = useUpdateSuggestedReviewers(
     report.id,
   );
-  const fireAction = useReportActionTracker(report, "list_row");
+  const fireAction = useReportActionTracker(report, surface);
   const reviewerArtefact = selectSuggestedReviewersArtefact(
     artefacts?.results ?? data?.results ?? [],
   );
@@ -64,7 +72,6 @@ export function SuggestedReviewerAvatarStack({
   const visible = reviewers.slice(0, MAX_VISIBLE);
   const overflow = reviewers.length - visible.length;
   const reviewerCountLabel = `${reviewers.length} suggested reviewer${reviewers.length === 1 ? "" : "s"}`;
-
   const avatarStack = (
     <span className="-space-x-1.5 flex items-center">
       <span className="sr-only">{reviewerCountLabel}</span>
@@ -84,23 +91,8 @@ export function SuggestedReviewerAvatarStack({
     </span>
   );
 
-  if (!currentReviewer || !reviewerArtefact) {
-    const reviewerNames = visible
-      .map((reviewer) => suggestedReviewerDisplayName(reviewer))
-      .join(", ");
-    return (
-      <TooltipProvider delay={300}>
-        <Tooltip>
-          <TooltipTrigger render={<span className="shrink-0" />}>
-            {avatarStack}
-          </TooltipTrigger>
-          <TooltipContent>{reviewerNames}</TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    );
-  }
-
   const removeSelf = () => {
+    if (!currentReviewer || !reviewerArtefact) return;
     const nextReviewers = reviewerArtefact.content.filter(
       (reviewer) => reviewer.user?.uuid !== currentUser?.uuid,
     );
@@ -116,16 +108,67 @@ export function SuggestedReviewerAvatarStack({
   };
 
   return (
-    <TooltipProvider delay={300}>
-      <Tooltip>
-        <TooltipTrigger
-          render={
+    <Popover>
+      <PopoverTrigger
+        render={
+          <Button
+            type="button"
+            variant="link-muted"
+            size="xs"
+            className="h-auto p-0 no-underline hover:no-underline"
+            aria-label="View suggested reviewer rationale"
+            onClick={(event) => event.stopPropagation()}
+          />
+        }
+      >
+        {avatarStack}
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        side="bottom"
+        sideOffset={8}
+        className="flex w-96 flex-col gap-0 overflow-hidden p-0"
+      >
+        <div className="border-(--gray-6) border-b px-3 py-2 font-medium text-[13px]">
+          Suggested reviewers
+        </div>
+        <div className="max-h-80 overflow-y-auto overscroll-contain p-2">
+          <Accordion
+            multiple
+            defaultValue={
+              reviewers[0]?.github_login ? [reviewers[0].github_login] : []
+            }
+          >
+            {reviewers.map((reviewer) => (
+              <AccordionItem
+                key={reviewer.github_login}
+                value={reviewer.github_login}
+              >
+                <AccordionTrigger>
+                  {suggestedReviewerDisplayName(reviewer)}
+                </AccordionTrigger>
+                <AccordionContent>
+                  <div className="flex flex-col gap-2 pb-2 text-[12px] text-gray-11 leading-relaxed">
+                    {reviewer.relevant_commits.length > 0 ? (
+                      reviewer.relevant_commits.map((commit) => (
+                        <p key={commit.sha}>{commit.reason}</p>
+                      ))
+                    ) : (
+                      <p>Suggested by the agent</p>
+                    )}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
+        </div>
+        {currentReviewer && reviewerArtefact ? (
+          <div className="border-(--gray-6) border-t p-2">
             <Button
               type="button"
-              variant="link-muted"
+              variant="outline"
               size="xs"
-              className="h-auto p-0 no-underline hover:no-underline"
-              aria-label={REMOVE_SELF_TOOLTIP}
+              className="w-full"
               data-attr={REMOVE_SELF_DATA_ATTR}
               loading={isPending}
               onClick={(event) => {
@@ -133,13 +176,12 @@ export function SuggestedReviewerAvatarStack({
                 event.stopPropagation();
                 removeSelf();
               }}
-            />
-          }
-        >
-          {avatarStack}
-        </TooltipTrigger>
-        <TooltipContent>{REMOVE_SELF_TOOLTIP}</TooltipContent>
-      </Tooltip>
-    </TooltipProvider>
+            >
+              {REMOVE_SELF_LABEL}
+            </Button>
+          </div>
+        ) : null}
+      </PopoverContent>
+    </Popover>
   );
 }

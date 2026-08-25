@@ -395,3 +395,34 @@ def get_installations_for_sandbox(
         has_trusted_agent_key=agent_key is not None,
     )
     return results
+
+
+def get_sandbox_mcp_server_names(
+    team_id: int,
+    *,
+    user_id: int | None = None,
+    include_personal: bool = False,
+    task_origin: str | None = None,
+    task_agent_key: str | None = None,
+    credential_owner_id: int | None = None,
+    allowed_gateway_server_ids: list[str] | None = None,
+) -> list[str]:
+    """The names of the servers ``get_installations_for_sandbox`` would mount, in mount order.
+
+    For callers that steer an agent at its mounted servers by name before the sandbox launches
+    (the Signals scout run prompt), without being handed the mount credentials. Implemented as a
+    projection of the full resolution so the two can never disagree on what mounts; the signed
+    proxy token that resolution derives is stateless, so discarding it here spends nothing.
+    """
+    return [
+        installation.name
+        for installation in get_installations_for_sandbox(
+            team_id,
+            user_id=user_id,
+            include_personal=include_personal,
+            task_origin=task_origin,
+            task_agent_key=task_agent_key,
+            credential_owner_id=credential_owner_id,
+            allowed_gateway_server_ids=allowed_gateway_server_ids,
+        )
+    ]

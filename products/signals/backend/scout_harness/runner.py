@@ -25,6 +25,7 @@ from posthog.sync import database_sync_to_async
 from products.business_knowledge.backend.logic import is_maintained_for_team
 from products.data_catalog.backend.facade.api import approved_metric_names_for_team
 from products.data_catalog.backend.facade.flags import is_data_catalog_enabled
+from products.mcp_store.backend.facade.api import get_sandbox_mcp_server_names
 from products.signals.backend.agent_runtime import STEP_SCOUT, resolve_agent_runtime
 from products.signals.backend.models import SignalScoutConfig, SignalScoutRun
 from products.signals.backend.scout_harness.derived_metadata import stamp_derived_metadata
@@ -562,6 +563,31 @@ def _governed_metric_names_for_team(team: Team, user_id: int) -> list[str] | Non
         return None
 
 
+def _mcp_server_names_for_run(team: Team, user_id: int, config: SignalScoutConfig) -> list[str]:
+    """Names of the external MCP servers this run's sandbox will mount, for prompt steering.
+
+    Mirrors the launch path's resolution parameter for parameter (`start_agent_server` →
+    `get_installations_for_sandbox`): same origin and agent key, no credential owner, the
+    per-scout server selection, and the personal-inclusion posture of a non-internal task —
+    so the prompt names exactly the servers the sandbox mounts. A resolution error degrades
+    to an empty list rather than propagating, for the same reason as the flag fallback above:
+    the servers still mount (or not) at launch regardless, so the fallback only costs steering.
+    """
+    try:
+        return get_sandbox_mcp_server_names(
+            team.id,
+            user_id=user_id,
+            include_personal=True,
+            task_origin=tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
+            task_agent_key="scout",
+            credential_owner_id=None,
+            allowed_gateway_server_ids=[str(server_id) for server_id in (config.mcp_gateway_server_ids or [])],
+        )
+    except Exception as error:
+        capture_exception(error)
+        return []
+
+
 async def _spawn_and_run(
     *,
     team: Team,
@@ -653,6 +679,9 @@ async def _spawn_and_run(
         if data_catalog_enabled
         else None
     )
+    mcp_server_names = await database_sync_to_async(_mcp_server_names_for_run, thread_sensitive=False)(
+        team, user_id, config
+    )
     prompt = build_run_prompt(
         skill,
         run_id=str(run_id),
@@ -661,6 +690,9 @@ async def _spawn_and_run(
         github_read_access=github_guidance,
         data_catalog_enabled=data_catalog_enabled,
         governed_metric_names=governed_metric_names,
+        # Names the external MCP servers the sandbox will mount, so *How to call tools* can carve
+        # them out of the exec-interface rule; empty renders nothing.
+        mcp_server_names=mcp_server_names,
         business_knowledge_maintained=business_knowledge_maintained,
         # Renders the structured-output section (schema + `scout-record-output` contract) only
         # when the config carries a schema AND emit is on — records land solely as project

@@ -104,7 +104,7 @@ function CodeRefBlock({ code, language }: { code: string; language: string }) {
 
 function RelevanceNote({ note }: { note: string }) {
   if (!note.trim()) return null;
-  return <Text className="block text-(--gray-11) text-[12px]">{note}</Text>;
+  return <Text className="block text-(--gray-11) text-[13px]">{note}</Text>;
 }
 
 /** Judgment explanations are often paragraphs — collapsed by default behind a toggle. */
@@ -117,7 +117,7 @@ function CollapsibleReasoning({ text }: { text: string }) {
         type="button"
         onClick={() => setExpanded((v) => !v)}
         aria-expanded={expanded}
-        className="-mx-1 flex items-center gap-1 rounded-md px-1 py-0.5 text-(--gray-11) text-[12px] transition-colors hover:bg-(--gray-3) hover:text-(--gray-12)"
+        className="-mx-1 flex items-center gap-1 rounded-md px-1 py-0.5 text-(--gray-11) text-[13px] transition-colors hover:bg-(--gray-3) hover:text-(--gray-12)"
       >
         {expanded ? (
           <CaretDownIcon size={12} className="shrink-0" />
@@ -127,7 +127,7 @@ function CollapsibleReasoning({ text }: { text: string }) {
         {expanded ? "Hide reasoning" : "Show reasoning"}
       </button>
       {expanded ? (
-        <Text className="block text-(--gray-11) text-[12px]">{text}</Text>
+        <Text className="block text-(--gray-11) text-[13px]">{text}</Text>
       ) : null}
     </Box>
   );
@@ -155,7 +155,7 @@ function CollapsibleNote({
         type="button"
         onClick={() => setExpanded((v) => !v)}
         aria-expanded={expanded}
-        className="-mx-1 flex w-full items-center gap-1 rounded-md px-1 py-0.5 text-left text-(--gray-11) text-[12px] transition-colors hover:bg-(--gray-3) hover:text-(--gray-12)"
+        className="-mx-1 flex w-full items-center gap-1 rounded-md px-1 py-0.5 text-left text-(--gray-11) text-[13px] transition-colors hover:bg-(--gray-3) hover:text-(--gray-12)"
       >
         {expanded ? (
           <CaretDownIcon size={12} className="shrink-0" />
@@ -169,10 +169,10 @@ function CollapsibleNote({
         )}
       </button>
       {expanded ? (
-        <Box className="text-[12px]">
+        <Box className="text-[13px]">
           <MarkdownRenderer content={note} />
           {author ? (
-            <Text className="block text-(--gray-10) text-[11px]">
+            <Text className="block text-(--gray-10) text-[12px]">
               — {author}
             </Text>
           ) : null}
@@ -185,7 +185,7 @@ function CollapsibleNote({
 function ReviewersBody({ reviewers }: { reviewers: SuggestedReviewer[] }) {
   if (reviewers.length === 0) {
     return (
-      <Text className="block text-(--gray-10) text-[12px]">
+      <Text className="block text-(--gray-10) text-[13px]">
         No reviewers assigned.
       </Text>
     );
@@ -207,7 +207,7 @@ function ReviewersBody({ reviewers }: { reviewers: SuggestedReviewer[] }) {
               onLoad={(e) => e.currentTarget.classList.add("loaded")}
             />
           ) : null}
-          <Text className="text-[12px]">
+          <Text className="text-[13px]">
             {reviewer.user?.first_name ??
               reviewer.github_name ??
               reviewer.github_login}
@@ -217,7 +217,7 @@ function ReviewersBody({ reviewers }: { reviewers: SuggestedReviewer[] }) {
               href={`https://github.com/${reviewer.github_login}`}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-0.5 text-[11px] text-gray-9 hover:text-gray-11"
+              className="inline-flex items-center gap-0.5 text-[12px] text-gray-9 hover:text-gray-11"
             >
               @{reviewer.github_login}
               <ArrowSquareOutIcon size={10} />
@@ -244,7 +244,7 @@ function ArtefactBody({
     const text = (artefact.content as SignalReportArtefactContent | null)
       ?.content;
     return (
-      <Text className="block text-(--gray-10) text-[12px]">
+      <Text className="block text-(--gray-10) text-[13px]">
         {text || "No preview available."}
       </Text>
     );
@@ -334,7 +334,7 @@ function ArtefactBody({
       return (
         <Flex direction="column" gap="1">
           <Flex align="center" gap="2" wrap="wrap">
-            <Text className="font-mono text-(--gray-10) text-[11px]">
+            <Text className="font-mono text-(--gray-10) text-[12px]">
               {c.signal_id}
             </Text>
             <Badge color={c.verified ? "green" : "gray"} variant="soft">
@@ -346,7 +346,7 @@ function ArtefactBody({
               {c.relevant_code_paths.map((path) => (
                 <Text
                   key={path}
-                  className="truncate font-mono text-(--gray-11) text-[11px]"
+                  className="truncate font-mono text-(--gray-11) text-[12px]"
                 >
                   {path}
                 </Text>
@@ -375,7 +375,7 @@ function ArtefactBody({
       const c = artefact.content as SignalReportArtefactContent | null;
       const text = typeof c?.content === "string" ? c.content : "";
       return (
-        <Text className="block text-(--gray-10) text-[12px]">
+        <Text className="block text-(--gray-10) text-[13px]">
           {text || "No preview available."}
         </Text>
       );
@@ -400,18 +400,18 @@ function ArtefactRow({
     <Box className="rounded-lg border border-gray-6 bg-gray-1 p-3">
       <Flex align="center" justify="between" gap="2" className="mb-1.5">
         <Flex align="center" gap="2" className="min-w-0">
-          <Text className="shrink-0 font-medium text-[12px]">
+          <Text className="shrink-0 font-medium text-[13px]">
             {typeLabel(artefact.type)}
           </Text>
           {location ? (
-            <Text className="truncate font-mono text-(--gray-10) text-[11px]">
+            <Text className="truncate font-mono text-(--gray-10) text-[12px]">
               {location}
             </Text>
           ) : null}
         </Flex>
         <Flex align="center" gap="2" className="shrink-0">
           {attribution ? (
-            <Text className="text-(--gray-10) text-[11px]">
+            <Text className="text-(--gray-10) text-[12px]">
               by {attribution}
             </Text>
           ) : null}
@@ -422,7 +422,7 @@ function ArtefactRow({
               onClick={() => setShowRaw((v) => !v)}
               title="View raw JSON (dev only)"
               aria-pressed={showRaw}
-              className={`rounded-sm px-1 font-mono text-[11px] transition-colors hover:bg-(--gray-3) ${
+              className={`rounded-sm px-1 font-mono text-[12px] transition-colors hover:bg-(--gray-3) ${
                 showRaw ? "text-(--gray-12)" : "text-(--gray-9)"
               }`}
             >
@@ -438,7 +438,7 @@ function ArtefactRow({
         hideCommitDiffs={hideCommitDiffs}
       />
       {showRaw ? (
-        <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-(--gray-6) bg-(--gray-2) p-2 font-mono text-(--gray-11) text-[11px]">
+        <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap rounded-md border border-(--gray-6) bg-(--gray-2) p-2 font-mono text-(--gray-11) text-[12px]">
           {JSON.stringify(artefact, null, 2)}
         </pre>
       ) : null}

@@ -3,13 +3,14 @@ import {
   ArrowsClockwise,
   CheckCircle,
   GearSix,
-  GithubLogo,
   Plus,
+  Trash,
 } from "@phosphor-icons/react";
 import {
   GITHUB_CONNECT_PENDING_APPROVAL_CODE,
   isGithubConnectPendingApproval,
 } from "@posthog/core/integrations/connectErrors";
+import { githubInvalidationKeys } from "@posthog/core/integrations/connectMachine";
 import {
   buildConnectAbandonedProps,
   buildConnectFailedProps,
@@ -41,18 +42,16 @@ import {
   useUserGithubIntegrations,
   useUserRepositoryIntegration,
 } from "@posthog/ui/features/integrations/useIntegrations";
-import { OptionalBadge } from "@posthog/ui/features/onboarding/components/OptionalBadge";
-import { PANEL_SHADOW } from "@posthog/ui/features/onboarding/components/onboardingStyles";
 import { useProjectsWithIntegrations } from "@posthog/ui/features/onboarding/hooks/useProjectsWithIntegrations";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
+import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import { track } from "@posthog/ui/shell/analytics";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
 import {
   AlertDialog,
-  Box,
   Button,
-  DropdownMenu,
   Flex,
+  IconButton,
   Skeleton,
   Spinner,
   Text,
@@ -67,9 +66,6 @@ export function GitHubConnectPanel() {
     useProjectsWithIntegrations();
   const manuallySelectedProjectId = useOnboardingStore(
     (state) => state.selectedProjectId,
-  );
-  const setSelectedProjectId = useOnboardingStore(
-    (state) => state.selectProjectId,
   );
   const selectedProjectId = useMemo(
     () =>
@@ -228,9 +224,20 @@ export function GitHubConnectPanel() {
       ),
     [hasGitIntegration, projectsWithGithub, selectedProjectId],
   );
-  const [selectedAlternativeId, setSelectedAlternativeId] = useState<
-    number | null
-  >(null);
+  const [selectedAlternativeId] = useState<number | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const refreshGithubState = async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.all(
+        githubInvalidationKeys(selectedProjectId).map((queryKey) =>
+          queryClient.invalidateQueries({ queryKey: [...queryKey] }),
+        ),
+      );
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
   const selectedAlternative = useMemo(() => {
     if (!alternativeConnectedProjects.length) return null;
     return (
@@ -240,158 +247,104 @@ export function GitHubConnectPanel() {
     );
   }, [alternativeConnectedProjects, selectedAlternativeId]);
 
+  // Which connect path applies. The user presses the same button either way.
+  const teamConnectFlow: OnboardingGithubConnectFlow | null =
+    selectedProject?.hasGithubIntegration
+      ? "team_existing"
+      : selectedAlternative && selectedProject
+        ? "team_alternative"
+        : null;
+
+  const [reconnectingInstallationId, setReconnectingInstallationId] = useState<
+    string | null
+  >(null);
   const [disconnectTarget, setDisconnectTarget] = useState<{
     installationId: string;
     accountName: string;
   } | null>(null);
-  const [reconnectingInstallationId, setReconnectingInstallationId] = useState<
-    string | null
-  >(null);
   const { disconnect, isDisconnecting, reconnect } =
     useGithubDisconnect(selectedProjectId);
 
   return (
-    <>
-      <Box
-        p="5"
-        style={{ boxShadow: PANEL_SHADOW }}
-        className="rounded-[12px] border border-(--gray-a3) bg-(--color-panel-solid)"
-      >
-        <Flex direction="column" gap="4">
-          <Flex direction="column" gap="1">
-            <Flex align="center" justify="between" gap="2">
-              <Flex align="center" gap="2">
-                <GithubLogo size={18} className="text-(--gray-12)" />
-                <Text className="font-bold text-(--gray-12) text-base">
-                  Connect GitHub
-                </Text>
-              </Flex>
-              {isLoading || githubUserIntegrationsLoading ? (
-                <Skeleton className="h-[16px] w-[80px]" />
-              ) : hasGitIntegration ? (
-                anyIntegrationStale ? (
-                  <Text className="text-(--amber-11) text-[13px]">
-                    Reconnect needed
-                  </Text>
-                ) : (
-                  <Flex align="center" gap="1">
-                    <CheckCircle
-                      size={14}
-                      weight="fill"
-                      className="text-(--green-9)"
-                    />
-                    <Text className="text-(--green-11) text-[13px]">
-                      {githubUserIntegrations.length > 1
-                        ? `Connected (${githubUserIntegrations.length})`
-                        : "Connected"}
-                    </Text>
-                  </Flex>
-                )
-              ) : (
-                <OptionalBadge />
-              )}
-            </Flex>
-            {!hasGitIntegration &&
-              !isLoading &&
-              !githubUserIntegrationsLoading &&
-              (selectedProject?.hasGithubIntegration && canTakeAction ? (
-                <Text className="text-(--gray-11) text-sm">
-                  GitHub is already set up on{" "}
-                  <Text className="font-bold">{selectedProject.name}</Text>.
-                  Sign in with one click to link your account, no admin approval
-                  needed.
-                </Text>
-              ) : selectedAlternative && selectedProject && canTakeAction ? (
-                <Text className="text-(--gray-11) text-sm">
-                  GitHub is already connected on{" "}
-                  {alternativeConnectedProjects.length > 1 ? (
-                    <DropdownMenu.Root>
-                      <DropdownMenu.Trigger>
-                        <button
-                          type="button"
-                          className="cursor-pointer border-0 bg-transparent p-0 font-bold text-(--gray-12) underline"
-                        >
-                          {selectedAlternative.name} +{" "}
-                          {alternativeConnectedProjects.length - 1} more
-                        </button>
-                      </DropdownMenu.Trigger>
-                      <DropdownMenu.Content size="1" align="start">
-                        {alternativeConnectedProjects.map((p) => (
-                          <DropdownMenu.Item
-                            key={p.id}
-                            onSelect={() => setSelectedAlternativeId(p.id)}
-                          >
-                            <Text className="text-[13px]">{p.name}</Text>
-                            <Text className="ml-2 text-(--gray-10) text-[13px]">
-                              {p.organization.name}
-                            </Text>
-                          </DropdownMenu.Item>
-                        ))}
-                      </DropdownMenu.Content>
-                    </DropdownMenu.Root>
-                  ) : (
-                    <>
-                      <Text className="font-bold">
-                        {selectedAlternative.name}
-                      </Text>{" "}
-                      ({selectedAlternative.organization.name})
-                    </>
-                  )}
-                  .
-                </Text>
-              ) : isAwaitingApproval ? (
-                <GithubApprovalNotice state="awaiting" className="pt-3" />
-              ) : isApprovedNotLinked ? (
-                <GithubApprovalNotice state="approved" className="pt-3" />
-              ) : (
-                <Text
-                  className={
-                    hasConnectError
-                      ? "text-(--red-11) text-sm"
-                      : "text-(--gray-11) text-sm"
-                  }
+    <div>
+      <Flex direction="column" gap="3">
+        <Flex direction="column" gap="1" className="empty:hidden">
+          {(isLoading || githubUserIntegrationsLoading) && (
+            <Skeleton className="h-[16px] w-[80px]" />
+          )}
+          {!isLoading &&
+            !githubUserIntegrationsLoading &&
+            hasGitIntegration &&
+            anyIntegrationStale && (
+              <Text className="text-(--amber-11) text-[13px]">
+                Reconnect needed
+              </Text>
+            )}
+          {!hasGitIntegration &&
+            !isLoading &&
+            !githubUserIntegrationsLoading &&
+            (isAwaitingApproval ? (
+              <GithubApprovalNotice state="awaiting" className="pt-3" />
+            ) : isApprovedNotLinked ? (
+              <GithubApprovalNotice state="approved" className="pt-3" />
+            ) : defaultPanelMessage ? (
+              <Text
+                className={
+                  hasConnectError
+                    ? "text-(--red-11) text-sm"
+                    : "text-(--gray-11) text-sm"
+                }
+              >
+                {defaultPanelMessage}
+              </Text>
+            ) : null)}
+        </Flex>
+        {hasGitIntegration ? (
+          <Flex direction="column" gap="3">
+            {githubUserIntegrations.map((integration) => {
+              const installationId = integration.installation_id;
+              const accountName = formatGithubAccountLabel(
+                integration.account,
+                installationId,
+              );
+              const installRepos = reposByInstallationId[installationId];
+              const isLoadingInstallRepos = installRepos === undefined;
+              const isStale = failedInstallationIds.includes(installationId);
+              const isReconnecting =
+                reconnectingInstallationId === installationId;
+              return (
+                <Flex
+                  key={integration.id}
+                  direction="column"
+                  gap="2"
+                  p="3"
+                  className="rounded-[10px] border border-(--gray-a4) bg-(--color-panel-solid)"
                 >
-                  {defaultPanelMessage}
-                </Text>
-              ))}
-          </Flex>
-          {hasGitIntegration ? (
-            <Flex direction="column" gap="3">
-              {githubUserIntegrations.map((integration) => {
-                const installationId = integration.installation_id;
-                const accountName = formatGithubAccountLabel(
-                  integration.account,
-                  installationId,
-                );
-                const installRepos = reposByInstallationId[installationId];
-                const isLoadingInstallRepos = installRepos === undefined;
-                const isStale = failedInstallationIds.includes(installationId);
-                const isReconnecting =
-                  reconnectingInstallationId === installationId;
-                return (
-                  <Flex
-                    key={integration.id}
-                    direction="column"
-                    gap="2"
-                    p="3"
-                    className="rounded-[8px] border border-(--gray-a3)"
-                  >
-                    <Flex align="center" justify="between" gap="2" wrap="wrap">
-                      <Flex align="center" gap="2">
-                        <Text className="font-bold text-(--gray-12) text-sm">
-                          {accountName}
-                        </Text>
-                        <Text className="text-(--gray-10) text-[12px]">
-                          {integration.account?.type === "Organization"
-                            ? "org"
-                            : "personal"}
-                        </Text>
-                      </Flex>
-                      {isStale ? (
-                        <Text className="text-(--amber-11) text-[12px]">
-                          Reconnect needed
-                        </Text>
-                      ) : (
+                  <Flex align="center" justify="between" gap="2" wrap="wrap">
+                    <Flex align="center" gap="2">
+                      {!isStale && (
+                        <CheckCircle
+                          size={15}
+                          weight="fill"
+                          className="shrink-0 text-(--green-9)"
+                        />
+                      )}
+                      <Text className="font-bold text-(--gray-12) text-sm">
+                        {accountName}
+                      </Text>
+                      <Text className="text-(--gray-10) text-[12px]">
+                        {integration.account?.type === "Organization"
+                          ? "org"
+                          : "personal"}
+                      </Text>
+                    </Flex>
+                    {isStale && (
+                      <Text className="text-(--amber-11) text-[12px]">
+                        Reconnect needed
+                      </Text>
+                    )}
+                    <Flex align="center" gap="3">
+                      {!isStale && (
                         <Text className="text-(--gray-10) text-[12px]">
                           {isLoadingInstallRepos
                             ? "Loading…"
@@ -400,183 +353,180 @@ export function GitHubConnectPanel() {
                               : `${installRepos.length} repos`}
                         </Text>
                       )}
-                    </Flex>
-                    <Flex align="center" gap="3" wrap="wrap">
-                      {isStale && (
-                        <Button
+                      <Tooltip content="Manage on GitHub">
+                        <IconButton
                           size="1"
-                          variant="solid"
-                          loading={isReconnecting}
-                          disabled={
-                            reconnectingInstallationId !== null &&
-                            !isReconnecting
-                          }
-                          onClick={async () => {
-                            markConnectStarted("user_new", true);
-                            setReconnectingInstallationId(installationId);
-                            try {
-                              await reconnect(
+                          variant="ghost"
+                          color="gray"
+                          aria-label={`Manage ${accountName} on GitHub`}
+                          onClick={() =>
+                            openExternalUrl(
+                              buildInstallationSettingsUrl(
+                                integration.account,
                                 installationId,
-                                handleConnectGitHub,
-                              );
-                            } catch {
-                              // The pre-connect disconnect failed, so no
-                              // connect flow ever started; a later unmount
-                              // must not report this as user abandonment.
-                              inFlightConnectRef.current = null;
-                            } finally {
-                              setReconnectingInstallationId(null);
-                            }
-                          }}
+                              ),
+                            )
+                          }
                         >
-                          Reconnect
-                          <ArrowSquareOut size={12} />
-                        </Button>
-                      )}
-                      <Button
-                        size="1"
-                        variant="soft"
-                        color="gray"
-                        onClick={() => {
-                          openExternalUrl(
-                            buildInstallationSettingsUrl(
-                              integration.account,
-                              installationId,
-                            ),
-                          );
-                        }}
-                      >
-                        <GearSix size={12} />
-                        Settings
-                      </Button>
-                      <Button
-                        size="1"
-                        variant="soft"
-                        color="red"
-                        onClick={() =>
-                          setDisconnectTarget({ installationId, accountName })
-                        }
-                      >
-                        Disconnect
-                      </Button>
+                          <GearSix size={14} />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip content="Disconnect">
+                        <IconButton
+                          size="1"
+                          variant="ghost"
+                          color="gray"
+                          aria-label={`Disconnect ${accountName}`}
+                          onClick={() =>
+                            setDisconnectTarget({ installationId, accountName })
+                          }
+                        >
+                          <Trash size={14} />
+                        </IconButton>
+                      </Tooltip>
                     </Flex>
                   </Flex>
-                );
-              })}
-              <Flex align="center" gap="3" wrap="wrap">
-                <Button
-                  size="1"
-                  variant="soft"
-                  color="gray"
-                  onClick={() => {
-                    queryClient.invalidateQueries({
-                      queryKey: ["integrations"],
-                    });
-                    queryClient.invalidateQueries({
-                      queryKey: ["user-github-integrations"],
-                    });
-                  }}
-                >
-                  <ArrowsClockwise size={12} />
-                  Refresh
-                </Button>
-                <Button
-                  size="1"
-                  variant="ghost"
-                  color="gray"
-                  onClick={() => initiateConnect("user_new")}
-                  loading={isConnecting}
-                >
-                  <Plus size={12} />
-                  Add another GitHub org
-                </Button>
-              </Flex>
-            </Flex>
-          ) : isAwaitingApproval ? null : isApprovedNotLinked ? (
-            <QuillButton
-              variant="primary"
-              size="sm"
-              className="self-start"
-              loading={isConnecting}
-              onClick={() => initiateConnect("user_new")}
-            >
-              Connect GitHub
-              <ArrowSquareOut size={12} />
-            </QuillButton>
-          ) : !isLoading && !githubUserIntegrationsLoading ? (
-            selectedProject?.hasGithubIntegration && canTakeAction ? (
+                  <Flex
+                    align="center"
+                    gap="3"
+                    wrap="wrap"
+                    className="empty:hidden"
+                  >
+                    {isStale && (
+                      <Button
+                        size="1"
+                        variant="solid"
+                        loading={isReconnecting}
+                        disabled={
+                          reconnectingInstallationId !== null && !isReconnecting
+                        }
+                        onClick={async () => {
+                          markConnectStarted("user_new", true);
+                          setReconnectingInstallationId(installationId);
+                          try {
+                            await reconnect(
+                              installationId,
+                              handleConnectGitHub,
+                            );
+                          } catch {
+                            // The pre-connect disconnect failed, so no
+                            // connect flow ever started; a later unmount
+                            // must not report this as user abandonment.
+                            inFlightConnectRef.current = null;
+                          } finally {
+                            setReconnectingInstallationId(null);
+                          }
+                        }}
+                      >
+                        Reconnect
+                        <ArrowSquareOut size={12} />
+                      </Button>
+                    )}
+                  </Flex>
+                </Flex>
+              );
+            })}
+            <Flex align="center" gap="3" wrap="wrap">
               <Button
-                size="2"
-                variant="solid"
-                onClick={() => initiateConnect("team_existing")}
-                className="self-start"
+                size="1"
+                variant="soft"
+                color="gray"
+                loading={isRefreshing}
+                onClick={() => void refreshGithubState()}
               >
-                Sign in with GitHub
+                <ArrowsClockwise size={12} />
+                Refresh
+              </Button>
+              <Button
+                size="1"
+                variant="ghost"
+                color="gray"
+                onClick={() => initiateConnect("user_new")}
+                loading={isConnecting}
+              >
+                <Plus size={12} />
+                Add another GitHub org
+              </Button>
+            </Flex>
+          </Flex>
+        ) : isAwaitingApproval ? (
+          <Button
+            size="2"
+            variant="soft"
+            color="gray"
+            className="self-start"
+            loading={isRefreshing}
+            onClick={() => void refreshGithubState()}
+          >
+            <ArrowsClockwise size={12} />
+            Check again
+          </Button>
+        ) : isApprovedNotLinked ? (
+          <QuillButton
+            variant="primary"
+            size="lg"
+            className="h-[44px] w-full"
+            loading={isConnecting}
+            onClick={() => initiateConnect("user_new")}
+          >
+            Sign in with GitHub
+            <ArrowSquareOut size={12} />
+          </QuillButton>
+        ) : !isLoading && !githubUserIntegrationsLoading ? (
+          teamConnectFlow && canTakeAction ? (
+            <Button
+              size="3"
+              variant="solid"
+              onClick={() => initiateConnect(teamConnectFlow)}
+              className="w-full"
+            >
+              Sign in with GitHub
+              <ArrowSquareOut size={12} />
+            </Button>
+          ) : (
+            <Flex direction="column" gap="2" className="w-full">
+              <Button
+                size="3"
+                variant="solid"
+                onClick={() => {
+                  const { isRetry, shouldReset } = deriveConnectButtonState({
+                    isConnecting,
+                    hasConnectError,
+                    timedOut,
+                  });
+                  if (shouldReset) resetConnect();
+                  initiateConnect("user_new", isRetry);
+                }}
+                loading={isConnecting}
+                className="w-full"
+              >
+                {
+                  deriveConnectButtonState({
+                    isConnecting,
+                    hasConnectError,
+                    timedOut,
+                  }).label
+                }
                 <ArrowSquareOut size={12} />
               </Button>
-            ) : selectedAlternative && selectedProject && canTakeAction ? (
-              <Flex direction="column" gap="2" align="start">
-                <Button
-                  size="2"
-                  variant="solid"
-                  onClick={() => initiateConnect("team_alternative")}
-                >
-                  Connect GitHub on {selectedProject.name}
-                  <ArrowSquareOut size={12} />
-                </Button>
+              {hasConnectError && (
                 <Button
                   size="1"
                   variant="ghost"
                   color="gray"
-                  onClick={() => setSelectedProjectId(selectedAlternative.id)}
+                  onClick={resetConnect}
+                  className="self-start"
                 >
-                  Switch to {selectedAlternative.name}
+                  Dismiss
                 </Button>
-              </Flex>
-            ) : (
-              <Flex gap="2" align="center">
-                <Button
-                  size="2"
-                  variant="solid"
-                  onClick={() => {
-                    const { isRetry, shouldReset } = deriveConnectButtonState({
-                      isConnecting,
-                      hasConnectError,
-                      timedOut,
-                    });
-                    if (shouldReset) resetConnect();
-                    initiateConnect("user_new", isRetry);
-                  }}
-                  loading={isConnecting}
-                >
-                  {
-                    deriveConnectButtonState({
-                      isConnecting,
-                      hasConnectError,
-                      timedOut,
-                    }).label
-                  }
-                  <ArrowSquareOut size={12} />
-                </Button>
-                {hasConnectError && (
-                  <Button
-                    size="2"
-                    variant="ghost"
-                    color="gray"
-                    onClick={resetConnect}
-                  >
-                    Dismiss
-                  </Button>
-                )}
-              </Flex>
-            )
-          ) : null}
-        </Flex>
-      </Box>
-
+              )}
+            </Flex>
+          )
+        ) : null}
+      </Flex>
       <AlertDialog.Root
         open={disconnectTarget !== null}
-        onOpenChange={(next) => {
+        onOpenChange={(next: boolean) => {
           if (!next && !isDisconnecting) {
             setDisconnectTarget(null);
           }
@@ -590,7 +540,7 @@ export function GitHubConnectPanel() {
           <AlertDialog.Description className="text-sm">
             This removes your personal GitHub authorization from PostHog. You
             can reconnect at any time. The GitHub App itself stays installed in
-            your org — uninstall it on GitHub if you want to remove that too.
+            your org, so uninstall it on GitHub if you want to remove that too.
           </AlertDialog.Description>
           <Flex gap="3" mt="4" justify="end">
             <AlertDialog.Cancel>
@@ -614,6 +564,6 @@ export function GitHubConnectPanel() {
           </Flex>
         </AlertDialog.Content>
       </AlertDialog.Root>
-    </>
+    </div>
   );
 }

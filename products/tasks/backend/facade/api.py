@@ -64,6 +64,9 @@ from products.posthog_ai.backend.task_ownership import detach_conversations_for_
 from products.tasks.backend.constants import (
     AGENT_OTEL_TELEMETRY_STATE_KEY,
     AGENT_PEER_MESSAGING_FEATURE_FLAG,
+    ANALYSIS_TARGET_IMAGE_ID_STATE_KEY,
+    ANALYSIS_TARGET_IMAGE_NAME_STATE_KEY,
+    ANALYSIS_TARGET_REPOSITORY_STATE_KEY,
     ANALYSIS_TARGET_RUN_ID_STATE_KEY,
     ANALYSIS_TARGET_TASK_ID_STATE_KEY,
     CI_STATUSES as CI_STATUSES,  # re-exported for presentation
@@ -2142,6 +2145,12 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         TASK_ANALYSIS_INSIGHTS_STATE_KEY,
         ANALYSIS_TARGET_TASK_ID_STATE_KEY,
         ANALYSIS_TARGET_RUN_ID_STATE_KEY,
+        # Server-stamped at analysis creation (task_analysis._target_context_state) and read back
+        # at insight-report time to attribute the captured event to a repository and sandbox
+        # image. A PATCHable value would let the sandbox agent forge that attribution.
+        ANALYSIS_TARGET_REPOSITORY_STATE_KEY,
+        ANALYSIS_TARGET_IMAGE_ID_STATE_KEY,
+        ANALYSIS_TARGET_IMAGE_NAME_STATE_KEY,
         # Credential grant decided at Task.create_and_run time by server-owned callers (the scout
         # runner); a PATCHable key would let any task controller mint a GitHub token onto a
         # queued repo-less run.

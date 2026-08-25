@@ -9,6 +9,7 @@ from products.customer_analytics.backend.presentation.views.views import (
     AccountNotesViewSet,
     AccountRelationshipDefinitionViewSet,
     AccountRelationshipViewSet,
+    AccountTrackRuleViewSet,
     AccountViewSet,
     CalendarSyncViewSet,
     CustomerJourneyViewSet,
@@ -23,6 +24,12 @@ from products.customer_analytics.backend.presentation.views.views import (
 
 
 def register_routes(routers: RouterRegistry) -> None:
+    routers.projects.register(
+        r"account_track_rules",
+        AccountTrackRuleViewSet,
+        "project_account_track_rules",
+        ["team_id"],
+    )
     routers.projects.register(
         r"announcements",
         AnnouncementViewSet,

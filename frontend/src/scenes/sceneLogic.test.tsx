@@ -87,6 +87,12 @@ describe('sceneLogic', () => {
         expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.projectCreateFirst())
     })
 
+    it('redirects /data-warehouse/new to the new-source wizard instead of a 404', async () => {
+        router.actions.push('/data-warehouse/new')
+        await expectLogic(logic).delay(1)
+        expect(removeProjectIdIfPresent(router.values.location.pathname)).toEqual(urls.dataWarehouseSourceNew())
+    })
+
     it('redirects the old /code_review path to /code-review, preserving the ?review= deep link and hash', async () => {
         router.actions.push('/code_review', { review: 'r-9' }, { panel: 'max:inspect' })
         await expectLogic(logic).delay(1)

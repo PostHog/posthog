@@ -104,6 +104,14 @@ APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR = (
     "new request, which only an Admin key can create. Give the key the Admin role, then reconnect."
 )
 
+# A sales or subscription report sync started without a vendor number. `/v1/salesReports` can't be
+# read without one, so every retry fails identically until the user adds it in the source settings.
+# `AppStoreConnectSource.get_non_retryable_errors` matches on this text to fail fast.
+APP_STORE_CONNECT_MISSING_VENDOR_NUMBER_ERROR = (
+    "Syncing App Store Connect sales reports needs your vendor number. "
+    "Add it in the source settings, then run the sync again."
+)
+
 
 @frozen
 class _AppleApiError:
@@ -783,10 +791,7 @@ def _get_sales_report(
     db_incremental_field_last_value: Any,
 ) -> Iterator[list[dict[str, Any]]]:
     if not vendor_number:
-        raise ValueError(
-            "Syncing App Store Connect sales reports needs your vendor number. "
-            "Add it in the source settings, then run the sync again."
-        )
+        raise ValueError(APP_STORE_CONNECT_MISSING_VENDOR_NUMBER_ERROR)
 
     today = datetime.now(UTC).date()
     end = today - timedelta(days=SALES_REPORT_END_OFFSET_DAYS)

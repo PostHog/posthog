@@ -104,6 +104,7 @@ export function TaskFeedPane({
         void archiveTask({ taskId: item.id });
       },
       remove: () => undefined,
+      fileCanvas: () => undefined,
     }),
     [feedId, select, togglePin, setPinnedMany, archiveTask],
   );

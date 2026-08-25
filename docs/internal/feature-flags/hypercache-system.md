@@ -397,7 +397,10 @@ The flag definitions verification task (runs hourly at :50) compares cached flag
 4. Auto-fixes mismatches by refreshing the cache
 5. Reports metrics on match/mismatch/miss rates
 
-The task has a 25-minute soft / 30-minute hard time limit.
+The task has a 35-minute soft / 40-minute hard time limit.
+It winds down at a batch boundary two minutes before the soft limit,
+recording the partial run under `reason="deadline"` in `posthog_hypercache_verification_incomplete_runs_total`;
+the next run restarts from the first team.
 
 Configuration:
 

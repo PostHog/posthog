@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use chrono::Utc;
-use common_redis::{CustomRedisError, RedisClient};
+use common_redis::{CustomRedisError, ScriptRunner};
 use uuid::Uuid;
 
 use crate::modes::processing::redis_heal::HealGate;
@@ -70,41 +69,6 @@ local team_admitted  = take(KEYS[2], issue_admitted, tonumber(ARGV[6]), tonumber
 
 return { issue_admitted, team_admitted }
 "#;
-
-/// The single Redis operation the limiter needs: run the Lua script and decode
-/// its integer-array reply. Behind a trait so the rate-limiting stage can be
-/// unit-tested with an in-memory fake — including a failing one, to prove the
-/// stage fails open. Production uses the real `RedisClient`.
-#[async_trait]
-pub trait ScriptRunner: Send + Sync {
-    async fn eval_int_vec(
-        &self,
-        script: &str,
-        keys: Vec<String>,
-        args: Vec<String>,
-    ) -> Result<Vec<i64>, CustomRedisError>;
-
-    /// Rebuild the underlying connection after a connection-class failure;
-    /// see `common_redis::Client::heal`. Default no-op keeps test fakes
-    /// trivial.
-    async fn heal(&self) {}
-}
-
-#[async_trait]
-impl ScriptRunner for RedisClient {
-    async fn eval_int_vec(
-        &self,
-        script: &str,
-        keys: Vec<String>,
-        args: Vec<String>,
-    ) -> Result<Vec<i64>, CustomRedisError> {
-        RedisClient::eval_int_vec(self, script, keys, args).await
-    }
-
-    async fn heal(&self) {
-        self.heal_connection().await;
-    }
-}
 
 pub struct RedisRateLimiter {
     redis: Arc<dyn ScriptRunner>,
@@ -200,49 +164,8 @@ impl RedisRateLimiter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use common_redis::{CompressionConfig, RedisValueFormat};
-    use std::time::Duration;
-    use testcontainers::core::{IntoContainerPort, WaitFor};
-    use testcontainers::runners::AsyncRunner;
-    use testcontainers::{ContainerAsync, GenericImage};
-
-    /// Boot a throwaway Redis and return a connected client. The readiness banner
-    /// can land a hair before the socket accepts, so we probe with a trivial
-    /// script until it answers — otherwise the first command occasionally races
-    /// the container and flakes with "connection refused".
-    async fn start_redis() -> (Arc<RedisClient>, ContainerAsync<GenericImage>) {
-        let container = GenericImage::new("redis", "7-alpine")
-            .with_exposed_port(6379.tcp())
-            .with_wait_for(WaitFor::message_on_stdout("Ready to accept connections"))
-            .start()
-            .await
-            .unwrap();
-        let host = container.get_host().await.unwrap();
-        let port = container.get_host_port_ipv4(6379).await.unwrap();
-        let url = format!("redis://{host}:{port}");
-
-        for _ in 0..20 {
-            if let Ok(client) = RedisClient::with_config(
-                url.clone(),
-                CompressionConfig::disabled(),
-                RedisValueFormat::Utf8,
-                None,
-                None,
-            )
-            .await
-            {
-                if client
-                    .eval_int_vec("return {1, 1}", vec![], vec![])
-                    .await
-                    .is_ok()
-                {
-                    return (Arc::new(client), container);
-                }
-            }
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }
-        panic!("redis container never became ready");
-    }
+    use crate::test_support::{start_redis, RedisContainer};
+    use common_redis::RedisClient;
 
     // ===================================================================
     // Layer 1 — semi-unit tests: the token-bucket script, called directly.
@@ -511,7 +434,7 @@ mod tests {
         struct TestHarness {
             limiter: Arc<RedisRateLimiter>,
             next_team_id: AtomicI32,
-            _container: ContainerAsync<GenericImage>,
+            _container: RedisContainer,
         }
 
         impl TestHarness {

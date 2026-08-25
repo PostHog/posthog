@@ -86,7 +86,13 @@ export const CI_VALUES = [
   "none",
 ] as const;
 
-export const TYPE_VALUES = ["task", "space", "command", "saved"] as const;
+export const TYPE_VALUES = [
+  "task",
+  "space",
+  "command",
+  "saved",
+  "report",
+] as const;
 export type TypeValue = (typeof TYPE_VALUES)[number];
 
 const CI_ALIASES: Record<string, string> = {
@@ -309,6 +315,12 @@ export interface FeedQueryPlanContext {
   members: readonly FeedQueryMember[];
   spaces: readonly FeedQuerySpace[];
   me?: FeedQueryMember | null;
+  /**
+   * Whether the `posthog-desktop-channel-reports` rollout is on. With it off,
+   * `type:report` is treated as an unsupported token rather than flipping the
+   * feed into reports-only mode, so the rollout flag stays a single switch.
+   */
+  reportsEnabled: boolean;
 }
 
 export interface FeedQueryServerParams {
@@ -337,11 +349,23 @@ export interface FeedQueryTask {
   } | null;
 }
 
+/** The report fields the reports-mode predicate reads. */
+export interface FeedQueryReport {
+  title?: string | null;
+  status: string;
+}
+
 export interface FeedQueryPlan {
+  /** What the feed fetches: tasks (the default) or reports (`type:report`). */
+  mode: "tasks" | "reports";
   /** Requests to union for this query. Repeated values create one request per value. */
   requests: FeedQueryServerParams[];
   matches: (task: FeedQueryTask) => boolean;
   issues: FeedQueryIssue[];
+  /** Reports-mode server narrowing: the one space to fetch, when `space:` names one. */
+  reportChannelId?: string;
+  /** Reports-mode client predicate (free-text title match, archived exclusion). */
+  matchesReport?: (report: FeedQueryReport) => boolean;
 }
 
 function normalize(value: string): string {
@@ -566,6 +590,21 @@ export function planFeedQuery(
       ...token,
       value,
     });
+  }
+
+  // `type:report` flips the whole feed into reports-only mode: reports are a
+  // different resource with different filters, so the plan swaps its fetch
+  // strategy instead of mixing kinds. Handled before the task groups so their
+  // tokens surface as "unsupported here" rather than half-applying. Gated on the
+  // reports rollout: with the flag off, the token falls through to the task-mode
+  // `type:` handling below, which reports it as unsupported.
+  if (
+    context.reportsEnabled &&
+    groups
+      .get("type")
+      ?.positives.some((token) => normalize(token.value) === "report")
+  ) {
+    return planReportFeedQuery(parsed, groups, context, issues);
   }
 
   const createdBy = groups.get("created-by");
@@ -983,5 +1022,90 @@ export function planFeedQuery(
     );
   }
 
-  return { requests, matches, issues };
+  return { mode: "tasks", requests, matches, issues };
+}
+
+// Suppressed, resolved, and deleted reports live in the archive, not in feeds.
+const REPORT_EXCLUDED_STATUSES = new Set(["suppressed", "resolved", "deleted"]);
+
+/**
+ * The reports-only plan behind `type:report`. Deliberately narrow: `space:`
+ * scopes the fetch to one space and free text matches report titles; every
+ * other token is task-shaped and reported as unsupported rather than
+ * half-applied.
+ */
+function planReportFeedQuery(
+  parsed: ParsedFeedQuery,
+  groups: Map<string, Group>,
+  context: FeedQueryPlanContext,
+  issues: FeedQueryIssue[],
+): FeedQueryPlan {
+  let reportChannelId: string | undefined;
+  // A positive space: that doesn't resolve must narrow to nothing, not broaden
+  // to every report — mirrors the task-mode MATCH_NONE for an unknown space.
+  let unresolvedSpace = false;
+
+  for (const [key, group] of groups) {
+    if (key === "type") {
+      for (const token of [...group.positives, ...group.negatives]) {
+        if (token.negated || normalize(token.value) !== "report") {
+          issues.push({
+            raw: token.raw,
+            kind: "unsupported",
+            message: `A report feed shows only reports, so "${token.raw}" is ignored here`,
+          });
+        }
+      }
+      continue;
+    }
+    if (key === "space") {
+      for (const token of [...group.positives.slice(1), ...group.negatives]) {
+        issues.push({
+          raw: token.raw,
+          kind: "unsupported",
+          message: `Report feeds support one "space:" filter, so "${token.raw}" is ignored here`,
+        });
+      }
+      const first = group.positives[0];
+      if (first) {
+        const value = normalize(first.value).replace(/^#/, "");
+        const matched = context.spaces.find((s) => normalize(s.name) === value);
+        if (matched) {
+          reportChannelId = matched.id;
+        } else {
+          unresolvedSpace = true;
+          issues.push({
+            raw: first.raw,
+            kind: "unknown-value",
+            message: `No space named "${first.value}"`,
+          });
+        }
+      }
+      continue;
+    }
+    for (const token of [...group.positives, ...group.negatives]) {
+      issues.push({
+        raw: token.raw,
+        kind: "unsupported",
+        message: `Report feeds don't support "${token.raw}" yet, so it is ignored`,
+      });
+    }
+  }
+
+  const text = normalize(parsed.text);
+  const matchesReport = (report: FeedQueryReport): boolean => {
+    if (unresolvedSpace) return false;
+    if (REPORT_EXCLUDED_STATUSES.has(report.status)) return false;
+    if (!text) return true;
+    return (report.title ?? "").toLowerCase().includes(text);
+  };
+
+  return {
+    mode: "reports",
+    requests: [],
+    matches: MATCH_NONE,
+    issues,
+    reportChannelId,
+    matchesReport,
+  };
 }

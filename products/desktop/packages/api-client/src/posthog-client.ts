@@ -2763,6 +2763,7 @@ export class PostHogAPIClient {
       > & {
         github_integration?: number | null;
         github_user_integration?: string | null;
+        signal_report_task_relationship?: string;
         branch?: string | null;
         runtime_adapter?: string | null;
         model?: string | null;
@@ -4717,6 +4718,9 @@ export class PostHogAPIClient {
         "has_implementation_pr",
         String(params.has_implementation_pr),
       );
+    }
+    if (params?.channel_id) {
+      url.searchParams.set("channel_id", params.channel_id);
     }
 
     const response = await this.api.fetcher.fetch({

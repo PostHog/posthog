@@ -236,6 +236,44 @@ def try_resolve_parent_table(
         return None
 
 
+def parent_snapshot_covers_through(team_id: int, source_id: str, parent_name: str) -> dt.datetime | None:
+    """How far the parent's data is guaranteed complete, or None if it has never completed a sync.
+
+    A child that derives its next scan floor from its own rows has to cap what it emits at this
+    value, or the floor advances past parent changes the snapshot could not show it yet and they
+    are never scanned again.
+
+    This is when the parent's last completed sync *started*, not when it finished. A sync reads
+    each row at some point between those two, so a row read early carries the state it had then,
+    and a parent change landing later in the same sync may be missing from the snapshot entirely.
+    Only changes from before the sync started are guaranteed to be in it. `finished_at` is the
+    right stamp for picking a Delta version (see `_snapshot_pin_as_of`) and the wrong one for
+    coverage; they are different quantities.
+
+    Call this BEFORE resolving the table, never after. A sync completing between the two reads
+    then leaves the cap on the older job while the pinned snapshot holds the newer one, which errs
+    toward emitting too little. Reversing the order errs toward emitting rows the snapshot never
+    covered, which is the bug this exists to prevent.
+    """
+    try:
+        parent_schema = get_schema_if_exists(parent_name, team_id, uuid.UUID(source_id))
+    except (ValueError, AttributeError):
+        return None
+    if parent_schema is None:
+        return None
+    return (
+        ExternalDataJob.objects.filter(
+            team_id=team_id,
+            schema_id=parent_schema.id,
+            status=ExternalDataJob.Status.COMPLETED,
+            finished_at__isnull=False,
+        )
+        .order_by("-finished_at")
+        .values_list("created_at", flat=True)
+        .first()
+    )
+
+
 def _snapshot_pin_as_of(team_id: int, parent_schema_id: uuid.UUID) -> dt.datetime | None:
     """The timestamp to time-travel the parent table to, or None to read its latest version.
 

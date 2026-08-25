@@ -8,7 +8,7 @@ import {
     explicitFreshnessLifetimeMs,
 } from './configuration-policy'
 import { ConfigurationCacheItem, CrawlHistoryItem, HttpCacheMetadata, UrlCrawlHistoryItem } from './crawl-history'
-import { FrontierPublisher, RepublishResult } from './frontier-publisher'
+import { FrontierPublisher, RepublishBatch, RepublishResult } from './frontier-publisher'
 import { HostBudget } from './host-budget'
 import {
     FetchOutcome,
@@ -67,7 +67,7 @@ function requirePositive(name: string, value: number): void {
     }
 }
 
-function isTransientOutcome(outcome: FetchOutcome): outcome is TransientFetchOutcome {
+export function isTransientOutcome(outcome: AttemptOutcome): outcome is TransientFetchOutcome {
     return TRANSIENT_OUTCOMES.has(outcome as TransientFetchOutcome)
 }
 
@@ -78,7 +78,11 @@ function isRequestStateFull(
 }
 
 export interface FetchPass {
-    run(candidates: FetchCandidate[], stored: Map<string, CrawlHistoryItem>): Promise<FetchAttempt[]>
+    run(
+        candidates: FetchCandidate[],
+        stored: Map<string, CrawlHistoryItem>,
+        republishBatch?: RepublishBatch
+    ): Promise<FetchAttempt[]>
 }
 
 export class FetchRunner implements FetchPass {
@@ -107,7 +111,12 @@ export class FetchRunner implements FetchPass {
         ImageFetchRequestMetrics.trackBudget(budget, scheduler)
     }
 
-    public async run(candidates: FetchCandidate[], stored: Map<string, CrawlHistoryItem>): Promise<FetchAttempt[]> {
+    public async run(
+        candidates: FetchCandidate[],
+        stored: Map<string, CrawlHistoryItem>,
+        republishBatch?: RepublishBatch
+    ): Promise<FetchAttempt[]> {
+        const activeRepublishBatch = republishBatch ?? this.publisher.createRepublishBatch()
         const deadlineMs = Date.now() + this.options.batchBudgetMs
         const configurationPolicy = this.configurationPolicy.createPass()
         const configurationItems = new Map<string, ConfigurationCacheItem>()
@@ -134,7 +143,8 @@ export class FetchRunner implements FetchPass {
                 configurationItems,
                 configurationPolicy,
                 deadlineMs,
-                attempts
+                attempts,
+                activeRepublishBatch
             )
         )
         const settledRegistrableDomains = await Promise.allSettled(registrableDomainRuns)
@@ -143,6 +153,12 @@ export class FetchRunner implements FetchPass {
         )
         if (failedRegistrableDomain) {
             throw failedRegistrableDomain.reason
+        }
+        if (!republishBatch) {
+            const result = await activeRepublishBatch.flush()
+            if (result.failedUrls > 0) {
+                throw new Error(`the image fetch lane could not account for ${result.failedUrls} URLs`)
+            }
         }
         this.logFailures(attempts)
         return attempts
@@ -155,7 +171,8 @@ export class FetchRunner implements FetchPass {
         configurationItems: Map<string, ConfigurationCacheItem>,
         configurationPolicy: ConfigurationPolicyPass,
         deadlineMs: number,
-        attempts: FetchAttempt[]
+        attempts: FetchAttempt[],
+        republishBatch: RepublishBatch
     ): Promise<void> {
         const byOrigin = new Map<string, FetchCandidate[]>()
         for (const candidate of queue) {
@@ -174,7 +191,7 @@ export class FetchRunner implements FetchPass {
                     continue
                 }
                 if (Date.now() > deadlineMs) {
-                    attempts.push(await this.republish(candidate, 'deadline', 'pass_deadline', ONE_MINUTE_MS, []))
+                    attempts.push(await this.republish(republishBatch, candidate, 'deadline', 'pass_deadline', 0, []))
                     continue
                 }
                 attempts.push(
@@ -185,14 +202,22 @@ export class FetchRunner implements FetchPass {
                                 debugTag: registrableDomain,
                                 fn: () => {
                                     if (Date.now() > deadlineMs) {
-                                        return this.republish(candidate, 'deadline', 'pass_deadline', ONE_MINUTE_MS, [])
+                                        return this.republish(
+                                            republishBatch,
+                                            candidate,
+                                            'deadline',
+                                            'pass_deadline',
+                                            0,
+                                            []
+                                        )
                                     }
                                     return this.fetchOne(
                                         candidate,
                                         stored,
                                         configurationItems,
                                         configurationPolicy,
-                                        deadlineMs
+                                        deadlineMs,
+                                        republishBatch
                                     )
                                 },
                             }),
@@ -214,7 +239,8 @@ export class FetchRunner implements FetchPass {
         stored: Map<string, CrawlHistoryItem>,
         configurationItems: Map<string, ConfigurationCacheItem>,
         configurationPolicy: ConfigurationPolicyPass,
-        deadlineMs: number
+        deadlineMs: number,
+        republishBatch: RepublishBatch
     ): Promise<FetchAttempt> {
         if (candidate.remainingHops === 0) {
             return this.terminal(candidate, HOPS_EXHAUSTED, undefined, [])
@@ -229,6 +255,7 @@ export class FetchRunner implements FetchPass {
             if (policy.transient) {
                 if (isRequestStateFull(policy.reason)) {
                     return await this.republish(
+                        republishBatch,
                         candidate,
                         policy.reason,
                         policy.reason,
@@ -237,7 +264,14 @@ export class FetchRunner implements FetchPass {
                     )
                 }
                 const waitMs = policy.reason === 'configuration_unreachable' ? CONFIGURATION_RETRY_MS : ONE_MINUTE_MS
-                return await this.republish(candidate, 'backoff', 'not_ready', waitMs, configurationUpdates)
+                return await this.republish(
+                    republishBatch,
+                    candidate,
+                    'backoff',
+                    'not_ready',
+                    waitMs,
+                    configurationUpdates
+                )
             }
             return this.terminal(
                 candidate,
@@ -250,6 +284,7 @@ export class FetchRunner implements FetchPass {
         if (!this.budget.setCrawlDelay(candidate.origin, policy.crawlDelayMs, Date.now())) {
             ImageFetchRequestMetrics.observePolicyAndBudgetDecision(true, 'origin_map_full')
             return await this.republish(
+                republishBatch,
                 candidate,
                 'origin_map_full',
                 'origin_map_full',
@@ -319,7 +354,14 @@ export class FetchRunner implements FetchPass {
                 const stateFull = isRequestStateFull(reason)
                 const republishReason: RepublishReason = stateFull ? reason : 'not_ready'
                 const waitMs = reason === 'configuration_unreachable' ? CONFIGURATION_RETRY_MS : ONE_MINUTE_MS
-                return await this.republish(attemptedCandidate, reason, republishReason, waitMs, configurationUpdates)
+                return await this.republish(
+                    republishBatch,
+                    attemptedCandidate,
+                    reason,
+                    republishReason,
+                    waitMs,
+                    configurationUpdates
+                )
             }
             return this.terminal(attemptedCandidate, reason, undefined, configurationUpdates, reason)
         }
@@ -332,11 +374,22 @@ export class FetchRunner implements FetchPass {
                 : reason === 'deadline' && Date.now() >= deadlineMs
                   ? 'pass_deadline'
                   : 'not_ready'
-            const waitMs = Math.max(
-                ONE_MINUTE_MS,
-                result.schedulingWaitMs ?? this.budget.blockedForMs(attemptedCandidate.registrableDomain, Date.now())
+            const waitMs =
+                republishReason === 'pass_deadline'
+                    ? 0
+                    : Math.max(
+                          ONE_MINUTE_MS,
+                          result.schedulingWaitMs ??
+                              this.budget.blockedForMs(attemptedCandidate.registrableDomain, Date.now())
+                      )
+            return await this.republish(
+                republishBatch,
+                attemptedCandidate,
+                reason,
+                republishReason,
+                waitMs,
+                configurationUpdates
             )
-            return await this.republish(attemptedCandidate, reason, republishReason, waitMs, configurationUpdates)
         }
 
         ImageFetchRequestMetrics.observePolicyAndBudgetDecision(false)
@@ -348,15 +401,13 @@ export class FetchRunner implements FetchPass {
                 result.retryAfterMs
             )
             const attempt = await this.republish(
+                republishBatch,
                 attemptedCandidate,
                 result.outcome,
                 'retry',
                 delayMs,
                 configurationUpdates
             )
-            if (!attempt.finished && !attempt.lost) {
-                ImageFetchRequestMetrics.incRetryCause(result.outcome)
-            }
             return attempt
         }
 
@@ -370,6 +421,7 @@ export class FetchRunner implements FetchPass {
                 return this.terminal(attemptedCandidate, 'bad_redirect', result.cache, configurationUpdates)
             }
             return await this.republishToTarget(
+                republishBatch,
                 attemptedCandidate,
                 result.outcome,
                 {
@@ -409,6 +461,7 @@ export class FetchRunner implements FetchPass {
     }
 
     private async republish(
+        republishBatch: RepublishBatch,
         candidate: FetchCandidate,
         outcome: AttemptOutcome,
         reason: RepublishReason,
@@ -416,6 +469,7 @@ export class FetchRunner implements FetchPass {
         configurationUpdates: ConfigurationCacheItem[]
     ): Promise<FetchAttempt> {
         return await this.republishToTarget(
+            republishBatch,
             candidate,
             outcome,
             {
@@ -431,6 +485,7 @@ export class FetchRunner implements FetchPass {
     }
 
     private async republishToTarget(
+        republishBatch: RepublishBatch,
         candidate: FetchCandidate,
         outcome: AttemptOutcome,
         target: Pick<FetchCandidate, 'currentUrl' | 'host' | 'origin' | 'registrableDomain'>,
@@ -441,7 +496,7 @@ export class FetchRunner implements FetchPass {
         if ((reason === 'redirect' || reason === 'retry') && candidate.remainingHops <= 1) {
             return this.terminal(candidate, HOPS_EXHAUSTED, undefined, configurationUpdates)
         }
-        const result: RepublishResult = await this.publisher.republish(candidate, target, reason, waitMs)
+        const result: RepublishResult = await republishBatch.republish(candidate, target, reason, waitMs)
         if (result === 'refused_delay') {
             return this.terminal(candidate, DELAY_TOO_LONG, undefined, configurationUpdates)
         }
@@ -449,7 +504,7 @@ export class FetchRunner implements FetchPass {
             candidate,
             outcome,
             finished: false,
-            lost: result === 'failed',
+            lost: false,
             configurationUpdates,
         }
     }

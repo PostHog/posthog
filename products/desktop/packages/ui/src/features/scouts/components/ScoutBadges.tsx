@@ -27,7 +27,7 @@ export function ScoutOriginBadge({ config }: { config: ScoutConfig }) {
 export function DryRunBadge({ config }: { config: ScoutConfig }) {
   if (config.emit) return null;
   return (
-    <Tooltip content="Runs on schedule but signals are not emitted to the Signals inbox">
+    <Tooltip content="Runs on schedule but signals are not emitted to Self-driving">
       <Badge
         variant="soft"
         color="amber"

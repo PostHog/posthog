@@ -70,6 +70,14 @@ const PERSON_COLUMN_NAMES = [
 export const PERSON_COLUMNS = PERSON_COLUMN_NAMES.join(', ')
 const PERSON_COLUMNS_PREFIXED = PERSON_COLUMN_NAMES.map((column) => `p.${column}`).join(', ')
 
+// Postgres reports the violated index per partition (posthog_person_p58_team_id_uuid_idx),
+// so match on the column instead of a fixed name. The distinct-ID constraint is named
+// "unique distinct_id for team new", which this does not match.
+function isUuidConstraintViolation(error: unknown): boolean {
+    const constraint = (error as { constraint?: unknown } | null)?.constraint
+    return typeof constraint === 'string' && constraint.includes('uuid')
+}
+
 function queryTag(base: string, callerTag?: string): string {
     return callerTag ? `${base}:${callerTag}` : base
 }
@@ -315,6 +323,36 @@ export class PostgresPersonRepository
         if (rows.length > 0) {
             return this.toPerson(rows[0])
         }
+    }
+
+    /**
+     * The person that already holds this (team_id, uuid).
+     *
+     * Read straight after a create loses the key, so the caller can resolve to that person
+     * instead of failing. Recovering by distinct ID cannot find this row whenever the holder
+     * does not own the distinct ID we were creating for, which is the case that turns a
+     * conflict into a stuck consumer.
+     *
+     * Pass `tx` only from a path whose transaction is still usable. After a unique violation it
+     * is not: Postgres aborts the transaction and rejects every later statement on it with
+     * 25P02, and nothing here opens a savepoint (`postgres.ts` runs plain BEGIN/COMMIT/ROLLBACK).
+     * A caller recovering from that error must omit `tx` and read on a pool connection, the way
+     * the distinct-ID recovery in person-create-service already does. The holder was committed
+     * by another transaction, which is why we conflicted with it, so a pool connection sees it.
+     */
+    private async fetchPersonByUuid(
+        teamId: number,
+        uuid: string,
+        tx?: TransactionClient
+    ): Promise<InternalPerson | undefined> {
+        const { rows } = await this.postgres.query<RawPerson>(
+            tx ?? PostgresUse.PERSONS_WRITE,
+            `SELECT ${PERSON_COLUMNS} FROM posthog_person
+             WHERE team_id = $1 AND uuid = $2 AND is_deleted = false`,
+            [teamId, uuid],
+            'fetchPersonByUuid'
+        )
+        return rows.length > 0 ? this.toPerson(rows[0]) : undefined
     }
 
     async fetchPersonsByDistinctIds(
@@ -719,6 +757,7 @@ export class PostgresPersonRepository
                     success: false,
                     error: 'CreationConflict',
                     distinctIds: distinctIds.map((d) => d.distinctId),
+                    conflictingPerson: await this.fetchPersonByUuid(teamId, uuid, tx),
                 }
             }
 
@@ -748,6 +787,8 @@ export class PostgresPersonRepository
                     [distinctIdRows.map((row) => row.id), teamId, person.id],
                     'undoInsertPerson'
                 )
+                // A distinct-ID collision, not a uuid one: the caller resolves this by
+                // re-fetching on distinct ID, so there is no holder to look up.
                 return {
                     success: false,
                     error: 'CreationConflict',
@@ -1030,6 +1071,12 @@ export class PostgresPersonRepository
                     success: false,
                     error: 'CreationConflict',
                     distinctIds: distinctIds.map((d) => d.distinctId),
+                    // No tx: the violation just aborted it, so a read on it would raise 25P02
+                    // instead of returning the holder, and the throw would escape this catch
+                    // and fail the merge this recovery exists to keep alive.
+                    conflictingPerson: isUuidConstraintViolation(error)
+                        ? await this.fetchPersonByUuid(teamId, uuid)
+                        : undefined,
                 }
             }
 
@@ -1214,6 +1261,12 @@ export class PostgresPersonRepository
                     success: false,
                     error: 'CreationConflict',
                     distinctIds: distinctIds.map((d) => d.distinctId),
+                    // No tx: the violation just aborted it, so a read on it would raise 25P02
+                    // instead of returning the holder, and the throw would escape this catch
+                    // and fail the merge this recovery exists to keep alive.
+                    conflictingPerson: isUuidConstraintViolation(error)
+                        ? await this.fetchPersonByUuid(teamId, uuid)
+                        : undefined,
                 }
             }
 

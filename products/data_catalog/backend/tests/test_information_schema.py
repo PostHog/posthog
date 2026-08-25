@@ -37,11 +37,11 @@ from products.data_catalog.backend.logic.metrics import upsert_metric
 from products.data_catalog.backend.logic.relationships import accept_proposal, propose_relationship, reject_proposal
 from products.data_catalog.backend.models import RelationshipProposal, TableCertification
 from products.data_catalog.backend.models.metric import Metric
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseManagedViewSet, DataWarehouseSavedQuery
 from products.data_tools.backend.facade.models import DataWarehouseJoin
 from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
-from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
 
 from ee.models.rbac.access_control import AccessControl
 
@@ -343,25 +343,92 @@ class TestInformationSchemaCertificationsAndRelationships(ClickhouseTestMixin, A
         )
         assert response.results == [(expected,)]
 
-    def test_materialized_view_keeps_its_certification(self) -> None:
-        backing_table = self._create_warehouse_table("materialized_revenue_backing")
+    @parameterized.expand([("materialized", True), ("plain", False)])
+    def test_view_keeps_its_certification(self, _name: str, materialized: bool) -> None:
+        backing_table = self._create_warehouse_table("certified_view_backing") if materialized else None
         view = DataWarehouseSavedQuery.objects.create(
             team=self.team,
-            name="materialized_revenue",
+            name="certified_view",
             query={"kind": "HogQLQuery", "query": "select 1"},
             columns=_COLUMNS,
             table=backing_table,
-            is_materialized=True,
+            is_materialized=materialized,
         )
         certify(propose_certification(team=self.team, user=self.user, saved_query_id=str(view.id)), self.user)
 
         response = execute_hogql_query(
             "SELECT table_type, certification FROM system.information_schema.tables "
-            "WHERE table_name = 'materialized_revenue'",
+            "WHERE table_name = 'certified_view'",
             team=self.team,
             context=self._context(),
         )
         assert response.results == [("view", "certified")]
+
+    def test_managed_view_backing_table_is_hidden_when_viewset_flag_is_off(self) -> None:
+        viewset = DataWarehouseManagedViewSet.objects.create(
+            team=self.team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
+        )
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="stripe.mrr_revenue_view",
+            query={"kind": "HogQLQuery", "query": "select 1"},
+            columns=_COLUMNS,
+            managed_viewset=viewset,
+            is_materialized=True,
+        )
+        view.table = DataWarehouseTable.objects.create(
+            name=view.name, format="Parquet", team=self.team, url_pattern=view.url_pattern, columns=_COLUMNS
+        )
+        view.save()
+
+        response = execute_hogql_query(
+            "SELECT table_name, table_type FROM system.information_schema.tables "
+            "WHERE table_name = 'stripe.mrr_revenue_view'",
+            team=self.team,
+            context=self._context(),
+        )
+        assert response.results == []
+
+    def test_child_environment_sees_its_own_certification(self) -> None:
+        child_team = Team.objects.create(
+            organization=self.organization, project=self.project, parent_team=self.team, name="Child environment"
+        )
+        table = DataWarehouseTable.objects.create(
+            name="env_revenue",
+            format="Parquet",
+            team=child_team,
+            url_pattern="s3://bucket/env_revenue",
+            columns=_COLUMNS,
+        )
+        deprecate(propose_certification(team=child_team, user=self.user, table_id=str(table.id)), self.user)
+
+        database = Database.create_for(team=child_team, user=self.user)
+        context = HogQLContext(team=child_team, team_id=child_team.pk, database=database)
+        response = execute_hogql_query(
+            "SELECT certification FROM system.information_schema.tables WHERE table_name = 'env_revenue'",
+            team=child_team,
+            context=context,
+        )
+        assert response.results == [("deprecated",)]
+
+    def test_certification_is_found_under_the_dotted_catalog_name(self) -> None:
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.STRIPE)
+        table = DataWarehouseTable.objects.create(
+            name="stripe_charge",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="s3://bucket/stripe_charge",
+            columns=_COLUMNS,
+        )
+        certify(propose_certification(team=self.team, user=self.user, table_id=str(table.id)), self.user)
+
+        response = execute_hogql_query(
+            "SELECT certification FROM system.information_schema.tables WHERE table_name = 'stripe.charge'",
+            team=self.team,
+            context=self._context(),
+        )
+        assert response.results == [("certified",)]
 
     def test_view_certification_does_not_bleed_onto_same_name_table(self) -> None:
         # A warehouse table and a view can share a name; each certification belongs to exactly one of

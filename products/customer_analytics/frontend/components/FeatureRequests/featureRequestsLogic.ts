@@ -41,7 +41,7 @@ import type {
     PaginatedFeatureRequestListApi,
     RequestPriorityEnumApi,
 } from '../../generated/api.schemas'
-import { getFeatureRequestBackUrl } from './featureRequestNavigation'
+import { getFeatureRequestBackLabel, getFeatureRequestBackUrl } from './featureRequestNavigation'
 import {
     FEATURE_REQUEST_ORDERING_OPTIONS,
     FEATURE_REQUEST_PRIORITY_FILTER_OPTIONS,
@@ -118,9 +118,8 @@ function parseListParam(raw: unknown, valid?: Set<string>): string[] {
 }
 
 function parsePositiveIntegerListParam(raw: unknown): number[] {
-    return parseListParam(raw)
-        .map(Number)
-        .filter((value) => Number.isInteger(value) && value > 0)
+    const values = typeof raw === 'number' ? [raw] : parseListParam(raw).map(Number)
+    return values.filter((value) => Number.isInteger(value) && value > 0)
 }
 
 export function parseFeatureRequestSearchParams(searchParams: Record<string, any>): FeatureRequestListState {
@@ -262,6 +261,7 @@ export interface featureRequestsLogicValues {
     evidenceSource: string
     evidenceSummary: string
     evidenceUrl: string
+    featureRequestBackLabel: string | null
     featureRequestBackUrl: string
     featureRequestsError: string | null
     featureRequestsPage: number
@@ -271,6 +271,7 @@ export interface featureRequestsLogicValues {
     hasActiveFilters: boolean
     idempotencyKey: string
     listSearchParams: Record<string, string>
+    loadedAccountsById: Record<string, AccountApi>
     mutatingArchive: boolean
     priorityFilter: FeatureRequestPriorityFilter[]
     productAreaActive: boolean
@@ -459,6 +460,9 @@ export interface featureRequestsLogicActions {
     saveRequestChanges: () => {
         value: true
     }
+    setAccountFilter: (accountFilter: string[]) => {
+        accountFilter: string[]
+    }
     setAccountId: (accountId: string | null) => {
         accountId: string | null
     }
@@ -546,6 +550,9 @@ export interface featureRequestsLogicActions {
     setProductAreaDisplayOrder: (productAreaDisplayOrder: number) => {
         productAreaDisplayOrder: number
     }
+    setProductAreaFilter: (productAreaFilter: string[]) => {
+        productAreaFilter: string[]
+    }
     setProductAreaIds: (productAreaIds: string[]) => {
         productAreaIds: string[]
     }
@@ -604,14 +611,8 @@ export interface featureRequestsLogicActions {
     submitRequest: () => {
         value: true
     }
-    toggleAccountFilter: (accountId: string) => {
-        accountId: string
-    }
     togglePriorityFilter: (requestPriority: FeatureRequestPriorityFilter) => {
         requestPriority: FeatureRequestPriorityFilter
-    }
-    toggleProductAreaFilter: (productAreaId: string) => {
-        productAreaId: string
     }
     toggleStatusFilter: (requestStatus: FeatureRequestStatusEnumApi) => {
         requestStatus: FeatureRequestStatusEnumApi
@@ -633,6 +634,8 @@ export interface featureRequestsLogicMeta {
         ) => FeatureRequestProductAreaApi[]
         accountOptions: (
             accounts: AccountApi[],
+            loadedAccountsById: Record<string, AccountApi>,
+            accountFilter: string[],
             selectedAccount: FeatureRequestAccountApi | null,
             activeRequest: FeatureRequestApi | null
         ) => {
@@ -714,6 +717,7 @@ export interface featureRequestsLogicMeta {
             requestOrdering: FeatureRequestOrdering,
             featureRequestsPage: number
         ) => Record<string, string>
+        featureRequestBackLabel: (searchParams: Record<string, any>) => string | null
         featureRequestBackUrl: (listSearchParams: Record<string, string>, searchParams: Record<string, any>) => string
     }
 }
@@ -738,8 +742,8 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         setSearchQuery: (searchQuery: string) => ({ searchQuery }),
         toggleStatusFilter: (requestStatus: FeatureRequestStatusEnumApi) => ({ requestStatus }),
         togglePriorityFilter: (requestPriority: FeatureRequestPriorityFilter) => ({ requestPriority }),
-        toggleProductAreaFilter: (productAreaId: string) => ({ productAreaId }),
-        toggleAccountFilter: (accountId: string) => ({ accountId }),
+        setProductAreaFilter: (productAreaFilter: string[]) => ({ productAreaFilter }),
+        setAccountFilter: (accountFilter: string[]) => ({ accountFilter }),
         setCreatedByFilter: (createdByFilter: number[]) => ({ createdByFilter }),
         setArchiveState: (archiveState: FeatureRequestArchiveState) => ({ archiveState }),
         setRequestOrdering: (requestOrdering: FeatureRequestOrdering) => ({ requestOrdering }),
@@ -874,8 +878,8 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 setSearchQuery: () => 1,
                 toggleStatusFilter: () => 1,
                 togglePriorityFilter: () => 1,
-                toggleProductAreaFilter: () => 1,
-                toggleAccountFilter: () => 1,
+                setProductAreaFilter: () => 1,
+                setAccountFilter: () => 1,
                 setCreatedByFilter: () => 1,
                 setArchiveState: () => 1,
                 setRequestOrdering: () => 1,
@@ -909,7 +913,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         productAreaFilter: [
             [] as string[],
             {
-                toggleProductAreaFilter: (state, { productAreaId }) => toggleValue(state, productAreaId),
+                setProductAreaFilter: (_, { productAreaFilter }) => productAreaFilter,
                 setFiltersFromUrl: (_, { filters }) => filters.productAreaFilter,
                 clearFilters: () => [],
             },
@@ -917,9 +921,18 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         accountFilter: [
             [] as string[],
             {
-                toggleAccountFilter: (state, { accountId }) => toggleValue(state, accountId),
+                setAccountFilter: (_, { accountFilter }) => accountFilter,
                 setFiltersFromUrl: (_, { filters }) => filters.accountFilter,
                 clearFilters: () => [],
+            },
+        ],
+        loadedAccountsById: [
+            {} as Record<string, AccountApi>,
+            {
+                loadAccountsSuccess: (state, { accounts }) => ({
+                    ...state,
+                    ...Object.fromEntries(accounts.map((account) => [account.id, account])),
+                }),
             },
         ],
         createdByFilter: [
@@ -1358,15 +1371,29 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
             },
         ],
         accountOptions: [
-            (selectors) => [selectors.accounts, selectors.selectedAccount, selectors.activeRequest],
+            (selectors) => [
+                selectors.accounts,
+                selectors.loadedAccountsById,
+                selectors.accountFilter,
+                selectors.selectedAccount,
+                selectors.activeRequest,
+            ],
             (
                 accounts: AccountApi[],
+                loadedAccountsById: Record<string, AccountApi>,
+                accountFilter: string[],
                 selectedAccount: FeatureRequestAccountApi | null,
                 activeRequest: FeatureRequestApi | null
             ): { key: string; label: string }[] => {
                 const accountById = new Map<string, AccountApi | FeatureRequestAccountApi>(
                     accounts.map((account) => [account.id, account])
                 )
+                for (const accountId of accountFilter) {
+                    const selectedFilterAccount = loadedAccountsById[accountId]
+                    if (selectedFilterAccount && !accountById.has(accountId)) {
+                        accountById.set(accountId, selectedFilterAccount)
+                    }
+                }
                 if (selectedAccount && !accountById.has(selectedAccount.id)) {
                     accountById.set(selectedAccount.id, selectedAccount)
                 }
@@ -1377,10 +1404,7 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                 }
                 return [...accountById.values()].map((account) => ({
                     key: account.id,
-                    label:
-                        'external_id' in account && account.external_id
-                            ? `${account.name} (${account.external_id})`
-                            : account.name,
+                    label: account.name,
                 }))
             },
         ],
@@ -1634,6 +1658,10 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
                     featureRequestsPage,
                 }),
         ],
+        featureRequestBackLabel: [
+            () => [router.selectors.searchParams],
+            (searchParams: Record<string, any>): string | null => getFeatureRequestBackLabel(searchParams.origin),
+        ],
         featureRequestBackUrl: [
             (selectors) => [selectors.listSearchParams, router.selectors.searchParams],
             (listSearchParams: Record<string, string>, searchParams: Record<string, any>): string =>
@@ -1649,8 +1677,8 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
         },
         toggleStatusFilter: () => actions.loadFeatureRequests(),
         togglePriorityFilter: () => actions.loadFeatureRequests(),
-        toggleProductAreaFilter: () => actions.loadFeatureRequests(),
-        toggleAccountFilter: () => actions.loadFeatureRequests(),
+        setProductAreaFilter: () => actions.loadFeatureRequests(),
+        setAccountFilter: () => actions.loadFeatureRequests(),
         setCreatedByFilter: () => actions.loadFeatureRequests(),
         setArchiveState: () => actions.loadFeatureRequests(),
         setRequestOrdering: () => actions.loadFeatureRequests(),
@@ -2001,8 +2029,8 @@ export const featureRequestsLogic = kea<featureRequestsLogicType>([
             setSearchQuery: toUrl,
             toggleStatusFilter: toUrl,
             togglePriorityFilter: toUrl,
-            toggleProductAreaFilter: toUrl,
-            toggleAccountFilter: toUrl,
+            setProductAreaFilter: toUrl,
+            setAccountFilter: toUrl,
             setCreatedByFilter: toUrl,
             setArchiveState: toUrl,
             setRequestOrdering: toUrl,

@@ -69,7 +69,8 @@ export function describeDailyReportLimit(
       limit,
       today: 0,
       reached: false,
-      usageText: "No daily limit. Reports reach the inbox as they are found.",
+      usageText:
+        "No daily limit. Reports reach Self-driving as they are found.",
       reachedText: null,
     };
   }

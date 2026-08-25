@@ -24,6 +24,8 @@ import {
   resolveTaskRepositoryDraft,
   useTaskRepositoryDraftStore,
 } from "@posthog/ui/features/canvas/stores/taskRepositoryDraftStore";
+import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/useChannelReportsEnabled";
+import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { NEW_TASK_COMPOSER_FADE_MS } from "@posthog/ui/features/task-detail/newTaskComposerTransition";
 import type { TaskInputReportAssociation } from "@posthog/ui/features/task-detail/stores/taskInputPrefillStore";
@@ -233,6 +235,8 @@ export function TaskInput({
   const setSelectedReportIds = useInboxReportSelectionStore(
     (s) => s.setSelectedReportIds,
   );
+  const channelReportsEnabled = useChannelReportsEnabled();
+  const openReport = useOpenInboxReport();
   const selectedDirectory = useActiveRepoStore((s) => s.path);
   const setSelectedDirectory = useActiveRepoStore((s) => s.setPath);
   const [repositoryDialogOpen, setRepositoryDialogOpen] = useState(false);
@@ -405,9 +409,20 @@ export function TaskInput({
 
   const handleOpenAssociatedReport = useCallback(() => {
     if (!activeReportAssociation) return;
+    // With channel reports on there is no inbox list to select in — open the
+    // report's own detail view instead.
+    if (channelReportsEnabled) {
+      void openReport(activeReportAssociation.reportId);
+      return;
+    }
     navigateToInbox();
     setSelectedReportIds([activeReportAssociation.reportId]);
-  }, [activeReportAssociation, setSelectedReportIds]);
+  }, [
+    activeReportAssociation,
+    setSelectedReportIds,
+    channelReportsEnabled,
+    openReport,
+  ]);
 
   useEffect(() => {
     if (!selectedDirectory && mostRecentRepo?.path) {
@@ -1612,11 +1627,11 @@ export function TaskInput({
                         {activeReportAssociation.title || "Untitled report"}
                       </button>
                     </span>
-                    <Tooltip content="Exit Inbox mode">
+                    <Tooltip content="Exit Self-driving mode">
                       <button
                         type="button"
                         onClick={handleDismissReportAssociation}
-                        aria-label="Exit Inbox mode"
+                        aria-label="Exit Self-driving mode"
                         className="flex h-5 w-5 shrink-0 items-center justify-center rounded text-blue-10 hover:bg-blue-4 hover:text-blue-12"
                       >
                         <X size={12} />

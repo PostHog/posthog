@@ -143,6 +143,7 @@ class TestExecuteGraphql:
             ("timeout", "NRQL query timeout after 120 seconds"),
             ("deadline", "Deadline exceeded"),
             ("throttled", "Too many requests"),
+            ("resolver_failure", "An error occurred resolving this field"),
         ]
     )
     def test_transient_graphql_errors_are_retryable(self, _name: str, message: str) -> None:

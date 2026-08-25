@@ -2369,6 +2369,70 @@ class TestHogFlowAPI(APIBaseTest):
         stored = response.json()["trigger"]["filters"]["properties"][0]["value"]
         assert stored == ["C0ALERTS"]
 
+    @staticmethod
+    def _slack_trigger_action(properties: list[dict]) -> dict:
+        return {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {"type": "slack-message", "filters": {"properties": properties}},
+        }
+
+    @parameterized.expand(
+        [
+            ("no_properties", []),
+            ("no_channel_entry", [{"key": "bot_id", "value": "is_not_set", "operator": "is_not_set", "type": "event"}]),
+            ("blank_channel_value", [{"key": "channel", "value": [""], "operator": "exact", "type": "event"}]),
+            # Presence operators store the operator string as the value, so the value looks
+            # non-empty while the compiled filter matches every channel.
+            ("is_set_channel", [{"key": "channel", "value": "is_set", "operator": "is_set", "type": "event"}]),
+            ("negated_channel", [{"key": "channel", "value": ["C0ALERTS"], "operator": "is_not", "type": "event"}]),
+            # Channel ids are opaque, so a pattern can only widen; ".*" matches every channel.
+            ("regex_channel", [{"key": "channel", "value": [".*"], "operator": "regex", "type": "event"}]),
+        ]
+    )
+    def test_hog_flow_slack_trigger_requires_a_channel_filter_to_activate(self, _name, properties):
+        # Only the builder UI asks for a channel; without this server-side check, a flow
+        # activated via the raw API or MCP fires on every message in every channel the
+        # Slack bot is in.
+        hog_flow = {
+            "name": "Test Slack Flow",
+            "status": "active",
+            "actions": [self._slack_trigger_action(properties)],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert "channel" in response.json()["detail"].lower()
+
+    def test_hog_flow_slack_trigger_channel_gap_is_caught_at_enable(self):
+        # The workflows table's Enable button patches status alone, skipping the builder's
+        # channel validation, so activation-time re-validation is what has to catch it.
+        draft = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {"name": "Test Slack Flow", "status": "draft", "actions": [self._slack_trigger_action([])]},
+        )
+        assert draft.status_code == 201, draft.json()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{draft.json()['id']}", {"status": "active"}
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "channel" in response.json()["detail"].lower()
+
+    def test_hog_flow_slack_trigger_draft_saves_without_a_channel(self):
+        # The builder saves mid-edit drafts before a channel is picked; only activation
+        # fails closed.
+        hog_flow = {
+            "name": "Test Slack Flow",
+            "status": "draft",
+            "actions": [self._slack_trigger_action([])],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
     def test_hog_flow_data_warehouse_table_trigger_forces_exit_only_at_end(self):
         # Other exit conditions re-evaluate trigger/conversion filters that may reference person
         # data, so warehouse-triggered flows are coerced to exit_only_at_end regardless of input.

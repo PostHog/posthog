@@ -83,7 +83,7 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
                   surface: "sidebar",
                   channel_id: channelId,
                 });
-                showChannelList();
+                showChannelList({ animate: true });
               }}
               // Quill's own height and radius, so this reads as one of the rows
               // under it rather than a control sitting on top. The right padding

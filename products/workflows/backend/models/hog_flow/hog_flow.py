@@ -125,6 +125,10 @@ class HogFlow(UUIDTModel):
     conversion = models.JSONField(null=True, blank=True)
     exit_condition = models.CharField(max_length=100, choices=ExitCondition, default=ExitCondition.CONVERSION)
 
+    # Optional email pacing for deliverability: {"count": <int>, "period": "minute" | "hour"}.
+    # Enforced per workflow by the email worker, which spreads sends instead of dropping them.
+    email_sending_rate_limit = models.JSONField(null=True, blank=True)
+
     edges = models.JSONField(default=dict)
     actions = models.JSONField(default=dict)
     # Secret function inputs (schema fields marked secret, e.g. API keys / auth headers) split out of

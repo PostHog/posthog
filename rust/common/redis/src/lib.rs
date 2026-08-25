@@ -337,7 +337,7 @@ mod pipeline;
 mod read_write;
 
 // Re-export public APIs
-pub use client::RedisClient;
+pub use client::{RedisClient, ScriptRunner};
 pub use mock::{MockRedisCall, MockRedisClient, MockRedisValue};
 pub use read_write::{ReadWriteClient, ReadWriteClientConfig};
 

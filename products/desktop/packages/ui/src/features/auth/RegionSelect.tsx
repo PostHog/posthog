@@ -1,5 +1,13 @@
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Text,
+} from "@posthog/quill";
 import { type CloudRegion, REGION_LABELS } from "@posthog/shared";
-import { Flex, Text } from "@radix-ui/themes";
+import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 
 interface RegionSelectProps {
   region: CloudRegion;
@@ -9,7 +17,17 @@ interface RegionSelectProps {
   includeDevRegion?: boolean;
 }
 
-const LOGIN_GRID_REGIONS: CloudRegion[] = ["us", "eu"];
+const CLOUD_REGIONS: CloudRegion[] = ["us", "eu"];
+
+function RegionOptionLabel({ region }: { region: CloudRegion }) {
+  const { flag, label } = REGION_LABELS[region];
+  return (
+    <span className="flex items-center gap-2">
+      <span className="shrink-0 leading-none">{flag}</span>
+      <span>{label}</span>
+    </span>
+  );
+}
 
 export function RegionSelect({
   region,
@@ -17,68 +35,44 @@ export function RegionSelect({
   disabled = false,
   includeDevRegion = false,
 }: RegionSelectProps) {
-  return (
-    <Flex direction="column" gap="2" className="w-full">
-      <Flex justify="between" align="center">
-        <Text className="font-medium text-(--gray-12) text-sm">
-          PostHog region
-        </Text>
-        <Text className="text-(--gray-11) text-xs">
-          Pick where your data lives
-        </Text>
-      </Flex>
-      <div className="grid w-full grid-cols-2 gap-2">
-        {LOGIN_GRID_REGIONS.map((regionKey) => (
-          <RegionPickerOptionButton
-            key={regionKey}
-            regionKey={regionKey}
-            selected={regionKey === region}
-            disabled={disabled}
-            onSelect={() => onRegionChange(regionKey)}
-          />
-        ))}
-      </div>
-      {includeDevRegion && (
-        <RegionPickerOptionButton
-          regionKey="dev"
-          selected={region === "dev"}
-          disabled={disabled}
-          onSelect={() => onRegionChange("dev")}
-        />
-      )}
-    </Flex>
-  );
-}
+  const offered: CloudRegion[] = includeDevRegion
+    ? [...CLOUD_REGIONS, "dev"]
+    : CLOUD_REGIONS;
 
-function RegionPickerOptionButton({
-  regionKey,
-  selected,
-  disabled,
-  onSelect,
-}: {
-  regionKey: CloudRegion;
-  selected: boolean;
-  disabled: boolean;
-  onSelect: () => void;
-}) {
-  const { flag, label, hint } = REGION_LABELS[regionKey];
   return (
-    <button
-      type="button"
-      aria-pressed={selected}
-      onClick={onSelect}
-      disabled={disabled}
-      className={`flex w-full flex-col items-start gap-[2px] rounded-[8px] border-[1.5px] px-3 py-2 text-left transition-colors ${
-        selected
-          ? "border-(--accent-9) bg-(--accent-3) text-(--gray-12)"
-          : "border-(--gray-6) bg-transparent text-(--gray-12) hover:border-(--gray-8)"
-      } ${disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer"}`}
-    >
-      <Flex align="center" gap="2" className="w-full">
-        <span className="text-[18px] leading-none">{flag}</span>
-        <Text className="font-semibold text-(--gray-12) text-sm">{label}</Text>
-      </Flex>
-      <Text className="pl-[26px] text-(--gray-11) text-xs">{hint}</Text>
-    </button>
+    <div className="flex items-center justify-center gap-2">
+      <Tooltip content="Where your PostHog data is stored. You can migrate later.">
+        <Text className="text-(--gray-11) text-xs">Data region</Text>
+      </Tooltip>
+      <Select
+        value={region}
+        onValueChange={(next: CloudRegion | null) =>
+          next && onRegionChange(next)
+        }
+        items={offered.map((candidate) => ({
+          value: candidate,
+          label: REGION_LABELS[candidate].label,
+        }))}
+      >
+        {/* Fixed width so switching regions never reflows the row beneath the button. */}
+        <SelectTrigger
+          size="sm"
+          disabled={disabled}
+          aria-label="Data region"
+          className="w-[176px]"
+        >
+          <SelectValue>
+            <RegionOptionLabel region={region} />
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent align="center" side="bottom" sideOffset={6}>
+          {offered.map((candidate) => (
+            <SelectItem key={candidate} value={candidate}>
+              <RegionOptionLabel region={candidate} />
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
   );
 }

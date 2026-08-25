@@ -175,10 +175,10 @@ export function SnapshotDiffViewer({
                                     size="small"
                                     onClick={() => {
                                         LemonDialog.open({
-                                            title: 'Tolerate this difference?',
+                                            title: 'Does this snapshot really render correctly?',
                                             description:
-                                                'Marks this as rendering noise — future runs with the same hash pass automatically. ' +
-                                                'If this is a bug, fix it instead.',
+                                                'Only tolerate slight rendering noise above the difference threshold. Confirm there are no visible errors or missing elements. ' +
+                                                'Otherwise, quarantine this snapshot.',
                                             primaryButton: {
                                                 children: 'Tolerate',
                                                 onClick: onMarkTolerated,

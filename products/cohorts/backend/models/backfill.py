@@ -41,6 +41,12 @@ ACTIVE_COHORT_BACKFILL_RUN_STATUSES = (
     CohortBackfillRunStatus.RECONCILING,
 )
 
+# Derived, so the two tuples always partition the enum: a ninth status joins one or the other, and
+# cannot fall out of both and into no gauge.
+TERMINAL_COHORT_BACKFILL_RUN_STATUSES = tuple(
+    status for status in CohortBackfillRunStatus if status not in ACTIVE_COHORT_BACKFILL_RUN_STATUSES
+)
+
 
 class CohortBackfillChunkStatus(models.TextChoices):
     PENDING = "pending", "Pending"

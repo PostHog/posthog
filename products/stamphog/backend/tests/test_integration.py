@@ -25,17 +25,13 @@ from products.stamphog.backend.facade.enums import (
     ReviewRunStatus,
     ReviewVerdict,
 )
-from products.stamphog.backend.logic import channel_resolution
-from products.stamphog.backend.logic.channel_resolution import auto_provision_channel
-from products.stamphog.backend.logic.github_client import STICKY_COMMENT_MARKER
-from products.stamphog.backend.models import (
-    DigestChannel,
-    DigestRun,
-    PullRequest,
-    PullRequestAudience,
-    ReviewRun,
-    StamphogRepoConfig,
+from products.stamphog.backend.logic.channel_resolution import (
+    RoutingContext,
+    build_routing_context,
+    resolve_destination,
 )
+from products.stamphog.backend.logic.github_client import STICKY_COMMENT_MARKER
+from products.stamphog.backend.models import DigestRun, PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.digest import send_daily_digests
 from products.stamphog.backend.tasks.tasks import process_inbox_pr_review
 from products.stamphog.backend.temporal import activities
@@ -145,7 +141,13 @@ def _merged_event(number: int, author: str, head_sha: str) -> dict:
 
 
 def _make_pr_with_review(
-    team_id: int, repo_config: StamphogRepoConfig, *, number: int, author: str, approved_at_sha: str | None
+    team_id: int,
+    repo_config: StamphogRepoConfig,
+    *,
+    number: int,
+    author: str,
+    approved_at_sha: str | None,
+    owning_team: str = "team-devex",
 ) -> PullRequest:
     pull_request = PullRequest.objects.for_team(team_id).create(
         team_id=team_id,
@@ -162,6 +164,9 @@ def _make_pr_with_review(
             head_sha=approved_at_sha,
             status=ReviewRunStatus.COMPLETED,
             verdict=ReviewVerdict.APPROVED,
+            # Digest audiences are read back out of the approving run's ownership, so a run without
+            # one produces no audience at all and cannot exercise the eligibility gate.
+            gate_result={"classification": {"ownership": {"teams": [f"@PostHog/{owning_team}"]}}},
         )
     return pull_request
 
@@ -1285,12 +1290,11 @@ def test_merged_pr_digest_eligibility_gate(
     approved_at_sha: str | None,
     expected_audience_key: str,
 ) -> None:
-    # Regression guard: the approved-head_sha eligibility gate plus the author -> GitHub-team
-    # audience cascade. Merge facts are always recorded, but audience_key is stamped (via the
-    # cascade) only when a stamphog-approved run exists at the exact merged head SHA.
+    # Regression guard: the approved-head_sha eligibility gate. Merge facts are always recorded,
+    # but audiences are stamped only when a stamphog-approved run exists at the exact merged head
+    # SHA — that run is also where the ownership the audience is built from comes from.
     repo_config = _repo_config(team.id)
     author, merged_head = "devex-dev", "sha-merged"
-    stamphog_chain.recorder.teams_by_login[author] = ["team-devex"]
     _make_pr_with_review(team.id, repo_config, number=101, author=author, approved_at_sha=approved_at_sha)
 
     status = stamphog_chain.post_webhook(_merged_event(101, author, merged_head), delivery_id=str(uuid.uuid4()))
@@ -1311,10 +1315,11 @@ def _audience_keys(team_id: int, pull_request: PullRequest) -> list[str]:
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_unreadable_owners_registry_provisions_nothing(team, stamphog_chain: StamphogChain) -> None:
-    # A transient fetch failure must not read as "this team has no entry". Falling through to the
-    # name match would bind the team to the derived slug channel, and because an existing row (even
-    # a disabled one) suppresses provisioning, that wrong binding would never be retried.
+def test_unreadable_owners_registry_posts_nothing(team, stamphog_chain: StamphogChain) -> None:
+    # Routing is derived every run and never cached, so a fetch failure does not read as "this team
+    # has no entry" — it silently reroutes. The unreadable repo could be the one every other repo
+    # inherits from, so the whole team's run stops and the merges wait for tomorrow. A repo that is
+    # permanently broken gets switched off, which drops it from the candidate list.
     repo_config = _repo_config(team.id)
     Integration.objects.create(
         team_id=team.id, kind="slack", config={"authed_user": {"id": "U1"}}, sensitive_config={"access_token": "x"}
@@ -1333,7 +1338,8 @@ def test_unreadable_owners_registry_provisions_nothing(team, stamphog_chain: Sta
     ):
         send_daily_digests()
 
-    assert not DigestChannel.objects.for_team(team.id).filter(audience_key="logs").exists()
+    assert not DigestRun.objects.for_team(team.id).exists()
+    assert fakes.FakeSlackIntegration.posted_messages == []
 
 
 # posthog_owners validates the whole document, so the registry has to arrive inside a real one.
@@ -1392,12 +1398,13 @@ def test_owners_registry_routes_a_team_whose_channel_is_not_its_slug(
 
     send_daily_digests()
 
-    channels = list(DigestChannel.objects.for_team(team.id).filter(audience_key="logs"))
+    runs = list(DigestRun.objects.for_team(team.id).filter(audience_key="logs"))
     if expected is None:
-        assert channels == []
+        assert runs == []
+        assert PullRequestAudience.objects.for_team(team.id).get(audience_key="logs").digest_run_id is None
         return
-    channel_id, enabled, source = expected
-    assert [(c.slack_channel_id, c.enabled, c.resolution_source) for c in channels] == [(channel_id, enabled, source)]
+    channel_id, _, source = expected
+    assert [(r.slack_channel_id, r.resolution_source) for r in runs] == [(channel_id, source)]
 
 
 def _merged_pr_with_audience(
@@ -1452,22 +1459,21 @@ def test_registry_of_one_connected_repo_routes_an_audience_from_a_repo_without_o
 
     send_daily_digests()
 
-    channel = DigestChannel.objects.for_team(team.id).get(audience_key="team-devex")
-    assert (channel.slack_channel_id, channel.enabled, channel.resolution_source) == (
-        "C-STANDUP",
-        True,
-        ChannelResolutionSource.OWNERS_CONTACT,
-    )
+    run = DigestRun.objects.for_team(team.id).get(audience_key="team-devex")
+    assert (run.slack_channel_id, run.resolution_source) == ("C-STANDUP", ChannelResolutionSource.OWNERS_CONTACT)
 
 
-@pytest.mark.parametrize("audience_repository", ["acme/aardvark", "acme/widgets"])
+@pytest.mark.parametrize(
+    "audience_repository,expected_channel",
+    [("acme/aardvark", "C-STANDUP"), ("acme/widgets", "C-DEVEX")],
+)
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_disagreeing_registries_resolve_the_same_way_whichever_repo_merged_last(
-    team, stamphog_chain: StamphogChain, audience_repository: str
+def test_each_repos_registry_answers_for_its_own_merges(
+    team, stamphog_chain: StamphogChain, audience_repository: str, expected_channel: str
 ) -> None:
-    # Two connected repos naming different channels for one team must not resolve by merge order:
-    # the DigestChannel row is keyed on (team, audience) alone, so whichever provisioned first
-    # would decide forever. Repository order picks the winner, so the answer is the same either way.
+    # Two repos naming different channels for one team is a scope, not a race. Each answers for the
+    # merges that came from it, so neither declaration is discarded and no sort order decides. The
+    # old behavior bound the team to one channel forever, whichever provisioned first.
     _repo_config(team.id, repository="acme/aardvark")
     _repo_config(team.id, repository="acme/widgets")
     Integration.objects.create(
@@ -1487,59 +1493,18 @@ def test_disagreeing_registries_resolve_the_same_way_whichever_repo_merged_last(
 
     send_daily_digests()
 
-    assert DigestChannel.objects.for_team(team.id).get(audience_key="team-devex").slack_channel_id == "C-STANDUP"
-
-
-def _client_failing_for(broken_repository: str) -> type:
-    """A StamphogGitHubClient that reads normally except for one repository, which raises."""
-    real_client = channel_resolution.StamphogGitHubClient
-
-    class _Client:
-        def __init__(self, installation_id: str) -> None:
-            self._delegate = real_client(installation_id)
-
-        def get_default_branch_file(self, repo: str, path: str) -> str | None:
-            if repo == broken_repository:
-                raise RuntimeError("github down")
-            return self._delegate.get_default_branch_file(repo, path)
-
-    return _Client
+    assert DigestRun.objects.for_team(team.id).get(audience_key="team-devex").slack_channel_id == expected_channel
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_unreadable_repo_behind_the_winner_still_provisions(team, stamphog_chain: StamphogChain) -> None:
-    # An unreadable repo blocks the decision only when it could have held the winning declaration.
-    # One sorting behind the winner could not have, and treating it as blocking would let a single
-    # permanently broken repo keep the whole team off its channel.
-    _repo_config(team.id, repository="acme/aardvark")
-    _repo_config(team.id, repository="acme/zulu")
-    Integration.objects.create(
-        team_id=team.id, kind="slack", config={"authed_user": {"id": "U1"}}, sensitive_config={"access_token": "x"}
-    )
-    stamphog_chain.recorder.repo_files[("acme/aardvark", "owners.yaml")] = _STANDUP_REGISTRY
-    _merged_pr_with_audience(
-        team.id,
-        StamphogRepoConfig.objects.for_team(team.id).get(repository="acme/zulu"),
-        number=101,
-        audience_key="team-devex",
-    )
-    fakes.FakeSlackIntegration.reset(channels=_DEVEX_WORKSPACE)
-
-    with patch.object(channel_resolution, "StamphogGitHubClient", _client_failing_for("acme/zulu")):
-        send_daily_digests()
-
-    assert DigestChannel.objects.for_team(team.id).get(audience_key="team-devex").slack_channel_id == "C-STANDUP"
-
-
-@pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_daily_digest_provisions_name_matched_channel_and_posts_the_same_run(
+def test_daily_digest_posts_to_a_name_matched_channel_it_was_never_invited_to(
     team, stamphog_chain: StamphogChain
 ) -> None:
-    # A team's first digest must land without anyone wiring it up: the name match provisions the
-    # channel enabled, the app joins a channel it was never invited to, and the merged PR goes out
-    # on that same run rather than waiting on a human to flip a toggle nobody is watching.
+    # A team's first digest must land without anyone wiring it up: the audience_key name-matches a
+    # workspace channel, the app joins one it was never invited to, and the merged PR goes out on
+    # that run rather than waiting on a human to flip a toggle nobody is watching.
     repo_config = _repo_config(team.id)
-    integration = Integration.objects.create(
+    Integration.objects.create(
         team_id=team.id, kind="slack", config={"authed_user": {"id": "U1"}}, sensitive_config={"access_token": "x"}
     )
     pr = PullRequest.objects.for_team(team.id).create(
@@ -1552,123 +1517,85 @@ def test_daily_digest_provisions_name_matched_channel_and_posts_the_same_run(
         merged_at=timezone.now(),
     )
     PullRequestAudience.objects.for_team(team.id).create(
-        team_id=team.id, pull_request=pr, audience_key="team-devex", reason=AudienceReason.AUTHORED
+        team_id=team.id, pull_request=pr, audience_key="team-devex", reason=AudienceReason.OWNED
     )
     fakes.FakeSlackIntegration.reset(channels=[{"id": "C-DEVEX", "name": "team-devex"}], needs_join=["C-DEVEX"])
 
     send_daily_digests()
 
-    channel = DigestChannel.objects.for_team(team.id).get(audience_key="team-devex")
-    assert channel.enabled is True
-    assert channel.resolution_source == ChannelResolutionSource.SLACK_NAME_MATCH
-    assert channel.slack_integration_id == integration.id
     assert fakes.FakeSlackIntegration.joined_channels == ["C-DEVEX"]
 
-    run = DigestRun.objects.for_team(team.id).get(digest_channel=channel)
+    run = DigestRun.objects.for_team(team.id).get(audience_key="team-devex")
     assert run.status == DigestRunStatus.COMPLETED
+    assert (run.slack_channel_id, run.resolution_source) == ("C-DEVEX", ChannelResolutionSource.SLACK_NAME_MATCH)
     posted = fakes.FakeSlackIntegration.posted_messages
-    assert len(posted) == 1
-    assert posted[0]["channel"] == "C-DEVEX"
-    # The notification preview is the change itself now, with the PR number only inside the link.
-    assert posted[0]["text"] == "Add util helper"
-    assert "/pull/101|" in posted[0]["blocks"][0]["text"]["text"]
+    # The channel gets the lead, and the change lines hang off it in a thread.
+    assert [p["channel"] for p in posted] == ["C-DEVEX", "C-DEVEX"]
+    assert [p["thread_ts"] for p in posted] == [None, "1234.5678"]
+    # The thread's notification preview is the change itself, with the PR number only inside the link.
+    assert posted[1]["text"] == "Add util helper"
+    assert "/pull/101|" in posted[1]["blocks"][0]["text"]["text"]
     assert PullRequestAudience.objects.for_team(team.id).get(pull_request=pr).digest_run_id == run.id
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_repo_declared_digest_channel_short_circuits_author_cascade(team, stamphog_chain: StamphogChain) -> None:
+def test_repo_declared_digest_channel_routes_alongside_owning_teams(team, stamphog_chain: StamphogChain) -> None:
     # Regression guard: the repo-declared digest path. A repo that declares digest.channel in
-    # .stamphog/policy.yml groups all merged PRs under a "repo:" audience (skipping the author
-    # cascade) and routes to the declared channel via the STAMPHOG_CONFIG resolution source.
+    # .stamphog/policy.yml adds a "repo:" audience carrying every one of its merges, routed to the
+    # declared channel via the STAMPHOG_CONFIG resolution source. It sits beside the owning teams
+    # rather than replacing them, so a shared repo can feed both at once. Only the declared channel
+    # exists in the workspace here, so it is the only one that posts.
     repo_config = _repo_config(team.id)
     Integration.objects.create(
         team_id=team.id, kind="slack", config={"authed_user": {"id": "U1"}}, sensitive_config={"access_token": "x"}
     )
     author, merged_head = "devex-dev", "sha-merged"
-    stamphog_chain.recorder.teams_by_login[author] = ["team-devex"]  # would win if the cascade ran
     stamphog_chain.recorder.policy_files[".stamphog/policy.yml"] = "digest:\n  channel: eng-merges\n"
     _make_pr_with_review(team.id, repo_config, number=101, author=author, approved_at_sha=merged_head)
 
     stamphog_chain.post_webhook(_merged_event(101, author, merged_head), delivery_id=str(uuid.uuid4()))
     pr = PullRequest.objects.for_team(team.id).get(repo_config=repo_config, pr_number=101)
-    assert _audience_keys(team.id, pr) == [f"repo:{REPO}"]
+    assert sorted(_audience_keys(team.id, pr)) == sorted([f"repo:{REPO}", "team-devex"])
 
     fakes.FakeSlackIntegration.reset(channels=[{"id": "C-ENG", "name": "eng-merges"}])
     send_daily_digests()
 
-    channel = DigestChannel.objects.for_team(team.id).get(audience_key=f"repo:{REPO}")
-    assert channel.resolution_source == ChannelResolutionSource.STAMPHOG_CONFIG
-    assert fakes.FakeSlackIntegration.posted_messages[0]["channel"] == "C-ENG"
-
-
-@pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_disabled_digest_channel_is_a_permanent_opt_out(team, stamphog_chain: StamphogChain) -> None:
-    # Regression guard: a human-disabled DigestChannel must permanently suppress a merged PR's
-    # audience — auto-provision must never resurrect it and nothing may post to Slack.
-    repo_config = _repo_config(team.id)
-    integration = Integration.objects.create(
-        team_id=team.id, kind="slack", config={"authed_user": {"id": "U1"}}, sensitive_config={"access_token": "x"}
-    )
-    PullRequest.objects.for_team(team.id).create(
-        team_id=team.id,
-        repo_config=repo_config,
-        pr_number=101,
-        title="Add util helper",
-        author_login="devex-dev",
-        pr_url=f"https://github.com/{REPO}/pull/101",
-        merged_at=timezone.now(),
-        audience_key="team-devex",
-    )
-    disabled = DigestChannel.objects.for_team(team.id).create(
-        team_id=team.id,
-        audience_key="team-devex",
-        slack_integration_id=integration.id,
-        slack_channel_id="C-OLD",
-        slack_channel_name="team-devex",
-        enabled=False,
-        resolution_source=ChannelResolutionSource.MANUAL,
-    )
-    fakes.FakeSlackIntegration.reset(channels=[{"id": "C-DEVEX", "name": "team-devex"}])
-
-    send_daily_digests()
-
-    channels = list(DigestChannel.objects.for_team(team.id).filter(audience_key="team-devex"))
-    assert channels == [disabled]
-    assert channels[0].enabled is False
-    assert fakes.FakeSlackIntegration.posted_messages == []
-    assert PullRequest.objects.for_team(team.id).get(pr_number=101).digest_run_id is None
+    run = DigestRun.objects.for_team(team.id).get(audience_key=f"repo:{REPO}")
+    assert run.resolution_source == ChannelResolutionSource.STAMPHOG_CONFIG
+    assert {m["channel"] for m in fakes.FakeSlackIntegration.posted_messages} == {"C-ENG"}
 
 
 @pytest.mark.parametrize(
-    "channel_flags,expect_provisioned",
+    "channel_flags,expect_routed",
     [
         ({}, True),
         ({"is_ext_shared": True}, False),
         ({"is_pending_ext_shared": True}, False),
         ({"is_shared": True}, False),
     ],
-    ids=["ordinary_channel_provisions", "ext_shared_skipped", "pending_ext_shared_skipped", "org_shared_skipped"],
+    ids=["ordinary_channel_routes", "ext_shared_skipped", "pending_ext_shared_skipped", "org_shared_skipped"],
 )
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_auto_provision_skips_shared_channels(
-    team, stamphog_chain: StamphogChain, channel_flags: dict, expect_provisioned: bool
+def test_routing_skips_shared_channels(
+    team, stamphog_chain: StamphogChain, channel_flags: dict, expect_routed: bool
 ) -> None:
-    # Auto-provision maps an audience_key onto a same-named Slack channel it didn't choose. A shared
-    # channel (Slack Connect / org-shared) matching that name would route internal PR digests to another
-    # org — a leak. Only ordinary internal channels may be auto-provisioned.
+    # A name match puts an audience_key onto a Slack channel nobody chose for it. A shared channel
+    # (Slack Connect or org-shared) carrying that name would route internal PR digests to another
+    # org — a leak. Only ordinary internal channels are matched this way.
+    _repo_config(team.id)
     Integration.objects.create(
         team_id=team.id, kind="slack", config={"authed_user": {"id": "U1"}}, sensitive_config={"access_token": "x"}
     )
     fakes.FakeSlackIntegration.reset(channels=[{"id": "C-DEVEX", "name": "team-devex", **channel_flags}])
 
-    row = auto_provision_channel(team.id, "team-devex")
+    context = build_routing_context(team.id)
+    assert isinstance(context, RoutingContext)
+    destination = resolve_destination(context, "team-devex", REPO)
 
-    if expect_provisioned:
-        assert row is not None
-        assert row.slack_channel_id == "C-DEVEX"
+    if expect_routed:
+        assert destination is not None and destination.channel_id == "C-DEVEX"
     else:
-        assert row is None
-        assert not DigestChannel.objects.for_team(team.id).filter(audience_key="team-devex").exists()
+        assert destination is None
 
 
 @pytest.mark.parametrize(
@@ -1694,7 +1621,6 @@ def test_post_verdict_stamps_digest_audience_only_at_approved_head(
     repo_config = _repo_config(team.id)
     approved_head = "sha-merged"
     stamphog_chain.recorder.register_pr(REPO, 101, _pr_object(101, "devex-dev", live_head))
-    stamphog_chain.recorder.teams_by_login["devex-dev"] = ["team-devex"]
     pull_request = PullRequest.objects.for_team(team.id).create(
         team_id=team.id, repo_config=repo_config, pr_number=101, author_login="devex-dev", merged_at=timezone.now()
     )

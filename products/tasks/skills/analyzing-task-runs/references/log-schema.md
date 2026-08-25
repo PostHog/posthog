@@ -153,6 +153,23 @@ turns, or a completion has no usage, omit `tokens`:
 sed -n '<start>,<end>p' <log> | jq -rs 'def token_total: if type == "number" then . elif type == "object" then (.totalTokens // ((.inputTokens // 0) + (.outputTokens // 0) + (.cachedReadTokens // 0) + (.cachedWriteTokens // 0))) else empty end; [.[] | if .type == "pi_event" and .event.type == "turn_completed" then .event.totalTokens elif .notification.method == "_posthog/turn_complete" then (.notification.params.usage | token_total) else empty end | select(type == "number" and . > 0)] | if length > 0 then add else "insufficient completed-turn token records in span" end'
 ```
 
+Tool-output bytes across the span — works in both formats, even when the log has no token
+records. Pi:
+
+```sh
+sed -n '<start>,<end>p' <log> | jq -rs '[.[] | select(.event.type=="tool_call_updated") | (.event.toolCall.rawOutput | tostring | length)] | add // "no tool outputs in span"'
+```
+
+ACP:
+
+```sh
+sed -n '<start>,<end>p' <log> | jq -rs '[.[] | select(.notification.params.update.sessionUpdate=="tool_call_update") | (.notification.params.update.rawOutput | tostring | length)] | add // "no tool outputs in span"'
+```
+
+When the same pattern occurs in separate, non-contiguous spans, measure each span with these
+recipes and report the sum. Never bracket from the first occurrence to the last — the work in
+between is not waste.
+
 ### Token-measurement examples
 
 Pi records `totalTokens` with each completed turn. These two complete turns fall inside a measured

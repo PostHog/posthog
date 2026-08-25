@@ -551,6 +551,22 @@ class HeatmapPreflightSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "300/hour"
 
 
+# The llms.txt fetch pulls a caller-supplied file of up to 1 MB from an arbitrary host, holding a web
+# worker for the whole transfer, so like the heatmap pre-flight its budget is about worker occupancy.
+# It is not covered by the project-global Burst/Sustained pair, which only ever throttles personal
+# API key traffic and lets the session-authenticated UI through untouched. A legitimate caller needs
+# one fetch per coverage analysis, so these rates clear a team's worth of concurrent viewers while
+# capping a scripted loop.
+class LlmsTxtFetchBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "llms_txt_fetch_burst"
+    rate = "20/minute"
+
+
+class LlmsTxtFetchSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "llms_txt_fetch_sustained"
+    rate = "200/hour"
+
+
 # The batch session-context endpoint computes experiment context for up to 20 recordings per
 # call, in up to several per-day ClickHouse scan sets — heavier than most ClickHouse endpoints
 # — and its primary caller is the session-authenticated replay/experiment UI, which the

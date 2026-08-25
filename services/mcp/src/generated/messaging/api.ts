@@ -57,6 +57,8 @@ export const MessagingPreferencesOptOutsRetrieveParams = /* @__PURE__ */ zod.obj
         ),
 })
 
+export const messagingPreferencesOptOutsRetrieveQuerySearchMax = 512
+
 export const MessagingPreferencesOptOutsRetrieveQueryParams = /* @__PURE__ */ zod.object({
     category_key: zod
         .string()
@@ -66,6 +68,11 @@ export const MessagingPreferencesOptOutsRetrieveQueryParams = /* @__PURE__ */ zo
         ),
     page: zod.number().optional(),
     page_size: zod.number().optional(),
+    search: zod
+        .string()
+        .max(messagingPreferencesOptOutsRetrieveQuerySearchMax)
+        .optional()
+        .describe('Case-insensitive substring match on the recipient identifier.'),
 })
 
 /**

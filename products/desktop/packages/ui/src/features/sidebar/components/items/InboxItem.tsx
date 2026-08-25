@@ -10,22 +10,22 @@ import { SidebarKbdHint } from "./SidebarKbdHint";
 interface InboxItemProps {
   isActive: boolean;
   onClick: MouseEventHandler<Element>;
-  pullRequestCount?: number;
+  decisionCount?: number;
   depth?: number;
 }
 
 export function InboxItem({
   isActive,
   onClick,
-  pullRequestCount = 0,
+  decisionCount = 0,
   depth = 0,
 }: InboxItemProps) {
   return (
     <Tooltip
       content={
-        pullRequestCount > 0
-          ? `${pullRequestCount} pull request${pullRequestCount === 1 ? "" : "s"} to review`
-          : "No pull requests to review"
+        decisionCount > 0
+          ? `${decisionCount} report${decisionCount === 1 ? " needs" : "s need"} a decision`
+          : "No reports need a decision"
       }
       side="right"
     >
@@ -37,10 +37,10 @@ export function InboxItem({
           }
           label={
             <>
-              Inbox
+              Self-driving
               <SidebarCountBadge
-                count={pullRequestCount}
-                title={`${pullRequestCount} pull requests to review`}
+                count={decisionCount}
+                title={`${decisionCount} report${decisionCount === 1 ? " needs" : "s need"} a decision`}
               />
             </>
           }

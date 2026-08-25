@@ -130,6 +130,23 @@ export type IngestionConsumerConfig = {
     // least-recently-seen key is dropped and rebaselines unchecked.
     INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS: number
 
+    // Streaming ingest (ingestion API server only): serve
+    // ingestion.worker.v1.WorkerIngest over gRPC alongside HTTP /ingest.
+    // The stream delivers each consumer's sub-batches in order, closing the
+    // wire-reordering window concurrent HTTP requests leave open.
+    INGESTION_API_GRPC_ENABLED: boolean
+    INGESTION_API_GRPC_PORT: number
+    // Concurrency caps for the gRPC listener. Legitimate load is roughly one
+    // stream per connected consumer, so these are generous ceilings that bound
+    // resource use if a peer misbehaves rather than limits normal traffic.
+    INGESTION_API_GRPC_MAX_STREAMS: number
+    INGESTION_API_GRPC_MAX_SESSIONS: number
+    INGESTION_API_GRPC_MAX_STREAMS_PER_SESSION: number
+    INGESTION_API_GRPC_SESSION_MEMORY_MB: number
+    INGESTION_API_GRPC_SESSION_IDLE_TIMEOUT_MS: number
+    INGESTION_API_GRPC_READ_MAX_BYTES: number
+    INGESTION_API_GRPC_DRAIN_TIMEOUT_MS: number
+
     // Person batch writing config
     PERSON_BATCH_WRITING_DB_WRITE_MODE: PersonBatchWritingDbWriteMode
     PERSON_BATCH_WRITING_USE_BATCH_UPDATES: boolean
@@ -299,6 +316,15 @@ export function getDefaultIngestionConsumerConfig(): IngestionConsumerConfig {
         INGESTION_WORKER_CONCURRENT_BATCHES: 1,
         INGESTION_API_FEED_ORDER_SENTINEL_ENABLED: true,
         INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS: 200_000,
+        INGESTION_API_GRPC_ENABLED: false,
+        INGESTION_API_GRPC_PORT: 6739,
+        INGESTION_API_GRPC_MAX_STREAMS: 256,
+        INGESTION_API_GRPC_MAX_SESSIONS: 256,
+        INGESTION_API_GRPC_MAX_STREAMS_PER_SESSION: 8,
+        INGESTION_API_GRPC_SESSION_MEMORY_MB: 64,
+        INGESTION_API_GRPC_SESSION_IDLE_TIMEOUT_MS: 300_000,
+        INGESTION_API_GRPC_READ_MAX_BYTES: 32 * 1024 * 1024,
+        INGESTION_API_GRPC_DRAIN_TIMEOUT_MS: 15_000,
 
         // Person batch writing config
         PERSON_BATCH_WRITING_DB_WRITE_MODE: 'NO_ASSERT',

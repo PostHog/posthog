@@ -230,8 +230,8 @@ export function ReportCardView(props: ReportCardViewProps) {
         variant="soft"
         color="gray"
         size="1"
-        aria-label="Restore this report to the inbox"
-        tooltipContent="Restore to inbox"
+        aria-label="Restore this report to Self-driving"
+        tooltipContent="Restore to Self-driving"
         loading={props.isRestorePending}
         disabled={props.isRestorePending}
         onClick={(event) => {
