@@ -8820,7 +8820,7 @@
             "label": "Platform"
         },
         "visited_page": {
-            "description": "URL a user visited during their session",
+            "description": "URL captured in the recording itself. Unlike Current URL, this only matches pages the video covers.",
             "label": "Visited page"
         }
     },

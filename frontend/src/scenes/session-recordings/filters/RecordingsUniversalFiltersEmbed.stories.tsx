@@ -65,3 +65,35 @@ export const ProductAnalyticsUnderLimit: Story = {
         }),
     ],
 }
+
+const withPageFilter = (values: Record<string, any>[]): Record<string, any> => ({
+    pageUrl: combineUrl(urls.replay(), {
+        showFilters: true,
+        filters: {
+            date_from: '-3d',
+            date_to: null,
+            filter_test_accounts: false,
+            duration: [{ type: 'recording', key: 'duration', value: 1, operator: 'gt' }],
+            filter_group: { type: 'AND', values: [{ type: 'AND', values }] },
+        },
+    }).url,
+})
+
+export const PageFilterWithSwapOffered: Story = {
+    parameters: withPageFilter([{ type: 'event', key: '$current_url', operator: 'icontains', value: '/pricing' }]),
+}
+
+export const PageviewFilterWithSwapOffered: Story = {
+    parameters: withPageFilter([
+        {
+            id: '$pageview',
+            name: '$pageview',
+            type: 'events',
+            properties: [{ type: 'event', key: '$current_url', operator: 'icontains', value: '/pricing' }],
+        },
+    ]),
+}
+
+export const PageFilterThatCannotBeSwapped: Story = {
+    parameters: withPageFilter([{ type: 'event', key: '$current_url', operator: 'not_icontains', value: '/pricing' }]),
+}

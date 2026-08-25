@@ -1,7 +1,13 @@
 import emojiRegex from 'emoji-regex'
 
+import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
+
 import {
+    type ActionFilter,
+    type EventPropertyFilter,
     LegacyRecordingFilters,
+    PropertyFilterType,
+    PropertyOperator,
     RecordingUniversalFilters,
     type SessionRecordingMaskingConfig,
     type SessionRecordingMaskingLevel,
@@ -40,6 +46,98 @@ export const filtersFromUniversalFilterGroups = (filters: RecordingUniversalFilt
     }
     return flatten(filters.filter_group.values)
 }
+
+// The properties people reach for when they mean "show me sessions that visited this page".
+const PAGE_PROPERTY_KEYS = ['$current_url', '$pathname']
+
+type PageProperty = { key?: unknown; operator?: PropertyOperator; value?: any }
+
+const isPagePropertyFilter = (filter: PageProperty): boolean =>
+    PAGE_PROPERTY_KEYS.includes(filter.key as string) &&
+    !!filter.operator &&
+    filter.value != null &&
+    filter.value !== '' &&
+    !(Array.isArray(filter.value) && filter.value.length === 0)
+
+// `visited_page` compiles to `arrayExists(...)` over the recording's URLs, so a negated operator would
+// mean "some URL doesn't match" rather than "no URL matches". Only offer the swap where the two agree.
+const VISITED_PAGE_SAFE_OPERATORS: PropertyOperator[] = [
+    PropertyOperator.Exact,
+    PropertyOperator.IContains,
+    PropertyOperator.Regex,
+]
+
+// Those URLs are absolute, so an exact `$pathname` would stop matching once rewritten. Substring and
+// pattern matches still line up.
+const isSwappablePageProperty = (filter: PageProperty): boolean =>
+    isPagePropertyFilter(filter) &&
+    VISITED_PAGE_SAFE_OPERATORS.includes(filter.operator!) &&
+    !(filter.key === '$pathname' && filter.operator === PropertyOperator.Exact)
+
+const isSwappablePageFilter = (filter: UniversalFilterValue): boolean =>
+    filter.type === PropertyFilterType.Event && isSwappablePageProperty(filter)
+
+/**
+ * A pageview event filter is the other way people express "visited this page". It only maps cleanly onto
+ * `visited_page` when the URL property is the only thing scoping the event.
+ */
+const isSwappablePageviewFilter = (filter: UniversalFilterValue): boolean => {
+    if (!isEventFilter(filter) || filter.id !== '$pageview') {
+        return false
+    }
+    const properties = filter.properties ?? []
+    return (
+        properties.length === 1 &&
+        properties[0].type === PropertyFilterType.Event &&
+        isSwappablePageProperty(properties[0])
+    )
+}
+
+const pagePropertiesOf = (filter: UniversalFilterValue): PageProperty[] =>
+    isEventFilter(filter) || isActionFilter(filter) ? (filter.properties ?? []) : [filter]
+
+/**
+ * True when the filters express "sessions that visited page X". Those match pageview events from anywhere
+ * in the session, so they can match a moment the video never covers, unlike `visited_page`.
+ */
+export const hasPageFilter = (filters: RecordingUniversalFilters): boolean =>
+    filtersFromUniversalFilterGroups(filters).some((filter) => pagePropertiesOf(filter).some(isPagePropertyFilter))
+
+/** Whether every page filter can be rewritten to `visited_page` without changing which recordings match. */
+export const canSwapPageFiltersForVisitedPage = (filters: RecordingUniversalFilters): boolean => {
+    const filterList = filtersFromUniversalFilterGroups(filters)
+    const pageFilters = filterList.filter((filter) => pagePropertiesOf(filter).some(isPagePropertyFilter))
+    return (
+        pageFilters.length > 0 &&
+        pageFilters.every((filter) => isSwappablePageFilter(filter) || isSwappablePageviewFilter(filter))
+    )
+}
+
+const toVisitedPageFilter = (property: { operator?: PropertyOperator; value?: any }): UniversalFilterValue =>
+    ({
+        type: PropertyFilterType.Recording,
+        key: 'visited_page',
+        operator: property.operator,
+        value: property.value,
+    }) as UniversalFilterValue
+
+/** Rewrites every swappable page filter to the equivalent `visited_page` one, at any nesting depth. */
+export const swapPageFiltersForVisitedPage = (group: UniversalFiltersGroup): UniversalFiltersGroup => ({
+    ...group,
+    values: group.values.map((value) => {
+        if (value && typeof value === 'object' && 'values' in value && Array.isArray(value.values)) {
+            return swapPageFiltersForVisitedPage(value)
+        }
+        const filter = value as UniversalFilterValue
+        if (isSwappablePageFilter(filter)) {
+            return toVisitedPageFilter(filter as EventPropertyFilter)
+        }
+        if (isSwappablePageviewFilter(filter)) {
+            return toVisitedPageFilter((filter as ActionFilter).properties![0])
+        }
+        return value
+    }),
+})
 
 export const getMaskingLevelFromConfig = (config: SessionRecordingMaskingConfig): SessionRecordingMaskingLevel => {
     if (config.maskTextSelector === '*' && config.maskAllInputs && config.blockSelector === 'img') {

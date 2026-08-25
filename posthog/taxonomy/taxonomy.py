@@ -3680,7 +3680,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "visited_page": {
             "label": "Visited page",
-            "description": "URL a user visited during their session",
+            "description": "URL captured in the recording itself. Unlike Current URL, this only matches pages the video covers.",
         },
         "comment_text": {
             "label": "Comment text",
