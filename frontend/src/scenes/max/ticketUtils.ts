@@ -183,6 +183,7 @@ export function composeTicketBody({ note, summary }: { note: string; summary?: s
     return trimmedNote
 }
 
+// Duplicated for the sandbox runtime in products/posthog_ai/frontend/utils/ticketMetadata.ts; this copy is deleted with the LangGraph runtime.
 /**
  * Appends the conversation and trace identifiers to a ticket body. Returns an empty string when
  * the body is empty, so metadata alone can never be submitted as a ticket.

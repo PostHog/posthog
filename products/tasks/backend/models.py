@@ -726,6 +726,7 @@ class Task(DeletedMetaFields, models.Model):
         description: str,
         origin_product: "Task.OriginProduct",
         user_id: int,
+        title_manually_set: bool = False,
         repository: str | None = None,
         channel: Channel | None = None,
         slack_thread_context: Optional["SlackThreadContext"] = None,
@@ -852,6 +853,7 @@ class Task(DeletedMetaFields, models.Model):
         task = Task.objects.create(
             team=team,
             title=title,
+            title_manually_set=title_manually_set,
             description=description,
             origin_product=origin_product,
             client_provenance=client_provenance,
@@ -1045,6 +1047,7 @@ class Task(DeletedMetaFields, models.Model):
         description: str,
         origin_product: "Task.OriginProduct",
         user_id: int,
+        title_manually_set: bool = False,
         repository: str | None = None,  # Format: "organization/repository", e.g. "posthog/posthog-js"
         channel: Channel | None = None,
         create_pr: bool = True,
@@ -1097,6 +1100,7 @@ class Task(DeletedMetaFields, models.Model):
             description=description,
             origin_product=origin_product,
             user_id=user_id,
+            title_manually_set=title_manually_set,
             repository=repository,
             channel=channel,
             slack_thread_context=slack_thread_context,
