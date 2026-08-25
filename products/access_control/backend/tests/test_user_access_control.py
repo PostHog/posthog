@@ -10,25 +10,21 @@ from posthog.models.file_system.file_system import FileSystem
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.rbac.subject_access_control import SubjectAccessControl
-from posthog.rbac.user_access_control import (
+
+from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
+from products.access_control.backend.facade.user_access_control import (
     RESOURCE_INHERITANCE_MAP,
     AccessSource,
     UserAccessControl,
-    UserAccessControlSerializerMixin,
     get_field_access_control_map,
     model_to_resource,
 )
-
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role, RoleMembership
+from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-    from ee.models.rbac.role import Role, RoleMembership
-except ImportError:
-    pass
 
 
 class BaseUserAccessControlTest(BaseTest):
@@ -1834,21 +1830,21 @@ class TestAccessControlMissingEE(BaseTest):
         super().setUp()
         self.uac = UserAccessControl(self.user, self.team, self.organization.id)
 
-    @patch("posthog.rbac.user_access_control.EE_AVAILABLE", False)
+    @patch("products.access_control.backend.facade.user_access_control.EE_AVAILABLE", False)
     def test_get_access_controls_returns_empty(self):
         filters = {"team_id": self.team.id, "resource": "dashboard", "resource_id": None}
         assert self.uac._get_access_controls(filters) == []
 
-    @patch("posthog.rbac.user_access_control.EE_AVAILABLE", False)
+    @patch("products.access_control.backend.facade.user_access_control.EE_AVAILABLE", False)
     def test_preload_access_levels_does_not_crash(self):
         self.uac.preload_access_levels(team=self.team, resource="dashboard")
 
-    @patch("posthog.rbac.user_access_control.EE_AVAILABLE", False)
+    @patch("products.access_control.backend.facade.user_access_control.EE_AVAILABLE", False)
     def test_preload_object_access_controls_does_not_crash(self):
         dashboard = Dashboard.objects.create(team=self.team, name="test")
         self.uac.preload_object_access_controls([dashboard])
 
-    @patch("posthog.rbac.user_access_control.EE_AVAILABLE", False)
+    @patch("products.access_control.backend.facade.user_access_control.EE_AVAILABLE", False)
     def test_filter_and_annotate_file_system_queryset_returns_unfiltered(self):
         qs = FileSystem.objects.filter(team=self.team)
         result = self.uac.filter_and_annotate_file_system_queryset(qs)
