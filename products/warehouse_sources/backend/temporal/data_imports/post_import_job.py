@@ -135,7 +135,8 @@ class PostImportStep:
     `start` runs inside the workflow and may only issue Temporal commands. Adding a step
     means adding one POST_IMPORT_STEPS entry. Removing or reordering one needs
     workflow.patched() discipline — in-flight runs have its key recorded, so replay must
-    still issue its commands (see .claude/rules/temporal-workflow-versioning.md).
+    still issue its commands (see posthog/temporal/README.md, "Version a workflow before you
+    edit its body").
     """
 
     key: str

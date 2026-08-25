@@ -631,7 +631,8 @@ class SignalsScoutCoordinatorWorkflow:
     of the tick. The window is bounded well under the tick and the schedule caps the workflow's
     execution at one tick interval, so `SKIP` still never collapses ticks; a coordinator is now
     alive for a meaningful fraction of every tick, though, so any later edit to this method needs
-    a `workflow.patched()` gate (see `.claude/rules/temporal-workflow-versioning.md`) — this
+    a `workflow.patched()` gate (see `posthog/temporal/README.md`, "Version a workflow before you
+    edit its body") — this
     change itself is gated on `FetchEnabledRunsOutput.dispatch_smear_seconds` defaulting to 0.
 
     The schedule advances only after dispatch (not during planning) so a fan-out failure

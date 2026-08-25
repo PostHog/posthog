@@ -6,6 +6,10 @@ Pointers, not content. Read the linked docs before changing code or tests in thi
 
 - [Temporal at PostHog](./README.md) — concepts, workflows, activities, the conventions we use, common pitfalls, links to the upstream Temporal SDK docs.
 
+## Before you edit a `@workflow.defn` body
+
+- [Version a workflow before you edit its body](./README.md#version-a-workflow-before-you-edit-its-body) — adding, removing, or reordering `execute_activity` calls, child-workflow starts, or timers breaks in-flight executions with "Non Deterministic Error". Read this before touching a workflow command sequence; activity implementations and activity input dataclasses are safe to edit without it.
+
 ## Writing or modifying tests in this tree
 
 - [Testing patterns](./README.md#testing-patterns) — when to use real Worker vs `ActivityEnvironment` vs no harness, why some files need `@pytest.mark.django_db(transaction=True)`, the module-scoped Worker pattern that avoids booting the temporal-test-server per test, the `connection.connect()` monkeypatch escape hatch, and the parametrize-don't-copy-paste rule.

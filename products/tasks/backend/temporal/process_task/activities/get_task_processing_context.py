@@ -134,7 +134,7 @@ class TaskProcessingContext:
     continue_as_new_history_threshold: int = 0
     # Wall-clock cap for interactive signals-origin runs, resolved activity-side. The None
     # default is what pre-existing run histories decode, so replays schedule no new timer
-    # (see .claude/rules/temporal-workflow-versioning.md, pattern 2).
+    # (see posthog/temporal/README.md, "Version a workflow before you edit its body", pattern 2).
     interactive_max_run_duration_seconds: int | None = None
     # Whether agent peer messaging tools should surface in this run (flag + Pi runtime).
     # Exposure only: the peers endpoints re-check authorization server-side on every call.
