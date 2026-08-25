@@ -10,9 +10,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from posthog.exceptions_capture import capture_exception
 from posthog.models import OrganizationMembership
-from posthog.rbac.user_access_control import AccessControlLevel
 from posthog.scopes import APIScopeObject
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel
 from products.customer_analytics.backend.facade.api import (
     AccountConflictError,
     _set_tags,

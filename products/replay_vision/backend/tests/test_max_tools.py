@@ -12,9 +12,9 @@ from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
 from posthog.models.team import Team
-from posthog.rbac.user_access_control import UserAccessControl
 
 import products.replay_vision.backend.max_tools as max_tools_module
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.max_tools import (
     AnalyzeReplayVisionImpactTool,

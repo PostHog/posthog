@@ -10,11 +10,9 @@ from rest_framework.exceptions import ValidationError
 
 from posthog.models.team import Team
 from posthog.rbac.decorators import field_access_control
-from posthog.rbac.user_access_control import (
-    UserAccessControl,
-    UserAccessControlSerializerMixin,
-    get_field_access_control_map,
-)
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl, get_field_access_control_map
+from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 
 
 class TestFieldAccessControlDecorator(BaseTest):
