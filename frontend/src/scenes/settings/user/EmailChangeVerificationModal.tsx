@@ -56,6 +56,7 @@ export function EmailChangeVerificationModal(): JSX.Element {
                     size="large"
                     fullWidth
                     data-attr="email-change-verification-code"
+                    className="ph-replay-block"
                     status={verificationCodeError ? 'danger' : 'default'}
                 />
                 {verificationCodeError && (

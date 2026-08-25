@@ -129,7 +129,7 @@ function VerificationCodeEntry(): JSX.Element {
                 inputMode="numeric"
                 autoComplete="one-time-code"
                 size="large"
-                className="text-center"
+                className="text-center ph-replay-block"
                 data-attr="verify-email-code"
                 status={verificationCodeError ? 'danger' : 'default'}
             />
