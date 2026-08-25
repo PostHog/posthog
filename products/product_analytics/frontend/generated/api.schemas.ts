@@ -4489,6 +4489,7 @@ export const TaxonomicFilterGroupTypeApi = {
     CohortsWithAll: 'cohorts_with_all',
     DataWarehouse: 'data_warehouse',
     DataWarehouseSourceTables: 'data_warehouse_source_tables',
+    DataWarehouseMaterializedViews: 'data_warehouse_materialized_views',
     DataWarehouseProperties: 'data_warehouse_properties',
     DataWarehousePersonProperties: 'data_warehouse_person_properties',
     Elements: 'elements',
@@ -4532,6 +4533,7 @@ export const TaxonomicFilterGroupTypeApi = {
     Replay: 'replay',
     ReplaySavedFilters: 'replay_saved_filters',
     RevenueAnalyticsProperties: 'revenue_analytics_properties',
+    AccountFields: 'account_fields',
     AccountCustomProperties: 'account_custom_properties',
     Resources: 'resources',
     ErrorTrackingProperties: 'error_tracking_properties',
@@ -5176,6 +5178,10 @@ export interface ExperimentMeanMetricApi {
 export type ExperimentFunnelMetricApiResponse = { [key: string]: unknown } | null
 
 export interface ExperimentFunnelMetricApi {
+    /** How to attribute the breakdown value across funnel steps. */
+    breakdownAttributionType?: BreakdownAttributionTypeApi | null
+    /** When breakdownAttributionType is `step`, the 0-indexed step to attribute from. */
+    breakdownAttributionValue?: number | null
     breakdownFilter?: BreakdownFilterApi | null
     conversion_window?: number | null
     conversion_window_unit?: FunnelConversionWindowTimeUnitApi | null
@@ -6217,7 +6223,7 @@ export type ConversionGoalFilter1ApiSchemaMap = { [key: string]: string | unknow
 export interface ConversionGoalFilter1Api {
     conversion_goal_id: string
     conversion_goal_name: string
-    /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+    /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC, whose denominator is this goal's conversions — its count, or its unique converters under dau math. That equals new customers only for a once-per-person moment: a repeatable event such as a monthly payment counts every time and understates cost per customer, and dedup under dau is per result row, so someone converting under two sources counts twice at channel level. Defaults to false. */
     counts_as_customer?: boolean | null
     /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
     counts_as_revenue?: boolean | null
@@ -6315,7 +6321,7 @@ export type ConversionGoalFilter2ApiSchemaMap = { [key: string]: string | unknow
 export interface ConversionGoalFilter2Api {
     conversion_goal_id: string
     conversion_goal_name: string
-    /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+    /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC, whose denominator is this goal's conversions — its count, or its unique converters under dau math. That equals new customers only for a once-per-person moment: a repeatable event such as a monthly payment counts every time and understates cost per customer, and dedup under dau is per result row, so someone converting under two sources counts twice at channel level. Defaults to false. */
     counts_as_customer?: boolean | null
     /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
     counts_as_revenue?: boolean | null
@@ -6409,7 +6415,7 @@ export type ConversionGoalFilter3ApiSchemaMap = { [key: string]: string | unknow
 export interface ConversionGoalFilter3Api {
     conversion_goal_id: string
     conversion_goal_name: string
-    /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC and LTV:CAC, whose denominator is new customers (counted once per person via first_time_for_user) rather than every conversion. Defaults to false. */
+    /** Marks this goal as customer-defining: a conversion here means the person became a customer (e.g. a payment or subscription), not an intermediate step like a sign up. It gates customer-based metrics such as CAC, whose denominator is this goal's conversions — its count, or its unique converters under dau math. That equals new customers only for a once-per-person moment: a repeatable event such as a monthly payment counts every time and understates cost per customer, and dedup under dau is per result row, so someone converting under two sources counts twice at channel level. Defaults to false. */
     counts_as_customer?: boolean | null
     /** Marks this goal as revenue-bearing: the value of a conversion is a monetary amount, not a count or an arbitrary numeric property. It gates revenue metrics such as ROAS and LTV:CAC. The amount itself comes from math_property, and its currency from math_property_revenue_currency, the same shape Revenue analytics uses for revenue events. Independent of counts_as_customer: a purchase is usually both, a trial signup neither. Defaults to false. */
     counts_as_revenue?: boolean | null
@@ -7365,6 +7371,28 @@ export interface AccountsTableAccountIdFilterApi {
     kind?: 'account_id'
 }
 
+export type AccountsTableAccountFieldOperatorApi =
+    (typeof AccountsTableAccountFieldOperatorApi)[keyof typeof AccountsTableAccountFieldOperatorApi]
+
+export const AccountsTableAccountFieldOperatorApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+    IsDateExact: 'is_date_exact',
+    IsDateBefore: 'is_date_before',
+    IsDateAfter: 'is_date_after',
+} as const
+
+export interface AccountsTableAccountFieldFilterApi {
+    field: AccountsTableAccountFieldApi
+    kind?: 'account_field'
+    operator: AccountsTableAccountFieldOperatorApi
+    values?: string[] | null
+}
+
 export type AccountsTableCustomPropertyOperatorApi =
     (typeof AccountsTableCustomPropertyOperatorApi)[keyof typeof AccountsTableCustomPropertyOperatorApi]
 
@@ -7500,6 +7528,7 @@ export interface AccountsTableQueryApi {
               | AccountsTableAssignedToFilterApi
               | AccountsTableUnassignedFilterApi
               | AccountsTableAccountIdFilterApi
+              | AccountsTableAccountFieldFilterApi
               | AccountsTableCustomPropertyFilterApi
           )[]
         | null
