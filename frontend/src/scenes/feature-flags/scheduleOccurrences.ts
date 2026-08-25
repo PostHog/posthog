@@ -50,15 +50,13 @@ function isPaused(sc: ScheduledChangeType): boolean {
     return !sc.is_recurring && (!!sc.recurrence_interval || !!sc.cron_expression)
 }
 
-// One-time changes whose approval request was rejected or expired will never apply.
-// Recurring schedules stay: each occurrence is re-gated with a fresh request.
-function isDeniedApproval(sc: ScheduledChangeType): boolean {
+// A bound approval request that was rejected or expired means its current occurrence will not
+// apply: apply_gated_scheduled_change skips it. A one-time change is then dropped entirely; a
+// recurring one loses only this occurrence — the backend advances scheduled_at and re-gates the next.
+function hasDeniedRequest(sc: ScheduledChangeType): boolean {
     return (
-        !sc.is_recurring &&
-        !sc.recurrence_interval &&
-        !sc.cron_expression &&
-        (sc.change_request?.state === ScheduledChangeRequestState.Rejected ||
-            sc.change_request?.state === ScheduledChangeRequestState.Expired)
+        sc.change_request?.state === ScheduledChangeRequestState.Rejected ||
+        sc.change_request?.state === ScheduledChangeRequestState.Expired
     )
 }
 
@@ -80,14 +78,23 @@ export function expandScheduleOccurrences(
     const raw: { at: Dayjs; schedule: ScheduledChangeType }[] = []
 
     for (const schedule of schedules) {
-        if (schedule.executed_at || isPaused(schedule) || isDeniedApproval(schedule)) {
+        if (schedule.executed_at || isPaused(schedule)) {
+            continue
+        }
+        const denied = hasDeniedRequest(schedule)
+        // A denied one-time change never applies, so drop the whole schedule.
+        if (denied && !schedule.is_recurring) {
             continue
         }
         const first = dayjs(schedule.scheduled_at)
         if (!first.isValid()) {
             continue
         }
-        raw.push({ at: first, schedule })
+        // Skip a denied recurring change's current occurrence; the backend re-gates the next, which
+        // the recurrence expansion below still projects.
+        if (!denied) {
+            raw.push({ at: first, schedule })
+        }
 
         if (schedule.is_recurring && schedule.recurrence_interval && !schedule.cron_expression) {
             const unit = INTERVAL_UNIT[schedule.recurrence_interval]

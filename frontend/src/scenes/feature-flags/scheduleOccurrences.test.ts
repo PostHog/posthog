@@ -211,6 +211,28 @@ describe('expandScheduleOccurrences', () => {
         expect(expandScheduleOccurrences(schedules, flag(), NOW)[0].needsApproval).toBe(expected)
     })
 
+    it.each([{ state: ScheduledChangeRequestState.Rejected }, { state: ScheduledChangeRequestState.Expired }])(
+        'drops a $state recurring occurrence but keeps expanding the rest',
+        ({ state }) => {
+            const schedules = [
+                change({
+                    payload: STATUS_ON,
+                    is_recurring: true,
+                    recurrence_interval: RecurrenceInterval.Daily,
+                    scheduled_at: NOW.add(1, 'day').toISOString(),
+                    change_request: { id: 'cr-denied', state },
+                }),
+            ]
+
+            const occurrences = expandScheduleOccurrences(schedules, flag(), NOW)
+
+            // The backend skips this occurrence and re-gates the next, so the timeline must not
+            // project the denied change as applied; expansion resumes at the following day.
+            expect(occurrences.map((o) => o.timestamp)).not.toContain(NOW.add(1, 'day').toISOString())
+            expect(occurrences[0].timestamp).toEqual(NOW.add(2, 'day').toISOString())
+        }
+    )
+
     it.each([
         {
             name: 'paused recurring',
