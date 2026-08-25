@@ -1307,7 +1307,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def _get_run_or_404(self, pk) -> tasks_contracts.TaskRunDetailDTO:
         task_id = self._ensure_task_accessible()
-        run = tasks_facade.get_task_run_detail(pk, task_id, self.team_id)
+        run = tasks_facade.get_task_run_detail(
+            pk, task_id, self.team_id, include_agent_state=self._is_sandbox_agent_request(task_id)
+        )
         if run is None:
             raise NotFound()
         return run
