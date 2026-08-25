@@ -329,13 +329,27 @@ describe('HttpConfigurationFetcher', () => {
 
     it('uses the retained prefix when robots.txt exceeds its byte limit', async () => {
         fetchStreamedMock.mockResolvedValue(
-            response(200, [], { bytes: Buffer.from('User-agent: *\nDisallow: /private'), overLimit: true })
+            response(200, [], {
+                bytes: Buffer.concat([
+                    Buffer.from('User-agent: *\nDisallow: /private'),
+                    Buffer.from([0xf0, 0x9f, 0x98]),
+                ]),
+                overLimit: true,
+            })
         )
 
         await expect(httpFetcher().fetch(ORIGIN, 'robots')).resolves.toMatchObject({
             outcome: 'available',
             body: 'User-agent: *\nDisallow: /private',
         })
+    })
+
+    it('treats invalid UTF-8 configuration text as unreachable', async () => {
+        fetchStreamedMock.mockResolvedValue(
+            response(200, [], { bytes: Buffer.from([0x75, 0x73, 0x65, 0x72, 0xff]), overLimit: false })
+        )
+
+        await expect(httpFetcher().fetch(ORIGIN, 'robots')).resolves.toMatchObject({ outcome: 'unreachable' })
     })
 
     it('treats an oversized or invalid TDMRep document as unreachable', async () => {
