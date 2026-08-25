@@ -5,7 +5,7 @@ import {
   QuestionIcon,
 } from "@phosphor-icons/react";
 import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
-import { Avatar, AvatarFallback, Badge, Button } from "@posthog/quill";
+import { Avatar, AvatarFallback, Badge, Button, cn } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { UserBasic } from "@posthog/shared/domain-types";
 import { UserAvatar } from "@posthog/ui/features/auth/UserAvatar";
@@ -94,7 +94,12 @@ export function ActivityRow({
         type="button"
         onClick={openTask}
         left
-        className={`h-auto w-full items-start text-left ${compact ? "py-1.5 pr-10" : "py-2"} ${isSelected ? "bg-fill-selected" : ""}`}
+        className={cn(
+          "h-auto w-full items-start text-left",
+          compact ? "py-1.5" : "py-2",
+          compact && item.isUnread && "pr-8",
+          isSelected && "bg-fill-selected",
+        )}
       >
         <span className="mt-0.5 shrink-0">
           {presentation.agentIcon ? (

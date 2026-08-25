@@ -85,6 +85,29 @@ describe("ActivityRow", () => {
     expect(screen.queryByTitle("New activity")).not.toBeInTheDocument();
   });
 
+  it.each([
+    { label: "unread", isUnread: true, hasActionPadding: true },
+    { label: "read", isUnread: false, hasActionPadding: false },
+  ])(
+    "reserves trailing room for a compact $label row only when it has a read action",
+    ({ isUnread, hasActionPadding }) => {
+      render(
+        <ActivityRow
+          item={item({ isUnread })}
+          onMarkRead={vi.fn()}
+          onActivate={vi.fn()}
+          blockedTaskIds={NO_BLOCKED_TASKS}
+          compact
+        />,
+      );
+
+      const row = screen.getByText("Say hello").closest("button");
+      expect(row).toHaveClass("py-1.5");
+      expect(row).not.toHaveClass("pr-10");
+      expect(row?.classList.contains("pr-8")).toBe(hasActionPadding);
+    },
+  );
+
   it("opens an activity mention at its exact comment thread", () => {
     const activity = item({
       activityKind: "mention",
