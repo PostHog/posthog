@@ -114,8 +114,8 @@ export function LoginForm(): JSX.Element {
                         )}
                     >
                         <span>
-                            {generalError.detail ||
-                                ERROR_MESSAGES[generalError.code] ||
+                            {ERROR_MESSAGES[generalError.code] ||
+                                generalError.detail ||
                                 'Could not complete your login. Please try again.'}
                         </span>
                         {preflight?.cloud && (

@@ -1,3 +1,4 @@
+import sys
 from collections.abc import Callable
 from typing import Any, cast
 from urllib.parse import urlencode, urlparse
@@ -303,11 +304,17 @@ def handler500(request):
     """
     500 error handler.
 
+    Captures the active exception so we can correlate the failure a user reports,
+    and passes its id to the page as an error reference.
+
     Templates: :template:`500.html`
-    Context: request
+    Context: request, error_id
     """
+    error = sys.exc_info()[1]
+    error_id = capture_exception(error) if error is not None else None
+
     template = loader.get_template("500.html")
-    return HttpResponseServerError(template.render({"request": request}, request))
+    return HttpResponseServerError(template.render({"request": request, "error_id": error_id}, request))
 
 
 APP_POSTHOG_HOST = "app.posthog.com"

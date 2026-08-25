@@ -1,6 +1,7 @@
 import uuid
 
 from posthog.test.base import APIBaseTest
+from unittest import mock
 
 from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.urls import resolve
@@ -9,7 +10,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.instance_setting import override_instance_config
-from posthog.urls import region_host_from_current_instance
+from posthog.urls import handler500, region_host_from_current_instance
 
 
 class TestUrls(APIBaseTest):
@@ -199,6 +200,34 @@ class TestRegionHostFromCurrentInstance(SimpleTestCase):
     )
     def test_region_host_from_current_instance(self, _name, cookie_value, expected):
         self.assertEqual(region_host_from_current_instance(cookie_value), expected)
+
+
+class TestHandler500(SimpleTestCase):
+    def test_captures_exception_and_renders_error_reference(self):
+        request = RequestFactory().get("/some/failing/page")
+        with mock.patch("posthog.urls.capture_exception", return_value="err-123") as mock_capture:
+            try:
+                raise ValueError("boom")
+            except ValueError as e:
+                response = handler500(request)
+                captured = mock_capture.call_args.args[0]
+                self.assertIs(captured, e)
+
+        self.assertEqual(response.status_code, 500)
+        body = response.content.decode()
+        self.assertIn("err-123", body)
+        self.assertIn("Try again", body)
+
+    def test_renders_without_error_reference_when_capture_returns_none(self):
+        request = RequestFactory().get("/some/failing/page")
+        with mock.patch("posthog.urls.capture_exception", return_value=None):
+            try:
+                raise ValueError("boom")
+            except ValueError:
+                response = handler500(request)
+
+        self.assertEqual(response.status_code, 500)
+        self.assertNotIn("Error reference", response.content.decode())
 
 
 class TestLegacyDuckgresAdminUrls(SimpleTestCase):
