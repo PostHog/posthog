@@ -16,21 +16,31 @@ same contents into a hogland snapshot, it does not change the container image.
 
 ## What the workflow does
 
-1. `render_skills` job — renders the agent skills the golden ships, the same way
+1. `validate_ref` job — resolves the `workflow_dispatch` `ref` input to a safe
+   checkout target before any other job touches it: blank resolves to the
+   literal `master` branch, and a non-blank value must be a full commit SHA that
+   GitHub's compare API confirms is already an ancestor of `master`. This job
+   never checks out any code itself (only a REST call), because `render_skills`
+   and `bake` both check out their ref and then execute scripts from it
+   (`hogli build:skills`, `bake-golden.sh`, `setup-golden.sh`) in jobs that, once
+   armed, hold the hogland CLI App key, a tailnet join, and hogland/prod OIDC —
+   an unvalidated free-text ref would let anyone who can dispatch this workflow
+   run their own branch's code with those credentials.
+2. `render_skills` job — renders the agent skills the golden ships, the same way
    the sandbox-base image build does (`cd-sandbox-base-image.yml`'s `build_skills`
    job): stands up a DB, `uv sync`s, migrates, runs `hogli build:skills` to expand
    the skill `.md.j2` templates, then merges in the context-mill skills. Uploads
    the merged set as the `tasks-golden-skills` artifact. Rendered once, reused by
    every cluster. It shares the master arm gate, so an unarmed nightly does not
    pay for a full DB render.
-2. Joins the hogland tailnet as `tag:hogland-ci` (the tag whose ACL reaches the
+3. Joins the hogland tailnet as `tag:hogland-ci` (the tag whose ACL reaches the
    `tag:hogplane` device serving the API).
-3. Authenticates to hogplane as a per-cluster `svc-ci-*` service-account
+4. Authenticates to hogplane as a per-cluster `svc-ci-*` service-account
    principal via GitHub OIDC — no stored bearer. The CLI mints the token from the
    Actions OIDC endpoint and re-mints on any mid-bake 401 via `HOG_TOKEN_COMMAND`,
    because a golden bake runs ~90 min while an OIDC token lives ~5 min.
-4. Builds the `hogland` CLI from a scoped checkout of `PostHog/hogland`.
-5. `bake-golden.sh` — decomposes the bake into box primitives instead of
+5. Builds the `hogland` CLI from a scoped checkout of `PostHog/hogland`.
+6. `bake-golden.sh` — decomposes the bake into box primitives instead of
    `hogland snapshot-build` (whose <=256 KiB bootstrap cannot carry the multi-MB
    skills set). It `box create`s a bare seed box (cold boot, `--no-connect`),
    streams the payload into the box over the box's own SSH (`cat >` — the git/gh
@@ -40,12 +50,12 @@ same contents into a hogland snapshot, it does not change the container image.
    node/uv/tools/agentsh fresh, npm-installs `@posthog/agent` at the version the
    workflow resolved, and installs the delivered skills. No GHCR image and no
    public artifact host are involved — delivery rides the box's SSH.
-6. Boots a smoke box from `posthog-tasks-candidate`, runs `smoke-golden.sh`
+7. Boots a smoke box from `posthog-tasks-candidate`, runs `smoke-golden.sh`
    (agent-server starts; a trivial clone + exec works; the hogpanion exec daemon
    is running with the container-style env), and deletes it. A smoke failure
    skips promotion, leaving `posthog-tasks-default` on the previous known-good
    snapshot.
-7. On success, re-points `posthog-tasks-default` at the candidate's snapshot and
+8. On success, re-points `posthog-tasks-default` at the candidate's snapshot and
    stamps a dated archive alias `posthog-tasks-default-YYYYMMDD` for rollback.
 
 The matrix covers **dev** and **prod-us**. **prod-eu is deferred** to the EU
@@ -61,10 +71,16 @@ For **each** cluster the workflow targets (dev, then prod-us):
 1. **Service-account principal.** Create a `svc-ci-tasks-golden` principal via
    `POST /v1/service-accounts` on that cluster's hogplane.
 2. **`github_oidc` TrustMapping.** Map this repo's workflow to that principal:
-   `{repo: PostHog/posthog, workflow: cd-tasks-golden-snapshot.yml}` →
+   `{repo: PostHog/posthog, workflow: cd-tasks-golden-snapshot.yml, ref: refs/heads/master}` →
    `svc-ci-tasks-golden`. TrustMappings are per-cluster runtime data — the dev
    mapping grants nothing in prod-us, so create it again per cluster. Without it
-   the OIDC mint succeeds and hogplane returns 401.
+   the OIDC mint succeeds and hogplane returns 401. **Pin `ref: refs/heads/master`
+   if hogplane's TrustMapping schema supports it.** Every job in this workflow
+   now also requires `github.ref == 'refs/heads/master'` before it will run, but
+   that check lives in the workflow file, so a branch that carries a modified
+   copy of the workflow could remove it and still dispatch under this repo's
+   OIDC claims. Only a ref-pinned TrustMapping on hogplane's side closes that gap
+   for real — the in-workflow check is defense in depth, not the fix.
 3. **OIDC audience.** The mint audience is the per-cluster literal in the
    workflow's matrix, kept equal to `hogplane.githubOIDCAudience` in that
    cluster's values file:
@@ -99,8 +115,9 @@ For **each** cluster the workflow targets (dev, then prod-us):
 
 - Manual: Actions → "Tasks Golden Snapshot CD" → Run workflow. Leave `cluster`
   blank to bake every armed cluster, or set it to `dev` / `prod-us` to bake one.
-  Leave `ref` blank to render the skills from the workflow's checkout ref, or set
-  it to a branch or SHA to bake a reproducible golden from that ref.
+  Leave `ref` blank to render the skills from `master`, or set it to a full
+  commit SHA already merged into `master` to bake a reproducible golden from
+  that commit — `validate_ref` rejects anything else (see below).
 - Nightly: the `schedule` cron fires daily but only bakes armed clusters,
   rendering from `master`.
 
@@ -109,7 +126,7 @@ For **each** cluster the workflow targets (dev, then prod-us):
 Each successful bake stamps `posthog-tasks-default-YYYYMMDD`. To roll back, point
 the live alias at a known-good archive:
 
-```
+```bash
 hogland snapshot resolve posthog-tasks-default-<YYYYMMDD> | jq -r .snapshot_id
 hogland snapshot alias <snapshot_id> posthog-tasks-default
 ```
@@ -144,12 +161,18 @@ hogland snapshot alias <snapshot_id> posthog-tasks-default
   access to hogland's deploy runs). A hogd rollout racing the bake orphans the
   seed box, which fails the in-box SSH steps and skips promotion — safe, but a
   wasted run. Consider adding the guard in a later phase.
-- **The golden tracks the render ref (default this workflow's checkout ref).**
-  The `render_skills` job checks out PostHog at that ref and renders the skills
-  from it, and `setup-golden.sh` reconstructs `Dockerfile.sandbox-base` from the
-  same checkout — so the ref is the one knob for what the golden tracks. On the
-  nightly schedule this is `master`; pass the `ref` `workflow_dispatch` input to
-  bake from a specific branch or SHA for a reproducible golden. `@posthog/agent`
-  is decoupled from the ref: the workflow resolves the latest published version
-  and pins it into the bake, so the golden's agent-server is reproducible without
-  depending on any image.
+- **The golden tracks the render ref (default `master`).** The `render_skills`
+  job checks out PostHog at the ref `validate_ref` resolved, and renders the
+  skills from it; `setup-golden.sh` reconstructs `Dockerfile.sandbox-base` from
+  the same checkout — so the ref is the one knob for what the golden tracks. It
+  defaults to `master`; pass the `ref` `workflow_dispatch` input (a full commit
+  SHA already merged into `master`) to bake from a specific commit for a
+  reproducible golden. `@posthog/agent` is decoupled from the ref: the workflow
+  resolves the latest published version and pins it into the bake, so the
+  golden's agent-server is reproducible without depending on any image.
+- **`ref` must already be merged into `master`.** `validate_ref` checks any
+  non-blank `ref` input against GitHub's compare API before `render_skills` or
+  `bake` ever checks it out, because both jobs execute scripts from that
+  checkout with hogland/prod credentials once armed. An unmerged commit (e.g.
+  from an open PR) fails validation and the whole run stops before touching
+  hogland.
