@@ -75,6 +75,36 @@ class TestPostHogConnectionForward:
         assert mock_request.call_args[1]["params"] == {"limit": "5"}
         assert mock_request.call_args[1]["allow_redirects"] is False
 
+    def test_forward_propagates_mcp_origin_to_the_target(self, client: HttpClient):
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import generate_random_token_personal, hash_key_value
+
+        from products.access_control.backend.facade.mcp_access import MCP_USER_AGENT_MARKER
+
+        key_value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="mcp", user=self.user, secure_value=hash_key_value(key_value), scopes=["*"])
+
+        with patch(FORWARD_PATH) as mock_request:
+            mock_request.return_value = _mock_response(201, {"id": "abc"})
+            client.post(
+                self._forward_url(),
+                {"method": "POST", "path": "api/projects/2/tasks/", "data": {"description": "hi"}},
+                content_type="application/json",
+                HTTP_AUTHORIZATION=f"Bearer {key_value}",
+                headers={"User-Agent": f"cursor/1.0 {MCP_USER_AGENT_MARKER}; version: 1.0.0"},
+            )
+        assert MCP_USER_AGENT_MARKER in mock_request.call_args[1]["headers"]["User-Agent"]
+
+        with patch(FORWARD_PATH) as mock_request:
+            mock_request.return_value = _mock_response(201, {"id": "abc"})
+            client.force_login(self.user)
+            client.post(
+                self._forward_url(),
+                {"method": "POST", "path": "api/projects/2/tasks/", "data": {"description": "hi"}},
+                content_type="application/json",
+            )
+        assert "User-Agent" not in mock_request.call_args[1]["headers"]
+
     def test_forward_sends_body_only_for_write_methods(self, client: HttpClient):
         client.force_login(self.user)
         with patch(FORWARD_PATH) as mock_request:
