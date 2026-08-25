@@ -29,13 +29,14 @@ export interface RowObservation {
 
 export const IN_PROGRESS_STATUSES = new Set<string>(['pending', 'running'])
 
-type BulkSkipOutcome = 'skipped_limit' | 'skipped_quota' | 'skipped_scanner_limit'
+type BulkSkipOutcome = 'skipped_limit' | 'skipped_quota' | 'skipped_scanner_limit' | 'no_replay_data'
 
 const BULK_SKIP_MESSAGES: Record<BulkSkipOutcome, string> = {
     skipped_limit: 'No scans started. Too many scans are already running. Wait for some to finish, then try again.',
     skipped_quota:
         "No scans started. Your organization's Replay vision credit limit for this billing period is used up.",
     skipped_scanner_limit: 'No scans started. This scanner reached its credit limit for this billing period.',
+    no_replay_data: 'No scans started. No replay data is saved for these recordings, so there is nothing to watch.',
 }
 
 // Headroom per visible session for the observations a retry stacks on top of the original scan.
@@ -236,6 +237,7 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
                         skipped_limit: 0,
                         skipped_quota: 0,
                         skipped_scanner_limit: 0,
+                        no_replay_data: 0,
                     }
                     for (const r of results) {
                         if (r.scan_outcome && r.scan_outcome in skipCounts) {
@@ -244,9 +246,12 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
                     }
                     const limited =
                         skipCounts.skipped_limit + skipCounts.skipped_quota + skipCounts.skipped_scanner_limit
+                    // Kept apart from the limits: nothing was spent and raising a limit would not help.
+                    const unwatchable = skipCounts.no_replay_data
                     const failed = results.filter((r) => r.scan_outcome === 'failed').length
                     const extras = [
                         limited ? `${limited} skipped (limit reached)` : null,
+                        unwatchable ? `${unwatchable} skipped (no recording)` : null,
                         failed ? `${failed} failed to start` : null,
                     ]
                         .filter(Boolean)
@@ -261,6 +266,8 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
                             ['skipped_scanner_limit', 'skipped_quota', 'skipped_limit'] as BulkSkipOutcome[]
                         ).reduce((a, b) => (skipCounts[b] > skipCounts[a] ? b : a))
                         lemonToast.warning(BULK_SKIP_MESSAGES[dominant])
+                    } else if (unwatchable > 0) {
+                        lemonToast.warning(BULK_SKIP_MESSAGES.no_replay_data)
                     } else {
                         lemonToast.error('No scans started. Please try again.')
                     }

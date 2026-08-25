@@ -107,7 +107,13 @@ from products.replay_vision.backend.scanner_config import (
     scanner_config_error,
 )
 from products.replay_vision.backend.scanner_draft import DraftError, draft_scanner_from_goal
-from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN, run_inline_scan, scan_existing_scanner
+from products.replay_vision.backend.scanning import (
+    MAX_SESSIONS_PER_SCAN,
+    InlineScanResult,
+    inline_scan_event_properties,
+    run_inline_scan,
+    scan_existing_scanner,
+)
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
 from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
@@ -944,6 +950,7 @@ class BulkObserveResultSerializer(serializers.Serializer):
             ("skipped_limit", "Skipped, in-flight limit reached"),
             ("skipped_quota", "Skipped, the org's credit quota for this period was reached"),
             ("skipped_scanner_limit", "Skipped, scanner's own credit limit reached"),
+            ("no_replay_data", "Skipped, no replay data is stored for this session"),
             ("failed", "Failed to start"),
         ],
         help_text=(
@@ -953,7 +960,8 @@ class BulkObserveResultSerializer(serializers.Serializer):
             "it back, or use the retry action to run it again); 'skipped_limit' - the in-flight cap was "
             "reached before this session; 'skipped_quota' - the org's credit quota for this period would "
             "be exceeded; 'skipped_scanner_limit' - this scanner's own credit limit would be exceeded; "
-            "'failed' - the workflow failed to start."
+            "'no_replay_data' - no recording is stored for this session, so there is nothing to watch and "
+            "nothing was charged; 'failed' - the workflow failed to start."
         ),
     )
 
@@ -1715,6 +1723,15 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             scanner_config=scanner_config,
             model=model,
         )
+        # Reported before the branch: a scan that starts nothing is the outcome most worth counting.
+        self._report_inline_scan_requested(
+            user=user,
+            scan=scan,
+            scanner_type=scanner_type,
+            model=model,
+            requested=len(session_ids),
+            request=request,
+        )
         if scan.scanner is None:
             # Nothing started and nothing already existed, so there is no id to read results through.
             # Key off the outcomes: the in-flight cap can bind here too, and that is not exhaustion.
@@ -1726,24 +1743,32 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             )
         scanner, started, results = scan.scanner, scan.started, scan.results
 
-        report_user_action(
-            user,
-            "replay_vision_inline_scan_requested",
-            {
-                "scan_id": str(scanner.id),
-                "scanner_type": scanner.scanner_type,
-                "model": scanner.model,
-                "requested": len(session_ids),
-                "started": started,
-            },
-            team=self.team,
-            request=request,
-        )
         if any(result["scan_outcome"] == "skipped_quota" for result in results):
             self._report_quota_exhausted(scanner, "inline")
         return Response(
             InlineScanResponseSerializer({"scan_id": scanner.id, "started": started, "results": results}).data,
             status=status.HTTP_202_ACCEPTED,
+        )
+
+    def _report_inline_scan_requested(
+        self,
+        *,
+        user: User,
+        scan: InlineScanResult,
+        scanner_type: ScannerType,
+        model: str,
+        requested: int,
+        request: Request,
+    ) -> None:
+        """An inline scan was asked for, and what came of each session in it."""
+        report_user_action(
+            user,
+            "replay_vision_inline_scan_requested",
+            inline_scan_event_properties(
+                scan=scan, scanner_type=scanner_type, model=model, requested=requested, trigger="inline"
+            ),
+            team=self.team,
+            request=request,
         )
 
     def _report_quota_exhausted(self, scanner: ReplayScanner | None, trigger: str) -> None:

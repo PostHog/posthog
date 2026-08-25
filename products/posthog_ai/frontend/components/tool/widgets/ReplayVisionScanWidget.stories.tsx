@@ -8,6 +8,7 @@ const SCAN_ID = '0199c0de-1111-7000-8000-0000000000aa'
 const SESSION_A = '0199c0de-2222-7000-8000-0000000000b1'
 const SESSION_B = '0199c0de-2222-7000-8000-0000000000b2'
 const SESSION_C = '0199c0de-2222-7000-8000-0000000000b3'
+const SESSION_D = '0199c0de-2222-7000-8000-0000000000b4'
 
 const meta: Meta<typeof ReplayVisionScanWidget> = {
     title: 'Scenes-App/Max AI/Replay Vision scan widget',
@@ -27,7 +28,7 @@ function observation(sessionId: string, status: string, modelOutput?: Record<str
         scanner_id: SCAN_ID,
         session_id: sessionId,
         status,
-        error_reason: status === 'ineligible' ? 'too_short:the recording is under five seconds long' : '',
+        error_reason: status === 'ineligible' ? 'no_recording:No replay metadata found' : '',
         scanner_result: modelOutput ? { model_output: modelOutput, signals_count: 0 } : null,
     }
 }
@@ -83,6 +84,7 @@ export const WithSkipped: Story = {
                 skipped={[
                     { sessionId: SESSION_B, reason: 'skipped_quota' },
                     { sessionId: SESSION_C, reason: 'skipped_quota' },
+                    { sessionId: SESSION_D, reason: 'no_replay_data' },
                 ]}
             />
         )

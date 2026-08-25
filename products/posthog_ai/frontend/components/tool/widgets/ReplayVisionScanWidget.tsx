@@ -6,11 +6,12 @@ import { urls } from 'scenes/urls'
 
 import type { ReplayObservationApi } from 'products/replay_vision/frontend/generated/api.schemas'
 import {
-    readErrorMessage,
-    readReasoning,
-    readSummary,
-    readTitle,
-} from 'products/replay_vision/frontend/utils/observation'
+    failureKindDescription,
+    ineligibleKindDescription,
+    parseFailureReason,
+    parseIneligibleReason,
+} from 'products/replay_vision/frontend/replay_scanners/types'
+import { readReasoning, readSummary, readTitle } from 'products/replay_vision/frontend/utils/observation'
 
 import { replayVisionScanWidgetLogic } from './replayVisionScanWidgetLogic'
 
@@ -25,7 +26,24 @@ const SKIP_MESSAGES: Record<string, string> = {
     skipped_quota: "this project's monthly Replay Vision credits are used up",
     skipped_scanner_limit: 'this scanner reached its own credit limit',
     skipped_limit: 'too many scans were already running',
+    no_replay_data: 'no replay data was saved',
     failed: 'the scan could not be started',
+}
+
+const GENERIC_FAILURE = 'Could not watch this recording.'
+
+/** Describes the kind, never the message stored beside it: that half is written for us, not for a reader. */
+function failureDescription(observation: ReplayObservationApi): string {
+    const reason = observation.error_reason
+    if (!reason) {
+        return GENERIC_FAILURE
+    }
+    if (observation.status === 'ineligible') {
+        const parsed = parseIneligibleReason(reason)
+        return parsed ? ineligibleKindDescription(parsed.kind) : GENERIC_FAILURE
+    }
+    const parsed = parseFailureReason(reason)
+    return parsed ? failureKindDescription(parsed.kind) : GENERIC_FAILURE
 }
 
 export function ReplayVisionScanWidget({ scanId, sessionIds, skipped }: ReplayVisionScanWidgetProps): JSX.Element {
@@ -90,10 +108,9 @@ function ObservationRow({ observation }: { observation: ReplayObservationApi }):
     }
 
     if (observation.status !== 'succeeded') {
-        const reason = readErrorMessage(observation)
         return (
             <div className="px-3 py-2 text-sm">
-                <p className="m-0 text-secondary">Could not watch this recording{reason ? `: ${reason}` : '.'}</p>
+                <p className="m-0 text-secondary">{failureDescription(observation)}</p>
             </div>
         )
     }

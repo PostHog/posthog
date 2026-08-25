@@ -12,6 +12,7 @@ from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
 from posthog.models.team import Team
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 import products.replay_vision.backend.max_tools as max_tools_module
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -561,7 +562,24 @@ class TestReplayVisionChargeConfirmation(BaseTest):
         assert "AI analysis" in content
 
 
-class TestScanReplayVisionSessionsScannerLimit(BaseTest):
+# Scans filter out sessions with no replay data before starting. These tests name sessions that were
+# never ingested, so treat every one as present; each test is about what happens after that.
+class _WatchableSessionsTestCase(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self._batch_exists_patcher = patch.object(
+            SessionReplayEvents,
+            "batch_exists",
+            side_effect=lambda session_ids, team: dict.fromkeys(session_ids, True),
+        )
+        self._batch_exists_patcher.start()
+
+    def tearDown(self) -> None:
+        self._batch_exists_patcher.stop()
+        super().tearDown()
+
+
+class TestScanReplayVisionSessionsScannerLimit(_WatchableSessionsTestCase):
     """A capped scanner's skips have to be explained to the user and counted, like bulk_observe does."""
 
     def _tool(self) -> ScanReplayVisionSessionsTool:
@@ -595,6 +613,24 @@ class TestScanReplayVisionSessionsScannerLimit(BaseTest):
         assert "2 were skipped: this scanner reached its own credit limit." in content
         assert "billing period resets" in content
         record.assert_called_once_with("max_tool")
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_a_scan_started_from_chat_reports_its_outcomes(self):
+        # The chat path emitted no analytics at all, so the surface that spends credits on recordings
+        # the user never picked by hand was the one surface that could not be measured.
+        scanner = await sync_to_async(self._capped_scanner)()
+        with patch("products.replay_vision.backend.max_tools.report_user_action") as report:
+            await self._tool()._arun_impl(session_ids=["s1", "s2"], scanner_id=str(scanner.id))
+
+        props = next(
+            call.args[2] for call in report.call_args_list if call.args[1] == "replay_vision_inline_scan_requested"
+        )
+        assert props["trigger"] == "max_tool"
+        assert props["requested"] == 2
+        assert props["started"] == 0
+        assert props["skipped_count"] == 2
+        assert props["scan_outcomes"] == {"skipped_scanner_limit": 2}
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
@@ -843,7 +879,7 @@ class TestReplayVisionToolAuthorization(BaseTest):
         assert artifact["error"] == "invalid_config"
 
 
-class TestReplayVisionApprovalFlowEndToEnd(BaseTest):
+class TestReplayVisionApprovalFlowEndToEnd(_WatchableSessionsTestCase):
     """Through `_arun_with_context`, the entry point the agent actually calls.
 
     Every other test here calls `_arun_impl` directly, which skips the approval machinery entirely, so

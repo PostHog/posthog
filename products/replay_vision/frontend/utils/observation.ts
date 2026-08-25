@@ -68,15 +68,6 @@ export function readSummary(obs: ReplayObservationApi): string | null {
     return typeof raw === 'string' && raw ? raw : null
 }
 
-/** `error_reason` is stored as `kind:message`; the message is the half worth showing a person. */
-export function readErrorMessage(obs: ReplayObservationApi): string | null {
-    if (!obs.error_reason) {
-        return null
-    }
-    const separator = obs.error_reason.indexOf(':')
-    return separator === -1 ? obs.error_reason : obs.error_reason.slice(separator + 1)
-}
-
 function readStringArray(value: unknown): string[] {
     if (!Array.isArray(value)) {
         return []

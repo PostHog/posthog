@@ -1085,6 +1085,7 @@ export interface BulkObserveRequestApi {
  * * `skipped_limit` - Skipped, in-flight limit reached
  * * `skipped_quota` - Skipped, the org's credit quota for this period was reached
  * * `skipped_scanner_limit` - Skipped, scanner's own credit limit reached
+ * * `no_replay_data` - Skipped, no replay data is stored for this session
  * * `failed` - Failed to start
  */
 export type ScanOutcomeEnumApi = (typeof ScanOutcomeEnumApi)[keyof typeof ScanOutcomeEnumApi]
@@ -1096,6 +1097,7 @@ export const ScanOutcomeEnumApi = {
     SkippedLimit: 'skipped_limit',
     SkippedQuota: 'skipped_quota',
     SkippedScannerLimit: 'skipped_scanner_limit',
+    NoReplayData: 'no_replay_data',
     Failed: 'failed',
 } as const
 
@@ -1105,7 +1107,7 @@ export const ScanOutcomeEnumApi = {
 export interface BulkObserveResultApi {
     /** The session recording this outcome is for. */
     session_id: string
-    /** 'started' - a scan workflow was kicked off; 'already_running' - a scan for this session is already in flight (no-op, not recharged); 'already_scanned' - this scanner already has a finished observation for this session, so nothing was started and nothing was charged (read it back, or use the retry action to run it again); 'skipped_limit' - the in-flight cap was reached before this session; 'skipped_quota' - the org's credit quota for this period would be exceeded; 'skipped_scanner_limit' - this scanner's own credit limit would be exceeded; 'failed' - the workflow failed to start.
+    /** 'started' - a scan workflow was kicked off; 'already_running' - a scan for this session is already in flight (no-op, not recharged); 'already_scanned' - this scanner already has a finished observation for this session, so nothing was started and nothing was charged (read it back, or use the retry action to run it again); 'skipped_limit' - the in-flight cap was reached before this session; 'skipped_quota' - the org's credit quota for this period would be exceeded; 'skipped_scanner_limit' - this scanner's own credit limit would be exceeded; 'no_replay_data' - no recording is stored for this session, so there is nothing to watch and nothing was charged; 'failed' - the workflow failed to start.
      *
      * * `started` - Started
      * * `already_running` - Already running
@@ -1113,6 +1115,7 @@ export interface BulkObserveResultApi {
      * * `skipped_limit` - Skipped, in-flight limit reached
      * * `skipped_quota` - Skipped, the org's credit quota for this period was reached
      * * `skipped_scanner_limit` - Skipped, scanner's own credit limit reached
+     * * `no_replay_data` - Skipped, no replay data is stored for this session
      * * `failed` - Failed to start */
     scan_outcome: ScanOutcomeEnumApi
 }

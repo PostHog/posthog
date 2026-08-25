@@ -17,6 +17,7 @@ from posthog.models import Organization, PersonalAPIKey, Team, User
 from posthog.models.tagged_item import TaggedItem
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.redis import get_client
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 
 from products.replay_vision.backend.api.scanners import ReplayScannerSerializer
@@ -65,8 +66,18 @@ class _VisionAPITestCase(APIBaseTest):
         # Scanner saves recompute the volume estimate against ClickHouse; keep CRUD tests off that path.
         self.refresh_estimate_patcher = patch("products.replay_vision.backend.api.scanners.refresh_scanner_estimate")
         self.mock_refresh_estimate = self.refresh_estimate_patcher.start()
+        # Scans filter out sessions with no replay data before starting. These tests name sessions that
+        # were never ingested, so without this every batch is ineligible and the behavior each test is
+        # about never runs. A test about eligibility overrides this.
+        self.batch_exists_patcher = patch.object(
+            SessionReplayEvents,
+            "batch_exists",
+            side_effect=lambda session_ids, team: dict.fromkeys(session_ids, True),
+        )
+        self.mock_batch_exists = self.batch_exists_patcher.start()
 
     def tearDown(self) -> None:
+        self.batch_exists_patcher.stop()
         self.refresh_estimate_patcher.stop()
         super().tearDown()
 
@@ -3479,6 +3490,38 @@ class TestInlineScanAction(_VisionAPITestCase):
         self.assertFalse(ReplayScanner.all_origins.filter(origin=ScannerOrigin.INLINE).exists())
         start_workflow.assert_not_called()
 
+    @parameterized.expand(
+        [
+            ("some_watchable", {"sess-1"}, 1, {"started": 1, "no_replay_data": 1}),
+            ("none_watchable", set(), 0, {"no_replay_data": 2}),
+        ]
+    )
+    def test_the_requested_event_reports_what_came_of_each_session(
+        self,
+        mock_sync_connect: MagicMock,
+        mock_async_to_sync: MagicMock,
+        _label: str,
+        watchable: set[str],
+        expected_started: int,
+        expected_outcomes: dict[str, int],
+    ) -> None:
+        # Without the outcome counts a scan that watched nothing is indistinguishable from one that
+        # watched everything. The second case guards that the event fires when no scanner was minted.
+        mock_sync_connect.return_value = MagicMock()
+        mock_async_to_sync.return_value = MagicMock()
+        self.mock_batch_exists.side_effect = lambda session_ids, team: {s: s in watchable for s in session_ids}
+
+        with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
+            self._scan(session_ids=["sess-1", "sess-2"])
+
+        props = next(
+            call.args[2] for call in report.call_args_list if call.args[1] == "replay_vision_inline_scan_requested"
+        )
+        self.assertEqual(props["requested"], 2)
+        self.assertEqual(props["started"], expected_started)
+        self.assertEqual(props["skipped_count"], 2 - expected_started)
+        self.assertEqual(props["scan_outcomes"], expected_outcomes)
+
     def test_a_finished_session_reports_already_scanned_without_starting_a_workflow(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
     ) -> None:
@@ -3491,12 +3534,19 @@ class TestInlineScanAction(_VisionAPITestCase):
         self._finished_observation(scan_id, "sess-1")
         start_workflow.reset_mock()
 
-        resp = self._scan(session_ids=["sess-1", "sess-3"])
+        with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
+            resp = self._scan(session_ids=["sess-1", "sess-3"])
 
         outcomes = {r["session_id"]: r["scan_outcome"] for r in resp.json()["results"]}
         self.assertEqual(outcomes["sess-1"], "already_scanned")
         self.assertEqual(outcomes["sess-3"], "started")
         self.assertEqual(start_workflow.call_count, 1)
+        # A cached answer is reused at no charge, not skipped, so it stays out of skipped_count.
+        props = next(
+            call.args[2] for call in report.call_args_list if call.args[1] == "replay_vision_inline_scan_requested"
+        )
+        self.assertEqual(props["skipped_count"], 0)
+        self.assertEqual(props["scan_outcomes"], {"already_scanned": 1, "started": 1})
 
     def test_results_are_readable_through_the_scan_id(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
