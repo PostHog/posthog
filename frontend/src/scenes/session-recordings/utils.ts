@@ -5,6 +5,7 @@ import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/u
 import {
     type ActionFilter,
     type EventPropertyFilter,
+    FilterLogicalOperator,
     LegacyRecordingFilters,
     PropertyFilterType,
     PropertyOperator,
@@ -59,8 +60,8 @@ const isPagePropertyFilter = (filter: PageProperty): boolean =>
     filter.value !== '' &&
     !(Array.isArray(filter.value) && filter.value.length === 0)
 
-// Operators `visited_page` answers the same way a pageview filter does. Negated forms are included
-// because the backend negates the whole array match, so they mean "no URL matches" on both sides.
+// Operators `visited_page` answers the same way a pageview filter does. Negated forms are included,
+// but only swap inside "match all" groups (see NEGATED_PAGE_OPERATORS below).
 // Ordering and is_set/is_not_set are left out: they compare a recording's URL list, not a page.
 const VISITED_PAGE_SAFE_OPERATORS: PropertyOperator[] = [
     PropertyOperator.Exact,
@@ -68,6 +69,16 @@ const VISITED_PAGE_SAFE_OPERATORS: PropertyOperator[] = [
     PropertyOperator.IContains,
     PropertyOperator.NotIContains,
     PropertyOperator.Regex,
+    PropertyOperator.NotRegex,
+]
+
+// Under "match all" (AND) the backend turns a negated event property into a session-level exclusion
+// (the negative blocklist in ReplayFiltersEventsSubQuery), which is what a negated `visited_page`
+// means: "no URL matches". Under "match any" (OR) the same filter is existential, "some pageview
+// doesn't match", which a negated `visited_page` inverts. So these only swap inside AND-only groups.
+const NEGATED_PAGE_OPERATORS: PropertyOperator[] = [
+    PropertyOperator.IsNot,
+    PropertyOperator.NotIContains,
     PropertyOperator.NotRegex,
 ]
 
@@ -103,6 +114,19 @@ const isSwappablePageviewFilter = (filter: UniversalFilterValue): boolean => {
 const pagePropertiesOf = (filter: UniversalFilterValue): PageProperty[] =>
     isEventFilter(filter) || isActionFilter(filter) ? (filter.properties ?? []) : [filter]
 
+const usesNegatedPageOperator = (filter: UniversalFilterValue): boolean =>
+    pagePropertiesOf(filter).some(
+        (property) => isPagePropertyFilter(property) && NEGATED_PAGE_OPERATORS.includes(property.operator!)
+    )
+
+const isAndOnlyGroup = (group: UniversalFiltersGroup): boolean =>
+    group.type === FilterLogicalOperator.And &&
+    group.values.every(
+        (value) =>
+            !(value && typeof value === 'object' && 'values' in value && Array.isArray(value.values)) ||
+            isAndOnlyGroup(value)
+    )
+
 /**
  * True when the filters express "sessions that visited page X". Those match pageview events from anywhere
  * in the session, so they can match a moment the video never covers, unlike `visited_page`.
@@ -114,9 +138,14 @@ export const hasPageFilter = (filters: RecordingUniversalFilters): boolean =>
 export const canSwapPageFiltersForVisitedPage = (filters: RecordingUniversalFilters): boolean => {
     const filterList = filtersFromUniversalFilterGroups(filters)
     const pageFilters = filterList.filter((filter) => pagePropertiesOf(filter).some(isPagePropertyFilter))
+    const negatedSwapIsSafe = isAndOnlyGroup(filters.filter_group)
     return (
         pageFilters.length > 0 &&
-        pageFilters.every((filter) => isSwappablePageFilter(filter) || isSwappablePageviewFilter(filter))
+        pageFilters.every(
+            (filter) =>
+                (isSwappablePageFilter(filter) || isSwappablePageviewFilter(filter)) &&
+                (negatedSwapIsSafe || !usesNegatedPageOperator(filter))
+        )
     )
 }
 

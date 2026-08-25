@@ -104,7 +104,8 @@ describe('session recording utils', () => {
                 true,
                 false,
             ],
-            // The backend negates the whole array match, so these mean "no URL matches" on both sides.
+            // Inside a match-all group the backend excludes the whole session, so both sides mean
+            // "no URL matches". These swaps stop being offered inside match-any groups (see below).
             [
                 'negated current URL: hint and swap',
                 [pageProperty('$current_url', PropertyOperator.NotIContains)],
@@ -138,6 +139,21 @@ describe('session recording utils', () => {
 
         it('does not show the hint before a value is entered', () => {
             expect(hasPageFilter(group(pageProperty('$current_url', PropertyOperator.IContains, '')))).toBe(false)
+        })
+
+        it('only swaps negated operators when every group matches all filters', () => {
+            const orGroup = (...values: any[]): RecordingUniversalFilters =>
+                withFilterGroup({
+                    type: FilterLogicalOperator.And,
+                    values: [{ type: FilterLogicalOperator.Or, values }],
+                })
+
+            expect(canSwapPageFiltersForVisitedPage(orGroup(pageProperty('$current_url')))).toBe(true)
+
+            const negated = pageProperty('$current_url', PropertyOperator.NotIContains)
+            expect(hasPageFilter(orGroup(negated))).toBe(true)
+            expect(canSwapPageFiltersForVisitedPage(orGroup(negated))).toBe(false)
+            expect(canSwapPageFiltersForVisitedPage(orGroup(pageview([negated])))).toBe(false)
         })
 
         it('swaps nested filters and leaves everything else alone', () => {
