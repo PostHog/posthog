@@ -10,8 +10,8 @@ from django.test import SimpleTestCase, TestCase
 from parameterized import parameterized
 
 from posthog.models import Organization, Team
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.data_warehouse.backend.logic.managed_warehouse_data_status import (
     ReadinessState,
     SourceTableStatus,
