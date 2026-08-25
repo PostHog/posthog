@@ -134,6 +134,7 @@ export function ErrorTrackingIssueListRow({
                         <AssigneeSelect
                             assignee={issue.assignee}
                             onChange={(assignee) => updateIssueAssignee(issue.id, assignee)}
+                            nativeButton={false}
                         >
                             {(anyAssignee) => (
                                 <div

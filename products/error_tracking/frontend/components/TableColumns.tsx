@@ -1,13 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { IconChevronDown, IconChevronRight, IconMinus } from '@posthog/icons'
+import { IconChevronRight, IconMinus } from '@posthog/icons'
 import { LemonCheckbox, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { ErrorTrackingRuntime } from 'lib/components/Errors/types'
 import { getRuntimeFromLib } from 'lib/components/Errors/utils'
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { Button, ButtonGroup, SelectTriggerIcon } from 'lib/ui/quill'
 import { Params } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -186,48 +187,40 @@ const IssueMetadata = ({
     onSeverityChange: (severity: NonNullable<ErrorTrackingIssue['severity']> | null) => void
     onAssigneeChange: (assignee: ErrorTrackingIssue['assignee']) => void
 }): JSX.Element => (
-    <div className="flex items-center text-secondary h-[calc(var(--line-height)*1.3)]">
-        <IssueStatusSelect status={record.status} onChange={onStatusChange} />
-        <CustomSeparator />
-        {showSeverity ? (
-            <>
+    <div className="flex h-6 items-center text-secondary">
+        <ButtonGroup>
+            <IssueStatusSelect status={record.status} onChange={onStatusChange} />
+            {showSeverity ? (
                 <IssueSeveritySelect severity={record.severity} onChange={onSeverityChange} loading={severityLoading} />
-                <CustomSeparator />
-            </>
-        ) : null}
-        <AssigneeSelect assignee={record.assignee} onChange={onAssigneeChange}>
-            {(anyAssignee) => (
-                <div
-                    className="flex items-center hover:bg-fill-button-tertiary-hover p-[0.1rem] rounded cursor-pointer"
-                    role="button"
-                >
-                    <AssigneeIconDisplay assignee={anyAssignee} size="xsmall" />
-                    <AssigneeLabelDisplay
-                        assignee={anyAssignee}
-                        className="ml-1 text-xs text-secondary"
-                        size="xsmall"
+            ) : null}
+            <AssigneeSelect assignee={record.assignee} onChange={onAssigneeChange}>
+                {(anyAssignee) => (
+                    <Button variant="outline" size="sm">
+                        <AssigneeIconDisplay assignee={anyAssignee} size="xsmall" />
+                        <AssigneeLabelDisplay assignee={anyAssignee} className="text-xs text-secondary" size="xsmall" />
+                        <SelectTriggerIcon />
+                    </Button>
+                )}
+            </AssigneeSelect>
+        </ButtonGroup>
+        <div className="ml-2 flex items-center">
+            {orderBy === 'first_seen' && (
+                <>
+                    <TZLabel
+                        time={record.first_seen}
+                        className="border-b border-dotted text-xs"
+                        suffix="old"
+                        delayMs={750}
                     />
-                    <IconChevronDown />
-                </div>
+                    <IconChevronRight className="mx-0.5 text-quaternary" fontSize="0.75rem" />
+                </>
             )}
-        </AssigneeSelect>
-        <CustomSeparator />
-        {orderBy === 'first_seen' && (
-            <>
-                <TZLabel
-                    time={record.first_seen}
-                    className="border-dotted border-b text-xs ml-1"
-                    suffix="old"
-                    delayMs={750}
-                />
-                <IconChevronRight className="text-quaternary mx-0.5" fontSize="0.75rem" />
-            </>
-        )}
-        {record.last_seen ? (
-            <TZLabel time={record.last_seen} className="border-dotted border-b text-xs ml-1" delayMs={750} />
-        ) : (
-            <LemonSkeleton className="ml-1" />
-        )}
+            {record.last_seen ? (
+                <TZLabel time={record.last_seen} className="border-b border-dotted text-xs" delayMs={750} />
+            ) : (
+                <LemonSkeleton />
+            )}
+        </div>
     </div>
 )
 
