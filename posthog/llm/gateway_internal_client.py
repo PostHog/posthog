@@ -196,14 +196,7 @@ def _user_budget(row: dict[str, Any]) -> UserBudget:
     return UserBudget(limit_usd=str(limit_usd), window_seconds=window_seconds)
 
 
-# One budget lives at one per-user path, so a read never scans a team's whole
-# collection. The gateway contract this client assumes:
-#   - a 404 on any budget path means this gateway serves no budgets route at
-#     all, never "this user has none";
-#   - "this user has none" is a 2xx with no budget row ("budget": null);
-#   - deleting a budget that does not exist still succeeds (idempotent delete).
-# Splitting "no route" and "no budget" across status codes lets every verb agree
-# on `available` for a gateway that holds no limits.
+# Gateway contract: 404 = no budgets route, 2xx with no budget row = no budget, idempotent delete.
 
 
 def _user_budget_path(team_id: int, scope_value: str) -> str:
@@ -234,8 +227,6 @@ def set_user_budget(team_id: int, scope_value: str, limit_usd: str, window_secon
 
 
 def clear_user_budget(team_id: int, scope_value: str) -> None:
-    """Remove one person's budget. A 404 means the gateway serves no budgets route,
-    not that the user had none. Deleting a missing budget still succeeds."""
     _request(
         "DELETE",
         _user_budget_path(team_id, scope_value),

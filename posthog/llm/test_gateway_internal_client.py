@@ -179,7 +179,6 @@ class TestUserBudgets:
 
         method, url = mock_request.call_args.args
         assert method == "GET"
-        # A per-user path, not the team collection, so a read never scans a team's budgets.
         assert url == "http://gw/internal/teams/42/budgets/users/u1"
         assert budget is not None
         assert budget.limit_usd == "5"
@@ -188,7 +187,6 @@ class TestUserBudgets:
     @patch("posthog.llm.gateway_internal_client.settings")
     def test_get_returns_none_when_the_user_has_no_budget(self, mock_settings):
         _configured(mock_settings)
-        # "No budget" is a 2xx with no row. A 404 means no route at all.
         with patch(
             "posthog.llm.gateway_internal_client.httpx.request", return_value=_response(200, {"budget": None})
         ) as mock_request:
@@ -203,7 +201,6 @@ class TestUserBudgets:
         ):
             with pytest.raises(AIGatewayInternalError) as exc:
                 get_user_budget(42, "u1")
-        # The logic layer maps a 404 to "unsupported"; the client carries the status code.
         assert exc.value.status_code == 404
 
     @patch("posthog.llm.gateway_internal_client.settings")
@@ -251,14 +248,12 @@ class TestUserBudgets:
     @patch("posthog.llm.gateway_internal_client.settings")
     def test_clear_succeeds_when_the_user_had_no_budget(self, mock_settings):
         _configured(mock_settings)
-        # Idempotent delete: a missing user budget still succeeds, so no 404 to tolerate.
         with patch("posthog.llm.gateway_internal_client.httpx.request", return_value=_response(200, {"budget": None})):
             clear_user_budget(42, "u1")
 
     @patch("posthog.llm.gateway_internal_client.settings")
     def test_clear_treats_a_route_missing_404_as_an_error(self, mock_settings):
         _configured(mock_settings)
-        # A 404 means the gateway serves no budgets route, not that the user had none.
         with patch(
             "posthog.llm.gateway_internal_client.httpx.request", return_value=_response(404, {"error": "not found"})
         ):

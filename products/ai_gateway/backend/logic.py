@@ -85,8 +85,7 @@ def _gateway_call(operation: str, team_id: int) -> Iterator[None]:
     except AIGatewayNotConfigured as exc:
         raise SpendLimitsUnsupported from exc
     except AIGatewayInternalError as exc:
-        # The client calls a per-user path; "no budget for this user" is a 2xx
-        # with no row, so a 404 means this gateway serves no budgets route at all.
+        # A 404 means this gateway serves no budgets route, not that the user has none.
         if exc.status_code == HTTPStatus.NOT_FOUND:
             raise SpendLimitsUnsupported from exc
         logger.warning(
