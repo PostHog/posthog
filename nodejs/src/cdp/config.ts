@@ -251,8 +251,10 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_VALKEY_TLS: false,
         CDP_VALKEY_READ_FEATURES: '',
 
-        SES_RATE_LIMITER_VALKEY_HOST: '',
-        SES_RATE_LIMITER_VALKEY_PORT: 6379,
+        // Dev points at the compose stack's Valkey (same instance as CDP_VALKEY) so the SES gate,
+        // per-workflow email rate limits, and the MX-validation cache are exercisable locally.
+        SES_RATE_LIMITER_VALKEY_HOST: isDevEnv() ? '127.0.0.1' : '',
+        SES_RATE_LIMITER_VALKEY_PORT: isDevEnv() ? 6390 : 6379,
         SES_RATE_LIMITER_VALKEY_PASSWORD: '',
         SES_RATE_LIMITER_VALKEY_TLS: false,
 
