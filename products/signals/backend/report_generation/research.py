@@ -49,6 +49,51 @@ __all__ = [
 # TODO: Signals deduplication step before the research
 
 
+class ConfidenceLedger(BaseModel):
+    """How the report knows what it claims, sorted by epistemic weight.
+
+    The ledger is what keeps fluent prose from disguising uncertainty: "I read this code" and
+    "I couldn't check this" must look different on the page. Field descriptions double as the
+    generation contract.
+    """
+
+    verified: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Claims you verified directly: read the code yourself, reproduced the behavior, "
+            "confirmed the config. One short line per claim. An empty list is honest and visible "
+            "- it marks the report as speculative at a glance. Never promote a claim here that "
+            "you only inferred."
+        ),
+    )
+    measured: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Claims backed by a query or measurement you actually ran, each stating its scope "
+            "(e.g. 'project 2 only', 'last 45 days'). One short line per claim."
+        ),
+    )
+    inferred: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Claims consistent with the evidence but not proven - hypotheses, likely "
+            "explanations, 'this would explain ticket X'. One short line per claim."
+        ),
+    )
+    unverified: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Claims you could not check, each with why (no access, missing data, out of scope). "
+            "Burying these in prose is the failure mode this field exists to prevent."
+        ),
+    )
+
+    @field_validator("verified", "measured", "inferred", "unverified")
+    @classmethod
+    def entries_must_be_clean(cls, v: list[str]) -> list[str]:
+        return [entry.strip() for entry in v if entry.strip()]
+
+
 class ReportPresentationOutput(BaseModel):
     title: str = Field(
         description="""
@@ -114,6 +159,53 @@ Hard rules:
         ),
         max_length=300,
     )
+    cause: str | None = Field(
+        default=None,
+        description=(
+            "One sentence naming the mechanism: the specific function, query, config, or behavior "
+            "that produces the finding. If you need two causes, this is two reports - name the "
+            "primary one here and put the other in not_this. None when there is no single "
+            "mechanism (a trend observation, a feature request)."
+        ),
+        max_length=300,
+    )
+    cause_location: str | None = Field(
+        default=None,
+        description=(
+            "Where the cause lives, as precisely as the research pinned it: a file:line reference "
+            "('rust/feature-flags/src/property_filter.rs:57-61'), a component, or a surface. None "
+            "when cause is None or nothing was located."
+        ),
+        max_length=300,
+    )
+    fix_size: str | None = Field(
+        default=None,
+        description=(
+            "The effort shape of the recommended action, from what the research saw: files touched, "
+            "rough time, languages/areas (e.g. '2 files, ~1 day · rust + posthog-js'). None when "
+            "the report isn't actionable or the fix wasn't scoped - never guess a size."
+        ),
+        max_length=300,
+    )
+    not_this: str | None = Field(
+        default=None,
+        description=(
+            "The adjacent thing this report deliberately is NOT: an existing PR that owns different "
+            "scope, a similar-looking issue with a different cause. This answers the reader's first "
+            "instinct - 'isn't this already handled?' - as a field instead of a buried disclaimer. "
+            "None when there is no such adjacency."
+        ),
+        max_length=300,
+    )
+    confidence: ConfidenceLedger = Field(
+        description=(
+            "Sort every substantive claim in the summary into the ledger by how you know it: "
+            "verified (checked it yourself), measured (ran a query, with scope), inferred "
+            "(consistent but unproven), unverified (couldn't check, and why). Every claim the "
+            "summary relies on belongs in exactly one bucket. Do not restate the summary - one "
+            "short line per claim."
+        ),
+    )
     charts: list[ReportChart] = Field(
         default_factory=list,
         description=(
@@ -132,6 +224,14 @@ Hard rules:
     def fields_must_not_be_empty(cls, v: str) -> str:
         if not v.strip():
             raise ValueError("Title and summary must not be empty")
+        return v
+
+    @field_validator("recommended_action", "cause", "cause_location", "fix_size", "not_this")
+    @classmethod
+    def optional_fields_normalize_empty_to_none(cls, v: str | None) -> str | None:
+        # A whitespace-only answer is the model withdrawing the field, not filling it.
+        if v is not None and not v.strip():
+            return None
         return v
 
 
@@ -155,6 +255,27 @@ class ReportResearchOutput(BaseModel):
     recommended_action: str | None = Field(
         default=None,
         description="One-sentence next step for the reader; None when the report isn't actionable.",
+    )
+    cause: str | None = Field(
+        default=None,
+        description="One-sentence mechanism behind the finding. None on outputs saved before the field existed.",
+    )
+    cause_location: str | None = Field(
+        default=None,
+        description="Where the cause lives (file:line / component / surface). None when unlocated.",
+    )
+    fix_size: str | None = Field(
+        default=None,
+        description="Effort shape of the recommended action. None when unsized or not actionable.",
+    )
+    not_this: str | None = Field(
+        default=None,
+        description="The adjacent thing this report deliberately is not. None when no such adjacency.",
+    )
+    confidence: ConfidenceLedger | None = Field(
+        default=None,
+        description="The claim ledger (verified/measured/inferred/unverified). None on outputs saved "
+        "before the field existed.",
     )
     charts: list[ReportChart] = Field(
         default_factory=list,
@@ -980,6 +1101,11 @@ async def run_multi_turn_research(
         headline=presentation_result.headline,
         impact=presentation_result.impact,
         recommended_action=presentation_result.recommended_action,
+        cause=presentation_result.cause,
+        cause_location=presentation_result.cause_location,
+        fix_size=presentation_result.fix_size,
+        not_this=presentation_result.not_this,
+        confidence=presentation_result.confidence,
         # Only carry charts for an opted-in team, regardless of what the model returned — a redundant
         # guard alongside the gated schema/guidance, so the capability can't leak even if a future
         # change reintroduces the field into a disabled prompt.

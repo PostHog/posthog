@@ -36,6 +36,17 @@ export interface PauseResponseApi {
     paused_until: string
 }
 
+export interface ReportConfidenceLedgerApi {
+    /** Claims the agent verified directly (read the code, reproduced the behavior). */
+    verified: string[]
+    /** Claims backed by a query the agent ran, each stating its scope. */
+    measured: string[]
+    /** Claims consistent with the evidence but not proven. */
+    inferred: string[]
+    /** Claims the agent could not check, each with why. */
+    unverified: string[]
+}
+
 /**
  * * `potential` - Potential
  * * `candidate` - Candidate
@@ -209,6 +220,28 @@ export interface SignalReportApi {
      * @nullable
      */
     readonly recommended_action: string | null
+    /**
+     * One sentence naming the mechanism behind the finding (the specific function, query, config, or behavior). Null when there is no single mechanism or the report predates this field.
+     * @nullable
+     */
+    readonly cause: string | null
+    /**
+     * Where the cause lives, as precisely as the research pinned it: a file:line reference, a component, or a surface. Null when unlocated. Rendered as 'Where'.
+     * @nullable
+     */
+    readonly cause_location: string | null
+    /**
+     * The effort shape of the recommended action (files touched, rough time, areas). Null when the report isn't actionable or the fix wasn't scoped — never a guess.
+     * @nullable
+     */
+    readonly fix_size: string | null
+    /**
+     * The adjacent thing this report deliberately is not (an existing PR with different scope, a similar issue with a different cause) — the reader's 'isn't this already handled?' answered as a field. Null when there is no such adjacency.
+     * @nullable
+     */
+    readonly not_this: string | null
+    /** The report's claim ledger: every substantive claim sorted by how the agent knows it (verified / measured / inferred / unverified). An empty verified list marks a speculative report. Null on reports generated before this field existed. */
+    readonly confidence: ReportConfidenceLedgerApi | null
     readonly status: SignalReportStatusEnumApi
     readonly total_weight: number
     readonly signal_count: number

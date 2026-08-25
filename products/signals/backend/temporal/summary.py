@@ -27,7 +27,7 @@ from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
-from products.signals.backend.models import SignalReport
+from products.signals.backend.models import ReportPresentationFields, SignalReport
 from products.signals.backend.quota import (
     capture_signal_report_quota_paused,
     record_quota_check_failed_open,
@@ -126,6 +126,11 @@ class ReportDecision:
     headline: str | None = None
     impact: str | None = None
     recommended_action: str | None = None
+    cause: str | None = None
+    cause_location: str | None = None
+    fix_size: str | None = None
+    not_this: str | None = None
+    confidence: dict[str, list[str]] | None = None
     # Resolved chart payload to store with the title/summary (see `RunAgenticReportOutput.charts`):
     # a JSON set, `[]` to clear, or `None` to leave the column alone. `None` for the no-repo branch,
     # which does no research.
@@ -429,6 +434,11 @@ class SignalReportSummaryWorkflow:
                     headline=agentic_result.headline,
                     impact=agentic_result.impact,
                     recommended_action=agentic_result.recommended_action,
+                    cause=agentic_result.cause,
+                    cause_location=agentic_result.cause_location,
+                    fix_size=agentic_result.fix_size,
+                    not_this=agentic_result.not_this,
+                    confidence=agentic_result.confidence,
                     charts=agentic_result.charts,
                     pending_reason="agent_requested",
                 )
@@ -472,6 +482,11 @@ class SignalReportSummaryWorkflow:
                         headline=decision.headline,
                         impact=decision.impact,
                         recommended_action=decision.recommended_action,
+                        cause=decision.cause,
+                        cause_location=decision.cause_location,
+                        fix_size=decision.fix_size,
+                        not_this=decision.not_this,
+                        confidence=decision.confidence,
                     ),
                     start_to_close_timeout=timedelta(minutes=1),
                     retry_policy=RetryPolicy(maximum_attempts=3),
@@ -494,6 +509,11 @@ class SignalReportSummaryWorkflow:
                     headline=decision.headline,
                     impact=decision.impact,
                     recommended_action=decision.recommended_action,
+                    cause=decision.cause,
+                    cause_location=decision.cause_location,
+                    fix_size=decision.fix_size,
+                    not_this=decision.not_this,
+                    confidence=decision.confidence,
                 ),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),
@@ -721,6 +741,20 @@ async def mark_report_in_progress_activity(input: MarkReportInProgressInput) -> 
     )
 
 
+def _presentation_from_input(input: "MarkReportReadyInput | MarkReportPendingInput") -> ReportPresentationFields:
+    """Lift the activity input's flat wire fields into the model's presentation record."""
+    return ReportPresentationFields(
+        headline=input.headline,
+        impact=input.impact,
+        recommended_action=input.recommended_action,
+        cause=input.cause,
+        cause_location=input.cause_location,
+        fix_size=input.fix_size,
+        not_this=input.not_this,
+        confidence=input.confidence,
+    )
+
+
 @frozen
 class MarkReportReadyInput:
     team_id: int
@@ -741,6 +775,11 @@ class MarkReportReadyInput:
     headline: str | None = None
     impact: str | None = None
     recommended_action: str | None = None
+    cause: str | None = None
+    cause_location: str | None = None
+    fix_size: str | None = None
+    not_this: str | None = None
+    confidence: dict[str, list[str]] | None = None
 
 
 @temporalio.activity.defn
@@ -762,9 +801,7 @@ async def mark_report_ready_activity(input: MarkReportReadyInput) -> bool:
                 SignalReport.Status.READY,
                 title=input.title,
                 summary=input.summary,
-                headline=input.headline,
-                impact=input.impact,
-                recommended_action=input.recommended_action,
+                presentation=_presentation_from_input(input),
             )
             if input.charts is not None:
                 report.charts = input.charts
@@ -899,6 +936,11 @@ class MarkReportPendingInput:
     headline: str | None = None
     impact: str | None = None
     recommended_action: str | None = None
+    cause: str | None = None
+    cause_location: str | None = None
+    fix_size: str | None = None
+    not_this: str | None = None
+    confidence: dict[str, list[str]] | None = None
 
 
 @temporalio.activity.defn
@@ -918,9 +960,7 @@ async def mark_report_pending_input_activity(input: MarkReportPendingInput) -> N
                 title=input.title,
                 summary=input.summary,
                 error=input.reason,
-                headline=input.headline,
-                impact=input.impact,
-                recommended_action=input.recommended_action,
+                presentation=_presentation_from_input(input),
             )
             if input.charts is not None:
                 report.charts = input.charts

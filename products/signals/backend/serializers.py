@@ -475,6 +475,24 @@ class ReportChartSerializer(serializers.Serializer):
     )
 
 
+class ReportConfidenceLedgerSerializer(serializers.Serializer):
+    verified = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Claims the agent verified directly (read the code, reproduced the behavior).",
+    )
+    measured = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Claims backed by a query the agent ran, each stating its scope.",
+    )
+    inferred = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Claims consistent with the evidence but not proven.",
+    )
+    unverified = serializers.ListField(
+        child=serializers.CharField(),
+        help_text="Claims the agent could not check, each with why.",
+    )
+
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
     headline = serializers.CharField(
@@ -500,6 +518,47 @@ class SignalReportSerializer(serializers.ModelSerializer):
         help_text=(
             "One-sentence next step for the reader (the fix to ship, the decision to make, or the "
             "input to provide). Null when the report isn't actionable or predates this field."
+        ),
+    )
+    cause = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "One sentence naming the mechanism behind the finding (the specific function, query, "
+            "config, or behavior). Null when there is no single mechanism or the report predates "
+            "this field."
+        ),
+    )
+    cause_location = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Where the cause lives, as precisely as the research pinned it: a file:line reference, "
+            "a component, or a surface. Null when unlocated. Rendered as 'Where'."
+        ),
+    )
+    fix_size = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "The effort shape of the recommended action (files touched, rough time, areas). Null "
+            "when the report isn't actionable or the fix wasn't scoped — never a guess."
+        ),
+    )
+    not_this = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "The adjacent thing this report deliberately is not (an existing PR with different "
+            "scope, a similar issue with a different cause) — the reader's 'isn't this already "
+            "handled?' answered as a field. Null when there is no such adjacency."
+        ),
+    )
+    confidence = serializers.SerializerMethodField(
+        help_text=(
+            "The report's claim ledger: every substantive claim sorted by how the agent knows it "
+            "(verified / measured / inferred / unverified). An empty verified list marks a "
+            "speculative report. Null on reports generated before this field existed."
         ),
     )
     charts = ReportChartSerializer(
@@ -564,6 +623,10 @@ class SignalReportSerializer(serializers.ModelSerializer):
         help_text="The report's PR refund, when one exists. One refund per report, ever.",
     )
 
+    @extend_schema_field(ReportConfidenceLedgerSerializer(allow_null=True))
+    def get_confidence(self, report: SignalReport) -> dict | None:
+        return report.confidence
+
     class Meta:
         model = SignalReport
         fields = [
@@ -573,6 +636,11 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "headline",
             "impact",
             "recommended_action",
+            "cause",
+            "cause_location",
+            "fix_size",
+            "not_this",
+            "confidence",
             "status",
             "total_weight",  # Used for priority scoring
             "signal_count",  # Used for occurrence count

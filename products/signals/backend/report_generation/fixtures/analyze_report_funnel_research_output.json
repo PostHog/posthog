@@ -15,6 +15,11 @@
     "headline": null,
     "impact": null,
     "recommended_action": null,
+    "cause": null,
+    "cause_location": null,
+    "fix_size": null,
+    "not_this": null,
+    "confidence": null,
     "charts": [],
     "new_artefacts": [],
     "old_artefacts": [

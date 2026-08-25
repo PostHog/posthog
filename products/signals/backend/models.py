@@ -14,6 +14,7 @@ from asgiref.sync import async_to_sync
 from django_deprecate_fields import deprecate_field
 from pydantic import ValidationError
 
+from posthog.dataclasses import frozen
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.team.extensions import register_team_extension_signal
@@ -203,6 +204,25 @@ class InvalidStatusTransition(Exception):
         super().__init__(f"Cannot transition from {from_status} to {to_status}")
 
 
+@frozen
+class ReportPresentationFields:
+    """The structured record authored beside `title`/`summary` in the presentation step.
+
+    One object rather than eight same-typed kwargs, so a swapped pair fails typecheck at
+    construction. Every field is None for pipelines or replayed workflows that predate it;
+    the write path overwrites all of them together (see `_set_presentation_fields`).
+    """
+
+    headline: str | None = None
+    impact: str | None = None
+    recommended_action: str | None = None
+    cause: str | None = None
+    cause_location: str | None = None
+    fix_size: str | None = None
+    not_this: str | None = None
+    confidence: dict[str, list[str]] | None = None
+
+
 class SignalReport(UUIDModel):
     class Status(models.TextChoices):
         POTENTIAL = "potential"
@@ -246,12 +266,23 @@ class SignalReport(UUIDModel):
     title = models.TextField(null=True, blank=True)
     summary = models.TextField(null=True, blank=True)
     # Structured presentation fields authored alongside `summary` in the same step (and replaced
-    # with it, like `charts`): the one-sentence verdict, the quantified impact, and the one-line
-    # ask. Nullable — reports written before these existed carry only the prose summary, and
-    # readers fall back to deriving them from it.
+    # with it, like `charts`): the report as a record rather than a document. Nullable — reports
+    # written before a field existed carry only the prose summary, and readers fall back to
+    # deriving what they can from it. A null also means "the agent didn't have this", which is
+    # itself signal; it is never backfilled with prose.
     headline = models.TextField(null=True, blank=True)
     impact = models.TextField(null=True, blank=True)
     recommended_action = models.TextField(null=True, blank=True)
+    cause = models.TextField(null=True, blank=True)
+    # Where the cause lives (file:line, component, surface). Named cause_location rather than
+    # "where" so raw SQL against the column never fights the keyword.
+    cause_location = models.TextField(null=True, blank=True)
+    fix_size = models.TextField(null=True, blank=True)
+    not_this = models.TextField(null=True, blank=True)
+    # The confidence ledger: {verified, measured, inferred, unverified}, each a list of one-line
+    # claims. Separates "read the code myself" from "couldn't check" so fluent prose can't
+    # disguise uncertainty; an empty verified list marks a speculative report at a glance.
+    confidence = models.JSONField(null=True, blank=True)
     error = models.TextField(null=True, blank=True)
     # The charts this report currently shows, each a `ReportChart` (see report_charts.py). Part of
     # the report's content rather than its artefact log: a chart illustrates the summary, so it is
@@ -316,9 +347,7 @@ class SignalReport(UUIDModel):
         title: str | None = None,
         summary: str | None = None,
         error: str | None = None,
-        headline: str | None = None,
-        impact: str | None = None,
-        recommended_action: str | None = None,
+        presentation: "ReportPresentationFields | None" = None,
     ) -> list[str]:
         """
         Validate and apply a status transition with side effects.
@@ -364,7 +393,7 @@ class SignalReport(UUIDModel):
                 self.summary = summary
                 self.error = None
                 updated_fields.update(["title", "summary", "error"])
-                updated_fields.update(self._set_presentation_fields(headline, impact, recommended_action))
+                updated_fields.update(self._set_presentation_fields(presentation or ReportPresentationFields()))
 
             case (S.IN_PROGRESS, S.PENDING_INPUT):
                 if title is None or summary is None or error is None:
@@ -373,7 +402,7 @@ class SignalReport(UUIDModel):
                 self.summary = summary
                 self.error = error
                 updated_fields.update(["title", "summary", "error"])
-                updated_fields.update(self._set_presentation_fields(headline, impact, recommended_action))
+                updated_fields.update(self._set_presentation_fields(presentation or ReportPresentationFields()))
 
             # Reset to potential (from in_progress via actionability judge, from suppressed, or by user snooze on a ready report)
             case (S.IN_PROGRESS | S.SUPPRESSED | S.READY | S.RESOLVED, S.POTENTIAL):
@@ -467,22 +496,27 @@ class SignalReport(UUIDModel):
             return S(prior)
         return S.POTENTIAL
 
-    def _set_presentation_fields(
-        self,
-        headline: str | None,
-        impact: str | None,
-        recommended_action: str | None,
-    ) -> list[str]:
-        """Write the structured presentation fields beside `title`/`summary`.
+    PRESENTATION_FIELD_NAMES = (
+        "headline",
+        "impact",
+        "recommended_action",
+        "cause",
+        "cause_location",
+        "fix_size",
+        "not_this",
+        "confidence",
+    )
+
+    def _set_presentation_fields(self, presentation: "ReportPresentationFields") -> list[str]:
+        """Write the structured presentation record beside `title`/`summary`.
 
         Unlike title/summary these stay optional: a pipeline or replayed workflow that predates
         them must still transition, so a missing value clears the column rather than raising —
         the fields describe the current summary, and a rewrite that omits one has withdrawn it.
         """
-        self.headline = headline
-        self.impact = impact
-        self.recommended_action = recommended_action
-        return ["headline", "impact", "recommended_action"]
+        for field in self.PRESENTATION_FIELD_NAMES:
+            setattr(self, field, getattr(presentation, field))
+        return list(self.PRESENTATION_FIELD_NAMES)
 
     def update_authored_content(
         self,
@@ -492,6 +526,11 @@ class SignalReport(UUIDModel):
         headline: str | None = None,
         impact: str | None = None,
         recommended_action: str | None = None,
+        cause: str | None = None,
+        cause_location: str | None = None,
+        fix_size: str | None = None,
+        not_this: str | None = None,
+        confidence: dict[str, list[str]] | None = None,
     ) -> list[str]:
         """Rewrite an agent-authored report's `title`/`summary` in place, independent of status.
 
@@ -518,6 +557,11 @@ class SignalReport(UUIDModel):
             ("headline", headline),
             ("impact", impact),
             ("recommended_action", recommended_action),
+            ("cause", cause),
+            ("cause_location", cause_location),
+            ("fix_size", fix_size),
+            ("not_this", not_this),
+            ("confidence", confidence),
         ):
             if value is not None and value != getattr(self, field):
                 setattr(self, field, value)

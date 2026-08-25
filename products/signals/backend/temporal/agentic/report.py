@@ -26,6 +26,7 @@ from products.signals.backend.report_charts import ReportChart, chart_batch_erro
 from products.signals.backend.report_generation.research import (
     ActionabilityAssessment,
     ActionabilityChoice,
+    ConfidenceLedger,
     Priority,
     PriorityAssessment,
     ReportResearchOutput,
@@ -80,6 +81,11 @@ class RunAgenticReportOutput:
     headline: str | None = None
     impact: str | None = None
     recommended_action: str | None = None
+    cause: str | None = None
+    cause_location: str | None = None
+    fix_size: str | None = None
+    not_this: str | None = None
+    confidence: dict[str, list[str]] | None = None
 
 
 _ArtefactContentT = TypeVar("_ArtefactContentT", bound=BaseModel)
@@ -100,11 +106,32 @@ def _parse_artefact_content(
         ) from error
 
 
+def _parse_confidence(stored: dict | None) -> "ConfidenceLedger | None":
+    if stored is None:
+        return None
+    try:
+        return ConfidenceLedger.model_validate(stored)
+    except ValidationError:
+        return None
+
+
 async def _load_previous_research(report_id: str) -> ReportResearchOutput | None:
     """Reconstruct the previous report state."""
     report = (
         await SignalReport.objects.filter(id=report_id)
-        .only("title", "summary", "charts", "headline", "impact", "recommended_action")
+        .only(
+            "title",
+            "summary",
+            "charts",
+            "headline",
+            "impact",
+            "recommended_action",
+            "cause",
+            "cause_location",
+            "fix_size",
+            "not_this",
+            "confidence",
+        )
         .afirst()
     )
     if report is None or not report.title or not report.summary:
@@ -159,6 +186,12 @@ async def _load_previous_research(report_id: str) -> ReportResearchOutput | None
         headline=report.headline,
         impact=report.impact,
         recommended_action=report.recommended_action,
+        cause=report.cause,
+        cause_location=report.cause_location,
+        fix_size=report.fix_size,
+        not_this=report.not_this,
+        # A stored ledger that no longer validates degrades to None rather than failing the run.
+        confidence=_parse_confidence(report.confidence),
         # Shown to the re-research as the charts it may keep/refresh/drop. Parsed tolerantly: a stored
         # chart that no longer validates (a tightened schema, a legacy shape) is dropped from the
         # context rather than failing the run — the agent just won't be offered that one to re-send.
@@ -598,6 +631,11 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             headline=result.headline,
             impact=result.impact,
             recommended_action=result.recommended_action,
+            cause=result.cause,
+            cause_location=result.cause_location,
+            fix_size=result.fix_size,
+            not_this=result.not_this,
+            confidence=result.confidence.model_dump() if result.confidence else None,
             choice=actionability.actionability,
             priority=priority.priority if priority else None,
             explanation=actionability.explanation,

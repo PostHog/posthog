@@ -8,10 +8,15 @@
   ],
   "result": {
     "title": "fix(backups): correct 'succesful' typo in docstring",
-    "summary": "The docstring of the `_get_base_backup` function in `posthog/dags/backups.py` (line 346) misspells 'successful' as 'succesful'. This is a single-word typo in a docstring — no code behavior is affected.",
+    "summary": "The docstring of the `_get_base_backup` function in `posthog/dags/backups.py` (line 346) misspells 'successful' as 'succesful'. This is a single-word typo in a docstring \u2014 no code behavior is affected.",
     "headline": null,
     "impact": null,
     "recommended_action": null,
+    "cause": null,
+    "cause_location": null,
+    "fix_size": null,
+    "not_this": null,
+    "confidence": null,
     "charts": [],
     "old_artefacts": [],
     "new_artefacts": [
@@ -21,7 +26,7 @@
           "posthog/dags/backups.py"
         ],
         "relevant_commit_hashes": {},
-        "data_queried": "Verified via source that posthog/dags/backups.py line 346 reads 'Checks the latest succesful backup to use it as a base backup.' — the correct spelling is 'successful'.",
+        "data_queried": "Verified via source that posthog/dags/backups.py line 346 reads 'Checks the latest succesful backup to use it as a base backup.' \u2014 the correct spelling is 'successful'.",
         "verified": true
       },
       {
