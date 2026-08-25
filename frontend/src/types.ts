@@ -6617,6 +6617,8 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
      */
     enabled_columns?: string[] | null
     available_columns?: { name: string; data_type?: string; is_nullable?: boolean }[]
+    /** Exact source identifiers are available for sources that project columns upstream. */
+    source_column_metadata_available?: boolean
     /**
      * Predicates ANDed onto the source query so only matching rows sync.
      * `null` means "sync all rows". Applied on the next sync — not retroactive.
@@ -6637,6 +6639,7 @@ export interface ExternalDataSchemaSourceSummary {
     access_method?: ExternalDataSource['access_method']
     supports_column_selection?: boolean
     supports_row_filters?: boolean
+    requires_exact_column_metadata?: boolean
     user_access_level: AccessControlLevel | null
     /** The source's effective vendor API version — what schemas without an override sync on */
     api_version?: string | null

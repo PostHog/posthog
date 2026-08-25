@@ -3507,7 +3507,7 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
             {"name": "id", "data_type": "String", "is_nullable": False},
         ]
 
-    def test_available_columns_does_not_fall_back_to_normalized_table_for_source_projection(self):
+    def test_available_columns_fallback_preserves_descriptions_for_source_projection(self):
         source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
         table = DataWarehouseTable.objects.create(
             name="billing_customer",
@@ -3528,7 +3528,10 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
         response = self.client.get(f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/")
 
         assert response.status_code == 200, response.json()
-        assert response.json()["available_columns"] == []
+        assert response.json()["available_columns"] == [
+            {"name": "account_id", "data_type": "String", "is_nullable": False}
+        ]
+        assert response.json()["source_column_metadata_available"] is False
 
     def test_enabled_columns_rejected_without_source_metadata_for_source_projection(self):
         source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
@@ -3541,6 +3544,31 @@ class TestAvailableColumnsAcrossSqlSources(APIBaseTest):
 
         assert response.status_code == 400
         assert "Pull new schemas" in str(response.json())
+
+    def test_unchanged_enabled_columns_do_not_block_unrelated_update_without_source_metadata(self):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        schema = ExternalDataSchema.objects.create(
+            name="customers", team=self.team, source=source, enabled_columns=["account_id"], should_sync=True
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}",
+            data={"enabled_columns": ["account_id"], "should_sync": False},
+        )
+
+        assert response.status_code == 200, response.json()
+        schema.refresh_from_db()
+        assert schema.should_sync is False
+
+    def test_empty_enabled_columns_allowed_without_source_metadata(self):
+        source = ExternalDataSource.objects.create(team=self.team, source_type=ExternalDataSourceType.POSTGRES)
+        schema = ExternalDataSchema.objects.create(name="customers", team=self.team, source=source)
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}", data={"enabled_columns": []}
+        )
+
+        assert response.status_code == 200, response.json()
 
     @parameterized.expand(
         [
