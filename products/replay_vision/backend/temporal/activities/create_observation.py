@@ -1,4 +1,5 @@
 from typing import Any
+from uuid import UUID
 
 from django.db import IntegrityError, OperationalError, transaction
 from django.db.models import F
@@ -69,7 +70,7 @@ def create_observation_activity(inputs: CreateObservationInputs) -> CreateObserv
     return result
 
 
-def _try_cached_admission(scanner_pk: Any, cost: int, period: BillingPeriod) -> bool:
+def _try_cached_admission(scanner_pk: UUID, cost: int, period: BillingPeriod) -> bool:
     """One conditional UPDATE admits `cost` against the cached budget; no aggregates, no explicit lock.
 
     Concurrent UPDATEs serialize on the row for one statement each, and Postgres re-evaluates the
