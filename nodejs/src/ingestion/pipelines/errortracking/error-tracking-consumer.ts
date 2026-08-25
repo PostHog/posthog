@@ -51,9 +51,10 @@ export interface ErrorTrackingConsumerOptions {
     statefulOverflowRedisTTLSeconds: number
     statefulOverflowLocalCacheTTLSeconds: number
     /**
-     * When true, overflow redirects keep the original partition key. When
-     * false (default), the overflow producer emits with a null key. Applies
-     * to both restriction-driven force-overflow and rate-limit-to-overflow.
+     * When true (the default), overflow redirects keep the original partition
+     * key. When false, the overflow producer emits with a null key so Kafka
+     * spreads the load across the overflow topic's partitions. Applies to both
+     * restriction-driven force-overflow and rate-limit-to-overflow.
      */
     preservePartitionLocality: boolean
     pipeline: string

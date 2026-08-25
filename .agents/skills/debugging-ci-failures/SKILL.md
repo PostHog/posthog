@@ -30,7 +30,11 @@ This skill triages and classifies. Once a failure is confirmed flaky, hand off
 to the `fixing-flaky-tests` skill, which owns local reproduction, root-cause
 fixing, and N-run validation. For "who broke master" — the culprit commit and
 the commit that fixed it — hand off to the `investigating-ci-failures` skill,
-which owns the green/red boundary analysis.
+which owns the green/red boundary analysis. For aggregate pipeline health (is CI
+getting slower, which workflow is the long pole, how long PRs take to merge),
+read `diagnosing-ci-and-merge-bottlenecks`. Both are product skills under
+`products/engineering_analytics/skills/`, not invocable here: read the
+`SKILL.md` at that path.
 
 ## Safety rules
 
@@ -160,7 +164,9 @@ Given a run id, the `engineering-analytics-run-failure-logs` MCP tool returns
 every failed job's error region with original line numbers, already thinned.
 One call instead of a jobs listing plus a log download, and it works when the
 job died before any test ran. It is bounded by Logs retention, so fall back to
-`gh` for older runs.
+`gh` for older runs. Given a PR number instead of a run id,
+`engineering-analytics-ci-failure-logs` does the same across every run that PR
+has pushed, so an earlier push's failure is still there.
 
 Extract these before classifying:
 
@@ -221,8 +227,7 @@ Unlike the span-derived test reads, this one can give you a real rate: the
 warehouse records every job attempt, greens included, so the denominator is
 honest. Query 7 in
 `products/engineering_analytics/skills/investigating-ci-failures/references/investigation-queries.md`
-is copy-ready; that skill also owns the wider investigation and is worth reading
-directly, as it is a product skill and not invocable from this repo.
+is copy-ready; that skill also owns the wider investigation.
 
 Read the result as:
 

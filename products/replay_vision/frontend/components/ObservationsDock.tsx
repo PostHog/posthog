@@ -13,6 +13,7 @@ import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentP
 import { observationsDockLogic } from '../logics/observationsDockLogic'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { getReplayVisionEditDisabledReason } from '../utils/accessControl'
+import { isSummaryObservation } from '../utils/observation'
 import { quotaUx } from '../utils/quotaProjection'
 import { VisionDocsLink } from './DocsLink'
 import { ObservationDockCard } from './ObservationCard'
@@ -102,7 +103,7 @@ function ObservationsDockContent({ sessionId }: { sessionId: string }): JSX.Elem
     const { desiredSize, isResizeInProgress } = useValues(resizerLogic(resizerProps))
 
     // Scanner observations live in the sidebar's Observations tab; the dock only surfaces summaries
-    const summaries = observations.filter((o) => o.scanner_snapshot?.scanner_type === 'summarizer')
+    const summaries = observations.filter(isSummaryObservation)
     const hasContent = summaries.length > 0 || observationsLoading
     const expandedHeight = Math.max(
         MIN_EXPANDED_HEIGHT,

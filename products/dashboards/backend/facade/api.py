@@ -89,6 +89,11 @@ def _refs_in_given_order(dashboard_ids: Sequence[int]) -> tuple[DashboardRef, ..
     )
 
 
+def dashboard_refs(dashboard_ids: Sequence[int]) -> tuple[DashboardRef, ...]:
+    """Dashboard IDs and names for callers that already validated the dashboard IDs."""
+    return _refs_in_given_order(dashboard_ids)
+
+
 def unknown_dashboard_ids(dashboard_ids: Collection[int], *, team_id: int) -> list[int]:
     """Which of these ids are not a live dashboard of this team, in the order they were given.
 
@@ -316,6 +321,7 @@ __all__ = [
     "InsightTilePlacement",
     "MembershipChange",
     "active_tile_count",
+    "dashboard_refs",
     "hide_tiles_for_insights",
     "insight_has_listed_tile",
     "insight_ids_on_dashboard",

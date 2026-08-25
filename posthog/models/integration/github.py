@@ -124,16 +124,30 @@ class GitHubIntegration(GitHubIntegrationBase):
     @classmethod
     def fetch_installation_access(cls, installation_id: str) -> GitHubInstallationAccess:
         try:
-            installation_info = cls.client_request(f"installations/{installation_id}").json()
-            access_token_response = cls.client_request(
-                f"installations/{installation_id}/access_tokens", method="POST"
-            ).json()
+            installation_info_response = cls.client_request(f"installations/{installation_id}")
+            access_token_response = cls.client_request(f"installations/{installation_id}/access_tokens", method="POST")
         except Exception as exc:
             raise GitHubInstallationAccessFetchError("installation_fetch_failed") from exc
 
-        installation_access_token = access_token_response.get("token")
-        token_expires_at = access_token_response.get("expires_at")
-        if not installation_access_token or not token_expires_at:
+        # A non-200 body here is an error envelope without `account`, and callers persist
+        # `account.login` as the display name; failing keeps the numeric installation id out of the UI.
+        if installation_info_response.status_code != 200:
+            logger.warning(
+                "GitHubIntegration: failed to fetch installation info",
+                installation_id=installation_id,
+                status_code=installation_info_response.status_code,
+            )
+            raise GitHubInstallationAccessFetchError("installation_fetch_failed")
+
+        try:
+            installation_info = installation_info_response.json()
+            access_token_data = access_token_response.json()
+        except ValueError as exc:
+            raise GitHubInstallationAccessFetchError("installation_fetch_failed") from exc
+
+        installation_access_token = access_token_data.get("token")
+        token_expires_at = access_token_data.get("expires_at")
+        if access_token_response.status_code != 201 or not installation_access_token or not token_expires_at:
             raise GitHubInstallationAccessFetchError("installation_token_failed")
 
         return GitHubInstallationAccess(
@@ -141,7 +155,7 @@ class GitHubIntegration(GitHubIntegrationBase):
             installation_info=installation_info,
             access_token=installation_access_token,
             token_expires_at=token_expires_at,
-            repository_selection=access_token_response.get("repository_selection", "selected"),
+            repository_selection=access_token_data.get("repository_selection", "selected"),
         )
 
     @classmethod

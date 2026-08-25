@@ -382,7 +382,7 @@ describe('dashboardLogic', () => {
             }
         })
 
-        it('does not report the default tile density', async () => {
+        it('reports the tile density when reset to standard', async () => {
             await expectLogic(logic).toFinishAllListeners()
             const reportTileDensityConfigured = jest.spyOn(
                 eventUsageLogic.actions,
@@ -396,7 +396,7 @@ describe('dashboardLogic', () => {
                 await jest.advanceTimersByTimeAsync(750)
                 await expectLogic(logic).toFinishAllListeners()
 
-                expect(reportTileDensityConfigured).not.toHaveBeenCalled()
+                expect(reportTileDensityConfigured).toHaveBeenCalledWith('standard')
             } finally {
                 jest.useRealTimers()
             }

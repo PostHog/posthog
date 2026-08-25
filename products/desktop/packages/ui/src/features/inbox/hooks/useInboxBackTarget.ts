@@ -1,10 +1,10 @@
 import { useLocation } from "@tanstack/react-router";
 
 const INBOX_LIST_ROUTE_VALUES = [
-  "/code/inbox/pulls",
-  "/code/inbox/reports",
-  "/code/inbox/runs",
-  "/code/inbox/dismissed",
+  "/inbox/pulls",
+  "/inbox/reports",
+  "/inbox/runs",
+  "/inbox/dismissed",
 ] as const;
 
 /** List routes an inbox detail screen's back link can return to. */

@@ -26,9 +26,13 @@ const EXPONENT_THRESHOLD = 1e21
 export function HogFlowDuration({
     value,
     onChange,
+    allowUnbounded = false,
 }: {
     value: string
     onChange: (value: string) => void
+    // The per-unit ceilings bound how long a fixed delay waits. A date offset is bounded by the
+    // step's max_delay_duration instead, so it opts out and keeps its full magnitude ("45 days before").
+    allowUnbounded?: boolean
 }): JSX.Element {
     const inputRef = useRef<HTMLInputElement>(null)
     const parts = value.match(DURATION_REGEX)
@@ -48,9 +52,13 @@ export function HogFlowDuration({
         setDisplayNumber(numberValue)
     }, [numberValue])
 
+    // Holds an amount to the unit's ceiling, unless the field opts out (a date offset).
+    const capToUnit = (n: number, u: string): number =>
+        allowUnbounded ? n : Math.min(n, MAX_VALUE_FOR_DURATION_UNIT[u])
+
     // Fractions are allowed, so the only lower bound is "greater than zero". Anything at or below it
     // would save a delay that never waits, so snap those back up to one whole unit.
-    const clamp = (n: number): number => (n > 0 ? Math.min(n, MAX_VALUE_FOR_DURATION_UNIT[unit]) : 1)
+    const clamp = (n: number): number => (n > 0 ? capToUnit(n, unit) : 1)
 
     const normalizeAmount = (n: number): number =>
         n >= EXPONENT_THRESHOLD ? MAX_VALUE_FOR_DURATION_UNIT[unit] : Number(n.toFixed(MAX_FRACTION_DIGITS))
@@ -62,7 +70,7 @@ export function HogFlowDuration({
                 inputRef={inputRef}
                 value={displayNumber ?? NaN}
                 min={0}
-                max={MAX_VALUE_FOR_DURATION_UNIT[unit]}
+                max={allowUnbounded ? undefined : MAX_VALUE_FOR_DURATION_UNIT[unit]}
                 step="any"
                 onKeyDown={(e) => {
                     if (BLOCKED_NUMBER_INPUT_KEYS.has(e.key)) {
@@ -97,11 +105,7 @@ export function HogFlowDuration({
                     { label: 'Day(s)', value: 'd' },
                 ]}
                 value={unit}
-                onChange={(v) =>
-                    onChange(
-                        `${displayNumber === undefined ? '' : Math.min(displayNumber, MAX_VALUE_FOR_DURATION_UNIT[v])}${v}`
-                    )
-                }
+                onChange={(v) => onChange(`${displayNumber === undefined ? '' : capToUnit(displayNumber, v)}${v}`)}
             />
         </div>
     )

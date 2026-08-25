@@ -7,6 +7,7 @@ import { PipelineResultType } from '~/ingestion/framework/results'
 import { imageRef } from './ml-mirror-image-scrub/content-ref'
 import {
     PSEUDONYM_IMAGE_CONTENT_KEY,
+    PSEUDONYM_IMAGE_URL_GLOBAL_VALUE,
     PSEUDONYM_IMAGE_URL_KEY,
     PSEUDONYM_TEAM,
     pseudonymize,
@@ -295,7 +296,7 @@ describe('createParseAndAnonymizeMessageStep with image collection', () => {
 describe('createParseAndAnonymizeMessageStep with url collection', () => {
     const secret = 'test-pseudonym-secret'
     const pseudoTeam = pseudonymize(secret, PSEUDONYM_TEAM, '1')
-    const urlKey = pseudonymize(secret, PSEUDONYM_IMAGE_URL_KEY, '1')
+    const urlKey = pseudonymize(secret, PSEUDONYM_IMAGE_URL_KEY, PSEUDONYM_IMAGE_URL_GLOBAL_VALUE)
     const now = Date.now()
     const team = { teamId: 1, consoleLogIngestionEnabled: true, aiTrainingOptedIn: true }
     const headers: SessionReplayHeaders = {
@@ -331,7 +332,7 @@ describe('createParseAndAnonymizeMessageStep with url collection', () => {
 
     beforeEach(() => mockAnonymizeKafkaPayload.mockReset())
 
-    it('runs without the image lane, and forwards only the url key', async () => {
+    it('uses one global URL key and ref for every team', async () => {
         // The URL lane measures before any topic exists. Requiring the image lane to be on first
         // would make that measurement impossible to take on its own.
         mockAnonymizeKafkaPayload.mockResolvedValue({
@@ -347,15 +348,26 @@ describe('createParseAndAnonymizeMessageStep with url collection', () => {
         })
 
         const result: any = await step({ message: kafkaMessage(), headers, team } as any)
+        const otherTeam = { ...team, teamId: 2 }
+        const otherResult: any = await step({ message: kafkaMessage(), headers, team: otherTeam } as any)
 
         expect(mockAnonymizeKafkaPayload).toHaveBeenCalledWith(expect.anything(), null, pseudoTeam, undefined, urlKey)
         expect(result.value.collectedUrls).toEqual([
             {
-                ref: `imageurl:${pseudoTeam}:${'h'.repeat(22)}`,
+                ref: `imageurl:${'h'.repeat(22)}`,
+                pseudoTeam,
                 url: 'https://cdn.example.com/a.png',
                 host: 'cdn.example.com',
             },
         ])
+        expect(mockAnonymizeKafkaPayload).toHaveBeenLastCalledWith(
+            expect.anything(),
+            null,
+            pseudonymize(secret, PSEUDONYM_TEAM, '2'),
+            undefined,
+            urlKey
+        )
+        expect(otherResult.value.collectedUrls[0].ref).toBe(result.value.collectedUrls[0].ref)
         expect(result.value.collectedImages).toBeUndefined()
     })
 
