@@ -14,7 +14,7 @@ import posthoganalytics
 from posthog.event_usage import groups
 
 from .. import logic, weekly_digest
-from ..logic import rules
+from ..logic import external_references, rules
 from ..models import (
     ErrorTrackingIssue,
     override_error_tracking_issue_fingerprint as override_error_tracking_issue_fingerprint,
@@ -29,9 +29,10 @@ from .contracts import (
 )
 
 IssueNotFoundError = logic.ErrorTrackingIssueNotFoundError
-ExternalReferenceValidationError = logic.ErrorTrackingExternalReferenceValidationError
+ExternalReferenceValidationError = external_references.ErrorTrackingExternalReferenceValidationError
 ReleaseHashInUseError = logic.ErrorTrackingReleaseHashInUseError
 InvalidBytecodeError = rules.ErrorTrackingInvalidBytecodeError
+SeverityRuleLimitError = rules.ErrorTrackingSeverityRuleLimitError
 
 SOURCE_MAPS_DOCS_URL = contracts.SOURCE_MAPS_DOCS_URL
 
@@ -55,7 +56,7 @@ def _to_external_reference(reference) -> contracts.ErrorTrackingExternalReferenc
             kind=integration.kind,
             display_name=integration.display_name,
         ),
-        external_url=logic.build_external_issue_url(reference),
+        external_url=external_references.build_external_issue_url(reference),
     )
 
 
@@ -159,7 +160,7 @@ def get_issue(issue_id: UUID, team_id: int) -> contracts.ErrorTrackingIssue:
 def list_issues_detailed(
     team_id: int, *, limit: int | None = None, offset: int = 0
 ) -> tuple[list[contracts.ErrorTrackingIssue], int]:
-    qs = logic.get_issue_detail_queryset(team_id)
+    qs = logic.get_issue_detail_queryset(team_id).order_by("-id")
     total = qs.count()
     rows = qs if limit is None else qs[offset : offset + limit]
     return [_to_issue(issue) for issue in rows], total
@@ -178,7 +179,11 @@ def get_issue_basics(team_id: int, issue_id: UUID | str) -> contracts.ErrorTrack
     if issue is None:
         return None
     return contracts.ErrorTrackingIssueBasics(
-        id=issue.id, name=issue.name, description=issue.description, status=issue.status
+        id=issue.id,
+        name=issue.name,
+        description=issue.description,
+        status=issue.status,
+        severity=issue.severity,
     )
 
 
@@ -406,6 +411,53 @@ def reorder_assignment_rules(team_id: int, orders: dict[str, int]) -> None:
     rules.reorder_assignment_rules(team_id, orders)
 
 
+def _to_severity_rule(rule) -> contracts.ErrorTrackingSeverityRule:
+    return contracts.ErrorTrackingSeverityRule(
+        id=rule.id,
+        filters=rule.filters,
+        severity=rule.severity,
+        order_key=rule.order_key,
+        disabled_data=rule.disabled_data,
+        created_at=rule.created_at,
+        updated_at=rule.updated_at,
+    )
+
+
+def list_severity_rules(team_id: int) -> list[contracts.ErrorTrackingSeverityRule]:
+    return [_to_severity_rule(rule) for rule in rules.list_severity_rules(team_id)]
+
+
+def get_severity_rule(team_id: int, rule_id: str) -> contracts.ErrorTrackingSeverityRule | None:
+    rule = rules.get_severity_rule(team_id, rule_id)
+    return _to_severity_rule(rule) if rule is not None else None
+
+
+def create_severity_rule(
+    team_id: int, *, filters: dict, severity: str, order_key: int = 0
+) -> contracts.ErrorTrackingSeverityRule:
+    rule = rules.create_severity_rule(team_id, filters=filters, severity=severity, order_key=order_key)
+    return _to_severity_rule(rule)
+
+
+def update_severity_rule(
+    team_id: int,
+    rule_id: str,
+    *,
+    filters: dict | None = None,
+    severity: str | None = None,
+) -> contracts.ErrorTrackingSeverityRule | None:
+    rule = rules.update_severity_rule(team_id, rule_id, filters=filters, severity=severity)
+    return _to_severity_rule(rule) if rule is not None else None
+
+
+def delete_severity_rule(team_id: int, rule_id: str) -> bool:
+    return rules.delete_severity_rule(team_id, rule_id)
+
+
+def reorder_severity_rules(team_id: int, orders: dict[str, int]) -> None:
+    rules.reorder_severity_rules(team_id, orders)
+
+
 def _to_grouping_rule(rule, issue: tuple[UUID, str | None] | None = None) -> contracts.ErrorTrackingGroupingRule:
     return contracts.ErrorTrackingGroupingRule(
         id=rule.id,
@@ -575,12 +627,12 @@ def get_issue_permalink(team_id: int, issue_id: UUID) -> str:
 
 
 def list_external_references(team_id: int) -> list[contracts.ErrorTrackingExternalReference]:
-    references = logic.list_external_references(team_id=team_id)
+    references = external_references.list_external_references(team_id=team_id)
     return [_to_external_reference(reference) for reference in references]
 
 
 def get_external_reference(reference_id: UUID, team_id: int) -> contracts.ErrorTrackingExternalReference | None:
-    reference = logic.get_external_reference(reference_id=reference_id, team_id=team_id)
+    reference = external_references.get_external_reference(reference_id=reference_id, team_id=team_id)
     if reference is None:
         return None
     return _to_external_reference(reference)
@@ -595,7 +647,7 @@ def create_external_reference(
     external_context: dict[str, Any] | None = None,
     distinct_id: int | str,
 ) -> contracts.ErrorTrackingExternalReference:
-    reference, created = logic.create_external_reference(
+    reference, created = external_references.create_external_reference(
         team_id=team_id,
         issue_id=issue_id,
         integration_id=integration_id,
@@ -627,7 +679,7 @@ def search_external_issues(
     search: str,
     repository: str | None = None,
 ) -> list[dict[str, Any]]:
-    return logic.search_external_issues(
+    return external_references.search_external_issues(
         team_id=team_id,
         integration_id=integration_id,
         search=search,
@@ -636,7 +688,7 @@ def search_external_issues(
 
 
 def is_supported_external_issue_provider(kind: str) -> bool:
-    return logic.is_supported_external_issue_provider(kind=kind)
+    return external_references.is_supported_external_issue_provider(kind=kind)
 
 
 def get_issue_values(team_id: int, key: str | None, value: str | None) -> list[str]:

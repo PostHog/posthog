@@ -12,7 +12,7 @@ from posthog.models.integration import Integration
 
 from products.tasks.backend.exceptions import SandboxExecutionError, SandboxNotFoundError, SandboxNotRunningError
 from products.tasks.backend.logic.services.sandbox import ExecutionResult
-from products.tasks.backend.models import Task, TaskRun
+from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials import (
     RefreshSandboxCredentialsInput,
     refresh_sandbox_credentials,
@@ -65,6 +65,23 @@ class TestRefreshSandboxCredentialsActivity:
         event_name = track_event.call_args[0][0]
         assert event_name == "sandbox_credentials_refreshed"
         assert track_event.call_args.kwargs["properties"]["refreshed_kinds"] == ["github"]
+
+    def test_stops_refreshing_after_task_handoff(self, activity_environment, task_context, test_task, sandbox):
+        test_task.state = {TASK_OWNERSHIP_VERSION_STATE_KEY: "new-owner"}
+        test_task.save(update_fields=["state", "updated_at"])
+
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.refresh_sandbox_credentials.Sandbox.get_by_id",
+            return_value=sandbox,
+        ) as get_sandbox:
+            output = async_to_sync(activity_environment.run)(
+                refresh_sandbox_credentials,
+                RefreshSandboxCredentialsInput(context=task_context, sandbox_id="sandbox-abc"),
+            )
+
+        assert output.refreshed_kinds == []
+        assert output.no_credentials_left is True
+        get_sandbox.assert_not_called()
 
     def test_promoted_run_refreshes_as_user_not_the_team_installation(
         self, activity_environment, task_context, test_task, test_task_run, sandbox

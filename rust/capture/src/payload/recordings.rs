@@ -135,6 +135,7 @@ pub async fn handle_recording_payload(
         user_agent: Some(metadata.user_agent.to_string()),
         chatty_debug_enabled,
         capture_mode: state.capture_mode,
+        ai_max_event_bytes: 0,
         sdk_attribution: attribution_from_event(&events[0], metadata.user_agent),
     };
 

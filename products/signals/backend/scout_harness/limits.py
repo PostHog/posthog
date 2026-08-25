@@ -88,6 +88,9 @@ COORDINATOR_INTERVAL_MINUTES = 30
 # else stamp jitter makes it skip every other tick (a 60-min scout runs every 2h).
 DUE_GRACE_SECONDS = 60
 
+DISPATCH_SMEAR_SECONDS = 600
+DISPATCH_BATCH_INTERVAL_SECONDS = 60
+
 
 def dispatch_ticks_per_interval(run_interval_minutes: int) -> int:
     """The scout's dispatch period, as a count of coordinator ticks.

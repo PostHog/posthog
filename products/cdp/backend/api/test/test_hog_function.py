@@ -227,21 +227,15 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         listed_ids = {item["id"] for item in list_response.json()["results"]}
         self.assertIn(function_id, listed_ids)
 
-    def test_generic_api_hides_and_cannot_patch_managed_alert_destinations(self):
-        ordinary = HogFunction.objects.create(
-            team=self.team,
-            name="Ordinary destination",
-            hog="return event",
-            type="destination",
-            enabled=False,
-            filters={},
-        )
+    def test_generic_api_lists_but_cannot_patch_managed_alert_destinations(self):
         managed = HogFunction.objects.create(
             team=self.team,
             name="Billing alert destination",
             hog="return event",
             type="internal_destination",
             enabled=True,
+            inputs_schema=[],
+            inputs={},
             filters={
                 "events": [{"id": "$billing_alert_firing", "type": "events"}],
                 "properties": [{"key": "alert_id", "value": "alert-1"}],
@@ -249,20 +243,38 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
         )
 
         list_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?full=true")
-        ordinary_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{ordinary.id}/")
         retrieve_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{managed.id}/")
         patch_response = self.client.patch(
             f"/api/projects/{self.team.id}/hog_functions/{managed.id}/",
-            data={"inputs": {"url": {"value": "https://attacker.example"}}},
+            data={"name": "Renamed alert destination"},
         )
 
         self.assertEqual(list_response.status_code, status.HTTP_200_OK)
         listed_ids = {item["id"] for item in list_response.json()["results"]}
-        self.assertEqual(ordinary_response.status_code, status.HTTP_200_OK, ordinary_response.json())
-        self.assertIn(str(ordinary.id), listed_ids)
-        self.assertNotIn(str(managed.id), listed_ids)
-        self.assertEqual(retrieve_response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertEqual(patch_response.status_code, status.HTTP_404_NOT_FOUND)
+        self.assertIn(str(managed.id), listed_ids)
+        self.assertEqual(retrieve_response.status_code, status.HTTP_200_OK, retrieve_response.json())
+        self.assertEqual(patch_response.status_code, status.HTTP_400_BAD_REQUEST, patch_response.json())
+        self.assertIn("managed through the alert API", patch_response.json()["detail"])
+
+    def test_functions_filtered_on_all_events_are_listed_and_retrievable(self):
+        # An explicit "All events" filter persists as a JSON-null event id, which queryset-level
+        # JSON lookups (isnull, regex) silently miss, dropping the row from every read path.
+        function = HogFunction.objects.create(
+            team=self.team,
+            name="Drop events",
+            hog="return null",
+            type="transformation",
+            enabled=True,
+            filters={"events": [{"id": None, "name": "All events", "type": "events"}]},
+        )
+
+        list_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?type=transformation")
+        retrieve_response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/{function.id}/")
+
+        self.assertEqual(list_response.status_code, status.HTTP_200_OK)
+        listed_ids = {item["id"] for item in list_response.json()["results"]}
+        self.assertIn(str(function.id), listed_ids)
+        self.assertEqual(retrieve_response.status_code, status.HTTP_200_OK, retrieve_response.json())
 
 
 class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -792,6 +804,50 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             raw_encrypted_inputs
             == "gAAAAABlkgC8AAAAAAAAAAAAAAAAAAAAAKvzDjuLG689YjjVhmmbXAtZSRoucXuT8VtokVrCotIx3ttPcVufoVt76dyr2phbuotMldKMVv_Y6uzMDZFjX1Uvej4GHsYRbsTN_txcQHNnU7zvLee83DhHIrThEjceoq8i7hbfKrvqjEi7GCGc_k_Gi3V5KFxDOfLKnke4KM4s"
         )
+
+    def test_masked_secrets_lists_only_functions_storing_the_mask(self, *args):
+        secret_schema = [{"key": "api_key", "type": "string", "label": "API key", "secret": True, "required": True}]
+        healthy = HogFunction.objects.create(
+            team=self.team,
+            name="Healthy",
+            type="destination",
+            enabled=True,
+            inputs_schema=secret_schema,
+            encrypted_inputs={"api_key": {"value": "I AM SECRET", "order": 0}},
+        )
+        poisoned = HogFunction.objects.create(
+            team=self.team,
+            name="Poisoned",
+            type="destination",
+            enabled=True,
+            inputs_schema=secret_schema,
+            encrypted_inputs={"api_key": {"value": "********", "order": 0}},
+        )
+        poisoned_draft = HogFunction.objects.create(
+            team=self.team,
+            name="Poisoned draft",
+            type="destination",
+            enabled=False,
+            inputs_schema=secret_schema,
+            encrypted_inputs={"api_key": {"value": "I AM SECRET", "order": 0}},
+            draft_encrypted_inputs={"api_key": {"value": "********", "order": 0}},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/masked_secrets/")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        results = {row["id"]: row for row in response.json()}
+        assert set(results) == {str(poisoned.id), str(poisoned_draft.id)}
+        assert str(healthy.id) not in results
+
+        assert results[str(poisoned.id)]["input_keys"] == ["api_key"]
+        assert results[str(poisoned.id)]["draft_input_keys"] == []
+        assert results[str(poisoned.id)]["enabled"] is True
+        assert results[str(poisoned_draft.id)]["input_keys"] == []
+        assert results[str(poisoned_draft.id)]["draft_input_keys"] == ["api_key"]
+
+        # The response is read by an incident banner in the browser, so it must carry keys only.
+        assert "I AM SECRET" not in response.content.decode()
 
     def test_secret_inputs_not_updated_if_not_changed(self, *args):
         payload = {
@@ -1474,6 +1530,81 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/hog_functions/?enabled=true,false")
         assert len(response.json()["results"]) == 2
+
+    def test_a_materialized_view_destination_with_only_the_picker_placeholder(self):
+        # The filters serializer drops the "Select a table" placeholder, so a placeholder-only list
+        # arrives non-empty and leaves empty. The consumer reads an empty list as "every view", so
+        # this has to be rejected rather than silently subscribing to all of them.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "type": "destination",
+                "name": "Fetch URL",
+                "hog": "fetch(inputs.url);",
+                "enabled": True,
+                "inputs": {},
+                "filters": {"source": "data-warehouse-view", "data_warehouse": [{"name": "Select a table"}]},
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    def test_a_materialized_view_destination_with_a_placeholder_entry_carrying_a_table_name(self):
+        # An entry can carry both the picker's placeholder name and a table_name (e.g. a picker that
+        # never overwrote its default label). The filters serializer strips it purely by name, so
+        # counting it as a real selection here would let it through and then land as `[]`.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "type": "destination",
+                "name": "Fetch URL",
+                "hog": "fetch(inputs.url);",
+                "enabled": True,
+                "inputs": {},
+                "filters": {
+                    "source": "data-warehouse-view",
+                    "data_warehouse": [{"name": "Select a table", "table_name": "daily_revenue"}],
+                },
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+    @parameterized.expand(
+        [
+            ("data-warehouse-table", status.HTTP_201_CREATED),
+            ("data-warehouse-view", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_a_warehouse_source_without_a_table_selection(self, source, expected_status):
+        # An empty list still means "every table" for warehouse tables, because destinations were
+        # saved that way before the consumer matched on the selection. Materialized views are newer
+        # and have no such history, so a missing selection is rejected instead of firing on everything.
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "type": "destination",
+                "name": "Fetch URL",
+                "hog": "fetch(inputs.url);",
+                "enabled": True,
+                "inputs": {},
+                "filters": {"source": source},
+            },
+        )
+        assert response.status_code == expected_status, response.json()
+
+    def test_a_materialized_view_destination_with_a_view_selected(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "type": "destination",
+                "name": "Fetch URL",
+                "hog": "fetch(inputs.url);",
+                "enabled": True,
+                "inputs": {},
+                "filters": {"source": "data-warehouse-view", "data_warehouse": [{"table_name": "daily_revenue"}]},
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["filters"]["source"] == "data-warehouse-view"
 
     @patch("posthog.cdp.site_functions.transpile", side_effect=mock_transpile)
     def test_create_hog_function_with_site_app_type(self, mock_transpile_fn):

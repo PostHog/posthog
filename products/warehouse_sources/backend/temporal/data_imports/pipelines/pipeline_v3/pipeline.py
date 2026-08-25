@@ -225,6 +225,7 @@ class PipelineV3(Generic[ResumableData]):
             team_id=self._job.team_id,
             schema_name=self._schema.name,
             coalesce_tables=resumable_source_manager is None and not self._schema.is_webhook,
+            primary_keys=self._resource.primary_keys,
         )
         self._internal_schema = HogQLSchema()
         self._sinks = build_pipeline_sinks(

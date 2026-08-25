@@ -11,13 +11,17 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models.integration import Integration
-from posthog.models.organization import Organization
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
+from posthog.models.user import User
 
 from products.ai_observability.backend.api.evaluation_reports import EvaluationReportRunSerializer
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReport, EvaluationReportRun
 from products.ai_observability.backend.models.evaluations import Evaluation, EvaluationTarget
+
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestEvaluationReportRunSerializer(SimpleTestCase):
@@ -787,7 +791,7 @@ class TestEvaluationReportApi(APIBaseTest):
     # requests are rejected with "This action does not support Personal API Key access".
     @parameterized.expand(
         [
-            ("read_scope_allowed", ["llm_analytics:read"], status.HTTP_200_OK),
+            ("read_scope_allowed", ["evaluation:read"], status.HTTP_200_OK),
             ("wrong_scope_denied", ["insight:read"], status.HTTP_403_FORBIDDEN),
         ]
     )
@@ -801,8 +805,8 @@ class TestEvaluationReportApi(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("write_scope_allowed", ["llm_analytics:write"], status.HTTP_202_ACCEPTED),
-            ("wrong_scope_denied", ["llm_analytics:read"], status.HTTP_403_FORBIDDEN),
+            ("write_scope_allowed", ["evaluation:write"], status.HTTP_202_ACCEPTED),
+            ("wrong_scope_denied", ["evaluation:read"], status.HTTP_403_FORBIDDEN),
         ]
     )
     @patch("products.ai_observability.backend.api.evaluation_reports.async_to_sync")
@@ -849,3 +853,133 @@ class TestEvaluationReportApi(APIBaseTest):
         response = self.client.patch(f"{self.base_url}{report.id}/", {"deleted": True}, format="json")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         mock_report.assert_not_called()
+
+
+class TestEvaluationReportAccessControl(APIBaseTest):
+    # Reports moved from the coarse `llm_analytics` resource onto `evaluation`, which owns them.
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+
+        self.evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Test Eval",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test"},
+            output_type="boolean",
+            created_by=self.user,
+        )
+        self.report = EvaluationReport.objects.create(
+            team=self.team,
+            evaluation=self.evaluation,
+            frequency=EvaluationReport.Frequency.EVERY_N,
+            trigger_threshold=100,
+            delivery_targets=[{"type": "email", "value": "test@example.com"}],
+        )
+        self.base_url = f"/api/environments/{self.team.id}/llm_analytics/evaluation_reports/"
+        self.other_user = User.objects.create_and_join(self.organization, "report-viewer@posthog.com", "testtest")
+
+    def _grant(self, resource: str, access_level: str, resource_id: str | None = None) -> None:
+        AccessControl.objects.create(
+            team=self.team,
+            resource=resource,
+            resource_id=resource_id,
+            access_level=access_level,
+            organization_member=OrganizationMembership.objects.get(
+                user=self.other_user, organization=self.organization
+            ),
+        )
+
+    def test_evaluation_viewer_can_read_runs_but_not_generate(self):
+        self._grant("evaluation", "viewer")
+        self.client.force_login(self.other_user)
+
+        runs_response = self.client.get(f"{self.base_url}{self.report.id}/runs/")
+        assert runs_response.status_code == status.HTTP_200_OK
+
+        generate_response = self.client.post(f"{self.base_url}{self.report.id}/generate/")
+        assert generate_response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_llm_analytics_grant_alone_does_not_reach_reports(self):
+        self._grant("evaluation", "none")
+        self._grant("llm_analytics", "editor")
+        self.client.force_login(self.other_user)
+
+        response = self.client.get(self.base_url)
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_evaluation_specific_editor_cannot_redirect_another_evaluations_report(self) -> None:
+        visible_evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Visible Eval",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test"},
+            output_type="boolean",
+            created_by=self.user,
+        )
+        self._grant("evaluation", "none")
+        self._grant("evaluation", "editor", resource_id=str(visible_evaluation.id))
+        self.client.force_login(self.other_user)
+
+        response = self.client.patch(
+            f"{self.base_url}{self.report.id}/",
+            {"delivery_targets": [{"type": "email", "value": "attacker@example.com"}]},
+            format="json",
+        )
+
+        assert response.status_code in (status.HTTP_403_FORBIDDEN, status.HTTP_404_NOT_FOUND)
+        self.report.refresh_from_db()
+        assert self.report.delivery_targets == [{"type": "email", "value": "test@example.com"}]
+
+    def test_evaluation_specific_editor_cannot_upsert_another_evaluations_report(self) -> None:
+        visible_evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Visible Eval",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test"},
+            output_type="boolean",
+            created_by=self.user,
+        )
+        self._grant("evaluation", "none")
+        self._grant("evaluation", "editor", resource_id=str(visible_evaluation.id))
+        self.client.force_login(self.other_user)
+
+        response = self.client.post(
+            self.base_url,
+            {
+                "evaluation": str(self.evaluation.id),
+                "frequency": EvaluationReport.Frequency.EVERY_N,
+                "trigger_threshold": 100,
+                "delivery_targets": [{"type": "email", "value": "attacker@example.com"}],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        self.report.refresh_from_db()
+        assert self.report.delivery_targets == [{"type": "email", "value": "test@example.com"}]
+
+    def test_evaluation_specific_editor_can_upsert_its_report(self) -> None:
+        self._grant("evaluation", "none")
+        self._grant("evaluation", "editor", resource_id=str(self.evaluation.id))
+        self.client.force_login(self.other_user)
+
+        response = self.client.post(
+            self.base_url,
+            {
+                "evaluation": str(self.evaluation.id),
+                "frequency": EvaluationReport.Frequency.EVERY_N,
+                "trigger_threshold": 100,
+                "delivery_targets": [{"type": "email", "value": "editor@example.com"}],
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        self.report.refresh_from_db()
+        assert self.report.delivery_targets == [{"type": "email", "value": "editor@example.com"}]

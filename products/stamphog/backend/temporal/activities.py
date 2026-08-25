@@ -39,10 +39,17 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.temporal.common.utils import asyncify
 from posthog.temporal.oauth import create_oauth_access_token_for_user
 
-from products.stamphog.backend.facade.enums import TERMINAL_STATUSES, ReviewMode, ReviewRunStatus, ReviewVerdict
+from products.stamphog.backend.facade.enums import (
+    TERMINAL_STATUSES,
+    ReviewMode,
+    ReviewRunStatus,
+    ReviewTrigger,
+    ReviewVerdict,
+)
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import resolve_audiences
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient, expected_app_bot_login
+from products.stamphog.backend.logic.review_trigger import trigger_for_run
 from products.stamphog.backend.logic.reviewer import (
     ReviewerInvocation,
     ReviewerVerdict,
@@ -459,6 +466,9 @@ def run_review_in_sandbox(input: StamphogReviewInput) -> dict:
         # The engine's carve-out for bot-authored drafts keys off this flag alone. It comes only
         # from the run's inbox provenance, stamped after the PR is linked to a signals run.
         self_driving_review=bool(output.get("inbox_review")),
+        # Read as a description rather than a permission: the reviewer is told why it was asked,
+        # and decides for itself what that means for this diff.
+        review_trigger=trigger_for_run(output=output, review_mode=run.pull_request.repo_config.review_mode),
     )
 
     sandbox_class = get_sandbox_class_for_backend(_resolve_sandbox_backend())
@@ -808,6 +818,9 @@ def post_verdict(input: StamphogReviewInput) -> dict:
     # but both the label-strip and the ReviewHog handoff below treat a gate-blocked refusal the same
     # as an engine-refused one.
     is_refusal = parsed.verdict in (ReviewVerdict.REFUSED, ReviewVerdict.ESCALATE)
+    # Same reading the reviewer got, from the same stamp, so the handoff can't disagree with what
+    # the run was told it was.
+    trigger = trigger_for_run(output=output, review_mode=repo_config.review_mode)
 
     # Action parity: in label-triggered mode a refused/escalated verdict strips the trigger label, so
     # the author re-requests the next review by re-adding it.
@@ -838,17 +851,22 @@ def post_verdict(input: StamphogReviewInput) -> dict:
 
     # Hand a refused/escalated PR to ReviewHog only AFTER the refusal verdict wins the terminal save
     # above — running it before would trigger ReviewHog for a stale refusal that a superseding delivery
-    # then overrode (a newer run might approve the same head). Same is_refusal condition as the
-    # trigger-label strip above, in both review modes: stamphog couldn't sign off, so a deeper
-    # second-opinion review is wanted. Adding the ReviewHog trigger label fires its workflow
-    # (review-hog.yml exempts stamphog[bot] from the bot-labeler-skip that would otherwise strip it).
+    # then overrode (a newer run might approve the same head). Adding the ReviewHog trigger label fires
+    # its workflow (review-hog.yml exempts stamphog[bot] from the bot-labeler-skip that would otherwise
+    # strip it).
+    #
+    # Only self-driving runs hand off. A human PR has an author who reads the refusal and decides what
+    # to do about it, and in ALL mode the handoff would fire on PRs nobody asked stamphog to look at.
+    # A self-driving PR has no such author — the refusal sits unread until Inbox triage — so ReviewHog's
+    # deeper review is the next step rather than a second unrequested opinion.
+    #
     # This is a secondary, cross-product notification that must never jeopardize the verdict — the
     # refusal is already durably saved, so it is single-shot best-effort: catching every exception (not
     # just StamphogGitHubError) contains the client's own errors plus the GitHubRateLimitError /
     # requests.RequestException the egress layer raises on rate limits and network blips, neither a
     # subclass of StamphogGitHubError. The sticky upsert above is idempotent, so a missed handoff is a
     # missed handoff, not corruption.
-    if is_refusal:
+    if is_refusal and trigger == ReviewTrigger.SELF_DRIVING.value:
         try:
             client.add_pr_label(repo, pull_request.pr_number, STAMPHOG_REVIEWHOG_LABEL)
         except Exception:
@@ -1240,7 +1258,7 @@ def _stamp_digest_audience_if_merged(
                 owned_files=audience.owned_files,
                 owned_file_count=audience.owned_file_count,
             )
-            for audience in resolve_audiences(repo_config, pr_payload, run.gate_result)
+            for audience in resolve_audiences(repo_config, run.gate_result)
         ],
         ignore_conflicts=True,
     )

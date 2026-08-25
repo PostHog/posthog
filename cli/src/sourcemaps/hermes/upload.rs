@@ -55,7 +55,7 @@ pub fn upload(args: &Args) -> Result<()> {
     let mut uploads: Vec<SymbolSetUpload> = Vec::new();
     let mut empty_skipped = 0usize;
     for mut map in maps.into_iter() {
-        if map.get_chunk_id().is_none() {
+        if map.get_upload_chunk_id().is_none() {
             warn!("Skipping map {}, no chunk ID", map.inner.path.display());
             continue;
         }
@@ -74,6 +74,17 @@ pub fn upload(args: &Args) -> Result<()> {
         }
 
         uploads.push(map.try_into()?);
+    }
+
+    // A run that discovers nothing must fail rather than exit green: in build pipelines this
+    // command runs right after bundling, so an empty result means the maps or their ids went
+    // missing, and a silent success ships a build whose exceptions never symbolicate.
+    if uploads.is_empty() {
+        anyhow::bail!(
+            "No hermes sourcemaps with a chunk id found under {} — nothing was uploaded. \
+             Check that bundling produced .map files and that they carry a chunk id or debugId.",
+            directory.display()
+        );
     }
 
     info!("Found {} maps to upload", uploads.len());

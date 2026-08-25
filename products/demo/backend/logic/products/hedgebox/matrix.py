@@ -2449,6 +2449,7 @@ class HedgeboxMatrix(Matrix):
             columns=columns,
             options={"csv_allow_double_quotes": True},
             created_by=user,
+            created_via=DataWarehouseTable.CreatedVia.DEMO,
         )
 
     @classmethod

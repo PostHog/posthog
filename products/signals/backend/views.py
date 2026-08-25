@@ -94,6 +94,7 @@ from products.signals.backend.feedback_notes import forward_feedback_note
 from products.signals.backend.implementation_pr import (
     fetch_implementation_pr_state_for_reports,
     fetch_implementation_pr_urls_for_reports,
+    pr_bearing_task_run_filter,
 )
 from products.signals.backend.models import (
     ArtefactAttribution,
@@ -819,10 +820,10 @@ class SignalReportViewSet(
             .values("count"),
             output_field=IntegerField(),
         )
-        # Both reverse one-to-one records render inline with the report.
+        # select_related("refund"): the serializer renders the reverse OneToOne inline.
         return (
             queryset.filter(team=self.team)
-            .select_related("refund", "canvas_session")
+            .select_related("refund")
             .annotate(
                 artefact_count=Coalesce(artefact_count_subquery, Value(0), output_field=IntegerField()),
             )
@@ -1002,7 +1003,9 @@ class SignalReportViewSet(
         # `pr_url` and maps them to reports via the indexed `task_id` columns — instead of a correlated
         # `Exists` over `tasks.TaskRun` evaluated once per candidate report (which made the inbox
         # PR-tab count scan the whole `ready` set per PR'd run).
-        return SignalReport.reports_for_task_ids_filter(tasks_facade.task_ids_with_pr_url_subquery(self.team.id))
+        return SignalReport.reports_for_task_ids_filter(
+            tasks_facade.task_ids_with_pr_url_subquery(self.team.id, pr_bearing_task_run_filter())
+        )
 
     def _apply_signal_report_implementation_pr_filter(self, queryset):
         # `has_implementation_pr=true|false` filters reports by whether a shipped
@@ -1248,10 +1251,12 @@ class SignalReportViewSet(
         # task" to the one that opened the report's PR.
         latest_impl_pr_url = tasks_facade.latest_task_run_pr_url_subquery(
             SignalReport.associated_task_runs_filter(OuterRef(OuterRef("id"))),
+            pr_bearing_task_run_filter(),
         )
         # Resolved over the same run, so the merge flag always describes the PR URL alongside it.
         latest_impl_pr_merged = tasks_facade.latest_task_run_pr_merged_subquery(
             SignalReport.associated_task_runs_filter(OuterRef(OuterRef("id"))),
+            pr_bearing_task_run_filter(),
         )
         return queryset.annotate(
             implementation_pr_url=latest_impl_pr_url,
@@ -1376,6 +1381,13 @@ class SignalReportViewSet(
             edit_artefacts.append(SummaryChange(old_summary=report.summary, new_summary=data["summary"]))
             report.summary = data["summary"]
             update_fields.append("summary")
+            # The suggested questions were written against the prose this edit replaces, so they go
+            # down with it — the same rule the research pipeline applies when it rewrites a summary.
+            # Leaving them would offer questions about a report that no longer says what they ask
+            # about, and this field is read-only here, so nothing could take them back down.
+            if report.suggested_prompts:
+                report.suggested_prompts = []
+                update_fields.append("suggested_prompts")
 
         if update_fields:
             # `updated_at` is auto_now, but `update_fields` saves only the listed columns, so add it

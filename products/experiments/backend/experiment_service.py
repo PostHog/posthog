@@ -25,6 +25,7 @@ from rest_framework.exceptions import APIException, PermissionDenied, Validation
 from posthog.schema import (
     ActionsNode,
     ExperimentEventExposureConfig,
+    ExperimentExposureCriteria,
     ExperimentFunnelMetric,
     ExperimentMeanMetric,
     ExperimentMetric,
@@ -127,6 +128,15 @@ class CleanupRepositoryTarget(TypedDict):
     repository: str | None
     source: CleanupRepositorySource
     candidates: list[str]
+
+
+class CleanupRequestSummary(TypedDict):
+    """What _maybe_open_cleanup_pr decided, for the analytics on the end/ship path."""
+
+    attempted: bool
+    repository_source: CleanupRepositorySource | None
+    skip_reason: Literal["no_conclusion", "flag_disabled", "no_repository", "error"] | None
+    confident: bool | None
 
 
 DEFAULT_ROLLOUT_PERCENTAGE = 100
@@ -636,6 +646,14 @@ class ExperimentService:
         return rendered
 
     @classmethod
+    def strip_unknown_exposure_criteria_keys(cls, exposure_criteria: dict | None) -> dict | None:
+        """Drop unknown top-level keys from stored criteria (writes accepted them before
+        the unknown-key rejection below existed)."""
+        if not isinstance(exposure_criteria, dict):
+            return exposure_criteria
+        return {k: v for k, v in exposure_criteria.items() if k in ExperimentExposureCriteria.model_fields}
+
+    @classmethod
     def validate_experiment_exposure_criteria(cls, exposure_criteria: object) -> None:
         """Validate experiment exposure criteria payloads.
 
@@ -649,6 +667,21 @@ class ExperimentService:
             raise ValidationError(
                 f"exposure_criteria must be an object, got {type(exposure_criteria).__name__}. "
                 "Expected shape: {'filterTestAccounts': <bool>, 'exposure_config': <object>}."
+            )
+
+        # Reject unknown top-level keys: they used to be silently saved, and the strict
+        # read-side parse then broke every results/exposure query for the experiment
+        # (reads now tolerate them, but new writes should fail fast with a pointer).
+        unknown_keys = set(exposure_criteria) - set(ExperimentExposureCriteria.model_fields)
+        if unknown_keys:
+            hint = (
+                " Property filters on the exposure event belong at exposure_criteria.exposure_config.properties."
+                if "properties" in unknown_keys
+                else ""
+            )
+            raise ValidationError(
+                f"exposure_criteria contains unknown key(s): {', '.join(sorted(unknown_keys))}.{hint} "
+                f"Allowed keys: {', '.join(sorted(ExperimentExposureCriteria.model_fields))}."
             )
 
         if "filterTestAccounts" in exposure_criteria:
@@ -2178,6 +2211,19 @@ class ExperimentService:
         # Re-fetch so the serializer sees the updated flag
         experiment.feature_flag = feature_flag
 
+        # The flag flip logs under the FeatureFlag scope only; without this entry the
+        # experiment's History tab shows nothing for the pause.
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+            user=self.user,
+            was_impersonated=is_impersonated_session(request) if request else False,
+            item_id=experiment.pk,
+            scope="Experiment",
+            activity="paused",
+            detail=Detail(name=experiment.name),
+        )
+
         self._report_lifecycle_event(experiment, "experiment paused", request=request)
 
         return experiment
@@ -2203,6 +2249,17 @@ class ExperimentService:
 
         # Re-fetch so the serializer sees the updated flag
         experiment.feature_flag = feature_flag
+
+        log_activity(
+            organization_id=self.team.organization_id,
+            team_id=self.team.pk,
+            user=self.user,
+            was_impersonated=is_impersonated_session(request) if request else False,
+            item_id=experiment.pk,
+            scope="Experiment",
+            activity="resumed",
+            detail=Detail(name=experiment.name),
+        )
 
         self._report_lifecycle_event(experiment, "experiment resumed", request=request)
 
@@ -2705,23 +2762,37 @@ class ExperimentService:
         open_cleanup_pr: bool,
         requested_repository: str | None = None,
         set_repository_as_team_default: bool = False,
-    ) -> None:
+    ) -> CleanupRequestSummary:
         """When opted in (the checkbox) and the team's gate flag is on, open a draft PR that removes the
         experiment's feature-flag code, via the Tasks engine.
 
         Deferred to after commit (so a rolled-back end never opens a PR) and wrapped so it can never
         break ending an experiment.
         """
+        summary: CleanupRequestSummary = {
+            "attempted": False,
+            "repository_source": None,
+            "skip_reason": None,
+            "confident": None,
+        }
         try:
             conclusion = experiment.conclusion or ""
-            if not open_cleanup_pr or not conclusion or not self._cleanup_pr_flag_enabled():
-                return
+            if not open_cleanup_pr:
+                return summary
+            if not conclusion:
+                summary["skip_reason"] = "no_conclusion"
+                return summary
+            if not self._cleanup_pr_flag_enabled():
+                summary["skip_reason"] = "flag_disabled"
+                return summary
 
             flag_key = experiment.get_feature_flag_key()
             target = self.get_cleanup_repository_target(experiment, requested_repository=requested_repository)
+            summary["repository_source"] = target["source"]
             repository = target["repository"]
             if repository is None:
                 # No safe target — skipping beats opening a PR against the wrong repo.
+                summary["skip_reason"] = "no_repository"
                 logger.info(
                     "experiment_cleanup_pr_skipped_no_repository",
                     experiment_id=experiment.id,
@@ -2729,7 +2800,7 @@ class ExperimentService:
                     flag_key=flag_key,
                     requested_repository=requested_repository,
                 )
-                return
+                return summary
 
             picked_repository = requested_repository if target["source"] == "explicit" else None
             if picked_repository:
@@ -2775,6 +2846,8 @@ class ExperimentService:
                     logger.exception("experiment_cleanup_pr_task_failed", experiment_id=experiment_id)
 
             transaction.on_commit(_open)
+            summary["attempted"] = True
+            summary["confident"] = plan.confident
             logger.info(
                 "experiment_cleanup_pr_requested",
                 experiment_id=experiment.id,
@@ -2785,7 +2858,9 @@ class ExperimentService:
                 confident=plan.confident,
             )
         except Exception:
+            summary["skip_reason"] = "error"
             logger.exception("experiment_cleanup_pr_failed", experiment_id=experiment.id)
+        return summary
 
     def get_cleanup_repository_target(
         self, experiment: Experiment, requested_repository: str | None = None
@@ -2851,12 +2926,28 @@ class ExperimentService:
     ) -> None:
         # The opt-in cleanup PR doesn't depend on the request — run it before the request-gated
         # analytics below so it behaves the same regardless of call context.
-        self._maybe_open_cleanup_pr(experiment, open_cleanup_pr, repository, set_repository_as_team_default)
+        cleanup = self._maybe_open_cleanup_pr(experiment, open_cleanup_pr, repository, set_repository_as_team_default)
 
         if request is None:
             return
 
+        if cleanup["attempted"]:
+            self._report_lifecycle_event(
+                experiment,
+                "experiment cleanup pr requested",
+                request=request,
+                extra_metadata={
+                    "conclusion": experiment.conclusion,
+                    "repository_source": cleanup["repository_source"],
+                    "confident": cleanup["confident"],
+                },
+            )
+
         completed_metadata = experiment.get_analytics_metadata()
+        completed_metadata["open_cleanup_pr"] = open_cleanup_pr
+        completed_metadata["cleanup_task_attempted"] = cleanup["attempted"]
+        completed_metadata["cleanup_repository_source"] = cleanup["repository_source"]
+        completed_metadata["cleanup_skip_reason"] = cleanup["skip_reason"]
         completed_metadata["end_date"] = experiment.end_date.isoformat() if experiment.end_date else None
         completed_metadata["parameters"] = self._parameters_with_variant_detail(experiment)
         completed_metadata["stats_method"] = (experiment.stats_config or {}).get("method", "bayesian")
@@ -4099,7 +4190,10 @@ class ExperimentService:
             "ensure_experience_continuity": bool(source_experiment.feature_flag.ensure_experience_continuity),
         }
 
-        self.validate_experiment_exposure_criteria(source_experiment.exposure_criteria)
+        # Stored criteria can carry unknown top-level keys accepted before writes rejected
+        # them — strip those instead of failing the clone on data the user didn't write.
+        cloned_exposure_criteria = self.strip_unknown_exposure_criteria_keys(source_experiment.exposure_criteria)
+        self.validate_experiment_exposure_criteria(cloned_exposure_criteria)
         self.validate_experiment_metrics(source_experiment.metrics)
         self.validate_experiment_metrics(source_experiment.metrics_secondary)
 
@@ -4148,7 +4242,7 @@ class ExperimentService:
             metrics_secondary=cloned_metrics_secondary,
             stats_config=source_experiment.stats_config,
             scheduling_config=source_experiment.scheduling_config,
-            exposure_criteria=source_experiment.exposure_criteria,
+            exposure_criteria=cloned_exposure_criteria,
             saved_metrics_ids=saved_metrics_data,
             primary_metrics_ordered_uuids=cloned_primary_ordering,
             secondary_metrics_ordered_uuids=cloned_secondary_ordering,

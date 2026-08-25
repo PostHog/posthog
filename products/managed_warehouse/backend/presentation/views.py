@@ -367,8 +367,8 @@ def _register_provisioning_team(organization_id: UUID | str, team_id: int, sourc
 
     duckgres creates the provisioning team's row from the provision request itself (and
     `_complete_provisioning_team_row` pins its legacy table names), so nothing is written
-    here. The team gets its auto-provisioned external SQL source and starts its
-    earliest-event-date sync, matching the tail that `onboard_team` runs later.
+    here. The team gets its managed SQL-editor source and starts its earliest-event-date
+    sync, matching the tail that `onboard_team` runs later.
 
     Best-effort, mirroring `_persist_duckgres_server`: a failure is logged, not raised, so
     the one-time provision password is never lost to it.
@@ -439,19 +439,18 @@ def _ensure_direct_source(team_id: int, organization_id: UUID | str, source_gene
         )
     except Exception:
         logger.exception("Failed to register managed warehouse query source", team_id=team_id)
-        if settings.MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED:
-            try:
-                from products.data_warehouse.backend.facade.api import (  # noqa: PLC0415
-                    schedule_managed_warehouse_direct_source_ensure,
-                )
+        try:
+            from products.data_warehouse.backend.facade.api import (  # noqa: PLC0415
+                schedule_managed_warehouse_direct_source_ensure,
+            )
 
-                schedule_managed_warehouse_direct_source_ensure(
-                    team_id=team_id,
-                    organization_id=organization_id,
-                    expected_generation=source_generation,
-                )
-            except Exception:
-                logger.exception("Failed to schedule managed warehouse query source recovery", team_id=team_id)
+            schedule_managed_warehouse_direct_source_ensure(
+                team_id=team_id,
+                organization_id=organization_id,
+                expected_generation=source_generation,
+            )
+        except Exception:
+            logger.exception("Failed to schedule managed warehouse query source recovery", team_id=team_id)
 
 
 def _persist_duckgres_server(organization_id: UUID | str, database_name: str | None, body: dict) -> None:

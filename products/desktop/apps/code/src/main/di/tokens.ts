@@ -103,9 +103,6 @@ export const SCOUT_LINK_SERVICE = Symbol.for(
 export const NEW_TASK_LINK_SERVICE = Symbol.for(
   "posthog.host.main.new-task-link.service",
 );
-export const APPROVAL_LINK_SERVICE = Symbol.for(
-  "posthog.host.main.approval-link.service",
-);
 export const OPEN_TARGET_LINK_SERVICE = Symbol.for(
   "posthog.host.main.open-target-link.service",
 );

@@ -18,6 +18,8 @@ export const taskContextMenuInput = z.object({
   isInCommandCenter: z.boolean().optional(),
   hasEmptyCommandCenterCell: z.boolean().optional(),
   showArchivePrior: z.boolean().optional(),
+  // Only the task's owner may hand it off; callers omit the item otherwise.
+  canHandoff: z.boolean().optional(),
   // The project's channels available as "File to…" targets.
   // Omit (or pass empty) to hide the submenu entirely.
   channels: z.array(fileToChannel).optional(),
@@ -68,6 +70,7 @@ const taskAction = z.discriminatedUnion("type", [
   z.object({ type: z.literal("archive-prior") }),
   z.object({ type: z.literal("delete") }),
   z.object({ type: z.literal("add-to-command-center") }),
+  z.object({ type: z.literal("handoff") }),
   z.object({ type: z.literal("external-app"), action: externalAppAction }),
   z.object({ type: z.literal("file-to-channel"), channelId: z.string() }),
 ]);

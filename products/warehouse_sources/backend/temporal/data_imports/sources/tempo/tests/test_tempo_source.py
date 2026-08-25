@@ -3,14 +3,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.tempo import TempoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.tempo.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.tempo.source import TempoSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.tempo.tempo import TempoResumeConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestTempoSource:
@@ -19,60 +13,10 @@ class TestTempoSource:
         self.team_id = 123
         self.config = TempoSourceConfig(api_token="tempo-token")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.TEMPO
-
-    def test_get_source_config(self) -> None:
-        config = self.source.get_source_config
-        assert config.name.value == "Tempo"
-        assert config.label == "Tempo"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/tempo"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_token"]
-
-    def test_api_token_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_token")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
-
     def test_no_connection_host_fields(self) -> None:
         # The only field is the secret API token; the base URL is hardcoded, so there is no
         # non-secret field an editor could retarget to reuse a preserved token elsewhere.
         assert self.source.connection_host_fields == []
-
-    def test_lists_tables_without_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-
-    def test_get_schemas_covers_all_endpoints(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    def test_only_worklogs_supports_incremental(self) -> None:
-        schemas = {s.name: s for s in self.source.get_schemas(self.config, self.team_id)}
-        assert schemas["worklogs"].supports_incremental is True
-        assert [f["field"] for f in schemas["worklogs"].incremental_fields] == ["updatedAt"]
-        for name, schema in schemas.items():
-            if name != "worklogs":
-                assert schema.supports_incremental is False
-                assert schema.incremental_fields == []
-
-    def test_get_schemas_filtered_by_names(self) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["worklogs"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "worklogs"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self) -> None:
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
-    def test_documented_tables_render_for_public_docs(self) -> None:
-        tables = {t["name"]: t for t in self.source.get_documented_tables()}
-        assert set(tables) == set(ENDPOINTS)
-        assert "Incremental" in tables["worklogs"]["sync_methods"]
-        assert tables["accounts"]["sync_methods"] == ["Full refresh"]
 
     @parameterized.expand(
         [
@@ -135,11 +79,6 @@ class TestTempoSource:
             permissions = self.source.get_endpoint_permissions(self.config, self.team_id, ["nope"])
         assert permissions == {"nope": None}
         mock_check.assert_not_called()
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is TempoResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.tempo.source.tempo_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

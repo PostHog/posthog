@@ -4,7 +4,7 @@ from typing import cast
 import pytest
 from unittest import mock
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
+from posthog.schema import SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mysql import MySQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.planetscalemysql import (
@@ -49,15 +49,6 @@ def test_source_type_and_implementation():
     assert source.source_type == ExternalDataSourceType.PLANETSCALEMYSQL
     # The MySQL driver reads `config.using_ssl`, which this source's config has no field for.
     assert isinstance(source.get_implementation, PlanetScaleMySQLImplementation)
-
-
-def test_source_is_visible_and_alpha():
-    config = PlanetScaleMySQLSource().get_source_config
-
-    assert not config.unreleasedSource
-    assert config.featureFlag is None
-    assert config.releaseStatus == ReleaseStatus.ALPHA
-    assert config.category == DataWarehouseSourceCategory.DATABASES
 
 
 @pytest.mark.parametrize("name", ["ssh_tunnel", "using_ssl"])

@@ -59,15 +59,6 @@ python manage.py ingest_report_json \
     --team-id 1
 ```
 
-To test report-canvas Activity delivery, set a suggested reviewer whose GitHub login belongs to a user in the local organization:
-
-```bash
-python manage.py ingest_report_json \
-    products/signals/backend/report_generation/fixtures/insight_scene_logic_mode_property_bug.json \
-    --team-id 1 \
-    --suggested-reviewer-login <your-github-login>
-```
-
 The fixture must match the shape in `report_generation/fixtures/` — a JSON object with `repository`, `signal_ids`, and a `result` that parses as `ReportResearchOutput`. Autostart still requires a working GitHub integration (for reviewer resolution) and the commit authors in `relevant_commit_hashes` to map to a user with a `SignalUserAutonomyConfig` whose effective priority threshold (personal or team default) covers the report's priority — otherwise the report will be saved but no `Task` will be created.
 
 ## Seeding billable reports (refund testing)

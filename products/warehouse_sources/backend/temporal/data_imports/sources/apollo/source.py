@@ -106,7 +106,10 @@ You can create an API key in Apollo under Settings > Integrations > API. API acc
         if validate_apollo_credentials(config.api_key):
             return True, None
 
-        return False, "Invalid Apollo API key"
+        return False, (
+            "Apollo rejected this API key. Create a key in Apollo under Settings > Integrations > API. "
+            "API access requires a paid Apollo plan."
+        )
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[ApolloResumeConfig]:
         return ResumableSourceManager[ApolloResumeConfig](inputs, ApolloResumeConfig)

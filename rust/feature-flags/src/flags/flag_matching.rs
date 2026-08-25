@@ -732,6 +732,7 @@ impl FeatureFlagMatcher {
         match get_feature_flag_hash_key_overrides(
             database_for_reading,
             pool_name,
+            self.router.get_persons_writer().clone(),
             self.team_id,
             target_distinct_ids,
         )
@@ -2386,6 +2387,7 @@ impl FeatureFlagMatcher {
                         match get_feature_flag_hash_key_overrides(
                             self.router.get_persons_reader().clone(),
                             pool_names::PERSONS_READER,
+                            self.router.get_persons_writer().clone(),
                             self.team_id,
                             vec![self.distinct_id.clone()],
                         )

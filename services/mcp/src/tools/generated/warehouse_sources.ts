@@ -560,29 +560,7 @@ const externalDataSourcesList = (): ToolBase<
                 search: params.search,
             },
         })
-        const filtered = {
-            ...result,
-            results: (result.results ?? []).map((item: any) =>
-                omitResponseFields(item, [
-                    'schemas.*.table.columns',
-                    'schemas.*.available_columns',
-                    'schemas.*.label',
-                    'schemas.*.description',
-                    'schemas.*.incremental_field',
-                    'schemas.*.incremental_field_type',
-                    'schemas.*.incremental_field_lookback_seconds',
-                    'schemas.*.sync_time_of_day',
-                    'schemas.*.primary_key_columns',
-                    'schemas.*.cdc_table_mode',
-                    'schemas.*.enabled_columns',
-                    'schemas.*.row_filters',
-                    'schemas.*.source',
-                    'schemas.*.api_version',
-                    'schemas.*.api_version_deprecation',
-                ])
-            ),
-        } as typeof result
-        return await withPostHogUrl(context, filtered, '/data-management/sources')
+        return await withPostHogUrl(context, result, '/data-management/sources')
     },
 })
 

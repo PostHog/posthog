@@ -114,7 +114,11 @@ from products.feature_flags.backend.flag_status import (
 from products.feature_flags.backend.local_evaluation import _get_flag_properties_from_filters
 from products.feature_flags.backend.models.evaluation_context import normalize_context_name
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagDashboards
-from products.feature_flags.backend.session_recording_links import teams_linking_flag
+from products.feature_flags.backend.session_recording_links import (
+    REPLAY_LINKED_FLAG_DELETE_ERROR,
+    replay_linked_flag_ids,
+    teams_linking_flag,
+)
 from products.feature_flags.backend.types import PropertyFilterType
 from products.feature_flags.backend.user_blast_radius import get_user_blast_radius
 from products.feature_flags.backend.version_history import (
@@ -2057,9 +2061,7 @@ class FeatureFlagSerializer(
 
             # Check if flag is used in session replay settings
             if teams_linking_flag(instance).exists():
-                raise exceptions.ValidationError(
-                    "This feature flag is used in session replay settings. Please remove it from replay settings before deleting."
-                )
+                raise exceptions.ValidationError(REPLAY_LINKED_FLAG_DELETE_ERROR)
 
             # If the flag is linked to any experiment, rename the key to free it up.
             # Append ID to the key when soft-deleting to prevent key conflicts.
@@ -2485,10 +2487,6 @@ class GroupsJSONField(serializers.CharField):
             raise serializers.ValidationError("Invalid JSON in groups parameter")
 
 
-class MyFlagsQuerySerializer(serializers.Serializer):
-    groups = GroupsJSONField()
-
-
 class FlagKeysField(serializers.ListField):
     """
     ListField that also accepts a single JSON-array string.
@@ -2516,6 +2514,18 @@ class FlagKeysField(serializers.ListField):
                 data = parsed
 
         return super().to_internal_value(data)
+
+
+class MyFlagsQuerySerializer(serializers.Serializer):
+    groups = GroupsJSONField()
+    flag_keys = FlagKeysField(
+        help_text=(
+            "Optional list of flag keys to scope the response to. When omitted, every flag in the project is "
+            "returned with its evaluated value, which can be a very large payload on projects with many flags. "
+            "Pass the specific flag(s) you want to check to keep the response small. Accepts either repeated "
+            'query params (flag_keys=a&flag_keys=b) or a JSON array string (flag_keys=["a","b"]).'
+        ),
+    )
 
 
 class EvaluationReasonsQuerySerializer(serializers.Serializer):
@@ -3461,18 +3471,24 @@ class FeatureFlagViewSet(
             team__project_id=self.project_id, internal_targeting_flag__isnull=False
         ).values_list("internal_targeting_flag_id", flat=True)
 
-        feature_flags = list(
+        flag_keys = request.validated_query_data.get("flag_keys") or None
+
+        flags_qs = (
             FeatureFlag.objects.filter(team__project_id=self.project_id)
             .exclude(Q(id__in=survey_flag_ids))
             .exclude(Q(id__in=product_tour_internal_targeting_flags))
-            .annotate(
+        )
+        if flag_keys:
+            flags_qs = flags_qs.filter(key__in=flag_keys)
+
+        feature_flags = list(
+            flags_qs.annotate(
                 evaluation_tag_names_agg=ArrayAgg(
                     "flag_evaluation_contexts__evaluation_context__name",
                     filter=Q(flag_evaluation_contexts__isnull=False),
                     distinct=True,
                 ),
-            )
-            .order_by("-created_at")
+            ).order_by("-created_at")
         )
 
         if not feature_flags:
@@ -3494,10 +3510,15 @@ class FeatureFlagViewSet(
 
         # Authenticated Django UI handler (the flags list in the app), not customer SDK
         # traffic. Pass the internal token so the call bypasses per-team billing.
+        # Ask for "all" runtimes (as evaluation_reasons does): the internal request has a
+        # python-requests User-Agent, which the flags service reads as a server runtime and
+        # would otherwise use to drop client-only flags, reporting them here as false.
         result = get_flags_from_service(
             token=self.team.api_token,
             distinct_id=distinct_id,
             groups=groups,
+            flag_keys=flag_keys,
+            evaluation_runtime="all",
             internal_request_token=settings.INTERNAL_REQUEST_TOKEN,
         )
 
@@ -3752,6 +3773,8 @@ class FeatureFlagViewSet(
         # Batch query for dependent flags
         dependent_flags_map = find_dependent_flags_batch(flags_list)
 
+        replay_linked_ids = replay_linked_flag_ids(self.project_id, [flag.id for flag in flags_list])
+
         deleted = []
         errors = []
 
@@ -3816,6 +3839,18 @@ class FeatureFlagViewSet(
                         "id": flag_id,
                         "key": flag.key,
                         "reason": f"Cannot delete because other flags depend on it: {', '.join(dependent_flag_names)}",
+                    }
+                )
+                continue
+
+            # Deleting a flag a team gates recording on stops that team recording, and the
+            # tombstone rename below fires no signal to relink them.
+            if flag_id in replay_linked_ids:
+                errors.append(
+                    {
+                        "id": flag_id,
+                        "key": flag.key,
+                        "reason": REPLAY_LINKED_FLAG_DELETE_ERROR,
                     }
                 )
                 continue
