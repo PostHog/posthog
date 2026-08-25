@@ -657,13 +657,9 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     });
 
     if (this.session.querySwap) {
-      // A swap that started during this method's awaits (the prompt is not
-      // yet on turnQueue, so the entry-point refusals don't see it) retires
-      // the input stream; pushing the turn in now would strand it in the
-      // queue unpushed. Fail before enqueue instead. If it hadn't started
-      // retiring yet, queryClosed is still false and this throws a wrong
-      // SESSION_ENDED momentarily; the swap entry points refuse mid-prompt
-      // (activeTurn set) only after enqueue, so the collision cannot occur.
+      // A swap started during this method's pre-enqueue awaits (the prompt is
+      // not yet on turnQueue, so the entry-point refusals don't see it); fail
+      // before enqueue rather than push the turn into a retiring stream.
       turn.reject(RequestError.internalError(undefined, SESSION_ENDED_MESSAGE));
       return response;
     }
