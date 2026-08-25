@@ -5720,7 +5720,7 @@
         }
     },
     "file-download-batch-exports-create": {
-        "description": "Start an on-demand batch export that prepares downloadable files for events, persons, or sessions. Provide data_interval_start and data_interval_end as ISO 8601 datetimes; the interval must be at most one week. For events, include and exclude filter event names. Use file-download-batch-exports-retrieve with the returned id to poll until status is Completed, then follow the downloading-batch-export-files skill to download the files through the existing REST download endpoint.",
+        "description": "Start an on-demand batch export that prepares downloadable files for events, persons, sessions, or the results of a HogQL query. For events, persons and sessions, provide data_interval_start and data_interval_end as ISO 8601 datetimes; the interval must be at most one week, and for events, include and exclude filter event names. The hogql model is in closed beta and is enabled per team: it takes a hogql_query instead of a data interval, and returns a permission error naming HogQL batch exports when the team does not have it enabled, in which case tell the user they can contact PostHog support to request access. Limit hogql_query with a WHERE clause to export only the data the user asked for, because user queries run under stricter resource limits than the other models. Use file-download-batch-exports-retrieve with the returned id to poll until status is Completed, then follow the downloading-batch-export-files skill to download the files through the existing REST download endpoint.",
         "category": "Data pipelines",
         "feature": "batch_exports",
         "summary": "Start file download export",
@@ -11144,7 +11144,7 @@
         }
     },
     "subscriptions-deliveries-list": {
-        "description": "List delivery history for a subscription — one row per send attempt. Each entry includes status (starting, completed, failed, skipped), trigger_type (scheduled, manual, target_change), and timestamps (created_at, finished_at). Filter with status=failed to quickly surface failed deliveries. Results are cursor-paginated newest first. content_snapshot, recipient_results, and error are excluded to avoid leaking recipient identifiers or upstream response bodies that may contain tokens / PII. ai_report (the full report markdown) and ai_report_diagnostics (per-query debug detail) are also excluded here to keep list responses small — fetch a single delivery with subscriptions-deliveries-retrieve to read the report.",
+        "description": "List delivery history for a subscription — one row per send attempt. Each entry includes status (starting, completed, failed, skipped), trigger_type (scheduled, manual, target_change), and timestamps (created_at, finished_at). Filter with status=failed to quickly surface failed deliveries. Results are cursor-paginated newest first. content_snapshot, recipient_results, and error are excluded to avoid leaking recipient identifiers or upstream response bodies that may contain tokens / PII. ai_report (the full report markdown), ai_report_prompt (the prompt it was generated from), and ai_report_diagnostics (per-query debug detail) are also excluded here to keep list responses small — fetch a single delivery with subscriptions-deliveries-retrieve to read the report and its prompt.",
         "category": "Subscriptions",
         "feature": "subscriptions",
         "summary": "List subscription deliveries",
