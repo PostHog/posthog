@@ -903,7 +903,8 @@ export class HogFlowExecutorService {
             isCreateAiTaskAction &&
             value &&
             typeof value === 'object' &&
-            typeof (value as Record<string, unknown>).id === 'string'
+            typeof (value as Record<string, unknown>).id === 'string' &&
+            (value as Record<string, unknown>).id !== ''
         ) {
             const runId = (value as Record<string, unknown>).run_id
             return `[Task:${(value as Record<string, unknown>).id}|${typeof runId === 'string' ? runId : ''}]`
