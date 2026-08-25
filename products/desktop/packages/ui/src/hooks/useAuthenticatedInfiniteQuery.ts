@@ -1,7 +1,7 @@
 import type { PostHogAPIClient } from "@posthog/api-client/posthog-client";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
-import type { QueryKey } from "@tanstack/react-query";
+import type { InfiniteData, QueryKey } from "@tanstack/react-query";
 import { useInfiniteQuery } from "@tanstack/react-query";
 
 type AuthenticatedInfiniteQueryFn<TData, TPageParam> = (
@@ -23,6 +23,10 @@ interface UseAuthenticatedInfiniteQueryOptions<TData, TPageParam> {
     | ((query: unknown) => number | false | undefined);
   refetchIntervalInBackground?: boolean;
   staleTime?: number;
+  /** Forwarded to tanstack; pass `keepPreviousData` to hold the shown pages across a key change. */
+  placeholderData?: (
+    previousData: InfiniteData<TData, TPageParam> | undefined,
+  ) => InfiniteData<TData, TPageParam> | undefined;
 }
 
 export function useAuthenticatedInfiniteQuery<
@@ -48,6 +52,7 @@ export function useAuthenticatedInfiniteQuery<
     refetchInterval: options.refetchInterval,
     refetchIntervalInBackground: options.refetchIntervalInBackground,
     staleTime: options.staleTime,
+    placeholderData: options.placeholderData,
     meta: AUTH_SCOPED_QUERY_META,
   });
 }

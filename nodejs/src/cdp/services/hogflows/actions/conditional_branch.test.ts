@@ -215,7 +215,7 @@ describe('action.conditional_branch', () => {
                 person: freshPerson,
                 filterGlobals: { ...waitInvocation.filterGlobals, person: freshPerson },
             })
-            const result = createInvocationResult(waitInvocation)
+            const result = createInvocationResult<CyclotronJobInvocationHogFlow>(waitInvocation)
 
             await handler.execute({ invocation: waitInvocation, action: waitAction, result })
 
@@ -223,6 +223,20 @@ describe('action.conditional_branch', () => {
             expect(waitInvocation.filterGlobals.person?.properties).toEqual(freshPerson.properties)
             expect(result.invocation.filterGlobals.person?.properties).toEqual(freshPerson.properties)
             expect(result.invocation.person).toEqual(freshPerson)
+        })
+
+        it('keeps the person it already had when the refresh comes back empty', async () => {
+            // The refresh adds freshness; it must not drop a person because one lookup found nothing.
+            const before = waitInvocation.person
+            waitInvocation.refreshPerson = jest
+                .fn()
+                .mockResolvedValue({ person: undefined, filterGlobals: { person: null } as any })
+            const result = createInvocationResult<CyclotronJobInvocationHogFlow>(waitInvocation)
+
+            await handler.execute({ invocation: waitInvocation, action: waitAction, result })
+
+            expect(waitInvocation.person).toEqual(before)
+            expect(waitInvocation.filterGlobals.person).not.toBeNull()
         })
 
         it('advances to the matched branch and clears eventMatched', async () => {

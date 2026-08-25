@@ -694,16 +694,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "type": "String",
             "used_for_debug": True,
         },
-        "$transformations_skipped": {
-            "label": "Transformations skipped",
-            "description": "Array of transformations skipped during ingestion.",
-            "used_for_debug": True,
-        },
-        "$transformations_succeeded": {
-            "label": "Transformations succeeded",
-            "description": "Array of transformations that succeeded during ingestion.",
-            "used_for_debug": True,
-        },
         "$config_defaults": {
             "label": "Config defaults",
             "description": "The version of the PostHog config defaults that were used when capturing the event.",
@@ -3432,12 +3422,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The revenue associated with an event, in your account's base currency.",
             "examples": [9.99],
             "type": "Numeric",
-        },
-        "$transformations_failed": {
-            "label": "Transformations failed",
-            "description": "The transformations that failed to run on this event during ingestion.",
-            "type": "String",
-            "ignored_in_assistant": True,
         },
         "$override_feature_flag_payloads": {
             "label": "Override feature flag payloads",

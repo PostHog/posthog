@@ -59,6 +59,7 @@ rules:
                               |AccountChannelSummary
                               |AccountRelationship
                               |AccountRelationshipDefinition
+                              |AccountTrackRuleRun
                               |Action
                               |AgentApplication
                               |AgentArtifact
@@ -430,6 +431,7 @@ rules:
                         |AccountChannelSummary
                         |AccountRelationship
                         |AccountRelationshipDefinition
+                        |AccountTrackRuleRun
                         |Action
                         |AgentApplication
                         |AgentArtifact
