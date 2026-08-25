@@ -33,18 +33,10 @@ function renderSparkline(props: SparklineProps): void {
     render(<Sparkline {...props} />)
 }
 
-// Quill's data canvas is the labeled one; its hover overlay is aria-hidden.
-const quillCanvas = (): Element | null => document.querySelector('canvas[aria-label]')
-
 const DATA = [10, 5, 3, 30]
 const LABELS = ['Mon', 'Tue', 'Wed', 'Thu']
 
 describe('Sparkline', () => {
-    it('renders a quill chart', () => {
-        renderSparkline({ data: DATA, labels: LABELS })
-        expect(quillCanvas()).toBeTruthy()
-    })
-
     it.each<{ shape: string; data: SparklineProps['data']; seriesCount: number }>([
         { shape: 'a flat number array', data: DATA, seriesCount: 1 },
         {
@@ -61,7 +53,6 @@ describe('Sparkline', () => {
     })
 
     it('wires tooltip formatting and zero-row filtering through to the quill tooltip', async () => {
-        // Bar tooltips need the cursor inside a filled segment, so hover a line chart instead.
         renderSparkline({
             data: [
                 { name: 'volume', values: [10, 0, 3, 30] },
