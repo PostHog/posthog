@@ -1228,8 +1228,14 @@ describe("AuthService", () => {
         await expect(service.getValidAccessToken()).rejects.toThrow(/paused/i);
         expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
 
+        // Still held just under the cooldown, so the window is pinned to the
+        // constant rather than to any value below a minute.
+        vi.setSystemTime(new Date("2026-08-24T00:00:14.900Z"));
+        await expect(service.getValidAccessToken()).rejects.toThrow(/paused/i);
+        expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
+
         // And the pause lifts on its own, unlike a server rejection.
-        vi.setSystemTime(new Date("2026-08-24T00:01:01.000Z"));
+        vi.setSystemTime(new Date("2026-08-24T00:00:15.100Z"));
         await expect(service.getValidAccessToken()).rejects.toThrow();
         expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(2);
       } finally {
