@@ -164,11 +164,10 @@ class TestOnboardingSessionIdempotency(TestCase):
 
     def test_domain_research_outcome_is_captured_for_the_started_session(self) -> None:
         task_id = uuid4()
+        created = contracts.CreatedTaskDTO(task_id=task_id, team_id=self.team.id, latest_run=None)
 
         with patch(f"{MODULE}.posthoganalytics.capture") as capture:
-            started, _ = self._start(
-                create_side_effect=contracts.CreatedTaskDTO(task_id=task_id, team_id=self.team.id, latest_run=None)
-            )
+            started, _ = self._start(create_side_effect=lambda **_kwargs: created)
 
         self.assertEqual(started, task_id)
         capture.assert_called_once()
