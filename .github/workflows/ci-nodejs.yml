@@ -789,69 +789,6 @@ jobs:
                   # Echo out the logs stored in the container
                   docker compose -f docker-compose.dev.yml exec clickhouse cat /var/log/clickhouse-server/clickhouse-server.err.log
 
-    report-test-signals:
-        name: Report Node.js test signals
-        needs: [tests]
-        runs-on: ubuntu-latest
-        continue-on-error: true
-        timeout-minutes: 10
-        # Mirror of ci-frontend's report-test-signals: ships the failure/recovery signal
-        # (quarantine tolerances, re-run recovery) the flaky-test machinery consumes.
-        # Parser comes from the trusted base ref because this job receives project tokens.
-        if: >-
-            !cancelled() &&
-            needs.tests.result != 'skipped' &&
-            github.repository == 'PostHog/posthog' &&
-            (
-            (github.event_name != 'pull_request' && github.ref == 'refs/heads/master') ||
-            (github.event_name == 'pull_request' &&
-            github.event.pull_request.head.repo.full_name == 'PostHog/posthog')
-            )
-        steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.sha }}
-                  fetch-depth: 1
-            - name: Check for trusted test reporter
-              id: test-reporter
-              shell: bash
-              run: |
-                  available=false
-                  # The nodejs artifacts only exist once the tests job has uploaded them;
-                  # older branches (and runs where no shard uploaded) have nothing to parse.
-                  if [[ -f .github/scripts/report_test_timings.py && -d tools/owners ]] && grep -q '"nodejs"' .github/scripts/report_test_timings.py; then
-                    available=true
-                  fi
-                  if [[ "$GITHUB_RUN_ATTEMPT" != "1" ]] && ! grep -q "def partition_run_attempt" .github/scripts/report_test_timings.py 2>/dev/null; then
-                    available=false
-                  fi
-                  if [[ "$available" != "true" ]]; then
-                    echo "Trusted Jest reporter is not available on the checked-out ref for attempt $GITHUB_RUN_ATTEMPT; skipping emit."
-                  fi
-                  echo "available=$available" >> "$GITHUB_OUTPUT"
-            - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-              if: steps.test-reporter.outputs.available == 'true'
-              with:
-                  version: '0.11.28'
-            - name: Download Jest results
-              if: steps.test-reporter.outputs.available == 'true'
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
-              with:
-                  path: ./junit-artifacts
-                  pattern: junit-results-nodejs-*
-            - name: Emit per-test signals
-              if: steps.test-reporter.outputs.available == 'true'
-              continue-on-error: true
-              env:
-                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
-                  POSTHOG_CI_TRACES_EXTRA_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
-                  POSTHOG_OTLP_TRACES_ENDPOINT: ${{ vars.POSTHOG_OTLP_TRACES_ENDPOINT || 'https://us.i.posthog.com/i/v1/traces' }}
-              run: |
-                  uv run --script .github/scripts/report_test_timings.py \
-                      --runner=jest \
-                      --signals-only \
-                      ./junit-artifacts
-
     report-test-speed:
         name: Node.js test-speed report
         needs: [tests]
@@ -859,9 +796,8 @@ jobs:
         continue-on-error: true
         timeout-minutes: 10
         # Prints the per-shard/per-test slow-down breakdown to the job log and the step
-        # summary. Unlike the signal job this never touches PostHog tokens — it renders
-        # from the same artifacts but only needs the parser, so the same trusted-base
-        # checkout is reused (a PR swapping the script receives no secrets anyway).
+        # summary. Never touches PostHog tokens — renders only from the uploaded JUnit,
+        # so the trusted-base checkout is the same posture as the rest of these jobs.
         if: >-
             !cancelled() &&
             needs.tests.result != 'skipped' &&
@@ -905,8 +841,8 @@ jobs:
                   cat nodejs-test-speed.md >> "$GITHUB_STEP_SUMMARY"
 
     node_tests:
-        # report-test-signals / report-test-speed are continue-on-error diagnostics and
-        # deliberately not in needs: they must never gate (nor hold up) the required check.
+        # report-test-speed is a continue-on-error diagnostic and deliberately not in
+        # needs: it must never gate (nor hold up) the required check.
         needs: [tests, rust_ingestion_e2e, build, lint]
         name: Node.js Tests Pass
         runs-on: ubuntu-latest
