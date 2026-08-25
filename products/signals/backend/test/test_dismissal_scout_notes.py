@@ -20,9 +20,9 @@ import posthog.api.rest_router  # noqa: F401
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 from posthog.scopes import APIScopeObject
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.signals.backend.artefact_schemas import Dismissal
 from products.signals.backend.models import (
     SignalReport,
