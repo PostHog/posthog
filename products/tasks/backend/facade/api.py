@@ -3868,6 +3868,8 @@ def signal_task_run_user_message(
         )
     except RPCError as e:
         if e.status == RPCStatusCode.NOT_FOUND:
+            if not run.is_terminal and (run.state or {}).get("await_user_message"):
+                raise
             logger.warning("Follow-up signal target workflow gone for task run %s", run.id)
             return False
         raise
