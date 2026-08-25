@@ -17,6 +17,7 @@ export const INBOX_EVENTS = {
     VIEWED: 'Inbox viewed',
     WELCOME_VIEWED: 'Inbox welcome viewed',
     WELCOME_COMMAND_COPIED: 'Inbox welcome command copied',
+    WELCOME_MANUAL_SETUP_CLICKED: 'Inbox welcome manual setup clicked',
     PANEL_VIEWED: 'Inbox panel viewed',
     QUERY_CHANGED: 'Inbox query changed',
     REPORTS_IMPRESSED: 'Inbox reports impressed',
@@ -248,6 +249,19 @@ export function captureInboxWelcomeCommandCopied(params: {
     captureInboxEvent(INBOX_EVENTS.WELCOME_COMMAND_COPIED, {
         variant: params.variant,
         surface: params.surface,
+    })
+}
+
+/**
+ * The takeover's "Set up manually" escape hatch was pressed. Sits next to
+ * {@link captureInboxWelcomeCommandCopied} as the other exit from the welcome page, so the two
+ * together say how a team chose to set self-driving up. Without it a manual setup is invisible:
+ * the wizard copy never fires, and the sources and scouts that follow look like they came from
+ * nowhere. `variant` mirrors the welcome experiment arm, so the split is readable per arm.
+ */
+export function captureInboxWelcomeManualSetupClicked(params: { variant: InboxWelcomeVariant }): void {
+    captureInboxEvent(INBOX_EVENTS.WELCOME_MANUAL_SETUP_CLICKED, {
+        variant: params.variant,
     })
 }
 
