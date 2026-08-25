@@ -342,9 +342,6 @@ function ReportChatStarter({ report }: { report: SignalReport }) {
   return (
     <div className="flex h-full flex-col justify-between gap-3 p-3">
       <div className="flex flex-col gap-1 pt-1">
-        <span className="font-medium text-[14px] text-gray-12">
-          Chat with this report
-        </span>
         <span className="text-[13px] text-gray-11">
           The agent joins with the full report and its evidence already in
           context. Highlight any part of the report to quote it here.
