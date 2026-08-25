@@ -103,6 +103,8 @@ class JUnitShard:
 
     name: str
     call_times: dict[str, float]
+    # An XML of this shard (any attempt) did not parse, so call_times is incomplete.
+    unreadable: bool = False
 
     @classmethod
     def load_all(cls, junit_dir: Path, segment: str | None = None) -> list["JUnitShard"]:
@@ -144,27 +146,32 @@ class JUnitShard:
 
             call_times: dict[str, float] = {}
             found_xml = False
+            unreadable = False
             for _attempt_n, shard_dir in sorted(attempts):
                 attempt_times: dict[str, float] = {}
                 for xml_file in sorted(shard_dir.glob("*.xml")):
                     found_xml = True
-                    for test_id, call_time in cls._parse_call_times(xml_file).items():
+                    parsed = cls._parse_call_times(xml_file)
+                    if parsed is None:
+                        unreadable = True
+                        continue
+                    for test_id, call_time in parsed.items():
                         attempt_times[test_id] = max(attempt_times.get(test_id, 0.0), call_time)
                 call_times.update(attempt_times)
             if not found_xml:
                 continue
-            shards.append(cls(name=base, call_times=call_times))
+            shards.append(cls(name=base, call_times=call_times, unreadable=unreadable))
 
         return shards
 
     @staticmethod
-    def _parse_call_times(xml_path: Path) -> dict[str, float]:
-        """Extract {pytest_id: call_time} for every parseable testcase."""
+    def _parse_call_times(xml_path: Path) -> dict[str, float] | None:
+        """Extract {pytest_id: call_time} for every parseable testcase, None when the XML does not parse."""
         try:
             tree = ET.parse(xml_path)
         except ParseError as e:
             logger.warning("  Could not parse JUnit XML %s: %s", xml_path, e)
-            return {}
+            return None
         call_times: dict[str, float] = {}
         for tc in tree.getroot().iter("testcase"):
             pytest_id = _junit_to_pytest_id(tc.get("classname", ""), tc.get("name", ""))
@@ -832,7 +839,7 @@ def main():
         # parser turns that into an empty shard), would read as "nothing ran" and
         # lose every nodeid it owns, so scoping needs one readable JUnit per
         # shard. The workflow retries unscoped on this exit.
-        unreadable = [shard.name for shard in junit_shards if not shard.call_times]
+        unreadable = [shard.name for shard in junit_shards if shard.unreadable or not shard.call_times]
         if not shard_sets_match(shards, junit_shards) or unreadable:
             logger.error("--scope-to-junit needs a readable JUnit artifact for every timing shard: %s", unreadable)
             sys.exit(1)
