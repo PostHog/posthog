@@ -3,6 +3,7 @@ import {
   type LeanSkill,
   leanSkillRepoUrl,
 } from "@posthog/core/billing/leanSkills";
+// Dialog for installing and removing lean skills from the cost management page.
 import {
   Button,
   Dialog,
@@ -184,3 +185,4 @@ function SkillLink({ href, children }: { href: string; children: string }) {
     </a>
   );
 }
+
