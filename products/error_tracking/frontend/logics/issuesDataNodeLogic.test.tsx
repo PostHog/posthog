@@ -24,12 +24,25 @@ const query: ErrorTrackingQuery = {
 }
 const issue = {
     id: 'issue-abc',
+    name: 'TypeError: undefined is not a function',
+    description: 'Something broke',
+    library: 'web',
     status: 'active',
     severity: 'low',
-} as ErrorTrackingIssue
+    assignee: null,
+    first_seen: '2026-05-01T10:00:00.000Z',
+    last_seen: '2026-05-26T08:00:00.000Z',
+    aggregations: {
+        occurrences: 12,
+        sessions: 4,
+        users: 3,
+        volume_buckets: [],
+    },
+} satisfies ErrorTrackingIssue
 
 describe('issuesDataNodeLogic', () => {
     let logic: ReturnType<typeof issuesDataNodeLogic.build>
+    let initialResults: ErrorTrackingIssue[]
 
     beforeEach(async () => {
         useMocks({
@@ -43,7 +56,8 @@ describe('issuesDataNodeLogic', () => {
         logic = issuesDataNodeLogic({ key: 'error-tracking-issues-test', query })
         logic.mount()
         await expectLogic(logic).toDispatchActions(['loadDataSuccess'])
-        logic.actions.setResponse({ results: [issue] })
+        initialResults = [issue]
+        logic.actions.setResponse({ results: initialResults })
         mockPerformQuery.mockClear()
     })
 
@@ -60,5 +74,6 @@ describe('issuesDataNodeLogic', () => {
             .toMatchValues({ results: [expect.objectContaining({ id: issue.id, severity: 'critical' })] })
 
         expect(mockPerformQuery.mock.calls[0][2]).toBe('force_blocking')
+        expect(initialResults).toEqual([issue])
     })
 })

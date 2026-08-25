@@ -434,12 +434,11 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
             const response = values.response
             if (response) {
                 const results = ('results' in response ? response.results : []) as ErrorTrackingIssue[]
-                const recordIndex = results.findIndex((r) => r.id === id)
-                if (recordIndex > -1) {
-                    const issue = { ...results[recordIndex], assignee }
-                    results.splice(recordIndex, 1, issue)
-                    // optimistically update local results
-                    actions.setResponse({ ...response, results: results })
+                if (results.some((issue) => issue.id === id)) {
+                    actions.setResponse({
+                        ...response,
+                        results: results.map((issue) => (issue.id === id ? { ...issue, assignee } : issue)),
+                    })
                 }
             }
         },
@@ -448,12 +447,11 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
             const response = values.response
             if (response) {
                 const results = ('results' in response ? response.results : []) as ErrorTrackingIssue[]
-                const recordIndex = results.findIndex((r) => r.id === id)
-                if (recordIndex > -1) {
-                    const issue = { ...results[recordIndex], status }
-                    results.splice(recordIndex, 1, issue)
-                    // optimistically update local results
-                    actions.setResponse({ ...response, results: results })
+                if (results.some((issue) => issue.id === id)) {
+                    actions.setResponse({
+                        ...response,
+                        results: results.map((issue) => (issue.id === id ? { ...issue, status } : issue)),
+                    })
                 }
             }
         },
@@ -462,11 +460,11 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
             const response = values.response
             if (response) {
                 const results = ('results' in response ? response.results : []) as ErrorTrackingIssue[]
-                const recordIndex = results.findIndex((r) => r.id === id)
-                if (recordIndex > -1) {
-                    const issue = { ...results[recordIndex], severity }
-                    results.splice(recordIndex, 1, issue)
-                    actions.setResponse({ ...response, results })
+                if (results.some((issue) => issue.id === id)) {
+                    actions.setResponse({
+                        ...response,
+                        results: results.map((issue) => (issue.id === id ? { ...issue, severity } : issue)),
+                    })
                 }
             }
         },
