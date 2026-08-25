@@ -16,12 +16,6 @@ same contents into a hogland snapshot, it does not change the container image.
 
 ## What the workflow does
 
-0. `validate_ref` job — resolves the `workflow_dispatch` `ref` input to a safe
-   checkout target before any other job touches it: blank → `master`; a
-   non-blank value is confirmed via the compare API to already be an ancestor
-   of `master`, otherwise the run fails here instead of checking out unmerged
-   code into a job that (once armed) holds hogland/prod credentials. Also gates
-   on `github.ref == 'refs/heads/master'` — see "Known open security issues".
 1. `render_skills` job — renders the agent skills the golden ships, the same way
    the sandbox-base image build does (`cd-sandbox-base-image.yml`'s `build_skills`
    job): stands up a DB, `uv sync`s, migrates, runs `hogli build:skills` to expand
@@ -54,10 +48,12 @@ same contents into a hogland snapshot, it does not change the container image.
 7. On success, re-points `posthog-tasks-default` at the candidate's snapshot and
    stamps a dated archive alias `posthog-tasks-default-YYYYMMDD` for rollback.
 
-> A `validate_ref` job now resolves and checks the `ref` `workflow_dispatch`
-> input before `render_skills` or `bake` touch it — see step 0 above and
-> "Known open security issues" near the bottom of this runbook for what is and
-> is not covered by that fix.
+> ⚠️ **Open security issue, not yet fixed in the workflow YAML** — see
+> "Known open security issues" near the bottom of this runbook.
+> `render_skills` and `bake` currently check out
+> `github.event.inputs.ref || github.sha` directly with no validation. Do not
+> treat the description above as a statement that this is safe to dispatch
+> from an untrusted branch today.
 
 The matrix covers **dev** and **prod-us**. **prod-eu is deferred** to the EU
 rollout — see "Adding prod-eu" below.
@@ -111,12 +107,13 @@ For **each** cluster the workflow targets (dev, then prod-us):
 
 ## Running it
 
-- Manual: Actions → "Tasks Golden Snapshot CD" → Run workflow, dispatched from
-  `master` (dispatching from any other branch is a no-op — see `validate_ref`
-  above). Leave `cluster` blank to bake every armed cluster, or set it to `dev` /
-  `prod-us` to bake one. Leave `ref` blank to render the skills from `master`, or
-  set it to a branch or SHA the `validate_ref` job confirms is already an
-  ancestor of `master` — an unmerged branch tip is rejected before checkout.
+- Manual: Actions → "Tasks Golden Snapshot CD" → Run workflow. Leave `cluster`
+  blank to bake every armed cluster, or set it to `dev` / `prod-us` to bake one.
+  Leave `ref` blank to render the skills from the workflow's checkout ref, or set
+  it to a branch or SHA to bake a reproducible golden from that ref. **Until the
+  open issue below is fixed, only ever dispatch this with `ref` blank or a SHA
+  you have personally verified is merged into `master`** — the workflow does not
+  verify this for you yet.
 - Nightly: the `schedule` cron fires daily but only bakes armed clusters,
   rendering from `master`.
 
@@ -170,36 +167,33 @@ hogland snapshot alias <snapshot_id> posthog-tasks-default
   and pins it into the bake, so the golden's agent-server is reproducible without
   depending on any image.
 
-## Known open security issues
+## Known open security issues (tracked, not yet fixed in the workflow YAML)
 
-One of the two issues raised in PR review is now fixed in the workflow YAML;
-the other needs an out-of-repo change (a hogplane TrustMapping field) that
-no edit to this file can substitute for.
+Both issues below were raised in PR review and are real. They are **not yet
+fixed in `cd-tasks-golden-snapshot.yml`** as of this revision — fixing them
+requires editing a file under `.github/workflows/`, which needs a maintainer
+with write access to that path; this note exists so the gap is documented
+rather than silently left for the next reader to rediscover.
 
-- **`ref` workflow_dispatch input checked out with no validation — fixed.**
-  `render_skills` and `bake` used to do
-  `ref: ${{ github.event.inputs.ref || github.sha }}` directly, so any
-  collaborator who can `workflow_dispatch` this workflow could point `ref` at
-  a branch carrying a modified `bake-golden.sh`/`setup-golden.sh`/skills build
-  and have it run in a job that (once armed) holds the hogland CLI App private
-  key, a tailnet join, and hogland/prod OIDC. Fixed by the `validate_ref` job:
-  blank `ref` resolves to `master`; a non-blank value must be confirmed, via
-  the GitHub compare API, to already be an ancestor of `master`, or the run
-  fails before either checkout happens. `render_skills` and `bake` now check
-  out `needs.validate_ref.outputs.ref`, never the raw input.
-- **Branch dispatch bypasses deployment review — partially mitigated, needs a
-  hogplane-side fix to fully close.** Because GitHub runs whatever copy of
-  this workflow lives on the ref you dispatch it from, and includes that ref
-  in the OIDC token's claims, a collaborator can push a branch with a modified
-  copy of this workflow (e.g. with the arming-variable gate or the
-  `validate_ref` job itself removed) and dispatch it from that branch. Every
-  job in this file now requires `github.ref == 'refs/heads/master'`
-  (`validate_ref`'s `if`, transitively gating `render_skills`/`bake` through
-  `needs.validate_ref.result == 'success'`), which stops dispatching from a
-  branch _as this file's `master` copy defines it_ — but a branch copy that
-  deletes that check can still run its own logic and mint a token, because
-  hogplane's `github_oidc` TrustMapping (as documented) only checks
-  `(repo, workflow)`, not `ref`. The only fix that cannot be bypassed by
-  editing the workflow file is pinning `ref: refs/heads/master` in that
-  TrustMapping for every cluster (see "Per-cluster prerequisites" above); the
-  in-file gate here is defense-in-depth, not a substitute for it.
+- **`ref` workflow_dispatch input is checked out with no validation.**
+  `render_skills` and `bake` both do `ref: ${{ github.event.inputs.ref ||
+github.sha }}` and then run `hogli build:skills`, `bake-golden.sh`, and
+  `setup-golden.sh` from that checkout, in a job that (once armed) holds the
+  hogland CLI App private key, a tailnet join, and hogland/prod OIDC. Any
+  collaborator who can `workflow_dispatch` this workflow can point `ref` at a
+  branch carrying a modified script and have it run with those credentials.
+  Fix: add a job that resolves `ref` before checkout — blank → `master`;
+  otherwise require a full commit SHA confirmed (e.g. via the GitHub compare
+  API) to already be an ancestor of `master` — and point both checkouts at
+  that job's output instead of the raw input.
+- **Branch dispatch bypasses deployment review.** Because GitHub runs whatever
+  copy of this workflow lives on the ref you dispatch it from, and includes
+  that ref in the OIDC token's claims, a collaborator can push a branch with a
+  modified copy of this workflow (e.g. with the arming-variable gate removed)
+  and dispatch it from that branch. If hogplane's `github_oidc` TrustMapping
+  only checks `(repo, workflow)` and not `ref`, that branch mints an accepted
+  token. An `if: github.ref == 'refs/heads/master'` gate added to every job in
+  this file would raise the bar (a branch would then also have to remove that
+  check), but the only fix that cannot be bypassed by editing the workflow file
+  is pinning `ref: refs/heads/master` in hogplane's `github_oidc` TrustMapping
+  for every cluster (see "Per-cluster prerequisites" above).
