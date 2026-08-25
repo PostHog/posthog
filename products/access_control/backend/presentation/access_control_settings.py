@@ -32,8 +32,10 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import PropertyDefinition
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
-from posthog.rbac.subject_access_control import SubjectAccessControl
-from posthog.rbac.user_access_control import (
+from posthog.scopes import INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
+
+from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
+from products.access_control.backend.facade.user_access_control import (
     ACCESS_CONTROL_LEVELS_RESOURCE,
     ACCESS_CONTROL_RESOURCES,
     AccessControlLevel,
@@ -43,16 +45,15 @@ from posthog.rbac.user_access_control import (
     minimum_access_level,
     ordered_access_levels,
 )
-from posthog.scopes import INTERNAL_API_SCOPE_OBJECTS, APIScopeObject
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role
 
-from ee.api.rbac.access_control import (
+from .access_control import (
     AccessControlSerializer,
     AccessControlViewSetMixin,
     ResolvedAccessSerializer,
     upsert_access_control,
 )
-from ee.models.rbac.access_control import AccessControl
-from ee.models.rbac.role import Role
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
@@ -308,6 +309,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             for r in ACCESS_CONTROL_RESOURCES
         }
 
+        # nosemgrep: api-response-must-match-schema -- unchanged response shape moved into the product boundary
         return Response(
             {
                 "available_project_levels": list(ordered_access_levels("project")),
@@ -361,6 +363,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                 }
             )
 
+        # nosemgrep: api-response-must-match-schema -- unchanged response shape moved into the product boundary
         return Response(
             {
                 "available_project_levels": list(ordered_access_levels("project")),
@@ -425,6 +428,7 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                 }
             )
 
+        # nosemgrep: api-response-must-match-schema -- unchanged response shape moved into the product boundary
         return Response(
             {
                 "available_project_levels": list(ordered_access_levels("project")),
