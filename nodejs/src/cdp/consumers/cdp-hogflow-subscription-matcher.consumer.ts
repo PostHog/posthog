@@ -1114,6 +1114,11 @@ export class CdpHogflowSubscriptionMatcherConsumer<
                 captureException(err)
             })
         }, WATCHER_SWEEP_INTERVAL_MS)
+        // Neither timer is work the process should stay alive for: both are periodic maintenance that
+        // the next start picks up. Unref'd, a consumer that was started but never stopped cannot hold
+        // the event loop open — which is what a leaked one does to a long single-process test run.
+        this.watcherTeamsRefreshTimer.unref()
+        this.watcherSweepTimer.unref()
         // Surface failures to each kafka consumer so the offset doesn't advance past a batch we
         // couldn't match. The pod will crash and replay; the SELECT is read-only and the UPDATE
         // (with `status = 'available'` guards) is idempotent, so replay is safe. All three streams

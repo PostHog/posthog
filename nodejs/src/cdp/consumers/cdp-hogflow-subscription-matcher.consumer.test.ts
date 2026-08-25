@@ -221,6 +221,15 @@ class MatcherUnderTest extends CdpHogflowSubscriptionMatcherConsumer {
     public async runWake(invocationGlobals: HogFunctionInvocationGlobals[]): Promise<void> {
         await (this as any).wakeMatchingWorkflows(invocationGlobals)
     }
+
+    // start() arms the watcher sweep and team-refresh intervals, and only stop() clears them. This
+    // suite starts a consumer without a matching stop, and CI runs the whole shard --runInBand, so a
+    // leaked pair keeps firing in that one process for the rest of the run — long after the mocks
+    // they call have been reset.
+    public clearWatcherTimers(): void {
+        clearInterval((this as any).watcherTeamsRefreshTimer)
+        clearInterval((this as any).watcherSweepTimer)
+    }
 }
 
 const stateBuffer = (state: any): Buffer => Buffer.from(JSON.stringify({ state }))
@@ -230,6 +239,10 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
 
     beforeEach(() => {
         matcher = new MatcherUnderTest()
+    })
+
+    afterEach(() => {
+        matcher.clearWatcherTimers()
     })
 
     describe('wakeMatchingWorkflows', () => {
