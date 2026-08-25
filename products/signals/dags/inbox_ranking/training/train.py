@@ -59,7 +59,14 @@ class HeadMetrics:
 class TrainedHead:
     head: str
     booster_ubj: bytes
+    # The train-only fit that produced the holdout metrics, kept so a later candidate can grade this
+    # model on its own holdout; None when there were no holdout rows.
+    holdout_booster_ubj: bytes | None
     metrics: HeadMetrics
+
+
+def _ubj(model: xgb.XGBClassifier) -> bytes:
+    return bytes(model.get_booster().save_raw("ubj"))
 
 
 def _fit(x: pd.DataFrame, y: np.ndarray, seed: int) -> xgb.XGBClassifier:
@@ -120,4 +127,25 @@ def train_head(examples: pd.DataFrame, head: Head, *, holdout_days: int, seed: i
     )
     # Refit on everything before shipping: the holdout only exists to grade the recipe.
     final = _fit(x, y, seed)
-    return TrainedHead(head=head.name, booster_ubj=bytes(final.get_booster().save_raw("ubj")), metrics=metrics)
+    return TrainedHead(
+        head=head.name,
+        booster_ubj=_ubj(final),
+        holdout_booster_ubj=_ubj(model) if len(y_test) else None,
+        metrics=metrics,
+    )
+
+
+def booster_holdout_auc(booster_ubj: bytes, examples: pd.DataFrame, head: Head, *, holdout_days: int) -> float | None:
+    """AUC of a saved booster on `head`'s holdout rows of `examples`: the same rows `train_head`
+    grades a candidate on, so a champion and a candidate can be compared on one set."""
+    rows = examples[examples["head"] == head.name]
+    if rows.empty:
+        return None
+    test = holdout_mask(rows, holdout_days).to_numpy()
+    if not test.any():
+        return None
+    booster = xgb.Booster()
+    booster.load_model(bytearray(booster_ubj))
+    x = rows.loc[test, list(FEATURE_NAMES)].astype(float)
+    y = rows.loc[test, "label"].to_numpy(dtype=int)
+    return _auc(y, booster.predict(xgb.DMatrix(x, feature_names=list(FEATURE_NAMES))))

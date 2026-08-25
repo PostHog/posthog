@@ -21,7 +21,7 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.cloud_utils import is_cloud
 from posthog.models import Team
 
-from products.signals.dags.inbox_ranking.common import LABELS_EPOCH, ensure_utc
+from products.signals.dags.inbox_ranking.common import LABELS_EPOCH, WRONG_DISMISSAL_REASONS, ensure_utc
 
 # All regions' label telemetry lands in the US dogfood project (PostHog internal, team 2).
 LABELS_TEAM_ID = 2
@@ -324,6 +324,8 @@ WHERE event = 'Inbox report action'
 GROUP BY report_id
 """
 
+_WRONG_DISMISSAL_REASONS_SQL = ", ".join(f"'{reason}'" for reason in WRONG_DISMISSAL_REASONS)
+
 STATUS_COLUMNS = (
     "first_resolved_at",
     "first_dismissed_server_at",
@@ -332,6 +334,7 @@ STATUS_COLUMNS = (
     "latest_status_event",
     "latest_status_event_at",
     "dismissal_reason",
+    "wrong_dismissal_count",
     "status_event_priority",
     "status_event_actionability",
     "status_event_team_id",
@@ -348,7 +351,8 @@ STATUS_COLUMNS = (
 # capture_status_change_analytics snapshots them onto every transition: artefacts can be re-judged
 # or edited, so the state asset's cutoff-observed judgment is not necessarily what was true when
 # the outcome happened. Both are kept — state for features, these for label-time provenance.
-STATUS_SQL = """
+STATUS_SQL = (
+    """
 SELECT
     report_id,
     nullIf(minIf(first_timestamp, outcome = 'resolved'), fromUnixTimestamp(0)) AS first_resolved_at,
@@ -360,7 +364,13 @@ SELECT
     -- argMax skips NULL values, so this is the reason from the latest *reasoned* transition (the
     -- intended semantic: reasons only accompany dismissals/snoozes), not necessarily paired with
     -- latest_status_event above.
-    argMax(dismissal_reason, last_timestamp) AS dismissal_reason,
+    argMax(bucket_dismissal_reason, last_timestamp) AS dismissal_reason,
+    -- Cumulative, unlike dismissal_reason above: a restore or a later dismissal with another reason
+    -- overwrites the latest-wins reason, and a label that can revert to 0 breaks the training
+    -- builder's assumption that labels only grow. The dismiss_wrong head reads this column.
+    countIf(outcome = 'dismissed' AND bucket_dismissal_reason IN ("""
+    + _WRONG_DISMISSAL_REASONS_SQL
+    + """)) AS wrong_dismissal_count,
     -- These two must stay paired with latest_status_event, so coalesce/nullIf keeps argMax from
     -- skipping a null: a judgment artefact can be deleted, and then the latest transition
     -- genuinely carries none. Plain argMax would reach back to an older transition and present
@@ -389,7 +399,9 @@ FROM (
         ) AS outcome,
         -- Latest event in the bucket rather than any(): identical for the duplicate deliveries this
         -- grouping targets, and the one that matches last_timestamp when it collapsed real repeats.
-        nullIf(argMax(toString(properties.dismissal_reason), events.timestamp), '') AS dismissal_reason,
+        -- Named apart from the outer alias: ClickHouse resolves a bare `dismissal_reason` in the outer
+        -- aggregates to the outer alias, which is itself an aggregate.
+        nullIf(argMax(toString(properties.dismissal_reason), events.timestamp), '') AS bucket_dismissal_reason,
         nullIf(argMax(toString(properties.priority), events.timestamp), '') AS event_priority,
         nullIf(argMax(toString(properties.actionability), events.timestamp), '') AS event_actionability,
         nullIf(argMax(toString(properties.team_id), events.timestamp), '') AS event_team_id
@@ -405,6 +417,7 @@ FROM (
 )
 GROUP BY report_id
 """
+)
 
 PR_COLUMNS = (
     "pr_created_count",
@@ -520,6 +533,7 @@ LABEL_DEFAULTS: dict[str, Any] = {
     "latest_status_event": None,
     "latest_status_event_at": None,
     "dismissal_reason": None,
+    "wrong_dismissal_count": 0,
     "status_event_priority": None,
     "status_event_actionability": None,
     "status_event_team_id": None,

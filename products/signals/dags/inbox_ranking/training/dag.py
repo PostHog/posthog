@@ -11,8 +11,11 @@ scoring-moment join, `training/examples.py`), grades each head on the last `hold
 reports, and refits on everything. The champion asset applies `promotion.decide_promotion`; it
 rewrites the pointer only when `INBOX_RANKING_AUTO_PROMOTE` is on, otherwise it logs the decision
 so the daily candidate series doubles as monitoring while the first shadow read runs against a
-frozen champion. Every candidate is kept: `models/v1/dt=D/` is immutable history like the dataset
-partitions, and the pointer is the only mutable object.
+frozen champion. Every candidate is kept under `models/v1/dt=D/`; a re-run of a partition replaces
+that prefix in full (stale head files are removed), and `champion.json` carries the `run_id` it
+was promoted from so a loader can tell a re-run apart from the version it pinned. The champion is
+graded on the candidate's holdout through its `<head>.holdout.ubj` (the train-only fit), so the
+promotion rule compares both models on one set of reports.
 """
 
 import json
@@ -44,28 +47,35 @@ from products.signals.dags.inbox_ranking.common import (
 from products.signals.dags.inbox_ranking.dataset.dag import LABELS_TABLE, STATE_TABLE
 from products.signals.dags.inbox_ranking.training.examples import (
     EXAMPLE_COLUMNS,
+    PROVENANCE_LABEL_COLUMNS,
+    PROVENANCE_STATE_COLUMNS,
     STATE_COLUMNS,
     Snapshot,
+    assemble_snapshot,
     build_examples,
+    point_in_time_mask,
 )
-from products.signals.dags.inbox_ranking.training.heads import HEADS
+from products.signals.dags.inbox_ranking.training.heads import HEADS, HEADS_BY_NAME
 from products.signals.dags.inbox_ranking.training.promotion import decide_promotion
-from products.signals.dags.inbox_ranking.training.train import XGB_PARAMS, TrainedHead, train_head
+from products.signals.dags.inbox_ranking.training.train import XGB_PARAMS, TrainedHead, booster_holdout_auc, train_head
 
 EXAMPLES_TABLE = "inbox_ranking_training_examples"
 MODELS_TABLE = "inbox_ranking_models"
 CHAMPION_FILE = "champion.json"
 METADATA_FILE = "metadata.json"
 
-# Label columns the heads read; everything else in the labels snapshot stays on disk.
+# Label columns the heads read (plus the provenance inputs); everything else stays on disk.
 _LABEL_COLUMNS = (
     "impression_unit_count",
     "open_count",
     "create_pr_click_count",
     "discuss_count",
     "dismissal_reason",
+    "wrong_dismissal_count",
     "pr_created_count",
+    *PROVENANCE_LABEL_COLUMNS,
 )
+_STATE_READ_COLUMNS = (*STATE_COLUMNS, *PROVENANCE_STATE_COLUMNS, "features_observed_at")
 
 COMMON_ASSET_KWARGS: dict[str, Any] = {
     "group_name": "inbox_ranking_training",
@@ -84,14 +94,31 @@ def champion_object_key(prefix: str) -> str:
     return f"{prefix}/{MODELS_TABLE}/{DATASET_VERSION}/{CHAMPION_FILE}"
 
 
-def _read_json_if_exists(client, bucket: str, key: str) -> dict[str, Any] | None:
+def _read_bytes_if_exists(client, bucket: str, key: str) -> bytes | None:
     try:
-        body = client.get_object(Bucket=bucket, Key=key)["Body"].read()
+        return client.get_object(Bucket=bucket, Key=key)["Body"].read()
     except ClientError as error:
         if error.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
             return None
         raise
-    return json.loads(body)
+
+
+def _read_json_if_exists(client, bucket: str, key: str) -> dict[str, Any] | None:
+    body = _read_bytes_if_exists(client, bucket, key)
+    return None if body is None else json.loads(body)
+
+
+def _delete_other_objects(client, bucket: str, folder: str, keep: set[str]) -> list[str]:
+    """Delete every object under `folder` whose key is not in `keep`; returns the deleted keys."""
+    stale = [
+        obj["Key"]
+        for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=folder)
+        for obj in page.get("Contents", [])
+        if obj["Key"] not in keep
+    ]
+    if stale:
+        client.delete_objects(Bucket=bucket, Delete={"Objects": [{"Key": key} for key in stale]})
+    return stale
 
 
 def _put_json(client, bucket: str, key: str, payload: dict[str, Any]) -> None:
@@ -115,10 +142,11 @@ def load_snapshots(client, bucket: str, prefix: str, dates: list[datetime.date])
         labels = read_parquet_if_exists(client, bucket, partition_object_key(prefix, LABELS_TABLE, key))
         if state is None or labels is None:
             continue
-        state_frame = state.select(["report_id", *STATE_COLUMNS]).to_pandas().set_index("report_id")
+        state_columns = [column for column in _STATE_READ_COLUMNS if column in state.column_names]
+        state_frame = state.select(["report_id", *state_columns]).to_pandas().set_index("report_id")
         label_columns = [column for column in _LABEL_COLUMNS if column in labels.column_names]
         labels_frame = labels.select(["report_id", *label_columns]).to_pandas().set_index("report_id")
-        snapshots[date] = Snapshot(date=date, state=state_frame, labels=labels_frame)
+        snapshots[date] = assemble_snapshot(date, state_frame, labels_frame)
     return snapshots
 
 
@@ -136,6 +164,9 @@ def inbox_ranking_training_examples(context: dagster.AssetExecutionContext) -> N
     dates = snapshot_dates(partition_key, settings.INBOX_RANKING_TRAINING_LOOKBACK_DAYS)
     snapshots = load_snapshots(client, bucket, prefix, dates)
     context.log.info(f"{len(snapshots)} of {len(dates)} snapshots present")
+    backfilled_rows = sum(int((~point_in_time_mask(snap.state, snap.date)).sum()) for snap in snapshots.values())
+    if backfilled_rows:
+        context.log.warning(f"{backfilled_rows} state rows read after the snapshot window are excluded (backfill)")
 
     per_head = {head.name: build_examples(snapshots, head) for head in HEADS}
     examples = (
@@ -148,6 +179,7 @@ def inbox_ranking_training_examples(context: dagster.AssetExecutionContext) -> N
         {
             "rows": dagster.MetadataValue.int(len(examples)),
             "snapshots": dagster.MetadataValue.int(len(snapshots)),
+            "backfilled_state_rows_excluded": dagster.MetadataValue.int(backfilled_rows),
             **{f"{name}_rows": dagster.MetadataValue.int(len(frame)) for name, frame in per_head.items()},
             **{
                 f"{name}_positives": dagster.MetadataValue.int(int(frame["label"].sum()))
@@ -171,8 +203,37 @@ def candidate_metadata(
         "lookback_days": settings.INBOX_RANKING_TRAINING_LOOKBACK_DAYS,
         "holdout_days": settings.INBOX_RANKING_TRAINING_HOLDOUT_DAYS,
         "xgb_params": XGB_PARAMS,
-        "heads": [head.metrics.as_dict() | {"file": f"{head.head}.ubj"} for head in trained],
+        "heads": [
+            head.metrics.as_dict()
+            | {
+                "file": f"{head.head}.ubj",
+                "holdout_file": f"{head.head}.holdout.ubj" if head.holdout_booster_ubj is not None else None,
+            }
+            for head in trained
+        ],
     }
+
+
+def paired_champion_aucs(
+    client, bucket: str, prefix: str, champion: dict[str, Any], examples: pd.DataFrame, *, holdout_days: int
+) -> dict[str, float]:
+    """The champion's readable heads graded on the candidate's holdout, through the champion's saved
+    holdout boosters. Heads without a saved holdout booster are left out and fall back to the
+    champion's stored AUC in `decide_promotion`."""
+    aucs: dict[str, float] = {}
+    for entry in champion.get("heads", []):
+        head = HEADS_BY_NAME.get(entry.get("head"))
+        if head is None or not entry.get("readable") or not entry.get("holdout_file"):
+            continue
+        body = _read_bytes_if_exists(
+            client, bucket, model_object_key(prefix, champion["model_version"], entry["holdout_file"])
+        )
+        if body is None:
+            continue
+        auc = booster_holdout_auc(body, examples, head, holdout_days=holdout_days)
+        if auc is not None:
+            aucs[head.name] = auc
+    return aucs
 
 
 @dagster.asset(name="inbox_ranking_model_candidate", deps=[EXAMPLES_TABLE], **COMMON_ASSET_KWARGS)
@@ -192,20 +253,28 @@ def inbox_ranking_model_candidate(context: dagster.AssetExecutionContext) -> Non
         context.log.info(f"{head.name}: {result.metrics.as_dict()}")
         trained.append(result)
 
+    written: set[str] = set()
     for model in trained:
-        client.put_object(
-            Bucket=bucket,
-            Key=model_object_key(prefix, partition_key, f"{model.head}.ubj"),
-            Body=model.booster_ubj,
-            ContentType="application/octet-stream",
-        )
+        files = {f"{model.head}.ubj": model.booster_ubj}
+        if model.holdout_booster_ubj is not None:
+            files[f"{model.head}.holdout.ubj"] = model.holdout_booster_ubj
+        for filename, body in files.items():
+            key = model_object_key(prefix, partition_key, filename)
+            client.put_object(Bucket=bucket, Key=key, Body=body, ContentType="application/octet-stream")
+            written.add(key)
     metadata = candidate_metadata(
         partition_key, trained, trained_at=datetime.datetime.now(datetime.UTC), run_id=context.run.run_id
     )
     metadata_key = model_object_key(prefix, partition_key, METADATA_FILE)
     _put_json(client, bucket, metadata_key, metadata)
+    written.add(metadata_key)
+    # A re-run that trains fewer heads must not leave the previous run's files behind.
+    stale = _delete_other_objects(client, bucket, model_object_key(prefix, partition_key, ""), written)
+    if stale:
+        context.log.warning(f"removed {len(stale)} stale objects from a previous run of dt={partition_key}")
     context.add_output_metadata(
         {
+            "stale_objects_removed": dagster.MetadataValue.int(len(stale)),
             "heads_trained": dagster.MetadataValue.int(len(trained)),
             "heads_readable": dagster.MetadataValue.int(sum(1 for head in trained if head.metrics.readable)),
             **{
@@ -230,11 +299,19 @@ def inbox_ranking_model_champion(context: dagster.AssetExecutionContext) -> None
         raise dagster.Failure(f"candidate metadata for dt={partition_key} is missing")
     champion_key = champion_object_key(prefix)
     champion = _read_json_if_exists(client, bucket, champion_key)
+    champion_aucs: dict[str, float] = {}
+    if champion is not None:
+        examples = read_parquet(client, bucket, partition_object_key(prefix, EXAMPLES_TABLE, partition_key)).to_pandas()
+        champion_aucs = paired_champion_aucs(
+            client, bucket, prefix, champion, examples, holdout_days=settings.INBOX_RANKING_TRAINING_HOLDOUT_DAYS
+        )
+        context.log.info(f"champion {champion['model_version']} on this holdout: {champion_aucs}")
     decision = decide_promotion(
         candidate,
         champion,
         now=datetime.datetime.now(datetime.UTC),
         min_days_between=settings.INBOX_RANKING_PROMOTION_MIN_DAYS,
+        champion_aucs=champion_aucs,
     )
     context.log.info(f"promotion decision for dt={partition_key}: promote={decision.promote} ({decision.reason})")
 
@@ -259,6 +336,10 @@ def inbox_ranking_model_champion(context: dagster.AssetExecutionContext) -> None
             "would_promote": dagster.MetadataValue.bool(decision.promote),
             "promoted": dagster.MetadataValue.bool(promoted),
             "reason": dagster.MetadataValue.text(decision.reason),
+            **{
+                f"champion_{head}_auc_on_this_holdout": dagster.MetadataValue.float(auc)
+                for head, auc in champion_aucs.items()
+            },
             "champion_version": dagster.MetadataValue.text(
                 partition_key if promoted else (champion or {}).get("model_version", "none")
             ),

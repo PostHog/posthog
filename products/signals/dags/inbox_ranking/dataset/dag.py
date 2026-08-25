@@ -92,7 +92,7 @@ from products.signals.dags.inbox_ranking.dataset.queries import (
     valid_report_uuids,
 )
 
-FEATURE_SCHEMA_VERSION = 3
+FEATURE_SCHEMA_VERSION = 4
 
 # Statuses a report can be authored straight into and still be in the inbox (`create_scout_report`
 # and `create_custom_agent_ready_report`), which is how a report reaches the spine without a
@@ -224,6 +224,7 @@ LABEL_FIELDS: list[tuple[str, pa.DataType]] = [
     ("latest_status_event", pa.string()),
     ("latest_status_event_at", _TIMESTAMP),
     ("dismissal_reason", pa.string()),
+    ("wrong_dismissal_count", pa.int32()),
     ("status_event_priority", pa.string()),
     ("status_event_actionability", pa.string()),
     ("status_event_team_id", pa.int64()),

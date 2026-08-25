@@ -2,7 +2,7 @@ import datetime
 from typing import Any
 
 import pytest
-from posthog.test.base import BaseTest
+from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event
 
 import pyarrow as pa
 
@@ -17,6 +17,9 @@ from products.signals.dags.inbox_ranking.dataset.dag import (
 from products.signals.dags.inbox_ranking.dataset.queries import (
     LABEL_DEFAULTS,
     LABEL_STREAMS,
+    STATUS_COLUMNS,
+    STATUS_SQL,
+    hogql_rows,
     merge_label_streams,
     utc_bound,
     valid_report_uuids,
@@ -345,3 +348,34 @@ class TestSpineInclusion(BaseTest):
         assert in_spine == {promoted, born_visible}
         assert promoted_after_cutoff not in in_spine
         assert created_after_cutoff not in in_spine
+
+
+class TestStatusStream(ClickhouseTestMixin, BaseTest):
+    def _transition(self, when: datetime.datetime, previous: str, status: str, reason: str | None = None) -> None:
+        _create_event(
+            team=self.team,
+            event="signal_report_status_changed",
+            distinct_id="team-2",
+            timestamp=when,
+            properties={
+                "report_id": UUID_A,
+                "previous_status": previous,
+                "status": status,
+                "dismissal_reason": reason,
+                "team_id": str(self.team.id),
+            },
+        )
+
+    def test_wrong_dismissal_count_survives_a_restore_and_a_later_reason(self):
+        # dismissed as wrong, restored, then dismissed again as already_fixed: the latest-wins reason
+        # forgets the wrong dismissal, the cumulative count must not.
+        self._transition(T1, "ready", "suppressed", "analysis_wrong")
+        self._transition(T1 + datetime.timedelta(hours=1), "suppressed", "ready")
+        self._transition(T2, "ready", "suppressed", "already_fixed")
+
+        rows = hogql_rows(STATUS_SQL, team=self.team, query_type="test", snapshot_end=SNAPSHOT_END)
+        assert len(rows) == 1
+        row = dict(zip(STATUS_COLUMNS, rows[0][1:], strict=True))
+        assert row["dismissal_reason"] == "already_fixed"
+        assert row["wrong_dismissal_count"] == 1
+        assert row["first_dismissed_server_at"] == T1

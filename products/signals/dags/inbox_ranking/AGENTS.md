@@ -12,7 +12,9 @@ Read `README.md` first for what the dataset is and how partitions behave. This f
 - `products/signals/backend/ranking/features.py` is the serving contract (it lives in the backend so the scoring sweep owns it and the dag imports it): the training code and the sweep both import `FEATURE_NAMES` / `feature_vector`, and the sweep refuses a booster whose `feature_names` or `feature_schema_version` disagree. Adding a feature means bumping `FEATURE_SCHEMA_VERSION`, and the sweep must be able to compute it from the `SignalReport` row at scoring time — nothing impression-derived, nothing that needs the label streams.
 - `feature_vector` (one row, serving) and `feature_frame` (vectorized, training) must agree row for row; a test pins it. Change both together.
 - Examples are scoring moments (every report × every snapshot), labeled from the snapshot `horizon_days` later. Keep the holdout cut by report; a row-level split leaks near-duplicate snapshots of the same report.
-- `inbox_ranking_models/v1/dt=D/` is immutable history like the dataset partitions; `champion.json` is the only mutable object and only the champion asset (or a human, deliberately) writes it.
+- `inbox_ranking_models/v1/dt=D/` is history like the dataset partitions: the only mutation is a re-run of the same partition, which replaces the prefix in full (stale head files are deleted). `champion.json` is the only object written outside its partition, and only the champion asset (or a human, deliberately) writes it; it carries the candidate's `run_id`, so a loader can detect a re-run behind a pinned version.
+- The champion is compared to a candidate on the candidate's holdout, through the champion's `<head>.holdout.ubj` (the train-only fit). Keep writing that file: without it the gate falls back to the champion's stored AUC, which was measured on a different set of reports.
+- The example builder reads labels aligned to the state spine (`assemble_snapshot`): no label row means all-zero labels, not "absent". It drops rows whose `features_observed_at` is a backfill (`STATE_LAG_LIMIT`) and, for status-derived heads, rows that fail `label_provenance_ok`.
 
 ## Invariants — do not break
 

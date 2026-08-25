@@ -10,6 +10,8 @@ score log has accrued it becomes this table's source; the snapshots are the boot
 
 Rows of one report are near-duplicates, so the holdout is cut BY REPORT (report_created_at),
 never by row. Label-only rows (EU reports, hard-deleted rows) carry no state and are skipped.
+A snapshot is assembled over the state spine (`assemble_snapshot`): a report with no label event
+gets LABEL_DEFAULTS, so never-engaged reports are negatives rather than absent.
 """
 
 import datetime
@@ -20,6 +22,9 @@ import pandas as pd
 from posthog.dataclasses import frozen
 
 from products.signals.backend.ranking.features import FEATURE_NAMES, feature_frame
+from products.signals.dags.inbox_ranking.common import snapshot_bounds
+from products.signals.dags.inbox_ranking.dataset.dag import label_provenance_ok
+from products.signals.dags.inbox_ranking.dataset.queries import LABEL_DEFAULTS
 from products.signals.dags.inbox_ranking.training.heads import Head
 
 # Report-state columns an example carries, besides the features. `report_age_hours` is the
@@ -35,7 +40,14 @@ STATE_COLUMNS = (
     "priority",
     "actionability",
 )
+# Inputs of the label provenance cross-check, read next to the features and labels.
+PROVENANCE_STATE_COLUMNS = ("report_team_id", "status", "pg_updated_at")
+PROVENANCE_LABEL_COLUMNS = ("latest_status_event", "status_event_team_id")
 EXAMPLE_COLUMNS = ("head", "report_id", "snapshot_date", "report_created_at", *FEATURE_NAMES, "label")
+
+# A forward run stamps features_observed_at a few hours after the snapshot end. Anything read later
+# than this is a backfill that carries current Postgres state, not the state as of the snapshot.
+STATE_LAG_LIMIT = datetime.timedelta(days=2)
 
 
 @frozen
@@ -45,6 +57,58 @@ class Snapshot:
     date: datetime.date
     state: pd.DataFrame
     labels: pd.DataFrame
+
+
+def _none_if_missing(value: object) -> object:
+    return None if value is None or value is pd.NaT or (isinstance(value, float) and pd.isna(value)) else value
+
+
+def assemble_snapshot(date: datetime.date, state: pd.DataFrame, labels: pd.DataFrame) -> Snapshot:
+    """Align `labels` to the state spine: every state report gets a label row (LABEL_DEFAULTS for
+    reports that had no event) and a `label_provenance_ok` column from the dataset dag's
+    cross-check when the provenance inputs are present. Label-only rows are dropped."""
+    aligned = labels.reindex(state.index)
+    for column, default in LABEL_DEFAULTS.items():
+        if column in aligned and default is not None:
+            aligned[column] = aligned[column].fillna(default)
+    has_inputs = all(column in state for column in PROVENANCE_STATE_COLUMNS) and all(
+        column in aligned for column in PROVENANCE_LABEL_COLUMNS
+    )
+    if has_inputs:
+        _, snapshot_end = snapshot_bounds(date.isoformat())
+        aligned["label_provenance_ok"] = [
+            label_provenance_ok(
+                _none_if_missing(status),  # type: ignore[arg-type]
+                _none_if_missing(updated_at),  # type: ignore[arg-type]
+                _none_if_missing(latest_event),  # type: ignore[arg-type]
+                report_team_id=_none_if_missing(team_id),  # type: ignore[arg-type]
+                status_event_team_id=_none_if_missing(event_team_id),  # type: ignore[arg-type]
+                snapshot_end=snapshot_end,
+            )
+            for status, updated_at, latest_event, team_id, event_team_id in zip(
+                state["status"],
+                state["pg_updated_at"],
+                aligned["latest_status_event"],
+                state["report_team_id"],
+                aligned["status_event_team_id"],
+                strict=True,
+            )
+        ]
+    return Snapshot(date=date, state=state, labels=aligned)
+
+
+def point_in_time_mask(state: pd.DataFrame, date: datetime.date) -> pd.Series:
+    """True for rows whose Postgres state was read close enough to the snapshot day to stand for
+    the state as of that day. Rows without the stamp are kept."""
+    if "features_observed_at" not in state:
+        return pd.Series(True, index=state.index)
+    _, snapshot_end = snapshot_bounds(date.isoformat())
+    observed = pd.to_datetime(state["features_observed_at"], utc=True)
+    return observed.isna() | (observed <= snapshot_end + STATE_LAG_LIMIT)
+
+
+def _flag_or_true(labels: pd.DataFrame, column: str) -> pd.Series:
+    return labels[column].fillna(False).astype(bool) if column in labels else pd.Series(True, index=labels.index)
 
 
 def build_examples(snapshots: Mapping[datetime.date, Snapshot], head: Head) -> pd.DataFrame:
@@ -65,6 +129,11 @@ def build_examples(snapshots: Mapping[datetime.date, Snapshot], head: Head) -> p
         # it, so the impression that puts a report in the cohort usually lands after `now`. A cohort
         # read at `now` would drop those pre-impression scoring moments, which are the serving case.
         keep = head.cohort(labels_later) & ~head.label(labels_now) & state["signal_count"].notna()
+        keep &= point_in_time_mask(state, date)
+        if head.status_labels:
+            keep &= _flag_or_true(labels_now, "label_provenance_ok") & _flag_or_true(
+                labels_later, "label_provenance_ok"
+            )
         if not keep.any():
             continue
         rows = state.loc[keep, list(STATE_COLUMNS)].copy()
