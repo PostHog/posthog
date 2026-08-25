@@ -113,7 +113,7 @@ export function SubscriptionWizard({
         isSubscriptionSubmitting,
         subscriptionChanged,
     } = useValues(subscriptionFormLogic)
-    const { resetSubscription } = useActions(subscriptionFormLogic)
+    const { generatePreview, resetSubscription } = useActions(subscriptionFormLogic)
     const { preflight } = useValues(preflightLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const aiSubscriptionsEnabled = useFeatureFlag('SUBSCRIPTION_AI_PROMPT')
@@ -169,6 +169,12 @@ export function SubscriptionWizard({
             : 'Email delivery is not configured for this PostHog instance'
     }
     const currentStepIndex = steps.findIndex((step) => step.key === currentStep)
+    const goToStep = (step: SubscriptionWizardStep): void => {
+        if (step === SubscriptionWizardStep.Review && insightShortId && !isAiPrompt) {
+            generatePreview()
+        }
+        setStep(step)
+    }
     const requestCancel = (): void =>
         requestSubscriptionWizardCancellation({ onCancel, resetSubscription, subscriptionChanged })
     let stepContent: JSX.Element
@@ -191,7 +197,14 @@ export function SubscriptionWizard({
             stepContent = <SubscriptionScheduleStep logicProps={logicProps} />
             break
         case SubscriptionWizardStep.Review:
-            stepContent = <SubscriptionReviewStep subscription={subscription} dashboard={dashboard} />
+            stepContent = (
+                <SubscriptionReviewStep
+                    logicProps={logicProps}
+                    subscription={subscription}
+                    dashboard={dashboard}
+                    insightShortId={insightShortId}
+                />
+            )
             break
         default:
             stepContent = <></>
@@ -219,7 +232,7 @@ export function SubscriptionWizard({
                 htmlType="button"
                 onClick={(event) => {
                     event.preventDefault()
-                    setStep(nextStep)
+                    goToStep(nextStep)
                 }}
                 disabledReason={continueDisabledReason}
             >
@@ -259,7 +272,7 @@ export function SubscriptionWizard({
                                             <button
                                                 type="button"
                                                 disabled={!canAccess}
-                                                onClick={() => canAccess && setStep(step.key)}
+                                                onClick={() => canAccess && goToStep(step.key)}
                                                 className={cn(
                                                     'flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-accent',
                                                     canAccess && 'cursor-pointer',
@@ -429,8 +442,7 @@ function SubscriptionContentStep({
     subscription: SubscriptionType
     aiSubscriptionBlocked: boolean
 }): JSX.Element {
-    const { previewLoading, previewError, previewImageUrl } = useValues(subscriptionLogic(logicProps))
-    const { applyDefaultSelectedInsights, generatePreview, selectAiAnalysisWindow, selectAiExamplePrompt } = useActions(
+    const { applyDefaultSelectedInsights, selectAiAnalysisWindow, selectAiExamplePrompt } = useActions(
         subscriptionLogic(logicProps)
     )
     const isAiPrompt = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
@@ -475,36 +487,6 @@ function SubscriptionContentStep({
                         />
                     )}
                 </LemonField>
-            ) : null}
-            {logicProps.insightShortId && !isAiPrompt ? (
-                <div>
-                    <LemonLabel className="mb-2">Preview</LemonLabel>
-                    <div className="border rounded p-2">
-                        <LemonButton
-                            type="secondary"
-                            htmlType="button"
-                            onClick={generatePreview}
-                            loading={previewLoading}
-                            disabled={previewLoading}
-                            size="small"
-                            data-attr="subscription-wizard-generate-preview"
-                        >
-                            Generate preview
-                        </LemonButton>
-
-                        {previewError ? (
-                            <LemonBanner type="error" className="mt-2">
-                                {previewError}
-                            </LemonBanner>
-                        ) : null}
-
-                        {previewImageUrl ? (
-                            <div className="mt-2 border rounded">
-                                <img src={previewImageUrl} alt="Subscription export preview" className="w-full" />
-                            </div>
-                        ) : null}
-                    </div>
-                </div>
             ) : null}
             <SubscriptionSettingsStep subscription={subscription} logicProps={logicProps} />
         </div>
@@ -698,12 +680,18 @@ function formatAiAnalysisWindow(subscription: SubscriptionType): string {
 }
 
 function SubscriptionReviewStep({
+    logicProps,
     subscription,
     dashboard,
+    insightShortId,
 }: {
+    logicProps: SubscriptionLogicProps
     subscription: SubscriptionType
     dashboard?: DashboardType<any> | null
+    insightShortId?: InsightShortId
 }): JSX.Element {
+    const { previewLoading, previewError, previewImageUrl } = useValues(subscriptionLogic(logicProps))
+    const { generatePreview } = useActions(subscriptionLogic(logicProps))
     const selectedInsightsCount = subscription.dashboard_export_insights?.length ?? 0
     const advancedSettings = getSubscriptionAdvancedSettings(subscription)
     const nextDeliveryDate = getNextDeliveryDate(subscription)
@@ -749,5 +737,37 @@ function SubscriptionReviewStep({
         ...(advancedSettings.length ? [{ label: 'Advanced settings', value: advancedSettings.join(' · ') }] : []),
     ]
 
-    return <WizardReview items={reviewItems} footer={<div className="text-secondary text-sm">{reviewNotice}</div>} />
+    return (
+        <div className="flex flex-col gap-4">
+            <WizardReview items={reviewItems} footer={<div className="text-secondary text-sm">{reviewNotice}</div>} />
+            {insightShortId && !isAiPrompt ? (
+                <div>
+                    <LemonLabel className="mb-2">Preview</LemonLabel>
+                    <div className="border rounded p-2">
+                        <LemonButton
+                            type="secondary"
+                            htmlType="button"
+                            onClick={generatePreview}
+                            loading={previewLoading}
+                            disabled={previewLoading}
+                            size="small"
+                            data-attr="subscription-wizard-generate-preview"
+                        >
+                            Generate preview
+                        </LemonButton>
+                        {previewError ? (
+                            <LemonBanner type="error" className="mt-2">
+                                {previewError}
+                            </LemonBanner>
+                        ) : null}
+                        {previewImageUrl ? (
+                            <div className="mt-2 border rounded">
+                                <img src={previewImageUrl} alt="Subscription export preview" className="w-full" />
+                            </div>
+                        ) : null}
+                    </div>
+                </div>
+            ) : null}
+        </div>
+    )
 }
