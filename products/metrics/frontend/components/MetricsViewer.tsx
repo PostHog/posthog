@@ -202,7 +202,7 @@ export const MetricsViewer = (): JSX.Element => {
                 : errorSpikeExemplars.map((spike) => ({
                       timeMs: dayjs(spike.timestamp).valueOf(),
                       color: 'danger',
-                      tooltipLabel: `Error spike: ${spike.issueName ?? 'Untitled issue'}. Click to view the issue.`,
+                      tooltipLabel: `Error spike at ${dayjs(spike.timestamp).format('D MMM HH:mm:ss')}: ${spike.issueName ?? 'Untitled issue'}. Click to view the issue.`,
                       onClick: () => {
                           router.actions.push(urls.errorTrackingIssue(spike.issueId, { timestamp: spike.timestamp }))
                       },

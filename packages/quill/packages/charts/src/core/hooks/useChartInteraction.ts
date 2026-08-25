@@ -24,11 +24,15 @@ import { useDragToZoom } from './useDragToZoom'
 import { useLatest } from './useLatest'
 import { useTooltipLifecycle } from './useTooltipLifecycle'
 
+function originatesInElement(e: React.SyntheticEvent, selector: string): boolean {
+    return e.target instanceof Element && !!e.target.closest(selector)
+}
+
 /** The tooltip is portaled out of the wrapper's DOM tree, but React portals still bubble
  *  synthetic events through the React tree — so a click or drag that starts inside the pinned
  *  tooltip reaches the wrapper's handlers and would dismiss the pin or start a zoom drag. */
 function originatesInTooltip(e: React.SyntheticEvent): boolean {
-    return e.target instanceof Element && !!e.target.closest('[data-hog-charts-tooltip]')
+    return originatesInElement(e, '[data-hog-charts-tooltip]')
 }
 
 /** An interactive overlay child (e.g. a clickable exemplar marker) renders inside the same
@@ -37,7 +41,7 @@ function originatesInTooltip(e: React.SyntheticEvent): boolean {
  *  for the cursor. An overlay opts out of chart hover tracking by marking its interactive root
  *  with this attribute. */
 function originatesInInteractiveOverlay(e: React.SyntheticEvent): boolean {
-    return e.target instanceof Element && !!e.target.closest('[data-hog-charts-interactive-overlay]')
+    return originatesInElement(e, '[data-hog-charts-interactive-overlay]')
 }
 
 interface UseChartInteractionOptions<Meta> {
@@ -295,6 +299,11 @@ export function useChartInteraction<Meta = unknown>({
             }
 
             if (originatesInInteractiveOverlay(e)) {
+                // Matches onMouseLeave. A pinned tooltip stays until explicitly unpinned, so
+                // moving onto an overlay marker must not clear it out from under the user.
+                if (!isPinned) {
+                    clearTooltip()
+                }
                 return
             }
 
@@ -493,7 +502,7 @@ export function useChartInteraction<Meta = unknown>({
 
     const guardedMouseDown = useCallback(
         (e: React.MouseEvent<HTMLDivElement>) => {
-            if (originatesInTooltip(e)) {
+            if (originatesInTooltip(e) || originatesInInteractiveOverlay(e)) {
                 return
             }
             onMouseDown(e)

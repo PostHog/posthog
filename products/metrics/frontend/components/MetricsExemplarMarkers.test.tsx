@@ -119,8 +119,8 @@ describe('MetricsExemplarMarkers', () => {
         expect(coloredDot.style.borderColor).toBe('#ff0000')
     })
 
-    // Regression: error-spike markers once carried a hardcoded trace-specific aria-label
-    // regardless of what they actually represented — assert the label tracks the marker.
+    // A screen-reader user tells markers apart only by aria-label, so it must match each
+    // marker's own content rather than a shared or hardcoded label.
     it('labels each marker with its own tooltip text', () => {
         renderOverlayInChart(
             <MetricsExemplarMarkers
