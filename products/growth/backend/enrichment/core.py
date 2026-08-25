@@ -264,10 +264,11 @@ async def enrich_organization(
     """
     lookup = await provider.enrich_by_domain(domain)
 
+    base_payload = lookup.raw_payload if lookup.raw_payload is not None else _MISS_PAYLOAD
     await sync_to_async(archive_provider_fetch)(
         organization_id=organization_id,
         provider=provider.name,
-        payload=lookup.raw_payload if lookup.raw_payload is not None else _MISS_PAYLOAD,
+        payload={**base_payload, "enrichmentUrn": lookup.enrichment_urn},
         is_recheck=is_recheck,
     )
 

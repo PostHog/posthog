@@ -22,11 +22,14 @@ class ProviderLookup:
     """One provider lookup: the transformed fields plus the raw response kept for the archive.
 
     `fields` is None on a not-found. `raw_payload` is the provider's verbatim response for the
-    company, or None when the provider returns nothing at all for a miss.
+    company, or None when the provider returns nothing at all for a miss. `enrichment_urn` is
+    the provider's tracking id for this lookup (Harmonic's enrichmentUrn), archived alongside
+    the payload so a later poll can check whether enrichment has since completed.
     """
 
     fields: Optional[EnrichmentFields]
     raw_payload: Optional[dict[str, Any]]
+    enrichment_urn: Optional[str] = None
 
 
 class EnrichmentProvider(abc.ABC):
@@ -64,11 +67,12 @@ class HarmonicEnrichmentProvider(EnrichmentProvider):
 
     async def enrich_by_domain(self, domain: str) -> ProviderLookup:
         async with AsyncHarmonicClient() as client:
-            company = await client.enrich_company_by_domain_strict(domain)
+            lookup = await client.enrich_company_by_domain_strict(domain)
+            company = lookup.company
             fields = transform_harmonic_company(company)
             if fields is not None and company is not None:
                 fields = await self._with_parent_company(client, company, fields)
-        return ProviderLookup(fields=fields, raw_payload=company)
+        return ProviderLookup(fields=fields, raw_payload=company, enrichment_urn=lookup.enrichment_urn)
 
     async def _with_parent_company(
         self, client: AsyncHarmonicClient, company: dict[str, Any], fields: EnrichmentFields

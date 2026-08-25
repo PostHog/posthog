@@ -35,12 +35,16 @@ def _client_with_get_responses(*responses):
     return client
 
 
-def _not_found():
-    return _response(json_data={"data": {"enrichCompanyByIdentifiers": {"companyFound": False}}})
+def _not_found(urn=None):
+    return _response(json_data={"data": {"enrichCompanyByIdentifiers": {"companyFound": False, "enrichmentUrn": urn}}})
 
 
-def _found(company):
-    return _response(json_data={"data": {"enrichCompanyByIdentifiers": {"companyFound": True, "company": company}}})
+def _found(company, urn=None):
+    return _response(
+        json_data={
+            "data": {"enrichCompanyByIdentifiers": {"companyFound": True, "company": company, "enrichmentUrn": urn}}
+        }
+    )
 
 
 def _missing_company_found_key():
@@ -61,7 +65,8 @@ def _http_500():
 async def test_strict_returns_none_when_not_found():
     # Both domain variations return a clean companyFound=false.
     client = _client_with_responses(_not_found(), _not_found())
-    assert await client.enrich_company_by_domain_strict("unknown.example") is None
+    result = await client.enrich_company_by_domain_strict("unknown.example")
+    assert result.company is None
 
 
 @pytest.mark.asyncio
@@ -78,7 +83,7 @@ async def test_strict_falls_back_to_second_variation_after_error():
     # First variation errors, second returns a company: the successful variation wins.
     client = _client_with_responses(_http_500(), _found({"name": "PostHog"}))
     result = await client.enrich_company_by_domain_strict("posthog.com")
-    assert result == {"name": "PostHog"}
+    assert result.company == {"name": "PostHog"}
 
 
 @pytest.mark.asyncio
@@ -88,14 +93,16 @@ async def test_strict_clean_not_found_is_authoritative_when_the_other_variation_
     # is an authoritative not-found. Raising here made a deterministically-failing variation
     # exhaust the caller's retries and leave the org with no archive row at all.
     client = _client_with_responses(_http_500(), _not_found())
-    assert await client.enrich_company_by_domain_strict("posthog.com") is None
+    result = await client.enrich_company_by_domain_strict("posthog.com")
+    assert result.company is None
 
 
 @pytest.mark.asyncio
 @patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock())
 async def test_strict_clean_not_found_first_then_error_is_also_not_found():
     client = _client_with_responses(_not_found(), _http_500())
-    assert await client.enrich_company_by_domain_strict("posthog.com") is None
+    result = await client.enrich_company_by_domain_strict("posthog.com")
+    assert result.company is None
 
 
 @pytest.mark.asyncio
@@ -110,7 +117,8 @@ async def test_strict_raises_when_companyfound_key_missing_and_sibling_errored()
 @patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock())
 async def test_strict_graphql_error_with_clean_not_found_sibling_returns_none():
     client = _client_with_responses(_graphql_errors(), _not_found())
-    assert await client.enrich_company_by_domain_strict("posthog.com") is None
+    result = await client.enrich_company_by_domain_strict("posthog.com")
+    assert result.company is None
 
 
 @pytest.mark.asyncio
@@ -118,8 +126,29 @@ async def test_strict_graphql_error_with_clean_not_found_sibling_returns_none():
 @patch("ee.billing.salesforce_enrichment.harmonic_client.capture_exception")
 async def test_strict_captures_swallowed_error_on_mixed_path(mock_capture_exception):
     client = _client_with_responses(_graphql_errors(), _not_found())
-    assert await client.enrich_company_by_domain_strict("posthog.com") is None
+    result = await client.enrich_company_by_domain_strict("posthog.com")
+    assert result.company is None
     mock_capture_exception.assert_called_once()
+
+
+@pytest.mark.asyncio
+@patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock())
+async def test_strict_not_found_surfaces_the_tracking_urn():
+    client = _client_with_responses(
+        _not_found(urn="urn:harmonic:enrichment:abc"), _not_found(urn="urn:harmonic:enrichment:abc")
+    )
+    result = await client.enrich_company_by_domain_strict("unknown.example")
+    assert result.company is None
+    assert result.enrichment_urn == "urn:harmonic:enrichment:abc"
+
+
+@pytest.mark.asyncio
+@patch("ee.billing.salesforce_enrichment.harmonic_client.asyncio.sleep", new=AsyncMock())
+async def test_strict_found_with_null_urn_surfaces_no_urn():
+    client = _client_with_responses(_found({"name": "PostHog"}, urn=None))
+    result = await client.enrich_company_by_domain_strict("posthog.com")
+    assert result.company == {"name": "PostHog"}
+    assert result.enrichment_urn is None
 
 
 @pytest.mark.asyncio

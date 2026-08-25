@@ -5,6 +5,7 @@ from django.conf import settings
 
 import aiohttp
 
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 from .constants import (
@@ -13,6 +14,19 @@ from .constants import (
     HARMONIC_DOMAIN_VARIATIONS,
     HARMONIC_REQUEST_TIMEOUT_SECONDS,
 )
+
+
+@frozen
+class HarmonicCompanyLookup:
+    """Result of a strict company lookup: the company payload plus its tracking URN.
+
+    enrichment_urn is set on every not-found (the enrichment Harmonic just queued for this
+    domain) and on a hit only when a refresh is pending; it is None on a fresh hit. On a
+    miss seen across multiple domain variations, the first non-null URN wins.
+    """
+
+    company: Optional[dict[str, Any]]
+    enrichment_urn: Optional[str]
 
 
 class AsyncHarmonicClient:
@@ -101,18 +115,18 @@ class AsyncHarmonicClient:
 
         return None
 
-    async def enrich_company_by_domain_strict(self, domain: str) -> Optional[dict[str, Any]]:
+    async def enrich_company_by_domain_strict(self, domain: str) -> HarmonicCompanyLookup:
         """Like enrich_company_by_domain, but distinguishes not-found from operational failure.
 
-        Returns None for a genuine not-found: at least one domain variation returned a clean
-        GraphQL response with companyFound false, and no variation found the company. A clean
-        not-found is an authoritative Harmonic answer even when the other variation errored —
-        raising in that mixed case let one failing variation exhaust the caller's retries and
-        fail the whole lookup with no archive row. In practice that mixed case has been rare
-        (a prod trace attributed almost all no-archive-row orgs to DB errors before the lookup,
-        not to this path); the point of returning the miss is that every terminal outcome now
-        leaves an archived row, and a row is what the recheck, the backfill, and the
-        re-enrichment sweep act on — an activity failure feeds none of them.
+        Returns a company-less lookup for a genuine not-found: at least one domain variation
+        returned a clean GraphQL response with companyFound false, and no variation found the
+        company. A clean not-found is an authoritative Harmonic answer even when the other
+        variation errored. Raising in that mixed case let one failing variation exhaust the
+        caller's retries and fail the whole lookup with no archive row. In practice that mixed
+        case has been rare (a prod trace attributed almost all no-archive-row orgs to DB errors
+        before the lookup, not to this path); the point of returning the miss is that every
+        terminal outcome now leaves an archived row, and a row is what the recheck, the
+        backfill, and the re-enrichment sweep act on. An activity failure feeds none of them.
 
         Operational failures on EVERY variation (network errors, non-2xx status, JSON decode,
         GraphQL errors) still re-raise, so callers retry and alert instead of mistaking an
@@ -127,6 +141,7 @@ class AsyncHarmonicClient:
         last_error: Optional[Exception] = None
         last_error_variation: Optional[str] = None
         saw_clean_not_found = False
+        not_found_urn: Optional[str] = None
         for domain_variation in domain_variations:
             try:
                 variables = {"identifiers": {"websiteUrl": f"https://{domain_variation}"}}
@@ -148,9 +163,12 @@ class AsyncHarmonicClient:
 
                     result = data.get("data", {}).get("enrichCompanyByIdentifiers", {})
                     if result.get("companyFound"):
-                        return result.get("company")
+                        return HarmonicCompanyLookup(
+                            company=result.get("company"), enrichment_urn=result.get("enrichmentUrn")
+                        )
                     if result.get("companyFound") is False:
                         saw_clean_not_found = True
+                        not_found_urn = not_found_urn or result.get("enrichmentUrn")
             except Exception as e:
                 last_error = e
                 last_error_variation = domain_variation
@@ -160,7 +178,7 @@ class AsyncHarmonicClient:
             raise last_error
         if last_error is not None:
             capture_exception(last_error, {"domain": domain, "failed_variation": last_error_variation})
-        return None
+        return HarmonicCompanyLookup(company=None, enrichment_urn=not_found_urn)
 
     async def get_company_by_urn(self, urn: str) -> Optional[dict[str, Any]]:
         """Resolve a Harmonic company URN (e.g. from relatedCompanies) via the REST profile endpoint.

@@ -5,7 +5,7 @@ from asgiref.sync import async_to_sync
 from parameterized import parameterized
 
 from products.growth.backend.enrichment.bridge import ClayBridgeInputs
-from products.growth.backend.enrichment.core import enrich_organization
+from products.growth.backend.enrichment.core import _MISS_PAYLOAD, enrich_organization
 from products.growth.backend.enrichment.fields import EnrichmentFields
 from products.growth.backend.enrichment.icp_lists import clear_lists_cache
 from products.growth.backend.enrichment.providers import EnrichmentProvider, ProviderLookup
@@ -116,14 +116,37 @@ class TestEnrichmentCore(BaseTest):
     def test_archives_raw_payload_and_writes_live_stores_on_match(self):
         company = {"companyType": "STARTUP", "funding": {"fundingStage": "SEED"}}
         fields = EnrichmentFields(company_type="STARTUP")
-        outcome = self._enrich(ProviderLookup(fields=fields, raw_payload=company))
+        outcome = self._enrich(
+            ProviderLookup(fields=fields, raw_payload=company, enrichment_urn="urn:harmonic:enrichment:abc")
+        )
 
         assert outcome.provider_fields is fields
         row = OrganizationEnrichmentFetch.objects.get(organization=self.organization)
         assert row.provider == "harmonic"
         assert row.is_recheck is False
-        assert row.payload == company  # verbatim, un-transformed
+        assert row.payload == {**company, "enrichmentUrn": "urn:harmonic:enrichment:abc"}
         assert OrganizationEnrichment.objects.filter(organization=self.organization).exists()
+
+    @parameterized.expand(
+        [
+            ("miss", None, None, {"companyFound": False, "enrichmentUrn": "urn:harmonic:enrichment:xyz"}),
+            (
+                "hit",
+                {"companyType": "STARTUP"},
+                EnrichmentFields(company_type="STARTUP"),
+                {"companyType": "STARTUP", "enrichmentUrn": "urn:harmonic:enrichment:xyz"},
+            ),
+        ]
+    )
+    def test_archived_payload_carries_the_enrichment_urn(self, _name, raw_payload, fields, expected_payload):
+        self._enrich(
+            ProviderLookup(fields=fields, raw_payload=raw_payload, enrichment_urn="urn:harmonic:enrichment:xyz")
+        )
+
+        row = OrganizationEnrichmentFetch.objects.get(organization=self.organization)
+        assert row.payload == expected_payload
+        # The module-level miss placeholder must never be mutated by the archive write.
+        assert _MISS_PAYLOAD == {"companyFound": False}
 
     def test_recheck_labels_the_archive_row(self):
         self._enrich(ProviderLookup(fields=None, raw_payload=None), is_recheck=True)
