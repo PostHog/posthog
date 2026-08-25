@@ -81,21 +81,31 @@ export function listReleaseStrips(
     return strips
 }
 
-export interface ReleaseVersionFilter {
+export interface ReleaseFilter {
+    key: string
     value: string | null
     operator: PropertyOperator
 }
 
-/** The `$app_version` filter a click on the strip applies, or null when the strip cannot be filtered. */
-export function releaseVersionFilter(strip: IssueReleaseStrip): ReleaseVersionFilter | null {
+/** The property filters a click on the strip applies, or empty when the strip cannot be filtered. */
+export function releaseFilters(strip: IssueReleaseStrip): ReleaseFilter[] {
     if (strip.kind === 'other') {
-        return null
+        return []
     }
+    const filters: ReleaseFilter[] = []
     // A release can carry a namespace without a version; an exact match on null would filter nothing.
     const version = strip.release?.version ?? null
-    return version
-        ? { value: version, operator: PropertyOperator.Exact }
-        : { value: null, operator: PropertyOperator.IsNotSet }
+    filters.push(
+        version
+            ? { key: '$app_version', value: version, operator: PropertyOperator.Exact }
+            : { key: '$app_version', value: null, operator: PropertyOperator.IsNotSet }
+    )
+    // Two apps can ship the same version, so scope to the namespace when the release carries one.
+    const namespace = strip.release?.namespace ?? null
+    if (namespace) {
+        filters.push({ key: '$app_namespace', value: namespace, operator: PropertyOperator.Exact })
+    }
+    return filters
 }
 
 export function maxBucketValue(strips: IssueReleaseStrip[]): number {

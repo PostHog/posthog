@@ -8,7 +8,7 @@ import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { issueFilterPreviewLogic } from '../IssueFilterPreview/issueFilterPreviewLogic'
-import { IssueReleaseStrip as IssueReleaseStripData, releaseVersionFilter } from './issueReleases'
+import { IssueReleaseStrip as IssueReleaseStripData, releaseFilters } from './issueReleases'
 import { IssueReleaseStrip } from './IssueReleaseStrip'
 
 interface IssueReleaseRowProps {
@@ -28,10 +28,7 @@ export function IssueReleaseRow({ strip, buckets, maxValue, total }: IssueReleas
     const formatDate = (iso: string): string => dayjs(iso).tz(timezone).format('D MMM YYYY HH:mm')
 
     const onSelect = (): void => {
-        const filter = releaseVersionFilter(strip)
-        if (filter) {
-            applyPropertyFilter('$app_version', filter.value, filter.operator, true)
-        }
+        releaseFilters(strip).forEach((filter) => applyPropertyFilter(filter.key, filter.value, filter.operator, true))
     }
 
     const swatch = (

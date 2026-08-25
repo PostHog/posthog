@@ -11,7 +11,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ErrorTrackingReleasesQueryResponse } from '~/queries/schema/schema-general'
 
 import { issueFilterPreviewLogic } from '../IssueFilterPreview/issueFilterPreviewLogic'
-import { IssueReleaseStrip, listReleaseStrips, releaseVersionFilter } from './issueReleases'
+import { IssueReleaseStrip, listReleaseStrips, releaseFilters } from './issueReleases'
 
 export function IssueReleasesStackedChart({ releases }: { releases: ErrorTrackingReleasesQueryResponse }): JSX.Element {
     const theme = useChartTheme()
@@ -49,10 +49,8 @@ export function IssueReleasesStackedChart({ releases }: { releases: ErrorTrackin
     )
 
     const onPointClick = ({ series: clicked }: PointClickData<IssueReleaseStrip>): void => {
-        const filter = clicked.meta ? releaseVersionFilter(clicked.meta) : null
-        if (filter) {
-            applyPropertyFilter('$app_version', filter.value, filter.operator, true)
-        }
+        const filters = clicked.meta ? releaseFilters(clicked.meta) : []
+        filters.forEach((filter) => applyPropertyFilter(filter.key, filter.value, filter.operator, true))
     }
 
     return (
