@@ -48,7 +48,7 @@ describe('logsAnomaliesLogic', () => {
 
     it('does not call the endpoint without a service', async () => {
         await expectLogic(logic, () => {
-            logic.actions.loadSeriesBands()
+            logic.actions.loadSeriesBands({})
         }).toFinishAllListeners()
         expect(logsAnomaliesSeriesBandsCreate).not.toHaveBeenCalled()
         expect(logic.values.seriesBands).toBeNull()
