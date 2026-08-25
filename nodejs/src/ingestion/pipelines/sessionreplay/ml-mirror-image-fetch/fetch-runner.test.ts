@@ -5,7 +5,6 @@ import { DELAY_TOO_LONG, FetchRunner, FetchRunnerOptions, HOPS_EXHAUSTED } from 
 import { FrontierPublisher, RepublishResult } from './frontier-publisher'
 import { HostBudget } from './host-budget'
 import { ImageFetchOptions, ImageFetchResult, ImageFetcher } from './image-fetcher'
-import { ImageFetchRequestMetrics } from './metrics'
 import { OriginRequestScheduler } from './origin-request-scheduler'
 
 const NOW_MS = 1_700_000_000_000
@@ -48,7 +47,7 @@ interface Harness {
 function build(
     result: Partial<ImageFetchResult> = {},
     policy: Partial<OriginPolicyDecision> = {},
-    republishResult: RepublishResult = 'published',
+    republishResult: RepublishResult = 'queued',
     options: FetchRunnerOptions = OPTIONS
 ): Harness {
     const fetch = jest.fn((url: string, _options: ImageFetchOptions) =>
@@ -66,6 +65,7 @@ function build(
     )
     const createPass = jest.fn(() => ({ check }))
     const republish = jest.fn(() => Promise.resolve(republishResult))
+    const createRepublishBatch = jest.fn(() => ({ republish, flush: () => Promise.resolve({ failedUrls: 0 }) }))
     const publishImage = jest.fn(() => Promise.resolve())
     const scheduler = {
         runImage: async (_url: URL, _deadlineMs: number, request: () => Promise<ImageFetchResult>) => ({
@@ -91,7 +91,7 @@ function build(
         scheduler,
         { createPass } as unknown as ConfigurationPolicyService,
         options,
-        { republish, publishImage } as unknown as FrontierPublisher
+        { createRepublishBatch, publishImage } as unknown as FrontierPublisher
     )
     return { runner, fetch, check, createPass, republish, publishImage }
 }
@@ -153,7 +153,7 @@ describe('FetchRunner', () => {
     })
 
     it('uses one worker limit across sibling origins', async () => {
-        const harness = build({}, {}, 'published', { ...OPTIONS, maxConcurrentPerRegistrableDomain: 1 })
+        const harness = build({}, {}, 'queued', { ...OPTIONS, maxConcurrentPerRegistrableDomain: 1 })
         let releaseFirst: (() => void) | undefined
         harness.fetch.mockImplementationOnce(
             (url: string) =>
@@ -180,7 +180,7 @@ describe('FetchRunner', () => {
     })
 
     it('does not let one origin occupy every registrable-domain worker', async () => {
-        const harness = build({}, {}, 'published', { ...OPTIONS, maxConcurrentPerRegistrableDomain: 2 })
+        const harness = build({}, {}, 'queued', { ...OPTIONS, maxConcurrentPerRegistrableDomain: 2 })
         let releaseFirst: (() => void) | undefined
         let releaseSecond: (() => void) | undefined
         harness.fetch
@@ -261,8 +261,6 @@ describe('FetchRunner', () => {
             currentUrl: 'https://cdn.example.com/final.png',
             retryAfterMs: 120_000,
         })
-        const retryCause = jest.spyOn(ImageFetchRequestMetrics, 'incRetryCause').mockImplementation()
-
         const [attempt] = await harness.runner.run([candidate()], new Map())
 
         expect(harness.republish).toHaveBeenCalledWith(
@@ -275,7 +273,6 @@ describe('FetchRunner', () => {
             'retry',
             120_000
         )
-        expect(retryCause).toHaveBeenCalledWith('server_error')
         expect(attempt).toMatchObject({ outcome: 'server_error', finished: false })
     })
 
@@ -357,6 +354,14 @@ describe('FetchRunner', () => {
         expect(harness.republish).toHaveBeenCalledWith(expect.any(Object), expect.any(Object), 'not_ready', 600_000)
     })
 
+    it('returns pass-deadline work directly to the frontier', async () => {
+        const harness = build({}, {}, 'queued', { ...OPTIONS, batchBudgetMs: -1 })
+
+        await harness.runner.run([candidate()], new Map())
+
+        expect(harness.republish).toHaveBeenCalledWith(expect.any(Object), expect.any(Object), 'pass_deadline', 0)
+    })
+
     it('finishes a retry when its last hop was the failed request', async () => {
         const harness = build({ outcome: 'timeout' })
 
@@ -376,23 +381,10 @@ describe('FetchRunner', () => {
         expect(attempt).toMatchObject({ outcome: HOPS_EXHAUSTED, finished: true })
     })
 
-    it('marks a failed republish as lost so the Kafka batch cannot commit', async () => {
-        const harness = build({ outcome: 'timeout' }, {}, 'failed')
-        const retryCause = jest.spyOn(ImageFetchRequestMetrics, 'incRetryCause').mockImplementation()
-
-        const [attempt] = await harness.runner.run([candidate()], new Map())
-
-        expect(retryCause).not.toHaveBeenCalled()
-        expect(attempt).toMatchObject({ outcome: 'timeout', finished: false, lost: true })
-    })
-
     it('records a terminal refusal when no delay topic can hold the wait', async () => {
         const harness = build({ outcome: 'timeout' }, {}, 'refused_delay')
-        const retryCause = jest.spyOn(ImageFetchRequestMetrics, 'incRetryCause').mockImplementation()
-
         const [attempt] = await harness.runner.run([candidate()], new Map())
 
-        expect(retryCause).not.toHaveBeenCalled()
         expect(attempt).toMatchObject({ outcome: DELAY_TOO_LONG, finished: true })
     })
 

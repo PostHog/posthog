@@ -1660,6 +1660,9 @@ class TaskAnalysisWastedEffortSerializer(serializers.Serializer):
         min_value=1, required=False, help_text="Wall-clock seconds across the wasted span."
     )
     tokens = serializers.IntegerField(min_value=1, required=False, help_text="Token delta across the wasted span.")
+    output_bytes = serializers.IntegerField(
+        min_value=1, required=False, help_text="Sum of tool-output sizes across the wasted span."
+    )
 
 
 class TaskAnalysisSuggestedFixSerializer(serializers.Serializer):

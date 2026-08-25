@@ -18,7 +18,7 @@ import type {
 } from '../types'
 import { createAddLogFunction, destinationE2eLagMsSummary } from '../utils'
 import { resolveAwsSigV4Credentials, signAwsRequest } from '../utils/aws-sigv4'
-import { cdpTrackedFetch, isFetchResponseRetriable } from '../utils/cdp-fetch'
+import { cdpTrackedFetch, fetchErrorDetail, isFetchResponseRetriable } from '../utils/cdp-fetch'
 import { createInvocationResult } from '../utils/invocation-utils'
 import { isNonFailureStatus } from '../utils/non-failure-status-codes'
 import { HogExecutorExecuteOptions, HogExecutorPreviousResult, HogExecutorService } from './hog-executor.service'
@@ -484,7 +484,7 @@ export class HogExecutorAsyncService {
             }.`
 
             if (fetchError) {
-                message += ` Error: ${fetchError.message}.`
+                message += ` Error: ${fetchErrorDetail(fetchError)}.`
             }
 
             if (willRetry) {
@@ -536,7 +536,7 @@ export class HogExecutorAsyncService {
             body: unknown
         } = {
             status: fetchResponse?.status ?? 500,
-            body: body ?? (fetchError ? `${fetchError.name}: ${fetchError.message}` : undefined),
+            body: body ?? (fetchError ? `${fetchError.name}: ${fetchErrorDetail(fetchError)}` : undefined),
         }
 
         // Finally we create the response object as the VM expects
