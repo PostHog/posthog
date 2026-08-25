@@ -13,6 +13,7 @@ import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '../../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
+import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
 import { EmailService, parseAddressList, sanitizeEmailSubject } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
@@ -404,6 +405,23 @@ describe('EmailService', () => {
                 expect(result.metrics ?? []).toEqual([])
             })
 
+            it('keeps the send priority class across a throttle reschedule', async () => {
+                // A bulk send enters the email queue at priority 1. On an SES throttle the job is
+                // rescheduled on the email queue, so its priority must stay 1 — resetting it to the
+                // fast-lane value 0 would let throttled bulk bursts jump ahead of transactional sends,
+                // which is exactly the traffic the fast lane exists to protect.
+                invocation.queuePriority = 1
+                sendEmailSpy.mockRejectedValueOnce(
+                    new TooManyRequestsException({ $metadata: {}, message: 'Too many requests' })
+                )
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.finished).toBe(false)
+                expect(result.invocation.queueScheduledAt).toBeDefined()
+                expect(result.invocation.queuePriority).toBe(1)
+            })
+
             it('hard-fails (not retry) when SES returns SendingPausedException', async () => {
                 // Reputation/account-state pause won't recover in 500ms; retrying
                 // just burns reschedules. Hard-fail so the failure surfaces via
@@ -434,6 +452,104 @@ describe('EmailService', () => {
                 expect(result.metrics).toEqual(
                     expect.arrayContaining([expect.objectContaining({ metric_name: 'email_failed' })])
                 )
+            })
+        })
+
+        describe('workflow sending rate limit', () => {
+            let claimUpTo: jest.Mock
+            let limitedService: EmailService
+            let limitedSendSpy: jest.SpyInstance
+
+            beforeEach(() => {
+                claimUpTo = jest.fn().mockResolvedValue(1)
+                limitedService = new EmailService(
+                    {
+                        sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
+                        sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
+                        sesRegion: hub.SES_REGION,
+                        sesEndpoint: hub.SES_ENDPOINT,
+                        sesTrackedConfigurationSet: hub.SES_TRACKED_CONFIGURATION_SET,
+                        sesUntrackedConfigurationSet: hub.SES_UNTRACKED_CONFIGURATION_SET,
+                        sesTenantAttributionEnabled: hub.EMAIL_SES_TENANT_ATTRIBUTION_ENABLED,
+                    },
+                    hub.integrationManager,
+                    new TeamWorkflowsConfigService(hub.postgres),
+                    hub.ENCRYPTION_SALT_KEYS,
+                    hub.SITE_URL,
+                    new EmailTrackingCodeSigner(hub.ENCRYPTION_SALT_KEYS, hub.CDP_EMAIL_TRACKING_URL),
+                    new EmailSuppressionService(hub.postgres, emailSuppressionConfigFromEnv()),
+                    new RecipientsManagerService(hub.postgres),
+                    undefined,
+                    { claimUpTo } as unknown as RateLimiterService
+                )
+                limitedSendSpy = jest.spyOn(limitedService.sesV2Client!, 'send') as any
+                limitedSendSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+                invocation.hogFunction.metadata = {
+                    email_sending_rate_limit: { count: 120, period: 'minute' },
+                }
+            })
+
+            it('reschedules without sending when the bucket denies a token', async () => {
+                claimUpTo.mockResolvedValue(0)
+
+                const before = Date.now()
+                const result = await limitedService.executeSendEmail(invocation)
+
+                expect(limitedSendSpy).not.toHaveBeenCalled()
+                expect(result.error).toBeUndefined()
+                expect(result.finished).toBe(false)
+                expect(result.invocation.queueScheduledAt).toBeDefined()
+                // The reschedule must carry the email payload forward: without queueParameters the
+                // retry has nothing to send and the throttled email is dropped rather than delayed.
+                expect(result.invocation.queueParameters).toEqual(invocation.queueParameters)
+                // 120/minute refills a token every 500ms, so the clamped jittered wake lands in [1s, 2s].
+                const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
+                expect(scheduledMs).toBeGreaterThanOrEqual(before + 1000)
+                expect(scheduledMs).toBeLessThan(before + 3000)
+                // No business metric on a pacing delay — the eventual send produces email_sent.
+                expect(result.metrics ?? []).toEqual([])
+            })
+
+            it('claims one token scoped to the workflow and sends when granted', async () => {
+                const result = await limitedService.executeSendEmail(invocation)
+
+                expect(claimUpTo).toHaveBeenCalledWith({
+                    key: `@posthog/workflow-email-rate/${team.id}/function-1`,
+                    requested: 1,
+                    // Burst capacity is ~1s of budget (not the count), so the first period can't
+                    // send ~2x the limit and an idle-expired bucket can't re-burst.
+                    capacity: 2,
+                    refillPerSecond: 2,
+                })
+                expect(result.finished).toBe(true)
+                expect(limitedSendSpy).toHaveBeenCalled()
+            })
+
+            it.each([
+                ['no rate limit is configured', (): void => void (invocation.hogFunction.metadata = {})],
+                [
+                    'the configured value is malformed',
+                    (): void =>
+                        void (invocation.hogFunction.metadata = { email_sending_rate_limit: { count: 'lots' } }),
+                ],
+            ])('does not consult the bucket when %s', async (_name, setup) => {
+                setup()
+
+                const result = await limitedService.executeSendEmail(invocation)
+
+                expect(claimUpTo).not.toHaveBeenCalled()
+                expect(result.finished).toBe(true)
+                expect(limitedSendSpy).toHaveBeenCalled()
+            })
+
+            it('skips the limit for test sends', async () => {
+                claimUpTo.mockResolvedValue(0)
+
+                const result = await limitedService.executeSendEmail(invocation, true)
+
+                expect(claimUpTo).not.toHaveBeenCalled()
+                expect(result.finished).toBe(true)
+                expect(limitedSendSpy).toHaveBeenCalled()
             })
         })
     })

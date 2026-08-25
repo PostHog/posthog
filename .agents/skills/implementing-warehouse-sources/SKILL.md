@@ -657,7 +657,9 @@ Requirements and behavior:
 
 ## OAuth configuration
 
-Before implementing OAuth, **check if the integration already exists** — search `posthog/models/integration.py` loosely for the service name before concluding it's new.
+Before implementing OAuth, **check if the integration already exists** — search the `posthog/models/integration/` package loosely for the service name before concluding it's new.
+The kinds live in `model.py` and the OAuth wiring in `oauth.py`; a provider only gets its own module when it carries business logic beyond the OAuth config, as Slack, GitHub, and Stripe do.
+`__init__.py` only re-exports the public surface, so keep importing from `posthog.models.integration` but make edits in the defining module.
 
 If new:
 
@@ -668,10 +670,10 @@ If new:
    YOUR_SOURCE_CLIENT_SECRET = get_from_env("YOUR_SOURCE_CLIENT_SECRET", "")
    ```
 
-2. **Integration kind**. In `posthog/models/integration.py`:
-   - Add to `IntegrationKind` enum.
-   - Add to `OauthIntegration.supported_kinds`.
-   - Add an `elif kind == "your-source": return OauthConfig(...)` branch in `oauth_config_for_kind()`.
+2. **Integration kind**.
+   - Add to the `IntegrationKind` enum in `posthog/models/integration/model.py`.
+   - Add to `OauthIntegration.supported_kinds` in `posthog/models/integration/oauth.py`.
+   - Add an `elif kind == "your-source": return OauthConfig(...)` branch in `oauth_config_for_kind()`, also in `oauth.py`.
      Raise `NotImplementedError("<Source> app not configured")` when the env vars are empty — that's the
      fail-closed message, so code and charts can ship before the secret values exist.
    - If the provider's token response has **no account identifier** (e.g. Resend), decode the
@@ -753,31 +755,53 @@ From `products/warehouse_sources/backend/temporal/data_imports/sources/common/mi
 
 ## Testing expectations
 
-Add at least two test modules:
+**Never write a test whose assertion restates a declaration.** A test that reads back `source_type`,
+the labels in `get_source_config`, the endpoint list in `settings.py`, or the kwargs a one-line
+`source_for_pipeline` forwards, passes because both halves of the diff were typed together. It cannot
+fail for any reason except someone editing both, so it catches nothing. That pattern was swept out of
+the source tests once already; don't reintroduce it.
 
-- `tests/test_<source>_source.py` (source-class level):
-  - `source_type`
-  - `get_source_config` fields and labels
-  - `get_schemas` outputs
-  - `validate_credentials` success/failure
-  - `source_for_pipeline` argument plumbing
-  - for resumable sources: `get_resumable_source_manager` returns a manager bound to the right data class
-  - for webhook sources: `create_webhook` / `delete_webhook` / `get_external_webhook_info` behavior, `webhook_resource_map` correctness, `webhook_template` presence
-- `tests/test_<source>.py` (transport level):
-  - paginator behavior from response headers/body
-  - resource generation for incremental vs non-incremental
-  - endpoint-specific primary key mapping
-  - credential validation status mapping
-  - mapper/filter helpers if present
-  - fan-out endpoint row format assertions (dict shape + parent identifiers)
-  - for dependent-resource fan-out: mock `rest_api_resources`, pass rows with `_<parent>_<field>` keys to exercise parent-field injection and rename behavior
-  - expected return schema checks for each declared endpoint in `settings.py`
-  - for resumable sources: resume-from-saved-state path (manager returns state, transport uses it as starting point); state is saved after each batch
-  - for incremental cursor pagination: the paginator stops once a page predates the watermark, and keeps walking when no watermark is set (first sync)
+Before each test, answer: _what could break at runtime that this catches?_ If the answer restates the
+source file, don't write it. See `/writing-tests` for the general gate.
 
-Prefer behavior tests over config-shape tests. Avoid brittle assertions on internal config dict structure unless they protect a known regression that cannot be asserted via output behavior.
+The line is whether the thing under test can vary at runtime, not which method it sits on:
 
-Use parameterized tests for status codes and edge cases. Lean toward over-covering.
+- `get_schemas` that is one `build_endpoint_schemas(...)` call needs no test — the helper's filter and
+  sync-mode behavior is covered in `common/test_source_schema.py`. A `get_schemas` that lists a remote
+  directory, resolves per-version endpoints, or builds qualified names needs tests for each of those.
+- `validate_credentials` that forwards to the transport helper needs no test at the source-class level.
+  One that maps a probe result to a message, rejects an unknown schema, or accepts a missing scope at
+  create time needs one per branch.
+- `source_for_pipeline` that forwards its config needs no test. One that raises on an unknown schema,
+  picks between transports, or resolves anything from schema metadata needs one per branch. The
+  `db_incremental_field_last_value if inputs.should_use_incremental_field else None` ternary is not a
+  branch worth its own source-level test — cover it with the transport's full-refresh test below,
+  which asserts the request actually goes out without a watermark.
+- Any `raise`, any curated error message a user reads, and any value derived rather than declared —
+  test it. A source whose `SourceResponse.name` comes from a storage key rather than the schema name
+  is a naming branch, and getting it wrong writes data where nothing reads it.
+
+Two test modules:
+
+- `tests/test_<source>_source.py` — the source class's own decisions, per the branches above, plus
+  for webhook sources `create_webhook` / `delete_webhook` / `get_external_webhook_info` behavior and
+  `webhook_resource_map` correctness.
+- `tests/test_<source>.py` — the transport, where most bugs live:
+  - paginator behavior from response headers and body, including the terminal page
+  - incremental vs full-refresh request shaping, and that a full refresh omits the watermark
+  - credential validation status mapping: each status the API returns to the message users read
+  - retry classification: which statuses are retryable and which are terminal
+  - mapper and normalization helpers, fan-out row shaping, parent-field injection
+  - for resumable sources: resuming from saved state, and state saved after each batch
+  - for incremental cursor pagination: stopping once a page predates the watermark, and walking on
+    when no watermark is set
+
+When an error pattern comes from a real API response, keep the verbatim string in the test. That
+wording is field knowledge — it records what the vendor actually emits, which the pattern in
+`get_non_retryable_errors` alone does not tell a reader.
+
+Parameterize status codes and edge cases rather than copying test bodies. Cover the paths that can
+break; do not pad the count.
 
 ## Implementation checklist
 
@@ -825,8 +849,8 @@ Release status (a finished source has NO unreleasedSource flag — it hides the 
 - [ ] featureFlag="dwh-{source_name}" ONLY if you want a controlled rollout instead of releasing to all
 
 Tests & handoff:
-- [ ] Source tests (test_<source>_source.py)
-- [ ] Transport tests (test_<source>.py)
+- [ ] Source tests (test_<source>_source.py) — branches only, no declaration restatements
+- [ ] Transport tests (test_<source>.py) — paginators, error mapping, request shaping
 - [ ] User-facing doc written/updated per /documenting-warehouse-sources (docsUrl matches filename; `audit_source_docs` passes)
 - [ ] `ruff check . --fix` and `ruff format .`
 - [ ] List any new env vars (OAuth client IDs/secrets, etc) in the PR / handoff

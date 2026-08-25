@@ -9,7 +9,7 @@ import billingJsonWithFlatFee from '~/mocks/fixtures/_billing_with_flat_fee.json
 
 import {
     buildUsageLimitApproachingMessage,
-    buildUsageLimitExceededMessage,
+    buildUsageLimitReachedMessage,
     canAccessBilling,
     canViewUsageAndSpend,
     convertAmountToUsage,
@@ -460,74 +460,74 @@ describe('getUsageLimitConsequence', () => {
     })
 })
 
-describe('buildUsageLimitExceededMessage', () => {
+describe('buildUsageLimitReachedMessage', () => {
     it('should return empty strings for empty array', () => {
-        expect(buildUsageLimitExceededMessage([])).toEqual({ title: '', message: '' })
+        expect(buildUsageLimitReachedMessage([])).toEqual({ title: '', message: '' })
     })
 
     it('should build message for single subscribed product', () => {
-        const result = buildUsageLimitExceededMessage([{ name: 'Session replay', subscribed: true }])
-        expect(result.title).toEqual('Usage limit exceeded')
+        const result = buildUsageLimitReachedMessage([{ name: 'Session replay', subscribed: true }])
+        expect(result.title).toEqual('Usage limit reached')
         expect(result.message).toEqual(
-            'You have exceeded the usage limit for Session replay. Please increase your billing limit or data loss may occur.'
+            'You have reached the usage limit for Session replay. Please increase your billing limit or data loss may occur.'
         )
     })
 
     it('should build message for single unsubscribed product', () => {
-        const result = buildUsageLimitExceededMessage([{ name: 'Session replay', subscribed: false }])
+        const result = buildUsageLimitReachedMessage([{ name: 'Session replay', subscribed: false }])
         expect(result.message).toContain('upgrade your plan')
     })
 
     it('should build message for multiple products with unique consequences', () => {
-        const result = buildUsageLimitExceededMessage([
+        const result = buildUsageLimitReachedMessage([
             { name: 'Session replay', subscribed: true },
             { name: 'Feature flags & Experiments', subscribed: true },
         ])
-        expect(result.title).toEqual('Usage limits exceeded')
+        expect(result.title).toEqual('Usage limits reached')
         expect(result.message).toEqual(
-            'You have exceeded the usage limit for Session replay and Feature flags & Experiments. Please increase your billing limit or data loss may occur and feature flags will not evaluate.'
+            'You have reached the usage limit for Session replay and Feature flags & Experiments. Please increase your billing limit or data loss may occur and feature flags will not evaluate.'
         )
     })
 
     it('should build message for PostHog AI with specific consequence', () => {
-        const result = buildUsageLimitExceededMessage([{ name: 'PostHog AI', subscribed: true }])
-        expect(result.title).toEqual('Usage limit exceeded')
+        const result = buildUsageLimitReachedMessage([{ name: 'PostHog AI', subscribed: true }])
+        expect(result.title).toEqual('Usage limit reached')
         expect(result.message).toEqual(
-            'You have exceeded the usage limit for PostHog AI. Please increase your billing limit or PostHog AI will be unavailable.'
+            'You have reached the usage limit for PostHog AI. Please increase your billing limit or PostHog AI will be unavailable.'
         )
     })
 
     it('should build message for Inbox with specific consequence', () => {
-        const result = buildUsageLimitExceededMessage([{ name: 'Inbox', subscribed: true }])
-        expect(result.title).toEqual('Usage limit exceeded')
+        const result = buildUsageLimitReachedMessage([{ name: 'Inbox', subscribed: true }])
+        expect(result.title).toEqual('Usage limit reached')
         expect(result.message).toEqual(
-            'You have exceeded the usage limit for Inbox. Please increase your billing limit or Inbox agents will be paused.'
+            'You have reached the usage limit for Inbox. Please increase your billing limit or Inbox agents will be paused.'
         )
     })
 
     it('should build message for PostHog AI with other products', () => {
-        const result = buildUsageLimitExceededMessage([
+        const result = buildUsageLimitReachedMessage([
             { name: 'PostHog AI', subscribed: true },
             { name: 'Session replay', subscribed: true },
         ])
-        expect(result.title).toEqual('Usage limits exceeded')
+        expect(result.title).toEqual('Usage limits reached')
         expect(result.message).toEqual(
-            'You have exceeded the usage limit for PostHog AI and Session replay. Please increase your billing limit or PostHog AI will be unavailable and data loss may occur.'
+            'You have reached the usage limit for PostHog AI and Session replay. Please increase your billing limit or PostHog AI will be unavailable and data loss may occur.'
         )
     })
 
     it('should deduplicate consequences for products with same consequence', () => {
-        const result = buildUsageLimitExceededMessage([
+        const result = buildUsageLimitReachedMessage([
             { name: 'Session replay', subscribed: true },
             { name: 'Product analytics', subscribed: true },
         ])
         expect(result.message).toEqual(
-            'You have exceeded the usage limit for Session replay and Product analytics. Please increase your billing limit or data loss may occur.'
+            'You have reached the usage limit for Session replay and Product analytics. Please increase your billing limit or data loss may occur.'
         )
     })
 
     it('should use upgrade message when any product is not subscribed', () => {
-        const result = buildUsageLimitExceededMessage([
+        const result = buildUsageLimitReachedMessage([
             { name: 'Session replay', subscribed: true },
             { name: 'Feature flags & Experiments', subscribed: false },
         ])
@@ -558,13 +558,13 @@ describe('buildUsageLimitExceededMessage', () => {
     ])(
         'should use "$expected" when hasBillingAccess=$hasBillingAccess and subscribed=$subscribed',
         ({ hasBillingAccess, subscribed, expected }) => {
-            const result = buildUsageLimitExceededMessage([{ name: 'Session replay', subscribed }], hasBillingAccess)
+            const result = buildUsageLimitReachedMessage([{ name: 'Session replay', subscribed }], hasBillingAccess)
             expect(result.message).toContain(expected)
         }
     )
 
     it('should say "owner" when minimumBillingAccessLevel is Owner and user has no billing access', () => {
-        const result = buildUsageLimitExceededMessage(
+        const result = buildUsageLimitReachedMessage(
             [{ name: 'Session replay', subscribed: true }],
             false,
             OrganizationMembershipLevel.Owner
@@ -573,7 +573,7 @@ describe('buildUsageLimitExceededMessage', () => {
     })
 
     it('should default to admin message when hasBillingAccess is not provided', () => {
-        const result = buildUsageLimitExceededMessage([{ name: 'Session replay', subscribed: true }])
+        const result = buildUsageLimitReachedMessage([{ name: 'Session replay', subscribed: true }])
         expect(result.message).toContain('increase your billing limit')
     })
 })

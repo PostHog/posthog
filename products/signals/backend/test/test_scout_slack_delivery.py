@@ -4,8 +4,10 @@ from unittest.mock import MagicMock, patch
 
 from django.apps import apps
 from django.conf import settings
+from django.test import SimpleTestCase
 
 from celery.exceptions import Retry
+from parameterized import parameterized
 from slack_sdk.errors import SlackApiError
 
 from posthog.models import Team
@@ -14,10 +16,28 @@ from posthog.models.integration import Integration
 from products.signals.backend.models import SignalReport, SignalScoutEmission, SignalScoutRun
 from products.signals.backend.scout_harness.slack_delivery import (
     ScoutSlackPermanentDeliveryError,
+    get_scout_slack_destination,
     post_scout_emission_to_slack,
 )
 from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
 from products.signals.backend.tasks import deliver_scout_slack_output, enqueue_scout_slack_delivery
+
+
+class TestGetScoutSlackDestination(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("explicit_true", {"thread_reports": True}, True),
+            ("omitted_defaults_off", {}, False),
+            ("explicit_false", {"thread_reports": False}, False),
+            # Only a real boolean True turns threading on; a truthy non-bool stays off.
+            ("truthy_non_bool_stays_off", {"thread_reports": "yes"}, False),
+        ]
+    )
+    def test_parses_thread_reports(self, _name: str, extra: dict, expected: bool) -> None:
+        destination = get_scout_slack_destination({"slack": {"integration_id": 7, "channel": "C1|#x", **extra}})
+
+        assert destination is not None
+        assert destination.thread_reports is expected
 
 
 class FakeSlackResponse(dict):
@@ -201,6 +221,161 @@ class TestScoutSlackDelivery(BaseTest):
 
         assert delay.call_args_list[0].kwargs == {}
         assert delay.call_args_list[1].kwargs == {"edit_note": "Re-validated on the next run"}
+
+    def test_enqueue_omits_thread_reports_kwarg_when_off(self) -> None:
+        # Same backward-compat contract as edit_note: the flag rides as a kwarg only when on, so a
+        # worker on the previous task signature never sees an unknown keyword for a default delivery.
+        with patch.object(deliver_scout_slack_output, "delay") as delay:
+            enqueue_scout_slack_delivery(
+                team_id=self.team.id,
+                output_type="report",
+                output_id="ddab8ee5-2bb8-4226-b145-6732d31dc344",
+                run_id="e3865391-bc89-44e6-86f7-2d4405627daf",
+                delivery_id="b316c1d1-6901-49eb-8223-96d4df69f67f",
+                integration_id=9,
+                channel="CSCOUTS|#scout-findings",
+            )
+            enqueue_scout_slack_delivery(
+                team_id=self.team.id,
+                output_type="report",
+                output_id="ddab8ee5-2bb8-4226-b145-6732d31dc344",
+                run_id="e3865391-bc89-44e6-86f7-2d4405627daf",
+                delivery_id="c4f7d2e2-7012-4afc-9334-a7e5df70a80a",
+                integration_id=9,
+                channel="CSCOUTS|#scout-findings",
+                thread_reports=True,
+            )
+
+        assert delay.call_args_list[0].kwargs == {}
+        assert delay.call_args_list[1].kwargs == {"thread_reports": True}
+
+    def test_threaded_report_posts_lead_and_delivers_the_full_tail(self) -> None:
+        # The bug: a summary past the section cap was truncated with an ellipsis, so the tail never
+        # reached the channel. With thread_reports on, the lead posts to the channel and the rest
+        # rides as threaded replies, so a distinctive tail marker still arrives.
+        emission = self._make_emission()
+        tail_marker = "TAIL_MARKER_9137"
+        summary = (
+            "Lead paragraph before any heading.\n\n"
+            "## First finding\n" + ("First body line.\n" * 400) + "\n"
+            "## Second finding\n" + ("Second body line.\n" * 400) + f"\nClosing note {tail_marker}."
+        )
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary=summary,
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000500"}
+
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                "01864f4c-6957-7d3f-8d85-1d775e527265",
+                integration.id,
+                "CSCOUTS|#scout-findings",
+                thread_reports=True,
+            )
+
+        calls = fake_client.chat_postMessage.call_args_list
+        lead = calls[0].kwargs
+        assert "thread_ts" not in lead
+        assert lead["blocks"][1]["text"]["text"] == "Checkout failures"
+        replies = calls[1:]
+        assert len(replies) > 1
+        assert all(reply.kwargs["thread_ts"] == "1785418710.000500" for reply in replies)
+        # Every posted section stays within the cap, and nothing is ellipsis-truncated.
+        section_texts = [
+            block["text"]["text"] for call in calls for block in call.kwargs["blocks"] if block["type"] == "section"
+        ]
+        assert all(len(text) <= 2900 for text in section_texts)
+        assert not any(text.endswith("…") for text in section_texts)
+        assert any(tail_marker in text for text in section_texts)
+
+    def test_threaded_short_report_with_headings_posts_a_single_message(self) -> None:
+        # Threading must track content size, not heading count: a short report that fits one Slack
+        # section posts as one message however many headings it has, so it never floods a thread.
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="Lead line.\n\n## First\nshort body\n\n## Second\nshort body",
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000600"}
+
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                "01864f4c-6957-7d3f-8d85-1d775e527265",
+                integration.id,
+                "CSCOUTS|#scout-findings",
+                thread_reports=True,
+            )
+
+        # Only the lead message and the unconditional @PostHog follow-up reply — no per-heading replies.
+        calls = fake_client.chat_postMessage.call_args_list
+        assert len(calls) == 2
+        assert "thread_ts" not in calls[0].kwargs
+        section_texts = [block["text"]["text"] for block in calls[0].kwargs["blocks"] if block["type"] == "section"]
+        assert len(section_texts) == 1
+        assert "First" in section_texts[0] and "Second" in section_texts[0]
+        assert calls[1].kwargs["blocks"][0]["type"] == "context"
+
+    def test_threaded_report_packs_many_small_headings_into_few_replies(self) -> None:
+        # A report past the section cap made of many small heading sections must pack adjacent
+        # sections up to the Slack limit, not post one reply per heading. Otherwise the reply count
+        # tracks heading count and a heading-dense report bursts a request per heading into the thread.
+        emission = self._make_emission()
+        heading_count = 50
+        summary = "".join(
+            f"## Section {i}\nBody line for section {i} with a bit of detail to add length.\n\n"
+            for i in range(heading_count)
+        )
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary=summary,
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.return_value = {"ts": "1785418710.000700"}
+
+        with patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration:
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                "01864f4c-6957-7d3f-8d85-1d775e527265",
+                integration.id,
+                "CSCOUTS|#scout-findings",
+                thread_reports=True,
+            )
+
+        calls = fake_client.chat_postMessage.call_args_list
+        section_texts = [
+            block["text"]["text"] for call in calls for block in call.kwargs["blocks"] if block["type"] == "section"
+        ]
+        # Packed: far fewer sections than headings, each within the cap, and no section is dropped.
+        assert len(section_texts) < heading_count // 5
+        assert all(len(text) <= 2900 for text in section_texts)
+        joined = "\n".join(section_texts)
+        assert all(f"Section {i}" in joined for i in range(heading_count))
 
     def test_reply_posted_regardless_of_ai_approval(self) -> None:
         # The Slack follow-up invite is unconditional — no AI-approval gate on scout output.

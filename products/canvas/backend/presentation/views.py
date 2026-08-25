@@ -304,11 +304,9 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 )
             else:
                 actor_canvas_q = Q(created_by_id=user.id) & tasks_facade.visible_channels_q(user.id, relation="channel")
-                task_canvas_q = Q(generation_task_id=sandbox_task_id)
+                can_use_visible_canvas = self.action in [*self.scope_object_read_actions, "set_state"]
                 queryset = queryset.filter(
-                    public_canvas_q | actor_canvas_q
-                    if self.action in self.scope_object_read_actions
-                    else actor_canvas_q | task_canvas_q
+                    public_canvas_q | actor_canvas_q if can_use_visible_canvas else actor_canvas_q
                 )
         else:
             # Channels are per-user for the personal kind: the facade's visibility
@@ -396,7 +394,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         responses={200: CanvasSerializer},
     )
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        """Update canvas metadata (name, author context, pin, generation-task pointer)."""
+        """Update canvas metadata, including the space it belongs to."""
         canvas = self.get_object()
         payload = CanvasUpdateSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
@@ -424,6 +422,29 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 record("description", canvas.description, data["description"])
             canvas.description = data["description"]
             update_fields.append("description")
+        if "channel_id" in data:
+            channel_id = data["channel_id"]
+            user = self._request_user()
+            if not tasks_facade.channel_exists(self.team_id, channel_id, user.id if user else None):
+                return Response({"detail": "Channel not found in this team."}, status=status.HTTP_400_BAD_REQUEST)
+            if self._is_sandbox_authenticated(request):
+                sandbox_task_id = self._sandbox_task_id(request)
+                task_channel_id = (
+                    tasks_facade.task_channel_id(sandbox_task_id, self.team_id) if sandbox_task_id else None
+                )
+                if task_channel_id != channel_id:
+                    return Response(
+                        {"detail": "This sandbox can file canvases only in its task's space."},
+                        status=status.HTTP_403_FORBIDDEN,
+                    )
+            if channel_id != canvas.channel_id:
+                record("channel", str(canvas.channel_id), str(channel_id))
+                if canvas.pinned_at is not None:
+                    record("pinned", True, False)
+                    canvas.pinned_at = None
+                    update_fields.append("pinned_at")
+            canvas.channel_id = channel_id
+            update_fields.append("channel_id")
         if "pinned" in data:
             was_pinned = canvas.pinned_at is not None
             if data["pinned"] != was_pinned:
@@ -1571,14 +1592,7 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         return build
 
     def _state_actor(self, request: Request) -> User | None:
-        """The viewer whose state is read or written; None rejects the call.
-
-        Sandboxes are excluded by design: runtime state belongs to viewer
-        sessions, and the authoring agent works with it through the source
-        code it publishes, not by writing rows.
-        """
-        if self._is_sandbox_authenticated(request):
-            return None
+        """The user whose personal state is read or written."""
         return self._request_user()
 
     @extend_schema(
@@ -1676,15 +1690,15 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         ],
         responses={
             200: CanvasStateResponseSerializer,
-            403: OpenApiResponse(description="Canvas state is a viewer surface; sandbox tokens cannot use it."),
+            403: OpenApiResponse(description="Canvas state requires an authenticated user."),
         },
     )
     @action(methods=["GET"], detail=True)
     def state(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """Read the canvas's runtime key-value state (the ph.state store).
 
-        Returns the canvas's shared entries plus the caller's own user-scoped
-        entries — never another viewer's.
+        Returns shared entries plus the authenticated user's own user-scoped
+        entries — never another user's.
         """
         canvas = self.get_object()
         user = self._state_actor(request)
@@ -1695,11 +1709,10 @@ class CanvasViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # stops reads of previously written entries.
         version = canvas.current_source_version
         declared = declared_state_scopes(version.capabilities if version else None)
-        entries = (
-            CanvasState.objects.for_team(self.team_id)
-            .filter(canvas=canvas, scope__in=declared)
-            .filter(Q(scope=CanvasState.SCOPE_SHARED, user__isnull=True) | Q(scope=CanvasState.SCOPE_USER, user=user))
+        readable_entries = Q(scope=CanvasState.SCOPE_SHARED, user__isnull=True) | Q(
+            scope=CanvasState.SCOPE_USER, user=user
         )
+        entries = CanvasState.objects.for_team(self.team_id).filter(readable_entries, canvas=canvas, scope__in=declared)
         scope = request.query_params.get("scope")
         if scope:
             if scope not in CanvasState.SCOPES:

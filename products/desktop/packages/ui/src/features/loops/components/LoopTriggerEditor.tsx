@@ -32,8 +32,8 @@ import {
   ToggleGroup,
   ToggleGroupItem,
 } from "@posthog/quill";
-import { CopyButton } from "@posthog/ui/features/agent-applications/components/CopyButton";
 import { SettingsOptionSelect } from "@posthog/ui/features/settings/SettingsOptionSelect";
+import { CopyButton } from "@posthog/ui/primitives/CopyButton";
 import { TimezonePicker } from "@posthog/ui/primitives/TimezonePicker";
 import { TimezoneTimestamp } from "@posthog/ui/primitives/TimezoneTimestamp";
 import {

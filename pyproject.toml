@@ -63,7 +63,7 @@ dependencies = [
     "google-cloud-bigquery-storage==2.32.0",
     "google-cloud-iam==2.21",
     "google-genai==1.46.0",
-    "granian[uvloop,reload,pname]==2.7.6",
+    "granian[uvloop,reload,pname]==2.8.2",
     "grimp~=3.14",
     "grpcio~=1.71.0",
     "gspread==6.2.1",
@@ -100,7 +100,7 @@ dependencies = [
     "paramiko~=3.5.0",
     "pillow==12.2.0",
     "protobuf~=5.29.6",
-    "posthoganalytics==7.39.2",
+    "posthoganalytics==7.43.0",
     "polars==1.37.1",
     "psycopg2-binary==2.9.10",
     "psycopg[binary]==3.2.4",
@@ -295,7 +295,12 @@ hogql-parser-parity = [
 required-version = ">=0.10.2"
 add-bounds = "major"
 exclude-newer = "7 days"
-exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false }
+# TEMPORARY, remove before merging: granian 2.8.2 was published 2026-08-23 and
+# the rolling 7-day cutoff hides it until 2026-08-30. We need 2.8.2 rather than
+# 2.8.1 because it fixes a lost-wakeup race in workers shutdown, which our
+# multi-worker pools hit constantly via worker recycling. Drop this entry and
+# re-lock once the cutoff passes; the resolved version does not change.
+exclude-newer-package = { granian = false, hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false }
 
 [tool.uv.workspace]
 members = ["tools/hogli", "tools/owners"]
@@ -509,6 +514,7 @@ exclude = [
 
 [tool.importlinter]
 root_packages = ["products"]
+include_external_packages = true
 
 # Presentation must only reach product internals through the facade.
 # Forbid all backend imports, then allowlist facade + self-imports.
@@ -527,6 +533,13 @@ ignore_imports = [
     "products.**.backend.presentation.** -> products.**.backend.facade.**",
     "products.**.backend.presentation.** -> products.**.backend.presentation.**",
     # TODO: existing violations — fix by routing through facade
+    "products.alerts.backend.presentation.views.alert -> products.alerts.backend.destination_configs",
+    "products.alerts.backend.presentation.views.alert -> products.alerts.backend.destinations",
+    "products.alerts.backend.presentation.views.alert -> products.alerts.backend.evaluation.contract",
+    "products.alerts.backend.presentation.views.alert -> products.alerts.backend.evaluation.detector",
+    "products.alerts.backend.presentation.views.alert -> products.alerts.backend.evaluation.validation",
+    "products.alerts.backend.presentation.views.alert -> products.alerts.backend.insight_alert_state_machine",
+    "products.alerts.backend.presentation.views.alert -> products.alerts.backend.models.alert",
     "products.mcp_analytics.backend.presentation.views -> products.mcp_analytics.backend.logic",
     "products.mcp_analytics.backend.presentation.views -> products.mcp_analytics.backend.models",
     "products.mcp_analytics.backend.presentation.serializers -> products.mcp_analytics.backend.models",
@@ -593,6 +606,7 @@ ignore_imports = [
     "products.logs.backend.presentation.views.sampling_api -> products.logs.backend.models",
     "products.logs.backend.presentation.views.views_api -> products.logs.backend.models",
     "products.logs.backend.presentation.views.anomalies_api -> products.logs.backend.anomaly_scan",
+    "products.logs.backend.presentation.views.anomalies_api -> products.logs.backend.series_bands",
     # logs presentation isolation (temporary): cross-product imports the moved viewsets
     # still make directly. These resolve once cdp/exports expose the needed facades, so
     # they outlive the in-product cleanup above.
@@ -620,26 +634,6 @@ ignore_imports = [
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.sql_v2_state",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.client",
     "products.notebooks.backend.presentation.views.notebook -> products.notebooks.backend.temporal.sql_v2",
-    # TODO: product_analytics presentation wave — newly surfaced debt from the backend/api/ →
-    # backend/presentation/ rename (same situation as experiments below), not new coupling. The
-    # insight viewset renders dashboard tiles, alert state, cohort filters and annotation context
-    # in-process; these drain as those products expose facades (or the rendering moves behind
-    # product_analytics' own facade). backend:contract-check stays off until this list is empty.
-    "products.product_analytics.backend.presentation.insight -> products.alerts.backend.api.alert",
-    "products.product_analytics.backend.presentation.insight -> products.alerts.backend.models.alert",
-    "products.product_analytics.backend.presentation.insight -> products.cohorts.backend.models.cohort",
-    "products.product_analytics.backend.presentation.insight -> products.dashboards.backend.access",
-    "products.product_analytics.backend.presentation.insight -> products.dashboards.backend.models.dashboard",
-    "products.product_analytics.backend.presentation.insight -> products.dashboards.backend.models.dashboard_tile",
-    "products.product_analytics.backend.presentation.insight_ee -> products.dashboards.backend.models.dashboard",
-    "products.product_analytics.backend.presentation.insight_suggestions -> products.annotations.backend.api.annotation_context",
-    "products.product_analytics.backend.presentation.test.test_insight -> products.alerts.backend.models.alert",
-    "products.product_analytics.backend.presentation.test.test_insight -> products.cohorts.backend.models.cohort",
-    "products.product_analytics.backend.presentation.test.test_insight -> products.dashboards.backend.access",
-    "products.product_analytics.backend.presentation.test.test_insight -> products.dashboards.backend.models.dashboard",
-    "products.product_analytics.backend.presentation.test.test_insight -> products.dashboards.backend.models.dashboard_tile",
-    "products.product_analytics.backend.presentation.test.test_deprecated_dashboards_field -> products.dashboards.backend.models.dashboard",
-    "products.product_analytics.backend.presentation.test.test_deprecated_dashboards_field -> products.dashboards.backend.models.dashboard_tile",
     # TODO: experiments presentation wave — these were invisible to import-linter until
     # backend/presentation/ got its package marker, so they are newly surfaced debt, not new
     # coupling. experiments is not isolated, so nothing was being skipped on their account.
@@ -697,7 +691,6 @@ ignore_imports = [
     # TODO: views still registered from backend/api/ — move them into presentation/ and drop the line
     "products.actions.backend.routes -> products.actions.backend.api.action",
     "products.ai_observability.backend.routes -> products.ai_observability.backend.api",
-    "products.alerts.backend.routes -> products.alerts.backend.api.alert",
     "products.annotations.backend.routes -> products.annotations.backend.api.annotation",
     "products.approvals.backend.routes -> products.approvals.backend.api",
     "products.batch_exports.backend.routes -> products.batch_exports.backend.api.batch_export",
@@ -734,9 +727,6 @@ ignore_imports = [
     "products.messaging.backend.routes -> products.messaging.backend.api.message_suppression",
     "products.messaging.backend.routes -> products.messaging.backend.api.message_templates",
     "products.posthog_ai.backend.routes -> products.posthog_ai.backend.api",
-    # product_analytics registers the alerts viewset under insights; that moves with alerts'
-    # own routes.py and presentation/ (cross-product ownership is tach's concern, not this one)
-    "products.product_analytics.backend.routes -> products.alerts.backend.api.alert",
     "products.product_tours.backend.routes -> products.product_tours.backend.api",
     "products.pulse.backend.routes -> products.pulse.backend.api.brief",
     "products.reminders.backend.routes -> products.reminders.backend.api.reminder",
@@ -758,6 +748,37 @@ ignore_imports = [
     "products.workflows.backend.routes -> products.workflows.backend.api.hog_flow",
     "products.workflows.backend.routes -> products.workflows.backend.api.hog_flow_template",
     "products.workflows.backend.routes -> products.workflows.backend.api.workflow_tasks",
+]
+
+# The facade is the layer below presentation. A facade that imports its product's presentation
+# inverts the layering (and drags DRF onto every consumer's import path); a facade that imports
+# DRF is presentation in disguise. Only direct imports are checked (allow_indirect_imports is
+# forced — without it import-linter rejects the wildcard modules as having shared descendants),
+# so DRF reached through an internal module stays green: this enforces the layering norm, not a
+# transitive guarantee. See products/architecture.md § Wiring couplings.
+[[tool.importlinter.contracts]]
+name = "facade must not import presentation or DRF"
+type = "forbidden"
+source_modules = ["products.*.backend.facade"]
+forbidden_modules = [
+    "products.*.backend.presentation",
+    "rest_framework",
+]
+allow_indirect_imports = true
+ignore_imports = [
+    # TODO: existing violations — move the presentation-shaped code out of the facade, or the
+    # facade-shaped code out of presentation, and drop the line
+    "products.alerts.backend.facade.api -> products.alerts.backend.presentation.views.alert",
+    "products.alerts.backend.facade.api -> products.alerts.backend.presentation.views.alert_schedule_restriction",
+    "products.managed_warehouse.backend.facade.api -> products.managed_warehouse.backend.presentation.views",
+    "products.stamphog.backend.facade.webhooks -> products.stamphog.backend.presentation.webhooks",
+    "products.tasks.backend.facade.api -> products.tasks.backend.presentation.serializers",
+    "products.billing_alerts.backend.facade.api -> rest_framework",
+    "products.dashboards.backend.facade.api -> rest_framework",
+    "products.experiments.backend.facade.api -> rest_framework",
+    "products.feature_flags.backend.facade.api -> rest_framework",
+    "products.tasks.backend.facade.api -> rest_framework",
+    "products.tasks.backend.facade.client_provenance -> rest_framework",
 ]
 
 [tool.ty.rules]

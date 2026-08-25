@@ -73,6 +73,7 @@ class _ResourceDisplayModel:
 # resource, since ENTITY_MAP is consulted first and the entry goes dead. A resource in neither place
 # and with no derivable name field is left out of the picker and falls back to the raw id.
 _MODELS_NOT_IN_ENTITY_MAP: dict[str, _ResourceDisplayModel] = {
+    "evaluation": _ResourceDisplayModel(app_label="ai_observability", model_name="evaluation", name_field="name"),
     "warehouse_view": _ResourceDisplayModel(
         app_label="data_modeling", model_name="datawarehousesavedquery", name_field="name"
     ),

@@ -6,6 +6,9 @@ from rest_framework import serializers
 
 from posthog.api.documentation import PropertyItemSerializer, extend_schema_field
 
+from products.error_tracking.backend.facade import contracts
+from products.error_tracking.backend.presentation.views.issues import ErrorTrackingIssueSeverityField
+
 STRING_OR_STRING_LIST_SCHEMA = {
     "oneOf": [
         {"type": "string"},
@@ -259,6 +262,12 @@ class ErrorTrackingIssueListItemSerializer(serializers.Serializer):
     name = serializers.CharField(required=False, allow_null=True, help_text="Issue name.")
     description = serializers.CharField(required=False, allow_null=True, help_text="Issue description.")
     status = serializers.CharField(required=False, help_text="Issue status.")
+    severity = ErrorTrackingIssueSeverityField(
+        choices=contracts.ERROR_TRACKING_ISSUE_SEVERITIES,
+        required=False,
+        allow_null=True,
+        help_text="Issue severity, or null when no severity is assigned.",
+    )
     first_seen = serializers.DateTimeField(required=False, allow_null=True, help_text="First seen timestamp.")
     last_seen = serializers.DateTimeField(required=False, allow_null=True, help_text="Last seen timestamp.")
     library = serializers.CharField(required=False, allow_null=True, help_text="SDK/library associated with the issue.")

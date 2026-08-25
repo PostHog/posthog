@@ -289,6 +289,7 @@ def kind_fallback_tags(kind: NodeKind) -> FallbackTags | None:
             | NodeKind.MCP_TOOL_QUALITY_DAILY_STATS_QUERY
             | NodeKind.MCP_TOOL_CATEGORY_COUNTS_QUERY
             | NodeKind.MCP_TOOL_CATEGORIES_QUERY
+            | NodeKind.MCP_TOOL_CATEGORY_MAP_QUERY
             | NodeKind.MCP_TOOL_DESCRIPTIONS_QUERY
             | NodeKind.MCP_TOOL_SAMPLE_INTENTS_QUERY
             | NodeKind.MCP_TOOL_NEIGHBORS_QUERY

@@ -1,7 +1,7 @@
 import { useMountedLogic, useValues } from 'kea'
 
 import { IconTrash } from '@posthog/icons'
-import { LemonButton, LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { SlackChannelPicker } from 'lib/integrations/SlackIntegrationHelpers'
@@ -41,7 +41,27 @@ export function ScoutSlackDestination({
             return
         }
         onChange({
-            slack: { integration_id: selectedIntegration.id, channel },
+            slack: {
+                integration_id: selectedIntegration.id,
+                channel,
+                thread_reports: destination?.thread_reports ?? false,
+            },
+        })
+    }
+
+    const setThreadReports = (threadReports: boolean): void => {
+        // Toggle threading only against the stored destination's own workspace. Writing a fallback
+        // integration id next to the stored channel would pair the channel with a different
+        // workspace and break delivery, so require the configured integration to resolve here.
+        if (!configuredIntegration || !destination?.channel) {
+            return
+        }
+        onChange({
+            slack: {
+                integration_id: configuredIntegration.id,
+                channel: destination.channel,
+                thread_reports: threadReports,
+            },
         })
     }
 
@@ -106,6 +126,17 @@ export function ScoutSlackDestination({
                             : 'Pick a channel to turn notifications on. PostHog must be in the channel. Invite it with '}
                         <code>/invite @PostHog</code>.
                     </span>
+                    {configuredIntegration && hasChannel ? (
+                        <LemonSwitch
+                            size="small"
+                            checked={destination?.thread_reports ?? false}
+                            onChange={setThreadReports}
+                            disabledReason={disabledReason}
+                            label="Post long reports as a thread"
+                            tooltip="Post a short lead in the channel and split the rest by the report's headings into replies, so a long summary is not cut off."
+                            bordered
+                        />
+                    ) : null}
                 </div>
             )}
         </div>

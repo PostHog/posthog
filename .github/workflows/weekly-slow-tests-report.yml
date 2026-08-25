@@ -1,0 +1,72 @@
+name: Weekly slow test report
+
+# Posts the week's slowest passing tests to #flakey-tests every Monday, tagging the
+# people who last edited each test. PULL model, sibling of weekly-flaky-report.yml:
+# the script reads the passing test spans CI already ships to PostHog (see
+# .github/scripts/report_test_timings.py), resolves owners through tools/owners and
+# recent editors through the GitHub commits API, and relays one table to Slack via
+# the DevEx bot.
+#
+# Requires (no-ops with a warning until set, so it never spams failures):
+#   - vars.ENG_ANALYTICS_PROJECT_ID — the PostHog project the CI timing spans land in.
+#   - secrets.ENG_ANALYTICS_POSTHOG_API_KEY — a personal API key scoped to query:read
+#     for that project (the script queries the trace_spans store directly).
+#   - secrets.SLACK_DEVEX_BOT_TOKEN — the existing DevEx Slack bot. The users.list and
+#     users.lookupByEmail lookups degrade to plain GitHub links if the bot lacks
+#     users:read / users:read.email.
+# GITHUB_TOKEN is the default Actions token: it only lists commits by path
+# (contents:read) to find each test file's recent editors.
+
+on:
+    schedule:
+        - cron: '30 13 * * 1' # Mondays 13:30 UTC, staggered after the flaky report
+    workflow_dispatch:
+        inputs:
+            dry_run:
+                description: 'Print the report blocks instead of posting to Slack'
+                type: boolean
+                default: true
+
+permissions:
+    contents: read
+
+jobs:
+    report:
+        runs-on: ubuntu-latest
+        # Worst case mirrors the flaky report: 3 HogQL attempts x 150s abort plus 2 x 30s
+        # backoffs (~8.5min), plus checkout, owner resolution, and the editor lookups.
+        timeout-minutes: 12
+        # Never run from forks (no secret access anyway), only the canonical repo.
+        # Manual dispatch is master-only so branch-controlled code can't run with the secrets.
+        if: >-
+            github.repository == 'PostHog/posthog' &&
+            (github.event_name != 'workflow_dispatch' || github.ref == 'refs/heads/master')
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github/scripts/weekly-slow-tests-report.mjs
+                      .github/scripts/weekly-report-common.mjs
+                      .nvmrc
+                      tools/owners
+                      owners.yaml
+                      **/owners.yaml
+                      **/product.yaml
+                  sparse-checkout-cone-mode: false
+
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+
+            - name: Install owners resolver dependency
+              run: python3 -m pip install --quiet pyyaml
+
+            - name: Build and post weekly slow tests report
+              # POSTHOG_HOST and SLACK_CHANNEL (#flakey-tests) ride the script's defaults.
+              env:
+                  POSTHOG_PROJECT_ID: ${{ vars.ENG_ANALYTICS_PROJECT_ID }}
+                  POSTHOG_API_KEY: ${{ secrets.ENG_ANALYTICS_POSTHOG_API_KEY }}
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  SLACK_BOT_TOKEN: ${{ secrets.SLACK_DEVEX_BOT_TOKEN }}
+                  DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+              run: node .github/scripts/weekly-slow-tests-report.mjs

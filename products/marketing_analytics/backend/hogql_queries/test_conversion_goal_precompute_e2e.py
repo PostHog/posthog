@@ -6,7 +6,7 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from posthog.schema import AttributionMode, BaseMathType, ConversionGoalFilter1
+from posthog.schema import AttributionMode, BaseMathType, ConversionGoalFilter1, MarketingAnalyticsDrillDownLevel
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -244,6 +244,61 @@ class TestConversionGoalPrecomputeEquivalence(ClickhouseTestMixin, APIBaseTest):
 
         assert preagg_rows, f"{attribution_mode}: precompute returned no rows for a non-UTC team"
         assert _round_rows(direct_rows) == _round_rows(preagg_rows)
+
+    @parameterized.expand([(False,), (True,)])
+    def test_utm_field_arrays_stay_index_parallel_when_a_touchpoint_lacks_the_grouped_field(self, precompute: bool):
+        """Every per-field UTM array is read positionally against `utm_timestamps`, so element k of
+        each must belong to touchpoint k.
+
+        The only tracked fields guaranteed non-empty on a touchpoint are campaign and source — they
+        are the qualifier, on both the pageview filter and the precompute WHERE. The other seven are
+        routinely empty, and when a per-field array was built with `arrayFilter(notEmpty, ...)` while
+        the timestamps array was not, the missing element shifted every later one onto the wrong
+        touchpoint. Here the middle touchpoint carries no `utm_medium`, so a shifted array reports the
+        wrong medium (or none) for a last-touch conversion whose real medium is `display`.
+
+        Parametrized over both paths on purpose: the `notEmpty`-filtered arrays existed in the direct
+        builder *and* in the precompute read builder, and only one of them runs with the flag off.
+        """
+        # June 2024, clear of every other test's window in this class: ClickHouse events are not
+        # truncated between tests here, so a journey seeded inside the shared January window leaks into
+        # the direct/precompute equivalence assertions.
+        _create_person(distinct_ids=["user_gap"], team=self.team)
+        for day, medium in ((3, "cpc"), (6, None), (9, "display")):
+            properties = {"utm_campaign": "always_tagged", "utm_source": "google"}
+            if medium is not None:
+                properties["utm_medium"] = medium
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="user_gap",
+                timestamp=datetime(2024, 6, day, 10, 0, tzinfo=UTC),
+                properties=properties,
+            )
+        _create_event(
+            team=self.team,
+            event="purchase",
+            distinct_id="user_gap",
+            timestamp=datetime(2024, 6, 12, 10, 0, tzinfo=UTC),
+            properties={"value": 10},
+        )
+        flush_persons_and_events()
+
+        processor = self._make_processor(precompute=precompute)
+        processor.config.drill_down_level = MarketingAnalyticsDrillDownLevel.MEDIUM
+        rows = self._execute(
+            processor.generate_cte_query(
+                additional_conditions=[],
+                date_from=datetime(2024, 6, 1, tzinfo=UTC),
+                date_to=datetime(2024, 6, 30, tzinfo=UTC),
+            )
+        )
+
+        # Row shape at a UTM level: [match_key, grouped UTM value, id, source, conversion].
+        # Membership rather than an exact row set: no other journey in this class uses `display`, so its
+        # presence is exactly the invariant, and the assertion can't be broken by leaked events.
+        mediums = {row[1] for row in rows}
+        assert "display" in mediums, f"last touch carried utm_medium=display; the medium array is misaligned: {rows}"
 
     def test_reused_wide_job_excludes_out_of_range_conversions(self):
         _create_person(distinct_ids=["user_dec"], team=self.team)

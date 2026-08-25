@@ -46,7 +46,7 @@ class TestLinkedinAdsClient:
         assert result == [{"id": "123", "name": "Test Account"}]
         mock_client_instance.finder.assert_called_once()
 
-    @pytest.mark.parametrize("api_version", ["202508", "202606", "202607"])
+    @pytest.mark.parametrize("api_version", ["202508", "202606", "202607", "202608"])
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.linkedin_ads.client.RestliClient")
     def test_request_sends_configured_api_version(self, mock_restli_client, api_version):
         """The configured version must reach the Restli `version_string`, else every request hits

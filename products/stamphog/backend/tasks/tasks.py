@@ -22,7 +22,13 @@ from celery import shared_task
 from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.instance_setting import get_instance_setting
 
-from products.stamphog.backend.facade.enums import TERMINAL_STATUSES, ReviewMode, ReviewRunStatus, ReviewVerdict
+from products.stamphog.backend.facade.enums import (
+    TERMINAL_STATUSES,
+    ReviewMode,
+    ReviewRunStatus,
+    ReviewTrigger,
+    ReviewVerdict,
+)
 from products.stamphog.backend.facade.inbox_hooks import get_inbox_acting_reviewer_resolver
 from products.stamphog.backend.logic.approval_retention import (
     MAX_RETAINED_HEADS,
@@ -33,6 +39,7 @@ from products.stamphog.backend.logic.approval_retention import (
 from products.stamphog.backend.logic.approvals import dismiss_stale_approvals_for_head
 from products.stamphog.backend.logic.audiences import ResolvedAudience, resolve_audiences
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
+from products.stamphog.backend.logic.review_trigger import derive_review_trigger
 from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.temporal.client import execute_stamphog_review_workflow
 from products.tasks.backend.facade.api import find_signal_implementation_run
@@ -799,7 +806,7 @@ def _record_merged_pull_request(payload: dict[str, Any], delivery_id: str) -> No
         # landed and its ownership names the teams whose code moved. The digest has neither.
         pr_obj.summary_line = approving_run.change_summary
         update_fields.append("summary_line")
-        audiences = resolve_audiences(repo_config, pr, approving_run.gate_result)
+        audiences = resolve_audiences(repo_config, approving_run.gate_result)
     else:
         audiences = []
     if not audiences:
@@ -1304,7 +1311,15 @@ def process_pull_request_event(payload: dict[str, Any], delivery_id: str) -> Non
                 status=ReviewRunStatus.QUEUED,
                 # Inbox provenance for a carved-out re-review. The engine turns on its self-driving
                 # behavior from this, and it attributes the run in the UI and analytics.
-                output={"inbox_review": inbox_review} if inbox_review is not None else {},
+                # review_trigger is stamped now, not derived when the sandbox runs: the reviewer is
+                # told this as fact in its trusted block, and re-deriving it later would read a
+                # review_mode an admin may have changed since this delivery was admitted.
+                output={
+                    **({"inbox_review": inbox_review} if inbox_review is not None else {}),
+                    "review_trigger": derive_review_trigger(
+                        has_inbox_review=inbox_review is not None, review_mode=repo_config.review_mode
+                    ).value,
+                },
             )
             # Only start the workflow once the row is durably committed — an aborted
             # transaction must not leave a workflow chasing a run that never existed.
@@ -1514,7 +1529,8 @@ def process_inbox_pr_review(
                 head_sha=head_sha,
                 delivery_id=None,
                 status=ReviewRunStatus.QUEUED,
-                output={"inbox_review": inbox_review},
+                # Always self-driving on this leg: it exists only for inbox-linked PRs.
+                output={"inbox_review": inbox_review, "review_trigger": ReviewTrigger.SELF_DRIVING.value},
             )
             review_run_id = str(review_run.id)
             # A post-commit start failure propagates into the retry below; the retry re-enters

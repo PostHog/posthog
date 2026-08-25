@@ -3,11 +3,12 @@ import uuid
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.contrib.messages import get_messages
 from django.urls import reverse
 
 from posthog.admin import register_all_admin
 
-from products.tasks.backend.models import Channel, CodeInvite, Task, TaskRun
+from products.tasks.backend.models import Channel, CodeInvite, Loop, Task, TaskRun
 
 register_all_admin()
 
@@ -129,3 +130,77 @@ class TestCodeInviteAdminExpireAction(BaseTest):
         other.refresh_from_db()
         self.assertIsNotNone(selected.expires_at)
         self.assertIsNone(other.expires_at)
+
+
+class TestLoopAdminPauseAction(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.client.force_login(self.user)
+        self.mock_pause_schedules = patch("products.tasks.backend.loop_lifecycle.pause_loop_schedules").start()
+        self.mock_dispatch = patch("products.tasks.backend.loop_lifecycle.dispatch_loop_event").start()
+        self.addCleanup(patch.stopall)
+        self.enabled = self._loop("enabled")
+        self.already_paused = self._loop("already paused", enabled=False)
+        self.deleted = self._loop("deleted", deleted=True)
+        self.unselected = self._loop("unselected")
+
+    def _loop(self, name: str, **overrides: object) -> Loop:
+        fields: dict[str, object] = {
+            "team": self.team,
+            "created_by": self.user,
+            "name": name,
+            "instructions": "Summarize",
+            "runtime_adapter": "claude",
+            "model": "claude-sonnet-5",
+            "enabled": True,
+        }
+        fields.update(overrides)
+        return Loop.objects.unscoped().create(**fields)
+
+    def _pause(self, *loops: Loop) -> list[str]:
+        resp = self.client.post(
+            reverse("admin:tasks_loop_changelist"),
+            {"action": "pause_loops", "_selected_action": [str(loop.id) for loop in loops]},
+        )
+        self.assertEqual(resp.status_code, 302)
+        return [notice.message for notice in get_messages(resp.wsgi_request)]
+
+    def _state(self, loop: Loop) -> tuple[bool, str | None]:
+        fresh = Loop.objects.unscoped().get(id=loop.id)
+        return fresh.enabled, fresh.disabled_reason
+
+    def test_pauses_selected_enabled_loops_only(self) -> None:
+        notices = self._pause(self.enabled, self.already_paused, self.deleted)
+
+        self.assertEqual(self._state(self.enabled), (False, "admin_paused"))
+        self.assertEqual(self._state(self.already_paused), (False, None))
+        self.assertEqual(self._state(self.deleted), (True, None))
+        self.assertEqual(self._state(self.unselected), (True, None))
+        self.assertEqual([call.args[0].id for call in self.mock_pause_schedules.call_args_list], [self.enabled.id])
+        self.mock_dispatch.assert_called_once()
+        self.assertEqual(self.mock_dispatch.call_args.args[2]["reason"], "admin_paused")
+        self.assertEqual(
+            notices,
+            ["Paused 1 of 3 selected loop(s). Loops that were already paused or deleted were left unchanged."],
+        )
+
+    def test_keeps_going_when_one_loop_fails(self) -> None:
+        failing = self._loop("failing")
+
+        def fail_for_failing(loop: Loop, event: str, payload: dict[str, object]) -> None:
+            if loop.id == failing.id:
+                raise RuntimeError("notifications down")
+
+        self.mock_dispatch.side_effect = fail_for_failing
+
+        notices = self._pause(failing, self.enabled)
+
+        self.assertEqual(self._state(self.enabled), (False, "admin_paused"))
+        # pause_loop saves the row before it notifies, so the failing loop is paused even though
+        # the action reports it as a failure. The report is deliberately the pessimistic one.
+        self.assertEqual(self._state(failing), (False, "admin_paused"))
+        self.assertEqual(len(notices), 2)
+        self.assertEqual(notices[0], "Paused 1 of 2 selected loop(s).")
+        self.assertIn(str(failing.id), notices[1])

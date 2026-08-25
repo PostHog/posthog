@@ -1,11 +1,13 @@
 from contextlib import contextmanager
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from rest_framework import exceptions
 
 from posthog.exceptions import Conflict, QuotaLimitExceeded
+from posthog.models.user import User
 
 from products.posthog_ai.backend.context_wrapper import MAX_ATTACHED_ITEMS, MAX_TEXT_LENGTH
 from products.posthog_ai.backend.message_routing import (
@@ -101,6 +103,31 @@ class TestOpenSandboxMessage(APIBaseTest):
         assert wf_kwargs["create_pr"] is False
         # The agent needs write scopes to create insights/dashboards/notebooks.
         assert wf_kwargs["posthog_mcp_scopes"] == "full"
+
+    def test_handoff_detaches_previous_owner_conversation(self):
+        new_owner = User.objects.create_user(
+            email="new-owner@example.com",
+            first_name="New owner",
+            password="password",
+        )
+        task = Task.objects.create(
+            team=self.team,
+            title="Transferred task",
+            created_by=new_owner,
+            origin_product=Task.OriginProduct.POSTHOG_AI,
+        )
+        self.conversation.task = task
+        self.conversation.sandbox_task_id = task.id
+        self.conversation.sandbox_run_id = task.id
+        self.conversation.save(update_fields=["task", "sandbox_task_id", "sandbox_run_id"])
+
+        with pytest.raises(exceptions.PermissionDenied):
+            self._service().open({"content": "Keep going"})
+
+        self.conversation.refresh_from_db()
+        self.assertIsNone(self.conversation.task_id)
+        self.assertIsNone(self.conversation.sandbox_task_id)
+        self.assertIsNone(self.conversation.sandbox_run_id)
 
     def test_first_message_threads_routed_repository(self):
         task, _ = self._stub_task()

@@ -386,6 +386,77 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
     return value
 
 
+def _coerce_numeric_value_for_string_property(value: ValueT, property: Property, team: Team) -> ValueT:
+    """Person, event, and group properties are pulled out of JSON as strings, so a numeric
+    filter value against a string-typed one compiles to equals(<String>, <number>), which
+    ClickHouse rejects with NO_COMMON_TYPE. Stringify the numeric value in that case,
+    mirroring _stringify_group_key_value for group keys.
+
+    Numeric-, Boolean-, and DateTime-typed properties are cast to a Float / Bool / DateTime
+    LHS by PropertySwapper, so their comparisons already resolve to a common type — those are
+    left untouched (stringifying them would reintroduce the mismatch the other way around).
+    Only the narrow numeric-value-vs-string-property shape is coerced.
+
+    Accepts a scalar or a list of values; the type lookup runs at most once either way."""
+
+    # bool is a subclass of int — exclude it so booleans keep flowing through _handle_bool_values
+    def _is_numeric(v: object) -> bool:
+        return not isinstance(v, bool) and isinstance(v, (int, float))
+
+    values = value if isinstance(value, list) else [value]
+    if not any(_is_numeric(v) for v in values):
+        return value
+
+    # map_virtual_properties rewrites a $virt_ key to a typed column on the parent table instead
+    # of a JSON extract, so its LHS is already numeric and has no PropertyDefinition row to look
+    # up. Without this guard the lookup below misses and stringifies, which breaks numeric virtual
+    # properties such as $virt_revenue.
+    if property.key and property.key.startswith("$virt_"):
+        return value
+
+    if property.type == "person":
+        type_filters: dict[str, object] = {"type": PropertyDefinition.Type.PERSON}
+    elif property.type == "group":
+        type_filters = {"type": PropertyDefinition.Type.GROUP, "group_type_index": property.group_type_index}
+    elif property.type == "event":
+        # legacy definitions may carry a NULL type; load_property_metadata treats those as event
+        # properties (so the swapper casts their LHS) — mirror it, or the two sides disagree
+        type_filters = {"type__in": [None, PropertyDefinition.Type.EVENT]}
+    else:
+        # Other property types (session, data warehouse, logs, spans, …) resolve to properly
+        # typed columns, so a numeric comparison already has a common type — leave them alone.
+        return value
+
+    property_type = (
+        PropertyDefinition.objects.alias(
+            effective_project_id=Coalesce("project_id", "team_id", output_field=models.BigIntegerField())
+        )
+        .filter(effective_project_id=team.project_id, name=property.key, **type_filters)
+        # load_property_metadata skips definitions without a property_type — match it so a
+        # typeless row can't shadow a typed one when both NULL-type and event-type rows exist
+        .exclude(property_type__isnull=True)
+        .exclude(property_type="")
+        .values_list("property_type", flat=True)
+        .first()
+    )
+
+    if property_type in (PropertyType.Numeric, PropertyType.Boolean, PropertyType.Datetime):
+        return value
+
+    # String-typed or as-yet-undefined property: the LHS stays a JSON-extracted String, so
+    # stringify to keep both sides comparable. An integer-valued float loses its '.0' (13.0 -> '13').
+    def _stringify(v: object) -> object:
+        if not _is_numeric(v):
+            return v
+        if isinstance(v, float) and v.is_integer():
+            return str(int(v))
+        return str(v)
+
+    if isinstance(value, list):
+        return cast(ValueT, [_stringify(v) for v in value])
+    return cast(ValueT, _stringify(value))
+
+
 def _resolve_date_value(value: ValueT, team: Team) -> ValueT:
     """Resolve a date value for IS_DATE_* operators.
 
@@ -591,7 +662,11 @@ def _expr_to_compare_op(
         return ast.CompareOperation(
             op=ast.CompareOperationOp.Eq,
             left=expr,
-            right=ast.Constant(value=_handle_bool_values(value, expr, property, team)),
+            right=ast.Constant(
+                value=_coerce_numeric_value_for_string_property(
+                    _handle_bool_values(value, expr, property, team), property, team
+                )
+            ),
         )
     elif operator == PropertyOperator.IS_DATE_EXACT:
         assert isinstance(value, str)
@@ -604,7 +679,11 @@ def _expr_to_compare_op(
         return ast.CompareOperation(
             op=ast.CompareOperationOp.NotEq,
             left=expr,
-            right=ast.Constant(value=_handle_bool_values(value, expr, property, team)),
+            right=ast.Constant(
+                value=_coerce_numeric_value_for_string_property(
+                    _handle_bool_values(value, expr, property, team), property, team
+                )
+            ),
         )
     elif operator == PropertyOperator.LT:
         return ast.CompareOperation(op=ast.CompareOperationOp.Lt, left=expr, right=ast.Constant(value=value))
@@ -656,7 +735,12 @@ def _expr_to_compare_op(
         if not isinstance(value, list):
             raise Exception("IN and NOT IN operators require a list of values")
         op = ast.CompareOperationOp.NotIn if operator == PropertyOperator.NOT_IN else ast.CompareOperationOp.In
-        return ast.CompareOperation(op=op, left=expr, right=ast.Array(exprs=[ast.Constant(value=v) for v in value]))
+        coerced = cast(list, _coerce_numeric_value_for_string_property(value, property, team))
+        return ast.CompareOperation(
+            op=op,
+            left=expr,
+            right=ast.Array(exprs=[ast.Constant(value=v) for v in coerced]),
+        )
     elif operator == PropertyOperator.SEMVER_EQ:
         return _gate_on_valid_semver(
             expr,
@@ -1081,8 +1165,11 @@ def property_to_expr(
                         if (is_exception_string_array_property or is_visited_page_property)
                         else expr
                     )
+                    coerced = cast(list, _coerce_numeric_value_for_string_property(value, property, team))
                     compare_op = ast.CompareOperation(
-                        op=op, left=left, right=ast.Tuple(exprs=[ast.Constant(value=v) for v in value])
+                        op=op,
+                        left=left,
+                        right=ast.Tuple(exprs=[ast.Constant(value=v) for v in coerced]),
                     )
 
                     if is_exception_string_array_property:

@@ -150,6 +150,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "gpt-5.3-codex",
                 "gpt-5.2",
                 "gpt-5-mini",
+                "gpt-5.6-luna",
                 # ReviewHog sandbox runs route here (no review_hog entry in the agent's
                 # origin→product map), so its reviewer-experiment arms must be allowed.
                 "gpt-5.6-sol",
@@ -243,19 +244,9 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
     ),
     "signals": ProductConfig(
-        # Dual-accept during the app migration: the PostHog Code ids stay listed until every
-        # region has a Signals application row and its runs mint under it. Dropping them is
-        # what finally makes this product unreachable from a Desktop-app token.
-        allowed_application_ids=frozenset(
-            {
-                POSTHOG_CODE_US_APP_ID,
-                POSTHOG_CODE_EU_APP_ID,
-                POSTHOG_CODE_DEV_APP_ID,
-                SIGNALS_US_APP_ID,
-                SIGNALS_EU_APP_ID,
-                SIGNALS_DEV_APP_ID,
-            }
-        ),
+        # Only the dedicated Signals app: dropping the PostHog Code ids is what finally makes
+        # this product unreachable from a Desktop-app token.
+        allowed_application_ids=frozenset({SIGNALS_US_APP_ID, SIGNALS_EU_APP_ID, SIGNALS_DEV_APP_ID}),
         allowed_models=None,  # any model — the signals pipeline picks models per stage (haiku, sonnet, ...)
         allow_api_keys=True,
         credit_bucket=None,
