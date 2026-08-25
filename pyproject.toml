@@ -606,6 +606,7 @@ ignore_imports = [
     "products.logs.backend.presentation.views.sampling_api -> products.logs.backend.models",
     "products.logs.backend.presentation.views.views_api -> products.logs.backend.models",
     "products.logs.backend.presentation.views.anomalies_api -> products.logs.backend.anomaly_scan",
+    "products.logs.backend.presentation.views.anomalies_api -> products.logs.backend.series_bands",
     # logs presentation isolation (temporary): cross-product imports the moved viewsets
     # still make directly. These resolve once cdp/exports expose the needed facades, so
     # they outlive the in-product cleanup above.
