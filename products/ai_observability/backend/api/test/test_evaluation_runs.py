@@ -17,7 +17,7 @@ from posthog.models.user import User
 
 from ee.models.rbac.access_control import AccessControl
 
-from ...api.evaluation_runs import _evaluation_workflow_prefix
+from ...api.evaluation_runs import EVALUATION_TARGET_MISMATCH_CODE, _evaluation_workflow_prefix
 from ...models.evaluations import Evaluation
 
 
@@ -235,7 +235,10 @@ class TestEvaluationRunViewSet(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert target in response.json()["error"]
+        body = response.json()
+        assert target in body["detail"]
+        # The code is what a caller keys off to tell this refusal apart from a malformed request.
+        assert body["code"] == EVALUATION_TARGET_MISMATCH_CODE
 
     def test_create_evaluation_run_missing_params(self):
         """Test creating evaluation run with missing parameters"""
@@ -247,6 +250,10 @@ class TestEvaluationRunViewSet(APIBaseTest):
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        body = response.json()
+        # The rejected field travels in `attr`, so a caller can point at the input that was wrong.
+        assert body["attr"] == "target_event_id"
+        assert body["type"] == "validation_error"
 
     def test_create_evaluation_run_different_team(self):
         """Test creating evaluation run for evaluation from different team"""
