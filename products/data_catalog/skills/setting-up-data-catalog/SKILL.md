@@ -81,6 +81,12 @@ Work top-down, stopping at `proposed` for everything (a human promotes later):
    FROM system.information_schema.certifications WHERE status = 'proposed';
    ```
 
+   Each call returns at most 100 rows by default, and 500 at most. A larger queue drops its oldest
+   rows with no warning, so the queue can look reviewed while old proposals stay hidden. Before you
+   trust a queue as complete, count it first with `SELECT count() FROM <table> WHERE <same filter>`.
+   If the count is above 100, read that queue with an explicit order and limit, such as `ORDER BY id
+   LIMIT 500`. Page through anything above 500 with `OFFSET`.
+
    Surface the full payload before asking for confirmation: for a join, the `field_name` and
    `configuration` are copied verbatim into the real join on accept, and `evidence` holds the sampling
    match rates and sample values to summarize; for a certification, `target_id` disambiguates which
