@@ -1,3 +1,5 @@
+import { BREAKDOWN_OTHER_STRING_LABEL } from 'scenes/insights/utils'
+
 import { MarketingAnalyticsRetentionRow } from '~/queries/schema/schema-general'
 
 import { SUMMARY_PERIODS, summarizeByBreakdown } from './summarizeByBreakdown'
@@ -57,6 +59,17 @@ describe('summarizeByBreakdown', () => {
 
         expect(summary.map((s) => s.breakdownValue)).toEqual(['big', 'small'])
         expect(summary[0].acquired).toBe(500)
+    })
+
+    it('leaves the folded "Other" row out of the ranking', () => {
+        // "Other" is the summed long tail, so ranking it by acquired size would float a row nobody can
+        // act on above real channels. It stays in the per-cohort panels; it does not belong here.
+        const summary = summarizeByBreakdown([
+            row(BREAKDOWN_OTHER_STRING_LABEL, 0, 5000, [5000, 4000]),
+            row('google', 0, 100, [100, 50]),
+        ])
+
+        expect(summary.map((s) => s.breakdownValue)).toEqual(['google'])
     })
 
     it('does not mutate the rows the per-cohort tables also render', () => {

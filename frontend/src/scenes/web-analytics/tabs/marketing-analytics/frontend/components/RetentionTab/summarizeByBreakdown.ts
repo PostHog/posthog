@@ -1,5 +1,7 @@
 import { MarketingAnalyticsRetentionRow } from '~/queries/schema/schema-general'
 
+import { isFoldedBreakdownValue } from '../../logic/marketingBreakdown'
+
 /** Periods the summary compares across. Past this the table stops being scannable at a glance, and the
  *  later columns rest on a single cohort anyway. The per-cohort panels below carry the full range. */
 export const SUMMARY_PERIODS = 5
@@ -40,11 +42,18 @@ export interface SummaryRow {
  * every column, because a cohort that has not reached period 3 yet would otherwise contribute a zero to
  * it. The cost is that each column has its own denominator, which is why `eligible` and `cohorts` come
  * back with the rate instead of being dropped.
+ *
+ * The backend's folded "Other" row is left out: it is a sum of the long tail rather than a channel, so
+ * ranking it against real channels would float a row nobody can act on above them. The per-cohort panels
+ * below keep it. This is the same call the cohort table makes when it pins "Other" last.
  */
 export function summarizeByBreakdown(rows: MarketingAnalyticsRetentionRow[]): SummaryRow[] {
     const byValue = new Map<string, SummaryRow>()
 
     for (const row of rows) {
+        if (isFoldedBreakdownValue(row.breakdownValue)) {
+            continue
+        }
         let summary = byValue.get(row.breakdownValue)
         if (!summary) {
             summary = {
