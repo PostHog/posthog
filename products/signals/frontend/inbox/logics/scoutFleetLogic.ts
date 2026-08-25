@@ -240,8 +240,8 @@ export interface scoutFleetLogicActions {
         filter: ScoutEnabledFilter,
         tags: string[]
     ) => {
-        search: string
         filter: ScoutEnabledFilter
+        search: string
         tags: string[]
     }
     loadFleetFindingsSummary: () => any
