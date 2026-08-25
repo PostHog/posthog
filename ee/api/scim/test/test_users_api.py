@@ -4,6 +4,7 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee.api.scim.auth import generate_scim_token
@@ -39,8 +40,9 @@ class TestSCIMUsersAPI(APILicensedTest):
         self.config = IdentityProviderConfig.objects.create(
             organization=self.organization, scim_enabled=True, scim_bearer_token=token.hashed
         )
-        self.domain.identity_provider_config = self.config
-        self.domain.save()
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=self.domain, identity_provider_config=self.config
+        )
         self.config.refresh_from_db()
 
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}
@@ -277,11 +279,13 @@ class TestSCIMUsersAPI(APILicensedTest):
             == status.HTTP_201_CREATED
         )
 
-        OrganizationDomain.objects.create(
+        partner_domain = OrganizationDomain.objects.create(
             organization=self.organization,
             domain="partner.example.com",
             verified_at="2024-01-01T00:00:00Z",
-            identity_provider_config=self.config,
+        )
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=partner_domain, identity_provider_config=self.config
         )
 
         response = self.client.post(

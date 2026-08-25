@@ -49,9 +49,11 @@ from products.replay_vision.backend.queries.scanner_volume_estimate import (
 )
 from products.replay_vision.backend.quota import compute_quota_snapshot, quota_state
 from products.replay_vision.backend.scanner_access import (
+    accessible_observations,
+    can_read_targeted_experiment,
     is_uuid,
+    readable_observation_scanner_ids,
     scanner_for_reading_observations,
-    scanners_for_reading_observations,
     selection_target_ids,
 )
 from products.replay_vision.backend.scanner_config import scanner_config_error
@@ -245,7 +247,8 @@ class ReplayVisionGatesMixin:
         return action
 
     def _observation_for(self, observation_id: str, level: AccessControlLevel = "editor") -> "ReplayObservation | None":
-        """An observation this user may act on at `level`. Observations inherit their scanner's RBAC."""
+        """An observation this user may act on at `level`. Observations inherit their scanner's RBAC,
+        and an experiment scanner's observations also need access to the experiment in their snapshot."""
         if not is_uuid(observation_id):
             return None
         observation = (
@@ -254,6 +257,10 @@ class ReplayVisionGatesMixin:
         if observation is None or not self.user_access_control.check_access_level_for_object(
             observation.scanner, level
         ):
+            return None
+        if not accessible_observations(
+            self.user_access_control, self._team.id, ReplayObservation.objects.filter(pk=observation.pk)
+        ).exists():
             return None
         return observation
 
@@ -334,7 +341,10 @@ class SummarizeReplayVisionSummariesTool(ReplayVisionGatesMixin, MaxTool):
             return f"Scanner {scanner_id} not found.", {"error": "not_found"}
         # Summaries inherit the scanner's RBAC — a team member without viewer access to this scanner
         # must not read its recording-derived output. Treat as not-found so we don't leak existence.
-        if not self.user_access_control.check_access_level_for_object(scanner, "viewer"):
+        # An experiment scanner also needs access to its targeted experiment.
+        if not self.user_access_control.check_access_level_for_object(
+            scanner, "viewer"
+        ) or not can_read_targeted_experiment(self.user_access_control, self._team.id, scanner):
             return f"Scanner {scanner_id} not found.", {"error": "forbidden"}
         if scanner.scanner_type != ScannerType.SUMMARIZER:
             # Never interpolate the user-editable scanner name into tool output — it's outside the data fence.
@@ -597,11 +607,15 @@ class SearchReplayVisionObservationsTool(ReplayVisionGatesMixin, MaxTool):
 
         observations = {
             str(obs.id): obs
-            for obs in ReplayObservation.objects.filter(
-                team_id=self._team.id,
-                scanner_id__in=scanner_ids,
-                status=ObservationStatus.SUCCEEDED,
-                id__in=ordered_ids,
+            for obs in accessible_observations(
+                self.user_access_control,
+                self._team.id,
+                ReplayObservation.objects.filter(
+                    team_id=self._team.id,
+                    scanner_id__in=scanner_ids,
+                    status=ObservationStatus.SUCCEEDED,
+                    id__in=ordered_ids,
+                ),
             )
             .select_related("scanner")
             .only("id", "session_id", "scanner_result", "created_at", "scanner__name")
@@ -636,15 +650,19 @@ class SearchReplayVisionObservationsTool(ReplayVisionGatesMixin, MaxTool):
                 # A model-supplied non-UUID would raise ValidationError deeper in the ORM (alert noise); treat as not-found.
                 return None
             scanner = scanner_for_reading_observations(self._team.id, scanner_uuid)
-            # Observations inherit the scanner's RBAC — treat missing access as not-found.
-            if scanner is None or not self.user_access_control.check_access_level_for_object(scanner, "viewer"):
+            # Observations inherit the scanner's RBAC, and an experiment scanner also needs access to
+            # its targeted experiment — treat either miss as not-found.
+            if (
+                scanner is None
+                or not self.user_access_control.check_access_level_for_object(scanner, "viewer")
+                or not can_read_targeted_experiment(self.user_access_control, self._team.id, scanner)
+            ):
                 return None
             # The scanner name is user-editable and the header sits outside the data fence, so keep it out of
             # tool output entirely (stored-injection guard); the searcher already knows which scanner they're on.
             return [str(scanner.id)], "the selected Replay Vision scanner", False
-        readable = self.user_access_control.filter_queryset_by_access_level(
-            scanners_for_reading_observations(self._team.id)
-        ).values_list("id", flat=True)
+        # Experiment access included, and the experiment lookup batched into one query.
+        readable = readable_observation_scanner_ids(self.user_access_control, self._team.id)
         return [str(sid) for sid in readable], "your Replay Vision scanners", True
 
     def _rank_observation_ids(
@@ -1707,7 +1725,9 @@ class EstimateReplayVisionScannerTool(ReplayVisionGatesMixin, MaxTool):
             try:
                 estimate = estimate_scanner_session_volume(
                     team=self._team,
-                    query=scanner.recordings_query(),
+                    query=scanner.targeted_recordings_query(),
+                    # The exposure filter's access check runs as whoever is asking Max.
+                    user=self._user,
                     sampling_mode=scanner.sampling_mode,
                     ch_user=ClickHouseUser.REPLAY_VISION,
                     budget=PREVIEW_ESTIMATE_BUDGET,

@@ -67,6 +67,8 @@ export function TaskRow({
     state.archivingTaskIds.has(task.id),
   );
 
+  if (isArchiving) return null;
+
   return (
     <TaskItem
       depth={depth}
@@ -75,7 +77,6 @@ export function TaskRow({
       subtitle={subtitle}
       isActive={isActive}
       isSelected={isSelected}
-      isArchiving={isArchiving}
       hideHoverActions={hideHoverActions}
       isEditing={isEditing}
       workspaceMode={effectiveMode}

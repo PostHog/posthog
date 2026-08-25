@@ -688,7 +688,7 @@ class TestTable(APIBaseTest):
             },
         )
         assert response.status_code == 400
-        assert response.json()["detail"] == "A table with this name already exists."
+        assert response.json()["detail"] == "A table or view with this name already exists. Choose a different name."
 
     def test_update_table_name_to_existing_name(self):
         table = DataWarehouseTable.objects.create(
@@ -704,7 +704,7 @@ class TestTable(APIBaseTest):
             },
         )
         assert response.status_code == 400
-        assert response.json()["detail"] == "A table with this name already exists."
+        assert response.json()["detail"] == "A table or view with this name already exists. Choose a different name."
 
     def test_update_table_name_to_same_name(self):
         table = DataWarehouseTable.objects.create(

@@ -2490,6 +2490,61 @@ class TestErrorClassification:
         # human needs to teach the taxonomy to recognise this failure.
         assert "RuntimeError" in captured["properties"]["exception_types"]
 
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_machine_id",
+        return_value="machine-1",
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.posthoganalytics")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.activity")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.get_cdc_adapter")
+    @patch.object(CDCExtractActivity, "_get_cdc_schemas")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataSource")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.ExternalDataJob")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.cdc.activities.close_old_connections")
+    def test_terminal_unclassified_error_captures_sqlstate_for_triage(
+        self,
+        mock_close_conns,
+        MockJob,
+        MockSourceModel,
+        mock_get_schemas,
+        mock_get_adapter,
+        mock_activity,
+        mock_posthoganalytics,
+        mock_get_machine_id,
+    ):
+        # A revoked REPLICATION/SELECT grant surfaces as psycopg InsufficientPrivilege, which the
+        # adapter doesn't classify, so it loops as retryable UNKNOWN. Its SQLSTATE (42501) is what
+        # tells a human this is a permission error and not some other ProgrammingError.
+        source = _make_source()
+        MockSourceModel.objects.get.return_value = source
+        schema = _make_schema("users", cdc_mode="streaming", source=source)
+        mock_get_schemas.return_value = [schema]
+
+        mock_reader = MagicMock()
+        mock_reader.read_changes.side_effect = psycopg.errors.InsufficientPrivilege("permission denied")
+        mock_reader.truncated_tables = []
+        mock_adapter = MagicMock()
+        mock_adapter.create_reader.return_value = mock_reader
+        mock_adapter.is_slot_invalidation_error.return_value = False
+        mock_adapter.classify_error = PostgresCDCAdapter().classify_error
+        mock_get_adapter.return_value = mock_adapter
+
+        mock_activity.heartbeat = MagicMock()
+        mock_activity.info.return_value = MagicMock(
+            workflow_id="wf-1", workflow_run_id="run-1", attempt=CDC_MAX_EXTRACTION_ATTEMPTS
+        )
+
+        inputs = CDCExtractInput(team_id=1, source_id=source.id)
+        with (
+            patch("products.data_warehouse.backend.facade.tasks.schedule_external_data_failure_digest"),
+            pytest.raises(psycopg.errors.InsufficientPrivilege),
+        ):
+            cdc_extract_activity(inputs)
+
+        captured = mock_posthoganalytics.capture.call_args.kwargs
+        assert captured["event"] == "cdc extraction unclassified error"
+        assert "42501" in captured["properties"]["sqlstates"]
+
 
 class TestSlotInvalidationRecovery:
     """When the replication slot is invalidated/dropped on the source DB, the activity

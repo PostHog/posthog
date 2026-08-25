@@ -124,7 +124,7 @@ export function FeatureRequestAccountEvidenceModal(): JSX.Element {
                                 onChange={(values) => setAddAccountId(values[0] ?? null)}
                                 onInputChange={setAccountSearch}
                                 options={addAccountOptions}
-                                placeholder="Search for an account"
+                                placeholder="Search by account name or external key"
                                 loading={accountsLoading}
                                 fullWidth
                             />

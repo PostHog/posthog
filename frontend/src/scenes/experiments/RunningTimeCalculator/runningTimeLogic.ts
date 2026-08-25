@@ -545,7 +545,7 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 rate: number | null,
                 experiment: Experiment
             ): number | null => {
-                if (!target || !rate || rate <= 0) {
+                if (!target || target <= 0 || !rate || rate <= 0) {
                     return null
                 }
 
@@ -618,7 +618,11 @@ export const runningTimeLogic = kea<runningTimeLogicType>([
                 isManualMode ||
                 !isLaunched(experiment) ||
                 remainingDays === null ||
-                targetSampleSize === null
+                targetSampleSize === null ||
+                // Never store a non-positive estimate — a negative sample size or running time is
+                // meaningless and would surface in the header and list view.
+                remainingDays < 0 ||
+                targetSampleSize <= 0
             ) {
                 return
             }

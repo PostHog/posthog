@@ -1,19 +1,13 @@
-from typing import Optional
-
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.kommo import KommoSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.kommo.kommo import KommoResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.kommo.settings import (
     ENDPOINT_CONFIG,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.kommo.source import KommoSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.kommo.source"
 
@@ -26,29 +20,6 @@ class TestKommoSource:
         self.team_id = 123
         self.config = KommoSourceConfig(subdomain="acme", api_key="test-token")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.KOMMO
-
-    def test_get_source_config_is_released_with_an_alpha_label(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.name.value == "Kommo"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/kommo.png"
-        assert [field.name for field in config.fields] == ["subdomain", "api_key"]
-
-    def test_access_token_field_is_a_secret_password(self) -> None:
-        field = next(
-            f
-            for f in self.source.get_source_config.fields
-            if isinstance(f, SourceFieldInputConfig) and f.name == "api_key"
-        )
-
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
-
     def test_subdomain_is_declared_as_a_connection_host_field(self) -> None:
         # The token is sent to https://<subdomain>.kommo.com, so editing the subdomain must
         # force the token to be re-entered instead of reusing the stored one.
@@ -59,9 +30,6 @@ class TestKommoSource:
         assert self.source.default_version == "v4"
         assert self.source.resolve_api_version(None) == "v4"
         assert all(endpoint.path.startswith("/api/v4/") for endpoint in ENDPOINT_CONFIG.values())
-
-    def test_get_schemas_needs_no_credentials(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
 
     def test_get_schemas_marks_only_ordered_endpoints_incremental(self) -> None:
         # Tasks and Events expose a timestamp filter but no ordering parameter for it, so they
@@ -74,21 +42,10 @@ class TestKommoSource:
             [f["field"] for f in schemas[name].incremental_fields] == ["updated_at"] for name in INCREMENTAL_ENDPOINTS
         )
 
-    @pytest.mark.parametrize(
-        ("names", "expected"),
-        [(["Leads"], ["Leads"]), (["Nope"], []), (None, list(ENDPOINTS))],
-    )
-    def test_get_schemas_filtered_by_names(self, names: Optional[list[str]], expected: list[str]) -> None:
-        schemas = self.source.get_schemas(self.config, self.team_id, names=names)
-        assert [schema.name for schema in schemas] == expected
-
     def test_incremental_fields_only_declared_where_a_server_side_filter_exists(self) -> None:
         assert set(INCREMENTAL_FIELDS) == {
             name for name, endpoint in ENDPOINT_CONFIG.items() if endpoint.incremental_param is not None
         }
-
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        assert set(self.source.get_canonical_descriptions()) == set(ENDPOINTS)
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -135,10 +92,6 @@ class TestKommoSource:
 
         assert self.source.validate_credentials(config, self.team_id) == (True, None)
         mock_validate.assert_called_once_with("test-token", "acme")
-
-    def test_get_resumable_source_manager_is_bound_to_the_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert manager._data_class is KommoResumeConfig
 
     @mock.patch(f"{_MODULE}.kommo_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

@@ -1728,6 +1728,14 @@ class MCPToolCategoryItem(BaseModel):
     category: str
 
 
+class MCPToolCategoryMapItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    category: str
+    tool: str
+
+
 class MCPToolDescriptionItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -11939,6 +11947,64 @@ class CachedMCPToolCategoryCountsQueryResponse(BaseModel):
     )
 
 
+class CachedMCPToolCategoryMapQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    next_allowed_client_refresh: AwareDatetime
+    query_metadata: dict[str, Any] | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[MCPToolCategoryMapItem]
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose"
+            " latest sync failed, is paused, hit a billing limit, or is otherwise"
+            " stale. Results may not reflect current source data. Accumulated"
+            " across every HogQL execution that contributes to this response — so"
+            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
+            " the same warnings as raw HogQL queries. Also carries access control"
+            " warnings when a system-table query filters out objects the user can't"
+            " access."
+        ),
+    )
+
+
 class CachedMCPToolDailyStatsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -18016,6 +18082,53 @@ class MCPToolCategoryCountsQueryResponse(BaseModel):
     )
 
 
+class MCPToolCategoryMapQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[MCPToolCategoryMapItem]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose"
+            " latest sync failed, is paused, hit a billing limit, or is otherwise"
+            " stale. Results may not reflect current source data. Accumulated"
+            " across every HogQL execution that contributes to this response — so"
+            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
+            " the same warnings as raw HogQL queries. Also carries access control"
+            " warnings when a system-table query filters out objects the user can't"
+            " access."
+        ),
+    )
+
+
 class MCPToolDailyStatsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -23437,7 +23550,7 @@ class QueryResponseAlternative105(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[MCPToolDescriptionItem]
+    results: list[MCPToolCategoryMapItem]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -23484,7 +23597,7 @@ class QueryResponseAlternative106(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[MCPToolSampleIntentItem]
+    results: list[MCPToolDescriptionItem]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -23531,7 +23644,7 @@ class QueryResponseAlternative107(BaseModel):
     resolved_date_range: ResolvedDateRangeResponse | None = Field(
         default=None, description="The date range used for the query"
     )
-    results: list[MCPToolNeighborItem]
+    results: list[MCPToolSampleIntentItem]
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
@@ -23556,6 +23669,53 @@ class QueryResponseAlternative107(BaseModel):
 
 
 class QueryResponseAlternative108(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[MCPToolNeighborItem]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose"
+            " latest sync failed, is paused, hit a billing limit, or is otherwise"
+            " stale. Results may not reflect current source data. Accumulated"
+            " across every HogQL execution that contributes to this response — so"
+            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
+            " the same warnings as raw HogQL queries. Also carries access control"
+            " warnings when a system-table query filters out objects the user can't"
+            " access."
+        ),
+    )
+
+
+class QueryResponseAlternative109(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -24829,6 +24989,19 @@ class AssistantFunnelsActorsQuery(BaseModel):
         description="Whether to include matched session recordings for each actor.",
     )
     kind: Literal["FunnelsActorsQuery"] = "FunnelsActorsQuery"
+    limit: int | None = Field(
+        default=100,
+        description=("Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped."),
+    )
+    offset: int | None = Field(
+        default=0,
+        description=(
+            "Number of persons to skip before the returned page. Use it with `limit` to"
+            " walk the whole result set: the response reports `limit`, `offset`, and"
+            " `hasMore`, so when `hasMore` is true, call again with `offset` raised by"
+            " `limit`."
+        ),
+    )
     source: AssistantFunnelsQuery = Field(
         ...,
         description=("The source funnel insight query whose step (or trends point) we are drilling into."),
@@ -24898,6 +25071,19 @@ class AssistantPathsActorsQuery(BaseModel):
         description="Whether to include matched session recordings for each actor.",
     )
     kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    limit: int | None = Field(
+        default=100,
+        description=("Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped."),
+    )
+    offset: int | None = Field(
+        default=0,
+        description=(
+            "Number of persons to skip before the returned page. Use it with `limit` to"
+            " walk the whole result set: the response reports `limit`, `offset`, and"
+            " `hasMore`, so when `hasMore` is true, call again with `offset` raised by"
+            " `limit`."
+        ),
+    )
     source: AssistantPathsQuery = Field(..., description="The source paths insight query whose actors we are listing.")
 
 
@@ -24914,6 +25100,19 @@ class AssistantRetentionActorsQuery(BaseModel):
         ),
     )
     kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    limit: int | None = Field(
+        default=100,
+        description=("Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped."),
+    )
+    offset: int | None = Field(
+        default=0,
+        description=(
+            "Number of persons to skip before the returned page. Use it with `limit` to"
+            " walk the whole cohort: the response reports `limit`, `offset`, and"
+            " `hasMore`, so when `hasMore` is true, call again with `offset` raised by"
+            " `limit`."
+        ),
+    )
     source: AssistantRetentionQuery = Field(
         ...,
         description=("The source retention insight query whose cohort we are drilling into."),
@@ -24938,6 +25137,19 @@ class AssistantStickinessActorsQuery(BaseModel):
         ),
     )
     kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    limit: int | None = Field(
+        default=100,
+        description=("Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped."),
+    )
+    offset: int | None = Field(
+        default=0,
+        description=(
+            "Number of persons to skip before the returned page. Use it with `limit` to"
+            " walk the whole result set: the response reports `limit`, `offset`, and"
+            " `hasMore`, so when `hasMore` is true, call again with `offset` raised by"
+            " `limit`."
+        ),
+    )
     series: int | None = Field(
         default=None,
         description=("0-based index of the series to drill into when the source has multiple series. Defaults to 0."),
@@ -24973,6 +25185,19 @@ class AssistantTrendsActorsQuery(BaseModel):
         description="Whether to include matched session recordings for each actor.",
     )
     kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    limit: int | None = Field(
+        default=100,
+        description=("Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped."),
+    )
+    offset: int | None = Field(
+        default=0,
+        description=(
+            "Number of persons to skip before the returned page. Use it with `limit` to"
+            " walk the whole result set: the response reports `limit`, `offset`, and"
+            " `hasMore`, so when `hasMore` is true, call again with `offset` raised by"
+            " `limit`."
+        ),
+    )
     series: int | None = Field(
         default=None,
         description="Series index (0-based) when the source has multiple series.",
@@ -25930,6 +26155,18 @@ class MCPToolCategoryCountsQuery(BaseModel):
     kind: Literal["MCPToolCategoryCountsQuery"] = "MCPToolCategoryCountsQuery"
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     response: MCPToolCategoryCountsQueryResponse | None = None
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class MCPToolCategoryMapQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: DateRange | None = None
+    kind: Literal["MCPToolCategoryMapQuery"] = "MCPToolCategoryMapQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    response: MCPToolCategoryMapQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
@@ -26978,6 +27215,19 @@ class AssistantLifecycleActorsQuery(BaseModel):
         description=("Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'."),
     )
     kind: Literal["InsightActorsQuery"] = "InsightActorsQuery"
+    limit: int | None = Field(
+        default=100,
+        description=("Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped."),
+    )
+    offset: int | None = Field(
+        default=0,
+        description=(
+            "Number of persons to skip before the returned page. Use it with `limit` to"
+            " walk the whole result set: the response reports `limit`, `offset`, and"
+            " `hasMore`, so when `hasMore` is true, call again with `offset` raised by"
+            " `limit`."
+        ),
+    )
     source: AssistantLifecycleQuery = Field(
         ...,
         description=("The source lifecycle insight query whose bucket we are drilling into."),
@@ -27316,6 +27566,14 @@ class ExperimentExposureQuery(BaseModel):
 class ExperimentFunnelMetricTypeProps(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    breakdownAttributionType: BreakdownAttributionType | None = Field(
+        default=BreakdownAttributionType.FIRST_TOUCH,
+        description="How to attribute the breakdown value across funnel steps.",
+    )
+    breakdownAttributionValue: int | None = Field(
+        default=None,
+        description=("When breakdownAttributionType is `step`, the 0-indexed step to attribute from."),
     )
     funnel_order_type: StepOrderValue | None = None
     metric_type: Literal["funnel"] = "funnel"
@@ -27781,6 +28039,14 @@ class CalendarHeatmapQuery(BaseModel):
 class ExperimentFunnelMetric(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    breakdownAttributionType: BreakdownAttributionType | None = Field(
+        default=BreakdownAttributionType.FIRST_TOUCH,
+        description="How to attribute the breakdown value across funnel steps.",
+    )
+    breakdownAttributionValue: int | None = Field(
+        default=None,
+        description=("When breakdownAttributionType is `step`, the 0-indexed step to attribute from."),
     )
     breakdownFilter: BreakdownFilter | None = None
     conversion_window: int | None = None
@@ -28692,6 +28958,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative106
         | QueryResponseAlternative107
         | QueryResponseAlternative108
+        | QueryResponseAlternative109
     ]
 ):
     root: (
@@ -28800,6 +29067,7 @@ class QueryResponseAlternative(
         | QueryResponseAlternative106
         | QueryResponseAlternative107
         | QueryResponseAlternative108
+        | QueryResponseAlternative109
     )
 
 
@@ -29769,6 +30037,7 @@ class HogQLAutocomplete(BaseModel):
         | MCPToolQualityDailyStatsQuery
         | MCPToolCategoryCountsQuery
         | MCPToolCategoriesQuery
+        | MCPToolCategoryMapQuery
         | MCPToolDescriptionsQuery
         | MCPToolSampleIntentsQuery
         | MCPToolNeighborsQuery
@@ -29882,6 +30151,7 @@ class HogQLMetadata(BaseModel):
         | MCPToolQualityDailyStatsQuery
         | MCPToolCategoryCountsQuery
         | MCPToolCategoriesQuery
+        | MCPToolCategoryMapQuery
         | MCPToolDescriptionsQuery
         | MCPToolSampleIntentsQuery
         | MCPToolNeighborsQuery
@@ -30023,6 +30293,7 @@ class MaxInsightContext(BaseModel):
         | MCPToolQualityDailyStatsQuery
         | MCPToolCategoryCountsQuery
         | MCPToolCategoriesQuery
+        | MCPToolCategoryMapQuery
         | MCPToolDescriptionsQuery
         | MCPToolSampleIntentsQuery
         | MCPToolNeighborsQuery
@@ -30160,6 +30431,7 @@ class QueryRequest(BaseModel):
         | MCPToolQualityDailyStatsQuery
         | MCPToolCategoryCountsQuery
         | MCPToolCategoriesQuery
+        | MCPToolCategoryMapQuery
         | MCPToolDescriptionsQuery
         | MCPToolSampleIntentsQuery
         | MCPToolNeighborsQuery
@@ -30289,6 +30561,7 @@ class QuerySchemaRoot(
         | MCPToolQualityDailyStatsQuery
         | MCPToolCategoryCountsQuery
         | MCPToolCategoriesQuery
+        | MCPToolCategoryMapQuery
         | MCPToolDescriptionsQuery
         | MCPToolSampleIntentsQuery
         | MCPToolNeighborsQuery
@@ -30388,6 +30661,7 @@ class QuerySchemaRoot(
         | MCPToolQualityDailyStatsQuery
         | MCPToolCategoryCountsQuery
         | MCPToolCategoriesQuery
+        | MCPToolCategoryMapQuery
         | MCPToolDescriptionsQuery
         | MCPToolSampleIntentsQuery
         | MCPToolNeighborsQuery
@@ -30492,6 +30766,7 @@ class QueryUpgradeRequest(BaseModel):
         | MCPToolQualityDailyStatsQuery
         | MCPToolCategoryCountsQuery
         | MCPToolCategoriesQuery
+        | MCPToolCategoryMapQuery
         | MCPToolDescriptionsQuery
         | MCPToolSampleIntentsQuery
         | MCPToolNeighborsQuery
@@ -30596,6 +30871,7 @@ class QueryUpgradeResponse(BaseModel):
         | MCPToolQualityDailyStatsQuery
         | MCPToolCategoryCountsQuery
         | MCPToolCategoriesQuery
+        | MCPToolCategoryMapQuery
         | MCPToolDescriptionsQuery
         | MCPToolSampleIntentsQuery
         | MCPToolNeighborsQuery
@@ -30886,6 +31162,7 @@ class VisualizationArtifactContent(BaseModel):
         | MCPToolQualityDailyStatsQuery
         | MCPToolCategoryCountsQuery
         | MCPToolCategoriesQuery
+        | MCPToolCategoryMapQuery
         | MCPToolDescriptionsQuery
         | MCPToolSampleIntentsQuery
         | MCPToolNeighborsQuery

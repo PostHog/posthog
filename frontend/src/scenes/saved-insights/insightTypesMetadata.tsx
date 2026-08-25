@@ -682,6 +682,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconPieChart,
         inMenu: false,
     },
+    [NodeKind.MCPToolCategoryMapQuery]: {
+        name: 'MCP tool categories by tool',
+        description: 'Which categories each tool belongs to, for the intent clustering scope selector.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
 }
 
 export const INSIGHT_TYPES_METADATA: Record<InsightType, InsightTypeMetadata> = {
