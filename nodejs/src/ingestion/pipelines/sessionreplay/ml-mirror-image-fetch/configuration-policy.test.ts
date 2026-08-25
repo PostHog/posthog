@@ -177,6 +177,17 @@ describe('response opt-out policy', () => {
             'OtherBot: noai, unavailable_after: 25 Jun 2026 15:00:00 PST',
             undefined,
         ],
+        [
+            'no scope after a leading valued directive',
+            'unavailable_after: 25 Jun 2026 15:00:00 PST, noai',
+            'x_robots_tag',
+        ],
+        ['no scope after a leading max-image-preview', 'max-image-preview: large, noai', 'x_robots_tag'],
+        [
+            'a scope for another bot before a valued directive',
+            'OtherBot: unavailable_after: 25 Jun 2026 15:00:00 PST, noai',
+            undefined,
+        ],
     ])('applies an X-Robots-Tag value with %s', (_name, value, expected) => {
         expect(responseOptOutReason([{ name: 'x-robots-tag', value }], false)).toBe(expected)
     })

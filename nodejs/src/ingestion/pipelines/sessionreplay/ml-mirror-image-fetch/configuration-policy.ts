@@ -613,12 +613,15 @@ export function responseOptOutReason(
     return undefined
 }
 
+// X-Robots-Tag directives that carry a value, from https://developers.google.com/search/docs/crawling-indexing/robots-meta-tag. A colon inside one of these does not start a bot scope.
+const VALUED_X_ROBOTS_DIRECTIVES = ['unavailable_after', 'max-snippet', 'max-image-preview', 'max-video-preview']
+
 function xRobotsTagRefuses(value: string): boolean {
     const lower = value.toLowerCase()
     const colon = lower.indexOf(':')
-    // The directive `unavailable_after` also carries a colon. Text before the first colon is a bot scope only when it is a single token with no comma. Without that test, the lane reads `noai, unavailable_after: <date>` as another bot's scope. It then ignores an opt-out that README 2.6 requires.
-    const prefix = colon >= 0 ? lower.slice(0, colon).trim() : undefined
-    const scoped = prefix !== undefined && !prefix.includes(',')
+    // A bot scope is one token before the first colon. A valued directive looks the same, so the lane must tell the two apart. Otherwise it reads `unavailable_after: <date>, noai` as another bot's scope and ignores an opt-out that README 2.6 requires.
+    const prefix = colon >= 0 ? lower.slice(0, colon).trim() : ''
+    const scoped = colon >= 0 && !prefix.includes(',') && !VALUED_X_ROBOTS_DIRECTIVES.includes(prefix)
     if (scoped && prefix !== BOT_NAME.toLowerCase()) {
         return false
     }
