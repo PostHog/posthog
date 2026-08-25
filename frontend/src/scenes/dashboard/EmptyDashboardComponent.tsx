@@ -8,9 +8,13 @@ import { DashboardLoadingState } from '@posthog/products-dashboards/frontend/com
 import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import {
@@ -22,6 +26,7 @@ import {
 } from '~/types'
 
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
+import { DashboardAiPromptComposer } from './DashboardAiPromptComposer'
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from './DashboardHeader'
 import { getAddTileMenuItems } from './DashboardHeaderActions'
 import { dashboardLogic } from './dashboardLogic'
@@ -29,10 +34,7 @@ import { EmptyDashboardAiStarterPrompts } from './emptyDashboardAiStarterPrompts
 
 const HedgehogChart = pngHoggie(chartPng)
 
-const DASHBOARD_DOCS_URL = 'https://posthog.com/docs/product-analytics/dashboards'
-
-const BASE_TEXT =
-    'A simple first step is to add an insight from your library. Over time this becomes the home for the data you care about most.'
+const BASE_TEXT = 'Add a chart from your library, or start with a question about what matters to your product.'
 
 function DashboardEmptyActions({
     canEdit,
@@ -43,6 +45,7 @@ function DashboardEmptyActions({
     onAddWidget,
     push,
     onOpenAiWithPrompt,
+    promptExperience,
 }: {
     canEdit: boolean
     dashboard: DashboardType<QueryBasedInsightModel> | null | undefined
@@ -52,11 +55,31 @@ function DashboardEmptyActions({
     onAddWidget: () => void
     push: (path: string) => void
     onOpenAiWithPrompt: (prompt: string) => void
+    promptExperience: string | boolean | undefined
 }): JSX.Element {
+    const { reportDashboardEmptyAddChartClicked, reportDashboardEmptyWebAnalyticsClicked } = useActions(eventUsageLogic)
     const chipDisabledReason = !canEdit ? DASHBOARD_CANNOT_EDIT_MESSAGE : aiDisabledReason || undefined
+    const handleAddInsight = (): void => {
+        reportDashboardEmptyAddChartClicked(dashboard?.id)
+        onAddInsight()
+    }
 
     return (
         <div className="flex flex-col gap-4 w-full max-w-full">
+            {promptExperience === 'composer' ? (
+                <DashboardAiPromptComposer
+                    dashboardId={dashboard?.id}
+                    disabledReason={chipDisabledReason}
+                    onOpenAiWithPrompt={onOpenAiWithPrompt}
+                />
+            ) : !aiDisabledReason ? (
+                <EmptyDashboardAiStarterPrompts
+                    dashboardId={dashboard?.id}
+                    chipDisabledReason={chipDisabledReason}
+                    onOpenAiWithPrompt={onOpenAiWithPrompt}
+                    variant={promptExperience === 'copy' ? 'copy' : 'control'}
+                />
+            ) : null}
             <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 @min-[48rem]/main-content:justify-start">
                 {dashboard && (
                     <AccessControlAction
@@ -68,7 +91,7 @@ function DashboardEmptyActions({
                             data-attr="dashboard-add-graph-header"
                             type="primary"
                             icon={<IconPlus />}
-                            onClick={onAddInsight}
+                            onClick={handleAddInsight}
                             disabledReason={canEdit ? null : DASHBOARD_CANNOT_EDIT_MESSAGE}
                             sideAction={{
                                 dropdown: {
@@ -78,7 +101,7 @@ function DashboardEmptyActions({
                                             items={getAddTileMenuItems({
                                                 dashboardId: dashboard.id,
                                                 dashboardWidgetsEnabled,
-                                                onAddInsight,
+                                                onAddInsight: handleAddInsight,
                                                 push,
                                                 setAddWidgetModalOpen: onAddWidget,
                                             })}
@@ -90,16 +113,18 @@ function DashboardEmptyActions({
                                 'data-attr': 'dashboard-add-dropdown',
                             }}
                         >
-                            Get started
+                            Add an existing chart
                         </LemonButton>
                     </AccessControlAction>
                 )}
+                <LemonButton
+                    type="secondary"
+                    to={urls.webAnalytics()}
+                    onClick={() => reportDashboardEmptyWebAnalyticsClicked(dashboard?.id)}
+                >
+                    or View Web Analytics
+                </LemonButton>
             </div>
-            <EmptyDashboardAiStarterPrompts
-                dashboardId={dashboard?.id}
-                chipDisabledReason={chipDisabledReason}
-                onOpenAiWithPrompt={onOpenAiWithPrompt}
-            />
         </div>
     )
 }
@@ -111,6 +136,10 @@ function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
     const { push } = useActions(router)
     const { openSidePanel } = useActions(sidePanelStateLogic)
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(maxGlobalLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const promptExperience = dataProcessingAccepted
+        ? featureFlags[FEATURE_FLAGS.DASHBOARD_AI_PROMPT_COMPOSER]
+        : undefined
 
     const aiDisabledReason =
         !dataProcessingAccepted &&
@@ -130,14 +159,13 @@ function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
         <ProductIntroduction
             productName="Dashboard"
             thingName="insight"
-            titleOverride="So empty. So much potential."
-            description={BASE_TEXT}
+            titleOverride="Build your dashboard"
+            description={dataProcessingAccepted ? BASE_TEXT : 'Add a chart from your library.'}
             isEmpty={true}
             customHog={HedgehogChart}
             hogLayout="responsive"
             useMainContentContainerQueries={true}
-            docsURL={DASHBOARD_DOCS_URL}
-            className="mt-2 mb-2 px-4 @min-[40rem]/main-content:px-8 py-4 @min-[48rem]/main-content:py-14"
+            className="mt-2 mb-2 py-4 @min-[48rem]/main-content:py-14"
             contentClassName="[&>div:last-child]:!mt-4"
             actionElementOverride={
                 <DashboardEmptyActions
@@ -149,6 +177,7 @@ function EmptyDashboardContent({ canEdit }: { canEdit: boolean }): JSX.Element {
                     onAddWidget={() => setAddWidgetModalOpen(true)}
                     push={push}
                     onOpenAiWithPrompt={onOpenAiWithPrompt}
+                    promptExperience={promptExperience}
                 />
             }
         />

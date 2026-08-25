@@ -89,6 +89,9 @@ class TestReenrichmentSelection(BaseTest):
         already_scored = self._org_with_member("c@scored.example")
         self._prime(already_scored, status="scored", last_attempted_days_ago=31, first_fetch_days_ago=40)
 
+        never_attempted_but_freshly_fetched = self._org_with_member("e@fresh.example")
+        self._prime(never_attempted_but_freshly_fetched, last_attempted_days_ago=None, first_fetch_days_ago=1)
+
         due = self._org_with_member("d@due.example")
         self._prime(due, last_attempted_days_ago=31, first_fetch_days_ago=40)
 
@@ -162,7 +165,7 @@ class TestReenrichmentSelection(BaseTest):
 
     def test_an_attempt_that_raises_is_not_selected_again_the_same_day(self):
         organization = self._org_with_member("raises@retry.example")
-        self._prime(organization, last_attempted_days_ago=None, first_fetch_days_ago=1)
+        self._prime(organization, last_attempted_days_ago=None, first_fetch_days_ago=40)
         assert len(self._select()) == 1
 
         pha_client = MagicMock()
