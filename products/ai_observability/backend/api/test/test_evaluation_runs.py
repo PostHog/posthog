@@ -237,7 +237,7 @@ class TestEvaluationRunViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         body = response.json()
         assert target in body["detail"]
-        # Spelled out rather than compared against the constant, which would move with it.
+        # Callers match on this code, so a rename is a breaking change and should fail here.
         assert body["code"] == "evaluation_target_mismatch"
 
     def test_create_evaluation_run_missing_params(self):

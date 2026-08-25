@@ -31,9 +31,6 @@ from ..models.evaluations import Evaluation, EvaluationTarget
 
 logger = structlog.get_logger(__name__)
 
-# Callers match on this to tell the refusal from a malformed request, so renaming it breaks them.
-EVALUATION_TARGET_MISMATCH_CODE = "evaluation_target_mismatch"
-
 EVALUATION_WORKFLOW_PREFIXES = {
     "hog": "llma-hog-eval",
     "llm_judge": "llma-llm-eval",
@@ -101,7 +98,7 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             raise ValidationError(
                 f"This evaluation runs on the whole {evaluation.target}, so it can't be re-run against a "
                 "single generation.",
-                code=EVALUATION_TARGET_MISMATCH_CODE,
+                code="evaluation_target_mismatch",
             )
 
         # Fetch event data from ClickHouse using available keys
