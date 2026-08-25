@@ -16,6 +16,7 @@ import { initKeaTests } from '~/test/init'
 import { AppContext, DashboardType, UserBasicType } from '~/types'
 
 import dashboardJson from '../__mocks__/dashboard.json'
+import { UNFILED_DASHBOARDS_FOLDER } from '../dashboardConstants'
 
 let dashboardId = 1234
 const dashboard = (extras: Partial<DashboardType>): DashboardType => {
@@ -207,6 +208,24 @@ describe('dashboardsLogic', () => {
                 (dashboards: DashboardType[]) =>
                     dashboards.length === inFolder.length && dashboards.every((d) => d.folder === 'Marketing/Website')
             ),
+        })
+    })
+
+    describe('folder filter options', () => {
+        it('offers the folders dashboards sit in, and not the unfiled default', async () => {
+            const [freshlyCreated, atTheTop] = allDashboards
+            dashboardsModel.actions.patchDashboardFolders({
+                [freshlyCreated.id]: `${UNFILED_DASHBOARDS_FOLDER}/Freshly created`,
+                [atTheTop.id]: 'At the top',
+            })
+
+            expect(logic.values.folderOptions).toEqual(['', 'Marketing/Website'])
+        })
+
+        it('keeps the filtered folder on offer once nothing is left in it', async () => {
+            logic.actions.setFilters({ folder: 'Revenue/Q3' })
+
+            expect(logic.values.folderOptions).toEqual(['Marketing/Website', 'Revenue/Q3'])
         })
     })
 
