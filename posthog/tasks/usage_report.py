@@ -70,6 +70,7 @@ from products.tasks.backend.facade.billing import (
     SandboxComputeUsageByTeam,
     SandboxUsageByTeam,
     get_billable_sandbox_compute_usage_by_team,
+    get_billable_workflow_sandbox_compute_usage_by_team,
     get_task_sandbox_usage_by_team,
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataJob, ExternalDataSchema
@@ -332,9 +333,14 @@ class UsageReportCounters:
     workflow_push_sent_in_period: int
     workflow_sms_sent_in_period: int
     workflow_billable_invocations_in_period: int
-    # LLM credits of workflow-created agent tasks ($ai_generation with ai_product='posthog_code'
-    # and task_origin_product='workflow'), billed at 20% markup under the workflows product
+    # Combined LLM token + sandbox compute cost of workflow-created agent tasks, billed
+    # under the workflows product. Tokens pass through at WORKFLOW_AI_COST_MARKUP_PERCENT
+    # (0% to start); compute is billed at cost. See combine_workflow_ai_credits.
     workflow_ai_credits_used_in_period: int
+    workflow_ai_token_credits_used_in_period: int
+    workflow_compute_credits_used_in_period: int
+    workflow_compute_cpu_millicore_seconds_in_period: int
+    workflow_compute_memory_mib_seconds_in_period: int
 
     # Logs
     logs_bytes_in_period: int
@@ -1664,9 +1670,11 @@ def get_teams_with_ai_event_count_in_period(
 AI_COST_MARKUP_PERCENT = 0.2
 # PostHog Desktop bills model costs as pure pass-through: no markup
 POSTHOG_CODE_COST_MARKUP_PERCENT = 0.0
-# Workflow-created agent tasks bill under the workflows product at PostHog AI's markup.
-# Kept as a separate constant so the two levers can move independently.
-WORKFLOW_AI_COST_MARKUP_PERCENT = 0.2
+# Workflow-created agent tasks bill under the workflows product. Tokens pass through at
+# cost to start (0%), while sandbox compute (below) is billed to cover its cost; the plan
+# is to raise this once compute cost is covered. Kept independent of AI_COST_MARKUP_PERCENT
+# and POSTHOG_CODE_COST_MARKUP_PERCENT so it can move on its own schedule.
+WORKFLOW_AI_COST_MARKUP_PERCENT = 0.0
 # Tools excluded from AI billing (traces with only these tools are not billed)
 AI_BILLING_EXCLUDED_TOOLS = ["summarize_sessions", "search"]
 AI_BILLING_INSTANCE_GROUP_TYPE = "instance"
@@ -2024,11 +2032,13 @@ def get_teams_with_workflow_ai_credits_used_in_period(
     begin: datetime,
     end: datetime,
 ) -> list[tuple[int, int]]:
-    """Workflows billing credits: LLM spend of agent tasks created by the workflows product.
+    """Workflow token spend: LLM cost of agent tasks created by the workflows product.
 
     Same gateway product as PostHog Desktop (ai_product='posthog_code'), split out by
-    task_origin_product='workflow' and billed at 20% markup under workflows. The posthog_code
-    counter excludes these origins, so each generation bills exactly once.
+    task_origin_product='workflow' so the posthog_code counter excludes these origins and
+    each generation bills exactly once. Billed at WORKFLOW_AI_COST_MARKUP_PERCENT (pass-
+    through at 0% to start). This is the token-only portion; combine_workflow_ai_credits
+    adds workflow compute cost to produce the total workflow_ai_credits_used_in_period.
     """
     return _get_teams_with_ai_credits_for_products(
         begin,
@@ -2070,6 +2080,26 @@ def get_teams_with_billable_sandbox_compute_usage_in_period(
 
 
 def combine_posthog_code_credits(token_credits: int, compute_credits: int) -> int:
+    return token_credits + compute_credits
+
+
+@timed_log()
+@retry(tries=QUERY_RETRIES, delay=QUERY_RETRY_DELAY, backoff=QUERY_RETRY_BACKOFF)
+def get_teams_with_workflow_compute_usage_in_period(begin: datetime, end: datetime) -> SandboxComputeUsageByTeam:
+    """Sandbox compute cost of workflow-created tasks, billed under the workflows product.
+
+    Same rate-card-error fallback as the posthog_code compute counter: a misconfiguration
+    degrades to empty usage rather than aborting the report.
+    """
+    try:
+        return get_billable_workflow_sandbox_compute_usage_by_team(begin, end)
+    except ComputeRateCardConfigurationError as err:
+        logger.exception("workflow_compute.usage_report_failed")
+        capture_exception(err)
+        return SandboxComputeUsageByTeam([], [], [])
+
+
+def combine_workflow_ai_credits(token_credits: int, compute_credits: int) -> int:
     return token_credits + compute_credits
 
 
@@ -2875,6 +2905,7 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
     )
     task_sandbox_usage = get_teams_with_task_sandbox_usage_in_period(period_start, period_end)
     sandbox_compute_usage = get_teams_with_billable_sandbox_compute_usage_in_period(period_start, period_end)
+    workflow_compute_usage = get_teams_with_workflow_compute_usage_in_period(period_start, period_end)
     token_credits = get_teams_with_posthog_code_credits_used_in_period(period_start, period_end)
 
     return {
@@ -3141,6 +3172,9 @@ def _get_all_usage_data(period_start: datetime, period_end: datetime) -> dict[st
         "teams_with_workflow_ai_credits_used_in_period": get_teams_with_workflow_ai_credits_used_in_period(
             period_start, period_end
         ),
+        "teams_with_workflow_compute_credits_used_in_period": workflow_compute_usage.credits,
+        "teams_with_workflow_compute_cpu_millicore_seconds_in_period": workflow_compute_usage.cpu_millicore_seconds,
+        "teams_with_workflow_compute_memory_mib_seconds_in_period": workflow_compute_usage.memory_mib_seconds,
         "teams_with_logs_bytes_in_period": get_teams_with_logs_bytes_in_period(period_start, period_end),
         "teams_with_logs_retention_14d_bytes_in_period": logs_retention_by_tier["14d"],
         "teams_with_logs_retention_30d_bytes_in_period": logs_retention_by_tier["30d"],
@@ -3372,7 +3406,22 @@ def _get_team_report(all_data: dict[str, Any], team: Team) -> UsageReportCounter
         workflow_billable_invocations_in_period=all_data["teams_with_workflow_billable_invocations_in_period"].get(
             team.id, 0
         ),
-        workflow_ai_credits_used_in_period=all_data["teams_with_workflow_ai_credits_used_in_period"].get(team.id, 0),
+        workflow_ai_credits_used_in_period=combine_workflow_ai_credits(
+            all_data["teams_with_workflow_ai_credits_used_in_period"].get(team.id, 0),
+            all_data["teams_with_workflow_compute_credits_used_in_period"].get(team.id, 0),
+        ),
+        workflow_ai_token_credits_used_in_period=all_data["teams_with_workflow_ai_credits_used_in_period"].get(
+            team.id, 0
+        ),
+        workflow_compute_credits_used_in_period=all_data["teams_with_workflow_compute_credits_used_in_period"].get(
+            team.id, 0
+        ),
+        workflow_compute_cpu_millicore_seconds_in_period=all_data[
+            "teams_with_workflow_compute_cpu_millicore_seconds_in_period"
+        ].get(team.id, 0),
+        workflow_compute_memory_mib_seconds_in_period=all_data[
+            "teams_with_workflow_compute_memory_mib_seconds_in_period"
+        ].get(team.id, 0),
         logs_bytes_in_period=all_data["teams_with_logs_bytes_in_period"].get(team.id, 0),
         logs_records_in_period=all_data["teams_with_logs_records_in_period"].get(team.id, 0),
         logs_mb_in_period=int(all_data["teams_with_logs_bytes_in_period"].get(team.id, 0) // 1_000_000),

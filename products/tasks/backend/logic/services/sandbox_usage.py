@@ -11,7 +11,7 @@ The write helpers swallow and log every failure: the ledger must never break
 sandbox provisioning, cleanup, or user-message delivery.
 """
 
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import ROUND_HALF_EVEN, Decimal
@@ -290,6 +290,34 @@ class SandboxComputeUsageByTeam:
     memory_mib_seconds: list[tuple[int, int]]
 
 
+def _accumulate_sandbox_compute_usage(
+    sessions: Iterator[SandboxSession],
+    begin: datetime,
+    end: datetime,
+    rate_cards: Sequence[ComputeRateCard],
+) -> SandboxComputeUsageByTeam:
+    """Price already-filtered, already-billable sessions and aggregate per team."""
+    usage: dict[int, list[Decimal]] = {}
+    calculated_at = timezone.now()
+    for session in sessions:
+        cost = calculate_sandbox_compute_cost(session, begin, end, calculated_at=calculated_at, rate_cards=rate_cards)
+        totals = usage.setdefault(session.team_id, [Decimal(0) for _ in range(3)])
+        totals[0] += cost.cpu_core_seconds
+        totals[1] += cost.memory_gib_seconds
+        totals[2] += cost.cpu_cost_usd + cost.memory_cost_usd
+
+    credits: list[tuple[int, int]] = []
+    cpu_millicore_seconds: list[tuple[int, int]] = []
+    memory_mib_seconds: list[tuple[int, int]] = []
+    for team_id, totals in usage.items():
+        cpu_quantity, memory_quantity, total_usd = totals
+        credits.append((team_id, int((total_usd * 100).to_integral_value(rounding=ROUND_HALF_EVEN))))
+        cpu_millicore_seconds.append((team_id, int((cpu_quantity * 1000).to_integral_value(rounding=ROUND_HALF_EVEN))))
+        memory_mib_seconds.append((team_id, int((memory_quantity * 1024).to_integral_value(rounding=ROUND_HALF_EVEN))))
+
+    return SandboxComputeUsageByTeam(credits, cpu_millicore_seconds, memory_mib_seconds)
+
+
 def get_billable_sandbox_compute_usage_by_team(
     begin: datetime,
     end: datetime,
@@ -314,34 +342,55 @@ def get_billable_sandbox_compute_usage_by_team(
         .filter(Q(ended_at__isnull=True, ttl_expires_at__gt=begin) | Q(ended_at__gt=begin))
     )
 
-    usage: dict[int, list[Decimal]] = {}
-    calculated_at = timezone.now()
-    for session in sessions.iterator():
-        task = session.task_run.task
-        source_loop = task.loop if task.loop_id is not None else None
-        if not is_billable_compute(
-            origin_product=session.origin_product,
-            client_provenance=session.client_provenance,
-            source_loop_id=task.loop_id,
-            source_loop_internal=source_loop.internal if source_loop is not None else None,
-        ):
-            continue
-        cost = calculate_sandbox_compute_cost(session, begin, end, calculated_at=calculated_at, rate_cards=cards)
-        totals = usage.setdefault(session.team_id, [Decimal(0) for _ in range(3)])
-        totals[0] += cost.cpu_core_seconds
-        totals[1] += cost.memory_gib_seconds
-        totals[2] += cost.cpu_cost_usd + cost.memory_cost_usd
+    def _billable_sessions() -> Iterator[SandboxSession]:
+        for session in sessions.iterator():
+            task = session.task_run.task
+            source_loop = task.loop if task.loop_id is not None else None
+            if is_billable_compute(
+                origin_product=session.origin_product,
+                client_provenance=session.client_provenance,
+                source_loop_id=task.loop_id,
+                source_loop_internal=source_loop.internal if source_loop is not None else None,
+            ):
+                yield session
 
-    credits: list[tuple[int, int]] = []
-    cpu_millicore_seconds: list[tuple[int, int]] = []
-    memory_mib_seconds: list[tuple[int, int]] = []
-    for team_id, totals in usage.items():
-        cpu_quantity, memory_quantity, total_usd = totals
-        credits.append((team_id, int((total_usd * 100).to_integral_value(rounding=ROUND_HALF_EVEN))))
-        cpu_millicore_seconds.append((team_id, int((cpu_quantity * 1000).to_integral_value(rounding=ROUND_HALF_EVEN))))
-        memory_mib_seconds.append((team_id, int((memory_quantity * 1024).to_integral_value(rounding=ROUND_HALF_EVEN))))
+    return _accumulate_sandbox_compute_usage(_billable_sessions(), begin, end, cards)
 
-    return SandboxComputeUsageByTeam(credits, cpu_millicore_seconds, memory_mib_seconds)
+
+def get_billable_workflow_sandbox_compute_usage_by_team(
+    begin: datetime,
+    end: datetime,
+    *,
+    rate_cards: Sequence[ComputeRateCard] | None = None,
+) -> SandboxComputeUsageByTeam:
+    """Sandbox compute cost of workflow-created tasks (`Task.OriginProduct.WORKFLOW`).
+
+    Workflow runs are unattended: the workflow engine creates them directly, with no
+    inbound OAuth request, so they never carry `client_provenance=POSTHOG_DESKTOP`, the
+    signal `is_billable_compute` uses to prove a real desktop-consented session. Origin
+    alone identifies workflow compute as billable here instead.
+
+    Deliberately does not call `is_billable_compute`: that predicate also gates live
+    compute-quota denial (see `is_task_billable_compute` and
+    `get_compute_quota_denial_reason`), and billing workflow compute must not make
+    workflow task runs newly subject to that live gate.
+    """
+    validate_reporting_window(begin, end)
+    rate_cards = COMPUTE_RATE_CARDS if rate_cards is None else rate_cards
+    if not rate_cards:
+        return SandboxComputeUsageByTeam([], [], [])
+
+    cards = validate_compute_rate_cards(rate_cards)
+    sessions = (
+        SandboxSession.objects.unscoped()
+        .filter(
+            origin_product=Task.OriginProduct.WORKFLOW,
+            user_attributed_at__isnull=False,
+            user_attributed_at__lt=end,
+        )
+        .filter(Q(ended_at__isnull=True, ttl_expires_at__gt=begin) | Q(ended_at__gt=begin))
+    )
+    return _accumulate_sandbox_compute_usage(sessions.iterator(), begin, end, cards)
 
 
 def get_task_sandbox_usage_by_team(begin: datetime, end: datetime) -> SandboxUsageByTeam:

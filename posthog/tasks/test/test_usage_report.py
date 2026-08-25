@@ -4825,8 +4825,8 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         workflow_result = get_teams_with_workflow_ai_credits_used_in_period(period.start, period.end)
 
-        # workflow AI credits bill at 20% markup: 5.0 USD * 100 * 1.2 = 600
-        self.assertEqual(workflow_result, [(self.org_1_team_1.id, 600)])
+        # workflow token credits pass through at cost (no markup): 5.0 USD * 100 * 1.0 = 500
+        self.assertEqual(workflow_result, [(self.org_1_team_1.id, 500)])
 
     @parameterized.expand(
         [
@@ -5002,6 +5002,10 @@ class TestPostHogCodeComputeUsageReport(SimpleTestCase):
             "sandbox_compute_credits_used_in_period",
             "sandbox_compute_cpu_millicore_seconds_in_period",
             "sandbox_compute_memory_mib_seconds_in_period",
+            "workflow_ai_token_credits_used_in_period",
+            "workflow_compute_credits_used_in_period",
+            "workflow_compute_cpu_millicore_seconds_in_period",
+            "workflow_compute_memory_mib_seconds_in_period",
         }
 
         assert all(UsageReportCounters.__annotations__[metric] is int for metric in component_metrics)
@@ -5012,6 +5016,11 @@ class TestPostHogCodeComputeUsageReport(SimpleTestCase):
         from posthog.tasks.usage_report import combine_posthog_code_credits
 
         assert combine_posthog_code_credits(123, 45) == 168
+
+    def test_workflow_credits_reconcile_with_components(self) -> None:
+        from posthog.tasks.usage_report import combine_workflow_ai_credits
+
+        assert combine_workflow_ai_credits(123, 45) == 168
 
     @patch("posthog.tasks.usage_report.capture_exception")
     @patch("posthog.tasks.usage_report.get_billable_sandbox_compute_usage_by_team")
@@ -5026,6 +5035,25 @@ class TestPostHogCodeComputeUsageReport(SimpleTestCase):
         mock_compute.side_effect = error
 
         result = get_teams_with_billable_sandbox_compute_usage_in_period(
+            datetime(2026, 1, 2, tzinfo=UTC), datetime(2026, 1, 3, tzinfo=UTC)
+        )
+
+        assert result == SandboxComputeUsageByTeam([], [], [])
+        mock_capture.assert_called_once_with(error)
+
+    @patch("posthog.tasks.usage_report.capture_exception")
+    @patch("posthog.tasks.usage_report.get_billable_workflow_sandbox_compute_usage_by_team")
+    def test_invalid_workflow_compute_configuration_is_observed_without_breaking_report(
+        self, mock_compute: MagicMock, mock_capture: MagicMock
+    ) -> None:
+        from posthog.tasks.usage_report import get_teams_with_workflow_compute_usage_in_period
+
+        from products.tasks.backend.facade.billing import ComputeRateCardConfigurationError, SandboxComputeUsageByTeam
+
+        error = ComputeRateCardConfigurationError("invalid")
+        mock_compute.side_effect = error
+
+        result = get_teams_with_workflow_compute_usage_in_period(
             datetime(2026, 1, 2, tzinfo=UTC), datetime(2026, 1, 3, tzinfo=UTC)
         )
 

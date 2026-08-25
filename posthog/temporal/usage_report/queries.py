@@ -89,6 +89,7 @@ from posthog.tasks.usage_report import (
     get_teams_with_task_sandbox_usage_in_period,
     get_teams_with_workflow_ai_credits_used_in_period,
     get_teams_with_workflow_billable_invocations_in_period,
+    get_teams_with_workflow_compute_usage_in_period,
     get_teams_with_workflow_emails_sent_in_period,
     get_teams_with_workflow_push_sent_in_period,
     get_teams_with_workflow_sms_sent_in_period,
@@ -220,6 +221,15 @@ def _task_sandbox_usage(begin: datetime, end: datetime) -> dict[str, list[tuple[
 
 def _sandbox_compute_usage(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
     usage = get_teams_with_billable_sandbox_compute_usage_in_period(begin, end)
+    return {
+        "credits": usage.credits,
+        "cpu_millicore_seconds": usage.cpu_millicore_seconds,
+        "memory_mib_seconds": usage.memory_mib_seconds,
+    }
+
+
+def _workflow_compute_usage(begin: datetime, end: datetime) -> dict[str, list[tuple[int, int]]]:
+    usage = get_teams_with_workflow_compute_usage_in_period(begin, end)
     return {
         "credits": usage.credits,
         "cpu_millicore_seconds": usage.cpu_millicore_seconds,
@@ -518,6 +528,16 @@ QUERIES: list[QuerySpec] = [
             "credits": "teams_with_sandbox_compute_credits_used_in_period",
             "cpu_millicore_seconds": "teams_with_sandbox_compute_cpu_millicore_seconds_in_period",
             "memory_mib_seconds": "teams_with_sandbox_compute_memory_mib_seconds_in_period",
+        },
+    ),
+    QuerySpec(
+        name="workflow_compute_usage",
+        fn=_workflow_compute_usage,
+        output="multi",
+        multi_keys_mapping={
+            "credits": "teams_with_workflow_compute_credits_used_in_period",
+            "cpu_millicore_seconds": "teams_with_workflow_compute_cpu_millicore_seconds_in_period",
+            "memory_mib_seconds": "teams_with_workflow_compute_memory_mib_seconds_in_period",
         },
     ),
     # ---- ClickHouse: workflows / messaging ----------------------------------

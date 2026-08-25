@@ -16,6 +16,7 @@ from products.tasks.backend.logic.services.sandbox_pricing import ComputeRateCar
 from products.tasks.backend.logic.services.sandbox_usage import (
     close_sandbox_session,
     get_billable_sandbox_compute_usage_by_team,
+    get_billable_workflow_sandbox_compute_usage_by_team,
     get_task_sandbox_usage_by_team,
     measure_task_run_cpu_attribution,
     open_sandbox_session,
@@ -386,6 +387,23 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
 
         assert usage.cpu_millicore_seconds == [(self.team.id, 14_400_000)]
         assert usage.credits == [(self.team.id, 2016)]
+
+    def test_billable_workflow_compute_includes_workflow_origin_without_desktop_provenance(self):
+        self._session(origin_product=Task.OriginProduct.WORKFLOW, client_provenance=None)
+
+        usage = get_billable_workflow_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=(self._rate(),))
+
+        assert usage.cpu_millicore_seconds == [(self.team.id, 14_400_000)]
+        assert usage.memory_mib_seconds == [(self.team.id, 58_982_400)]
+        assert usage.credits == [(self.team.id, 2016)]
+
+    def test_billable_workflow_compute_excludes_non_workflow_origins(self):
+        self._session(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
+        self._loop_session(internal=False)
+
+        usage = get_billable_workflow_sandbox_compute_usage_by_team(self.BEGIN, self.END, rate_cards=(self._rate(),))
+
+        assert usage.credits == []
 
     def test_billable_compute_uses_session_snapshot_after_task_changes(self):
         session = self._session(client_provenance=TaskClientProvenance.POSTHOG_DESKTOP)
