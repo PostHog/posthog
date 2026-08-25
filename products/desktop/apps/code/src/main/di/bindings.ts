@@ -106,6 +106,10 @@ import type {
   IGitPrStatus,
 } from "@posthog/host-router/ports/git-pr-status";
 import type {
+  HostPlatformStatusClient,
+  PLATFORM_STATUS_CLIENT,
+} from "@posthog/host-router/ports/platform-status-client";
+import type {
   ANALYTICS_SERVICE,
   IAnalytics,
 } from "@posthog/platform/analytics";
@@ -511,6 +515,7 @@ export interface MainBindings {
   [GIT_WORKSPACE_CLIENT]: HostGitWorkspaceClient;
   [CONNECTIVITY_CLIENT]: HostConnectivityClient;
   [ENVIRONMENT_CLIENT]: HostEnvironmentClient;
+  [PLATFORM_STATUS_CLIENT]: HostPlatformStatusClient;
   [MAIN_FILE_WATCHER_SERVICE]: FileWatcherBridge;
   [FILE_WATCHER_CONTROL]: HostFileWatcherControl;
   [FOCUS_WORKSPACE_CLIENT]: FocusWorkspaceClient;

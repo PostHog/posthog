@@ -28,6 +28,7 @@ import {
   Input,
   Spinner,
 } from "@posthog/quill";
+import { PlatformStatusBanner } from "@posthog/ui/features/platform-status/PlatformStatusBanner";
 import { FullScreenLayout } from "@posthog/ui/primitives/FullScreenLayout";
 import {
   FIELD_CONTENT_CLASS,
@@ -164,8 +165,11 @@ export function DesktopAccessScreen({
   return (
     <FullScreenLayout footerRight={footerRight} onOpenSupport={onOpenSupport}>
       <div className="h-full overflow-y-auto px-8 py-20">
-        <div className="flex min-h-full items-center justify-center">
-          <Empty className="w-full max-w-xl">
+        <div className="flex min-h-full flex-col items-center justify-center gap-3">
+          <div className="w-full max-w-md">
+            <PlatformStatusBanner />
+          </div>
+          <Empty className="w-full max-w-xl flex-none">
             <EmptyHeader>
               <EmptyMedia variant="icon">{icon}</EmptyMedia>
               <EmptyTitle>{title}</EmptyTitle>

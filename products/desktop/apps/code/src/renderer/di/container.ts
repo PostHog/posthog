@@ -132,6 +132,10 @@ import {
   type MissionControlClient,
 } from "@posthog/ui/features/mission-control/identifiers";
 import {
+  PLATFORM_STATUS_CLIENT,
+  type PlatformStatusClient,
+} from "@posthog/ui/features/platform-status/platformStatusClient";
+import {
   QUICK_ASK_SETTINGS_CLIENT,
   type QuickAskSettingsClient,
 } from "@posthog/ui/features/quick-ask/identifiers";
@@ -212,6 +216,11 @@ const connectivityClient: ConnectivityClient = {
     trpcClient.connectivity.onStatusChange.subscribe(undefined, sub),
 };
 container.bind(CONNECTIVITY_CLIENT).toConstantValue(connectivityClient);
+
+const platformStatusClient: PlatformStatusClient = {
+  getStatus: (region) => trpcClient.platformStatus.getStatus.query({ region }),
+};
+container.bind(PLATFORM_STATUS_CLIENT).toConstantValue(platformStatusClient);
 
 // browser tabs client — passthrough over the renderer host client
 const browserTabsClient: BrowserTabsClient = {

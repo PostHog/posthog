@@ -232,6 +232,10 @@ import {
   SPEECH_NOTIFY_SETTINGS,
 } from "@posthog/ui/features/notifications/identifiers";
 import {
+  PLATFORM_STATUS_CLIENT,
+  type PlatformStatusClient,
+} from "@posthog/ui/features/platform-status/platformStatusClient";
+import {
   QUICK_ASK_SETTINGS_CLIENT,
   type QuickAskSettingsClient,
 } from "@posthog/ui/features/quick-ask/identifiers";
@@ -304,6 +308,7 @@ export interface RendererBindings {
   [UPDATES_CLIENT]: UpdatesClient;
   [DEV_MODE_CLIENT]: DevModeClient;
   [CONNECTIVITY_CLIENT]: ConnectivityClient;
+  [PLATFORM_STATUS_CLIENT]: PlatformStatusClient;
   [BROWSER_TABS_CLIENT]: BrowserTabsClient;
   [DISCORD_PRESENCE_CLIENT]: DiscordPresenceClient;
   [QUICK_ASK_SETTINGS_CLIENT]: QuickAskSettingsClient;

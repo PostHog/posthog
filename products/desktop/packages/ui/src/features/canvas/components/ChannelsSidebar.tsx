@@ -26,6 +26,7 @@ import {
   useChannelPaneStore,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
+import { PlatformStatusBanner } from "@posthog/ui/features/platform-status/PlatformStatusBanner";
 import { NavResizeTooltip } from "@posthog/ui/features/sidebar/components/NavResizeTooltip";
 import { ProjectSwitcher } from "@posthog/ui/features/sidebar/components/ProjectSwitcher";
 import { SidebarMenu } from "@posthog/ui/features/sidebar/components/SidebarMenu";
@@ -281,7 +282,10 @@ export function ChannelsSidebar() {
             </div>
           )}
 
-          <UpdateBanner />
+          <div className="shrink-0 pb-2">
+            <PlatformStatusBanner />
+            <UpdateBanner />
+          </div>
 
           {showArchivedRow && archivedTaskIds.size > 0 && (
             <div className="shrink-0 border-border border-t">
