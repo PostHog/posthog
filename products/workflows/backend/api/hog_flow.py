@@ -180,9 +180,14 @@ DRAFT_CONTENT_FIELDS = (
     "trigger_masking",
     "conversion",
     "exit_condition",
+    "email_sending_rate_limit",
     "abort_action",
     "variables",
 )
+
+# Server-side rollout gate for email sending rate limits. Key shared with FEATURE_FLAGS in
+# frontend/src/lib/constants.tsx, where the same flag hides the editor control.
+EMAIL_SENDING_RATE_LIMIT_FLAG = "workflows-email-rate-limit"
 
 
 # Compiled from the author's filters rather than written by them, and only present once a condition has
@@ -1726,6 +1731,32 @@ class HogFlowConversionSerializer(serializers.Serializer):
         return value
 
 
+class HogFlowEmailSendingRateLimitSerializer(serializers.Serializer):
+    count = serializers.IntegerField(
+        min_value=1,
+        max_value=1_000_000,
+        help_text="Maximum number of emails this workflow sends per period.",
+    )
+    period = serializers.ChoiceField(
+        choices=["minute", "hour"],
+        help_text="Window the count applies to. Sends over the limit are delayed until capacity frees up, not dropped.",
+    )
+
+    def validate(self, data):
+        # A PATCH propagates partial=True into nested serializers, which would let a lone
+        # {"period": ...} skip the required count and store a shape the worker can't enforce.
+        # The value is atomic: replace it whole or clear it with null.
+        missing = [field for field in ("count", "period") if field not in data]
+        if missing:
+            raise serializers.ValidationError(f"Both count and period are required, missing: {', '.join(missing)}.")
+        return data
+
+    def to_representation(self, value):
+        # Pass stored JSON through untouched so a legacy or hand-written row that doesn't match
+        # the declared fields can still render (and be fixed) instead of crashing the read.
+        return value
+
+
 class HogFlowScheduleSerializer(serializers.ModelSerializer):
     class Meta:
         model = HogFlowSchedule
@@ -2020,6 +2051,7 @@ class HogFlowMinimalSerializer(UserAccessControlSerializerMixin, serializers.Mod
             "trigger_masking",
             "conversion",
             "exit_condition",
+            "email_sending_rate_limit",
             "edges",
             "actions",
             "abort_action",
@@ -2122,6 +2154,15 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "exit_on_conversion: also on conversion (needs 'conversion'; silent no-op otherwise). "
             "exit_on_trigger_not_matched: also when trigger filter stops matching. "
             "exit_on_trigger_not_matched_or_conversion: both (needs 'conversion')."
+        ),
+    )
+    email_sending_rate_limit = HogFlowEmailSendingRateLimitSerializer(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Optional email pacing for deliverability: {count, period: 'minute' | 'hour'}. The email worker "
+            "spreads this workflow's sends to stay under the limit; over-limit sends wait for capacity instead "
+            "of failing. Null disables pacing."
         ),
     )
     edges = serializers.ListField(
@@ -2271,6 +2312,7 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             "trigger_masking",
             "conversion",
             "exit_condition",
+            "email_sending_rate_limit",
             "edges",
             "actions",
             "abort_action",
@@ -2301,6 +2343,29 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     def validate(self, data):
         instance = cast(Optional[HogFlow], self.instance)
         is_draft = self.context.get("is_draft")
+
+        # New adoption of the email sending rate limit is flag-gated server-side: the UI hides the
+        # control behind the same flag, but API and MCP callers write workflows directly. Only new
+        # adoption is policed — resubmitting the stored or draft-staged value and clearing to null
+        # always pass, so a flag dial-down can't brick saves or publishes of workflows that already
+        # carry a limit. Uses the same fail-closed flag evaluation as gated templates.
+        if "email_sending_rate_limit" in data:
+            # Nested use (the `configuration` override on test invocations) never binds
+            # self.instance — the flow arrives via context, same as in to_internal_value — so
+            # resolve it here too or a test run echoing a stored limit would fail the gate.
+            gate_instance = instance or cast(Optional[HogFlow], self.context.get("instance"))
+            new_value = data["email_sending_rate_limit"]
+            existing_values = [gate_instance.email_sending_rate_limit if gate_instance else None]
+            if gate_instance is not None and isinstance(gate_instance.draft, dict):
+                existing_values.append(gate_instance.draft.get("email_sending_rate_limit"))
+            if new_value is not None and new_value not in existing_values:
+                # Outside a request (internal re-saves, direct construction) there is no team
+                # to evaluate the flag against.
+                get_team = self.context.get("get_team")
+                if get_team is not None and not gated_template_enabled(EMAIL_SENDING_RATE_LIMIT_FLAG, get_team()):
+                    raise serializers.ValidationError(
+                        {"email_sending_rate_limit": "Email sending rate limits are not enabled for this project."}
+                    )
 
         # Reject duplicate action ids on any client-submitted actions array (create/update/graph), on
         # every path - not just the surgical /graph endpoint where validate_graph enforces it. Secret
