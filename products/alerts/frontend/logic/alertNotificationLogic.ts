@@ -75,6 +75,11 @@ export interface alertNotificationLogicActions {
             errors?: string | undefined
             icon_url: any
             id: number
+            installation_shared?: boolean | null | undefined
+            installation_status?:
+                | null
+                | import('products/integrations/frontend/generated/api.schemas').InstallationStatusEnumApi
+                | undefined
             kind:
                 | 'amazon-selling-partner-eu'
                 | 'amazon-selling-partner-fe'
@@ -132,6 +137,11 @@ export interface alertNotificationLogicActions {
             errors?: string | undefined
             icon_url: any
             id: number
+            installation_shared?: boolean | null | undefined
+            installation_status?:
+                | null
+                | import('products/integrations/frontend/generated/api.schemas').InstallationStatusEnumApi
+                | undefined
             kind:
                 | 'amazon-selling-partner-eu'
                 | 'amazon-selling-partner-fe'
