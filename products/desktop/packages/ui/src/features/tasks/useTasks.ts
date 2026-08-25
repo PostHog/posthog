@@ -19,6 +19,14 @@ const TASK_SUMMARY_POLL_INTERVAL_MS = 30_000;
 // heaviest poll in the app (~2.2MB per response every 30s).
 const SLACK_TASK_POLL_INTERVAL_MS = 5 * 60_000;
 
+// A scout runs unattended in the cloud as the user who owns it, so its runs are
+// created_by that user and arrive in this list beside the sessions they started
+// themselves — enough of them, on a schedule, to bury those sessions. This list
+// is what the app offers as "your sessions", so it leaves scout runs out. They
+// stay reachable by id, which is what a deep link, a search hit, and the scouts
+// view all use; excluded here means unlisted, not unreachable.
+const EXCLUDED_ORIGIN_PRODUCT = "signals_scout";
+
 export function useTasks(
   filters?: {
     repository?: string;
@@ -32,11 +40,17 @@ export function useTasks(
   const internal = filters?.showInternal ? true : undefined;
 
   return useAuthenticatedQuery(
-    taskKeys.list({ repository: filters?.repository, createdBy, internal }),
+    taskKeys.list({
+      repository: filters?.repository,
+      createdBy,
+      excludeOriginProduct: EXCLUDED_ORIGIN_PRODUCT,
+      internal,
+    }),
     (client) =>
       client.getTasks({
         repository: filters?.repository,
         createdBy,
+        excludeOriginProduct: EXCLUDED_ORIGIN_PRODUCT,
         internal,
       }) as unknown as Promise<Task[]>,
     {

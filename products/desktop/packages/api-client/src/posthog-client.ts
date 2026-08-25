@@ -210,6 +210,11 @@ export interface TaskListOptions {
   repository?: string;
   createdBy?: number;
   originProduct?: string;
+  /**
+   * Drop tasks with this origin from the results. The server rejects an unknown value rather
+   * than matching nothing, so a typo can't quietly return the very tasks the caller excluded.
+   */
+  excludeOriginProduct?: string;
   internal?: boolean;
   channel?: string;
   /** Case-insensitive substring match over task title, description, and number. */
@@ -2585,6 +2590,10 @@ export class PostHogAPIClient {
 
     if (options?.originProduct) {
       params.origin_product = options.originProduct;
+    }
+
+    if (options?.excludeOriginProduct) {
+      params.exclude_origin_product = options.excludeOriginProduct;
     }
 
     if (options?.internal) {

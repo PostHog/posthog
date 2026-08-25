@@ -2,6 +2,7 @@ export interface TaskListFilters {
   repository?: string;
   createdBy?: number;
   originProduct?: string;
+  excludeOriginProduct?: string;
   internal?: boolean;
 }
 

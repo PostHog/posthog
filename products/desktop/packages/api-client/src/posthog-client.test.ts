@@ -228,6 +228,12 @@ describe("PostHogAPIClient", () => {
     ["pinned", { pinned: true }, "pinned", "true"],
     ["commented-by", { commentedBy: 17 }, "commented_by", "17"],
     ["mentions", { mentions: 19 }, "mentions", "19"],
+    [
+      "exclude-origin-product",
+      { excludeOriginProduct: "signals_scout" },
+      "exclude_origin_product",
+      "signals_scout",
+    ],
   ])("sends the %s task-list filter", async (_name, options, param, value) => {
     const fetch = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ results: [], count: 0 }), {
