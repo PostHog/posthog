@@ -1,7 +1,7 @@
 import { toBlob } from 'html-to-image'
 
 import { toolbarUploadMedia } from '~/toolbar/toolbarFetch'
-import { TOOLBAR_ID } from '~/toolbar/utils'
+import { TOOLBAR_ID, toError } from '~/toolbar/utils'
 
 export interface ElementScreenshot {
     mediaId: string
@@ -36,17 +36,28 @@ export interface CaptureOptions {
     backgroundColor?: string
 }
 
+function describeElement(element: HTMLElement): string {
+    return `${element.tagName.toLowerCase()}${element.id ? `#${element.id}` : ''}`
+}
+
 export async function captureElementScreenshot(element: HTMLElement, options?: CaptureOptions): Promise<Blob> {
-    const blob = await toBlob(element, {
-        type: 'image/jpeg',
-        includeStyleProperties: getAllStylePropertyNames(),
-        quality: 0.7,
-        filter: screenshotFilter,
-        ...options,
-    })
+    let blob: Blob | null
+    try {
+        blob = await toBlob(element, {
+            type: 'image/jpeg',
+            includeStyleProperties: getAllStylePropertyNames(),
+            quality: 0.7,
+            filter: screenshotFilter,
+            ...options,
+        })
+    } catch (error) {
+        // html-to-image rejects with a raw DOM Event when a resource on the page fails to load.
+        // Rethrow a real Error so the failure reaches error tracking with a message and a stack.
+        throw toError(error, `Failed to capture screenshot of ${describeElement(element)}`)
+    }
 
     if (!blob) {
-        throw new Error('Failed to capture element screenshot')
+        throw new Error(`Failed to capture screenshot of ${describeElement(element)}`)
     }
 
     return blob

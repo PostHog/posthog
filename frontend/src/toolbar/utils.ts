@@ -18,6 +18,25 @@ export const TOOLBAR_ID = '__POSTHOG_TOOLBAR__'
 // load-bearing at runtime — verify before storing strings that flow into auth headers.
 export const asNonEmptyString = (v: unknown): string | null => (typeof v === 'string' && v.length > 0 ? v : null)
 
+// Third-party code on the customer page can reject with a non-Error value. html-to-image, for
+// example, rejects with a raw DOM Event when a page resource fails to load. posthog-js serializes
+// such a value into an exception with no message and no stack, so error tracking cannot triage it.
+// Return real Errors unchanged; wrap anything else in an Error that keeps the original type.
+export function toError(value: unknown, context?: string): Error {
+    if (value instanceof Error) {
+        return value
+    }
+    const type =
+        value === null
+            ? 'null'
+            : typeof value === 'object'
+              ? ((value as { constructor?: { name?: string } }).constructor?.name ?? 'object')
+              : typeof value
+    const error = new Error(context ? `${context} (threw ${type})` : `Non-Error value thrown (${type})`)
+    error.name = 'NonError'
+    return error
+}
+
 // `fetch` that always resolves to something safe to read `.status`/`.ok`/`.json()` off. A
 // site-level `window.fetch` wrapper on the customer page can resolve to `undefined`/`null` (or
 // another non-object), which makes every downstream `.status` access throw a TypeError. Normalize

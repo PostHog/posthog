@@ -4,6 +4,7 @@ import {
     elementToQuery,
     joinWithUiHost,
     safeFetch,
+    toError,
     unescapeCssSelector,
 } from './utils'
 
@@ -200,5 +201,28 @@ describe('utils', () => {
                 expect(result.status).toBe(502)
             }
         )
+    })
+
+    describe('toError', () => {
+        it('returns an existing Error unchanged', () => {
+            const original = new TypeError('boom')
+            expect(toError(original)).toBe(original)
+        })
+
+        it('wraps a raw DOM Event in a real Error that keeps its type', () => {
+            // html-to-image rejects with an Event when a page resource fails to load. Without
+            // this, posthog-js files an exception with no message and no stack.
+            const result = toError(new Event('error'), 'Failed to capture screenshot of html')
+            expect(result).toBeInstanceOf(Error)
+            expect(result.message).toBe('Failed to capture screenshot of html (threw Event)')
+        })
+
+        it.each([
+            { input: null, type: 'null' },
+            { input: 'oops', type: 'string' },
+            { input: 42, type: 'number' },
+        ])('names the original type of $input', ({ input, type }) => {
+            expect(toError(input).message).toBe(`Non-Error value thrown (${type})`)
+        })
     })
 })
