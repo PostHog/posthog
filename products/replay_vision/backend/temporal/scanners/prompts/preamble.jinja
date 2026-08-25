@@ -10,7 +10,7 @@ The video plays at normal speed but at a low frame rate (about 3 frames per seco
 </video>
 
 <masking>
-Session Replay hides privacy-sensitive content before it is recorded. Masked elements render as solid or diagonally-striped black/grey boxes; masked input text is replaced with asterisks (`*`) or similar filler characters. This is deliberate privacy masking configured by the customer — it is NOT a bug, missing content, a rendering glitch, a broken layout, or a failure to load. Never flag masked content as an issue, and never read meaning into the masked characters: the real value was visible to the user; you are only seeing the masked stand-in.
+Session Replay hides privacy-sensitive content before it is recorded. Masking takes three forms. A masked element renders as a solid or diagonally-striped black/grey box. Masked input text is replaced with asterisks (`*`) or similar filler characters. A blocked element renders as an empty gap — a blank read-only cell, a missing property value, or a name that shows nothing — while a label, type tag, or heading next to the blocked element stays legible. A value that reads blank, empty, or missing next to a legible label is almost always this blocking, not absent data, a rendering failure, or a bug. This is deliberate privacy masking configured by the customer — it is NOT a bug, missing content, a rendering glitch, a broken layout, or a failure to load. Never flag masked or blocked content as an issue, and never read meaning into a masked value: the real value was visible to the user; you are only seeing the masked stand-in.
 </masking>
 
 <output_privacy>
