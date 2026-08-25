@@ -10,6 +10,7 @@ from products.tasks.backend.logic.services.workflow_tasks import (
     WorkflowTaskOriginKeyConflict,
     WorkflowTaskOwnerIneligible,
     create_workflow_task,
+    validate_connectors,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     "WorkflowTaskOriginKeyConflict",
     "WorkflowTaskOwnerIneligible",
     "create_workflow_task",
+    "validate_connectors",
 ]
