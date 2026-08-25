@@ -701,7 +701,6 @@ jobs:
               shell: bash
               env:
                   PRERELEASE_FLAG: "${{ fromJson(steps.host.outputs.manifest).announcement_is_prerelease && '--prerelease' || '' }}"
-                  ANNOUNCEMENT_TITLE: '${{ fromJson(steps.host.outputs.manifest).announcement_title }}'
                   ANNOUNCEMENT_BODY: '${{ fromJson(steps.host.outputs.manifest).announcement_github_body }}'
                   RELEASE_COMMIT: '${{ needs.release.outputs.release-commit }}'
                   LATEST_RELEASE_TAG: posthog-cli-latest
@@ -714,7 +713,7 @@ jobs:
                       release_args+=("$PRERELEASE_FLAG")
                   fi
 
-                  gh release create "${{ needs.plan-release.outputs.tag }}" --target "$RELEASE_COMMIT" "${release_args[@]}" --title "$ANNOUNCEMENT_TITLE" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
+                  gh release create "${{ needs.plan-release.outputs.tag }}" --target "$RELEASE_COMMIT" "${release_args[@]}" --title "${{ needs.plan-release.outputs.tag }}" --notes-file "$RUNNER_TEMP/notes.txt" artifacts/*
 
                   if [ -z "$PRERELEASE_FLAG" ]; then
                       STAGED_RELEASE_TAG="$LATEST_RELEASE_TAG-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
@@ -722,7 +721,7 @@ jobs:
                       gh release delete "$STAGED_RELEASE_TAG" --yes --cleanup-tag || true
                       gh release create "$STAGED_RELEASE_TAG" \
                           --target "$RELEASE_COMMIT" \
-                          --title "posthog-cli latest (staged)" \
+                          --title "$STAGED_RELEASE_TAG" \
                           --notes "Staged replacement for $LATEST_RELEASE_TAG; same as ${{ needs.plan-release.outputs.tag }}" \
                           --latest=false \
                           artifacts/*
@@ -733,7 +732,7 @@ jobs:
                       gh release edit "$STAGED_RELEASE_TAG" \
                           --tag "$LATEST_RELEASE_TAG" \
                           --target "$RELEASE_COMMIT" \
-                          --title "posthog-cli latest" \
+                          --title "$LATEST_RELEASE_TAG" \
                           --notes "Same as ${{ needs.plan-release.outputs.tag }}" \
                           --latest=false
                       git push origin ":refs/tags/$STAGED_RELEASE_TAG" || true

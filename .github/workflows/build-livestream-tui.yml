@@ -49,7 +49,7 @@ jobs:
                       livestream/posthog-live-linux-arm64 \
                       livestream/posthog-live-darwin-amd64 \
                       livestream/posthog-live-darwin-arm64 \
-                      --title "PostHog Live TUI $VERSION" \
+                      --title "$VERSION" \
                       --notes "Build from commit ${{ github.sha }}" \
                       --latest=false
 
@@ -61,7 +61,7 @@ jobs:
                       livestream/posthog-live-linux-arm64 \
                       livestream/posthog-live-darwin-amd64 \
                       livestream/posthog-live-darwin-arm64 \
-                      --title "PostHog Live TUI (Latest)" \
+                      --title "posthog-live-latest" \
                       --notes "Latest posthog-live build - same as $VERSION
 
                   Download (Linux amd64): \`curl -L https://github.com/PostHog/posthog/releases/download/posthog-live-latest/posthog-live-linux-amd64 -o posthog-live && chmod +x posthog-live\`

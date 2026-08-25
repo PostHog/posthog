@@ -532,7 +532,7 @@ jobs:
               run: |
                   gh release create "$RELEASE_TAG" \
                       products/posthog_ai/dist/skills.zip \
-                      --title "Agent skills $RELEASE_TAG" \
+                      --title "$RELEASE_TAG" \
                       --notes "Build from ${{ github.sha }}" \
                       --target "${{ github.sha }}" \
                       --latest=false
@@ -546,11 +546,12 @@ jobs:
                       gh release upload agent-skills-latest \
                           products/posthog_ai/dist/skills.zip --clobber
                       gh release edit agent-skills-latest \
+                          --title "agent-skills-latest" \
                           --notes "Latest build — same as $RELEASE_TAG"
                   else
                       gh release create agent-skills-latest \
                           products/posthog_ai/dist/skills.zip \
-                          --title "Agent skills (Latest)" \
+                          --title "agent-skills-latest" \
                           --notes "Latest build — same as $RELEASE_TAG" \
                           --target "${{ github.sha }}" \
                           --latest=false
