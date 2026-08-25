@@ -221,7 +221,7 @@ function ReportChatConversation({
           </Button>
           <Button
             type="button"
-            variant="default"
+            variant="outline"
             className="h-9 flex-1 rounded-lg px-4 text-[13px]"
             loading={sendingPrompt === canvasPrompt}
             disabled={isPromptPending || sendingPrompt !== null}
@@ -335,7 +335,7 @@ function ReportChatStarter({ report }: { report: SignalReport }) {
       prompt:
         "Create a canvas that visualizes this report using its evidence and relevant live data.",
       Icon: ShapesIcon,
-      variant: "default" as const,
+      variant: "outline" as const,
     },
   ];
 
