@@ -28,6 +28,11 @@ export function computeTurnTrailers(threadItems: ThreadItem[]): Map<string, Turn
             // A crashed turn never emits its separator; its text must not leak into the next turn.
             textParts = []
         } else if (item.type === 'turn_separator') {
+            // A separator with no answer behind it is a duplicate turn-end marker (the history/live
+            // seam can leak one); it is not a turn and gets no trailer.
+            if (textParts.length === 0) {
+                continue
+            }
             trailers.set(item.id, { turnIndex, isLastTurn: false, turnText: textParts.join('\n\n') })
             lastSeparatorId = item.id
             turnIndex += 1
