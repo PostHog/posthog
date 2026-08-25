@@ -1,6 +1,6 @@
 import { PencilSimple } from "@phosphor-icons/react";
 import { parseSpendAmount } from "@posthog/core/billing/spendLimits";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 interface SpendKnobValueProps {
   valueUsd: number;
@@ -31,6 +31,10 @@ export function SpendKnobValue({
 }: SpendKnobValueProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(label);
+  // Escape blurs the input to end the edit, but blur() dispatches focusout
+  // synchronously, so onBlur's commit runs before the setDraft(label) it
+  // queues re-renders. A ref, read at commit time, tells commit to discard.
+  const cancelEdit = useRef(false);
 
   // Re-sync while idle, so dragging the knob updates the text without an
   // effect and without clobbering what is being typed.
@@ -38,6 +42,11 @@ export function SpendKnobValue({
 
   const commit = () => {
     setEditing(false);
+    if (cancelEdit.current) {
+      cancelEdit.current = false;
+      setDraft(label);
+      return;
+    }
     const parsed = parseSpendAmount(draft);
     if (parsed === null) {
       setDraft(label);
@@ -74,7 +83,7 @@ export function SpendKnobValue({
             return;
           }
           if (event.key === "Escape") {
-            setDraft(label);
+            cancelEdit.current = true;
             event.currentTarget.blur();
           }
         }}
