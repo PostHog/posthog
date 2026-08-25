@@ -44,6 +44,11 @@ class TestFlattenObjectTags(unittest.TestCase):
                 "new-checkout",
             ),
             (
+                "two_tags_of_one_kind_both_flatten",
+                'The <insight id="1">funnel</insight> and the <insight id="2">retention curve</insight>',
+                "The funnel and the retention curve",
+            ),
+            (
                 "unknown_tag_stays_literal",
                 "<summary>a recap</summary>",
                 "<summary>a recap</summary>",
