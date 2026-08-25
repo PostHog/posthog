@@ -57,6 +57,7 @@ from products.warehouse_sources.backend.facade.source_management import (
     WebhookSource,
     filter_dwh_columns_by_enabled_columns as _filter_dwh_columns_by_enabled_columns,
     get_cdc_adapter,
+    purge_buffer_prefix,
     source_type_supports_cdc,
     validate_and_coerce_row_filters,
 )
@@ -1500,6 +1501,23 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if instance.table:
             instance.table.soft_delete()
         instance.soft_delete()
+
+        # CDC teardown, both best-effort: leaving the table in the publication makes the
+        # customer's WAL carry its changes forever, and the buffer files are raw change data
+        # nothing will consume — otherwise they sit until the 14-day lifecycle expiry.
+        if instance.sync_type == ExternalDataSchema.SyncType.CDC:
+            try:
+                source = instance.source
+                adapter = get_cdc_adapter(source)
+                _, db_schema, source_table_name = get_postgres_source_location(
+                    schema_name=instance.name,
+                    schema_metadata=instance.schema_metadata,
+                    default_schema=(source.job_inputs or {}).get("schema"),
+                )
+                adapter.remove_table(source, db_schema, source_table_name)
+            except Exception:
+                logger.exception("Failed to remove deleted CDC schema from publication", schema_id=str(instance.id))
+            purge_buffer_prefix(self.team_id, str(instance.id), logger)
 
         return Response(status=status.HTTP_204_NO_CONTENT)
 
