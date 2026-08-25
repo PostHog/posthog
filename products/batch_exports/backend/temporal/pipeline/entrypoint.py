@@ -186,12 +186,6 @@ async def _stage_batch_export_data(
         batch_export_schema=batch_export_inputs.batch_export_schema,
         destination_default_fields=batch_export_inputs.destination_default_fields,
     )
-    # All workers now run the `InternalStageResult` path, so the pre-patch bare-string
-    # branch is gone. `deprecate_patch` keeps the marker compatible for any execution
-    # still in flight that recorded it.
-    # See https://docs.temporal.io/develop/python/workflows/versioning#deprecated-patches
-    # TODO: delete this call once those histories have drained.
-    workflow.deprecate_patch("batch-exports-stage-result")
     return await workflow.execute_activity(
         insert_into_internal_stage_activity,
         stage_inputs,
