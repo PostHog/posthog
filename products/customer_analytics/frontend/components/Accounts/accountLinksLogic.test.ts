@@ -1,7 +1,9 @@
-import { MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from '~/lib/api.mock'
 
 import { combineUrl, router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { userLogic } from 'scenes/userLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -44,10 +46,12 @@ const buildAccount = (overrides: Partial<AccountApi> = {}): AccountApi => ({
 describe('accountLinksLogic', () => {
     let logic: ReturnType<typeof accountLinksLogic.build>
 
-    const mountWith = async (initial: AccountApi): Promise<void> => {
+    const mountWith = async (initial: AccountApi, { isStaff = false } = {}): Promise<void> => {
         mockAccountsRetrieve.mockResolvedValue(initial)
         logic = accountLinksLogic({ accountId: 'acc-1' })
         logic.mount()
+        // After mount, so the connected userLogic exists to receive it.
+        userLogic.actions.loadUserSuccess({ ...MOCK_DEFAULT_USER, is_staff: isStaff })
         await expectLogic(logic).toFinishAllListeners()
     }
 
@@ -211,5 +215,16 @@ describe('accountLinksLogic', () => {
         const organization = logic.values.links.find((link) => link.key === 'organization')
         expect(organization?.to).toBeNull()
         expect(organization?.disabledReason).toBe('No external ID set')
+    })
+
+    // Absolute keeps the region the viewer signed in to, and stops the app's relative-path
+    // routing prefixing the link with /project/<id>, which 404s.
+    it.each([
+        [true, `${window.location.origin}/admin/posthog/organization/ext-1/change/`],
+        [false, undefined],
+    ])('links to the organization Django admin, staff only (is_staff=%s)', async (isStaff, expectedTo) => {
+        await mountWith(buildAccount({ external_id: 'ext-1' }), { isStaff })
+
+        expect(logic.values.links.find((link) => link.key === 'admin-panel')?.to).toBe(expectedTo)
     })
 })
