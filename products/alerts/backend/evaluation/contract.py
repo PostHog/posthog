@@ -144,8 +144,9 @@ class Extractor(Protocol):
     # The dispatcher resolves both freshness inputs once and passes them in, so the cache/recompute
     # decision lives at one site instead of being re-derived in each extractor. max_cache_age_seconds
     # defaults to None (no bound) only so tests can drive an extractor without a cadence; the
-    # dispatcher always supplies it, and test_extractor_forwards_freshness pins that every kind
-    # passes it through to the query layer.
+    # dispatcher always supplies it. Because that default makes a dropped bound silent rather than a
+    # type error, test_extractor_forwards_freshness drives every kind in the EXTRACTORS registry and
+    # asserts the value reaches the query layer.
     def extract(
         self,
         alert: AlertConfiguration,

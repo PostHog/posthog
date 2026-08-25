@@ -22,9 +22,10 @@ from posthog.caching.insight_result import InsightResult
 
 from products.alerts.backend.evaluation.contract import execution_mode_for_alert, max_cache_age_for_cadence
 from products.alerts.backend.evaluation.detector import extract_detector_series
-from products.alerts.backend.evaluation.dispatcher import _resolve_execution_mode
+from products.alerts.backend.evaluation.dispatcher import EXTRACTORS, _resolve_execution_mode
 from products.alerts.backend.evaluation.funnels import FunnelsExtractor
 from products.alerts.backend.evaluation.hogql import HogQLExtractor
+from products.alerts.backend.evaluation.metrics import MetricsExtractor
 from products.alerts.backend.evaluation.trends import TrendsExtractor
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.facade.models import Insight
@@ -153,41 +154,72 @@ def _hogql_forward(mode, max_age):
     HogQLExtractor().extract(alert, MagicMock(), MagicMock(), mode, max_cache_age_seconds=max_age)
 
 
-# (calc-path to patch, the result that path returns, a thunk that drives the extractor for one kind).
+def _metrics_forward(mode, max_age):
+    alert = MagicMock()
+    alert.config = {"type": "MetricsAlertConfig"}
+    threshold = MagicMock()
+    threshold.configuration = InsightThreshold(
+        type=InsightThresholdType.ABSOLUTE, bounds=InsightsThresholdBounds(lower=1)
+    ).model_dump()
+    alert.threshold = threshold
+    query = {"kind": "MetricsQuery", "clauses": []}
+    MetricsExtractor().extract(alert, MagicMock(), query, mode, max_cache_age_seconds=max_age)
+
+
+# (kind the case covers, or None for the detector path, which has no registry entry of its own;
+# calc-path to patch; the result that path returns; a thunk that drives the extractor for one kind).
 EXTRACTOR_FORWARDING_CASES = [
     pytest.param(
+        NodeKind.TRENDS_QUERY,
         "products.alerts.backend.evaluation.trends.calculate_for_query_based_insight",
         EMPTY_RESULT,
         _trends_forward,
         id="trends",
     ),
     pytest.param(
+        None,
         "products.alerts.backend.evaluation.detector.calculate_for_query_based_insight",
         EMPTY_RESULT,
         _detector_forward,
         id="detector",
     ),
     pytest.param(
+        NodeKind.FUNNELS_QUERY,
         "products.alerts.backend.evaluation.funnels.calculate_for_query_based_insight",
         MagicMock(result=[{"order": 0, "count": 100, "breakdown_value": None}]),
         _funnels_forward,
         id="funnels",
     ),
     pytest.param(
+        NodeKind.HOG_QL_QUERY,
         "products.alerts.backend.evaluation.hogql.calculate_for_query_based_insight",
         MagicMock(result=[[5.0], [6.0]], columns=["value"]),
         _hogql_forward,
         id="hogql",
     ),
+    pytest.param(
+        NodeKind.METRICS_QUERY,
+        "products.alerts.backend.evaluation.metrics.calculate_for_query_based_insight",
+        EMPTY_RESULT,
+        _metrics_forward,
+        id="metrics",
+    ),
 ]
+
+
+# The cases below are hand-written, so a kind registered later can miss one and drop the bound
+# with nothing to notice. Bind the list to the registry it claims to cover.
+def test_every_registered_kind_has_a_forwarding_case():
+    covered = {case.values[0] for case in EXTRACTOR_FORWARDING_CASES}
+    assert set(EXTRACTORS) <= covered
 
 
 # Every extractor forwards what the dispatcher hands it straight to the query layer. Both values
 # have to travel: max_cache_age_seconds defaults to None, so an extractor that takes it and forgets
 # to pass it on silently lets its checks evaluate a result older than the cadence asked for.
 @pytest.mark.parametrize("mode,max_age", [(ALWAYS, None), (IF_STALE, 30 * 60)])
-@pytest.mark.parametrize("calc_path,calc_result,forward", EXTRACTOR_FORWARDING_CASES)
-def test_extractor_forwards_freshness(calc_path, calc_result, forward, mode, max_age):
+@pytest.mark.parametrize("kind,calc_path,calc_result,forward", EXTRACTOR_FORWARDING_CASES)
+def test_extractor_forwards_freshness(kind, calc_path, calc_result, forward, mode, max_age):
     with patch(calc_path) as mock_calc:
         mock_calc.return_value = calc_result
         forward(mode, max_age)
