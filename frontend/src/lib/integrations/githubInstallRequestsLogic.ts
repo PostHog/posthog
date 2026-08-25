@@ -100,7 +100,19 @@ export const githubInstallRequestsLogic = kea<githubInstallRequestsLogicType>([
         installRequestsResponse: [
             null as GitHubInstallRequestListResponseApi | null,
             {
-                loadInstallRequests: async () => await usersIntegrationsGithubInstallRequestsRetrieve('@me'),
+                loadInstallRequests: async () => {
+                    try {
+                        return await usersIntegrationsGithubInstallRequestsRetrieve('@me')
+                    } catch (e) {
+                        // A 403 means this user cannot see install requests, so there is nothing to
+                        // show. Treat it as an empty result so the poll stops and the failure does
+                        // not reach error tracking as noise for something no user sees.
+                        if (e instanceof ApiError && e.status === 403) {
+                            return { results: [], install_url: null }
+                        }
+                        throw e
+                    }
+                },
             },
         ],
     }),

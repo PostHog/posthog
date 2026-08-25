@@ -155,6 +155,30 @@ describe('githubInstallRequestsLogic', () => {
         expect(listCalls).toBe(callsAfterGivingUp)
     })
 
+    it('treats a 403 as an empty result: stops polling without a failure', async () => {
+        useMocks({
+            get: {
+                '/api/users/@me/integrations/github/install_requests/': () => {
+                    listCalls += 1
+                    return [403, { detail: 'Forbidden.' }]
+                },
+            },
+        })
+        jest.useFakeTimers()
+        logic.mount()
+        logic.actions.startPolling()
+
+        await expectLogic(logic)
+            .toDispatchActions(['loadInstallRequestsSuccess'])
+            .toNotHaveDispatchedActions(['loadInstallRequestsFailure'])
+        expect(logic.values.installRequests).toEqual([])
+        expect(logic.cache.disposables.registry.has('poll')).toBe(false)
+
+        const callsAfterForbidden = listCalls
+        jest.advanceTimersByTime(60_000)
+        expect(listCalls).toBe(callsAfterForbidden)
+    })
+
     it('reloads after dismissing, and treats an already-deleted request as dismissed', async () => {
         results = [pendingRequest]
         logic.mount()
