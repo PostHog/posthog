@@ -329,7 +329,13 @@ describe('HttpConfigurationFetcher', () => {
 
     it('uses the retained prefix when robots.txt exceeds its byte limit', async () => {
         fetchStreamedMock.mockResolvedValue(
-            response(200, [], { bytes: Buffer.from('User-agent: *\nDisallow: /private'), overLimit: true })
+            response(200, [], {
+                bytes: Buffer.concat([
+                    Buffer.from('User-agent: *\nDisallow: /private'),
+                    Buffer.from([0xf0, 0x9f, 0x98]),
+                ]),
+                overLimit: true,
+            })
         )
 
         await expect(httpFetcher().fetch(ORIGIN, 'robots')).resolves.toMatchObject({
