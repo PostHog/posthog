@@ -58,12 +58,25 @@ Work top-down, stopping at `proposed` for everything (a human promotes later):
 
 ## Flow 2 — Maintenance (reviewing the queue)
 
-1. **Pull the review queue** in one pass. The `id` on each row is what the promotion tools need:
+1. **Pull the review queue.** Each `posthog:execute-sql` call accepts one statement, so run these
+   three queries as three separate calls. The `id` on each row is what the promotion tools need:
+
+   Metrics — `posthog:execute-sql`:
 
    ```sql
    SELECT id, name, status, is_drifted, description FROM system.information_schema.metrics WHERE status = 'proposed';
+   ```
+
+   Relationship proposals — `posthog:execute-sql`:
+
+   ```sql
    SELECT id, source_table, source_column, target_table, target_column, field_name, configuration, evidence, confidence, reasoning
    FROM system.information_schema.relationship_proposals;
+   ```
+
+   Certifications — `posthog:execute-sql`:
+
+   ```sql
    SELECT id, target_name, target_id, target_kind, status, proposed_status, notes
    FROM system.information_schema.certifications WHERE status = 'proposed';
    ```
