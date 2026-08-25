@@ -3163,9 +3163,13 @@ RATE_LIMITED` (GraphQL's primary signal, invisible to the REST-shaped helper) no
    ReviewHog sandbox session (perspectives, validation, resolution) ran with the context default of **full**
    PostHog MCP access — execute-sql and every write tool — while reading untrusted PR-comment text; no prompt
    ever uses more than `skill-get`/`skill-file-get`. The executor now pins `posthog_mcp_scopes` to
-   `REVIEW_MCP_SCOPES = ["llm_skill:read"]` at both context constructions (internal sandbox-plumbing scopes
-   are re-added by the resolver). A future skill that legitimately needs product data adds its specific read
-   scope with that feature.
+   `REVIEW_MCP_SCOPES = ["llm_skill:read", "user:read"]` at both context constructions (internal sandbox-plumbing
+   scopes are re-added by the resolver). `user:read` is the MCP handshake, not a data grant: the MCP server
+   resolves the calling user (`/api/users/@me/`) when a session opens and refuses the connection without it.
+   The pin shipped on 2026-08-13 with only `llm_skill:read`, so until 2026-08-25 every ReviewHog session
+   (perspectives, blind-spot, validation, resolution) had its MCP connection refused and reviewed without its
+   skill — the agents carry on without MCP instead of failing, so nothing flagged it. A future skill that
+   legitimately needs product data adds its specific read scope with that feature.
    _Same date (fix-commit provenance gate, maintainer decision):_ `commit_on_branch`'s "reachable from the
    branch tip" necessarily accepts every ancestor (later turns and the author push on top mid-run), so a
    steered turn could echo someone's old clean commit and have every check inspect the wrong one. The
