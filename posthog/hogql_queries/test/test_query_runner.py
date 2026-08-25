@@ -386,6 +386,20 @@ class TestQueryRunner(BaseTest):
         cache_key = runner.get_cache_key()
         assert cache_key == "cache_42_c034c5f92d23cb2399f6c087694175b7e6950739ea60b0ec7cf2665d2ae82d50"
 
+    def test_cache_key_ignores_query_log_tags(self):
+        # Query log tags are metadata, so they must never partition the cache. Web
+        # analytics warming leans on this: it stamps the applied filter preset's id into
+        # tags so it can find the shapes a preset produces, and a tagged query has to keep
+        # reading the same cache entry as the untagged one, or every preset user would
+        # miss the cache on every load and the warm set would double.
+        TestQueryRunner = self.setup_test_query_runner_class()
+        team = Team.objects.create(pk=42, organization=self.organization)
+
+        untagged = TestQueryRunner(query={"some_attr": "bla"}, team=team)
+        tagged = TestQueryRunner(query={"some_attr": "bla", "tags": {"presetId": "abc123"}}, team=team)
+
+        assert tagged.get_cache_key() == untagged.get_cache_key()
+
     def test_cache_key_runner_subclass(self):
         TestQueryRunner = self.setup_test_query_runner_class()
 

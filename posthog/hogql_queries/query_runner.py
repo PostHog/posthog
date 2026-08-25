@@ -242,6 +242,10 @@ _REFRESH_TO_EXECUTION_MODE: dict[str | bool, ExecutionMode] = {  # ty: ignore[in
 UNKNOWN_QUERY_METRIC_LABEL = "unknown"
 SURVEYS_PRODUCT_KEY = "surveys"
 
+# Matches WebAnalyticsFilterPreset.short_id's max_length. The value is client-supplied,
+# so it is truncated rather than trusted before it reaches the query log.
+PRESET_ID_MAX_LENGTH = 12
+
 
 def get_survey_query_metric_labels(query: Any) -> dict[str, str] | None:
     tags = getattr(query, "tags", None)
@@ -2060,6 +2064,10 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                 if tags.scene:
                     posthoganalytics.tag("scene", tags.scene)
                     tag_queries(scene=tags.scene)
+                if tags.presetId:
+                    preset_id = tags.presetId[:PRESET_ID_MAX_LENGTH]
+                    posthoganalytics.tag("preset_id", preset_id)
+                    tag_queries(preset_id=preset_id)
 
             tag_queries(execution_mode=execution_mode.value)
             tag_queries(cache_key=cache_key)
