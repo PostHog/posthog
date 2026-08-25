@@ -1,7 +1,6 @@
 import {
   ArrowsOutSimpleIcon,
   ChatCircleIcon,
-  GitPullRequestIcon,
   MagnifyingGlassIcon,
   ShapesIcon,
   WrenchIcon,
@@ -150,28 +149,6 @@ function ReportChatConversation({
   const { insertPendingContent, getDraft, requestFocus } = useDraftStore(
     (s) => s.actions,
   );
-  const [sendingPrompt, setSendingPrompt] = useState<string | null>(null);
-  const workPrompt = report.implementation_pr_url
-    ? "Continue working on this report and its existing pull request. Re-read the analysis and take the next concrete step toward resolving it."
-    : "Continue investigating this report. Analyze the evidence and take the next concrete step.";
-  const workLabel = report.implementation_pr_url
-    ? "Continue the fix"
-    : "Continue the analysis";
-  const canvasPrompt =
-    "Create a canvas that visualizes this report using its evidence and relevant live data.";
-
-  const sendSuggestedPrompt = useCallback(
-    async (prompt: string, sendPrompt: (text: string) => Promise<boolean>) => {
-      if (sendingPrompt) return;
-      setSendingPrompt(prompt);
-      try {
-        await sendPrompt(prompt);
-      } finally {
-        setSendingPrompt(null);
-      }
-    },
-    [sendingPrompt],
-  );
 
   // A highlighted passage is appended into the session composer, after anything
   // already typed rather than replacing it. Inserting (rather than rewriting the
@@ -203,37 +180,7 @@ function ReportChatConversation({
     );
   }
 
-  return (
-    <EmbeddedSessionView
-      task={task}
-      threadActions={({ sendPrompt, isPromptPending }) => (
-        <div className="flex items-center gap-2 border-border border-t px-3 py-3">
-          <Button
-            type="button"
-            variant="primary"
-            className="h-9 flex-1 rounded-lg px-4 text-[13px]"
-            loading={sendingPrompt === workPrompt}
-            disabled={isPromptPending || sendingPrompt !== null}
-            onClick={() => void sendSuggestedPrompt(workPrompt, sendPrompt)}
-          >
-            <GitPullRequestIcon size={15} />
-            {workLabel}
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            className="h-9 flex-1 rounded-lg px-4 text-[13px]"
-            loading={sendingPrompt === canvasPrompt}
-            disabled={isPromptPending || sendingPrompt !== null}
-            onClick={() => void sendSuggestedPrompt(canvasPrompt, sendPrompt)}
-          >
-            <ShapesIcon size={15} />
-            Visualize in a Canvas
-          </Button>
-        </div>
-      )}
-    />
-  );
+  return <EmbeddedSessionView task={task} />;
 }
 
 // The report has no conversation yet: one question starts it, with the full
@@ -346,24 +293,25 @@ function ReportChatStarter({ report }: { report: SignalReport }) {
           The agent joins with the full report and its evidence already in
           context. Highlight any part of the report to quote it here.
         </span>
-        <div className="mt-2 grid gap-2">
-          {starterPrompts.map(({ label, prompt, Icon, variant }) => (
-            <Button
-              key={label}
-              type="button"
-              variant={variant}
-              className="h-10 justify-start rounded-lg px-4 text-[13px]"
-              // Once the composer holds a typed draft or a quoted passage, the
-              // one-click chips step aside — firing a chip must not silently
-              // discard what the user wrote or highlighted.
-              disabled={isDiscussing || starterDraft.trim().length > 0}
-              onClick={() => ask(prompt)}
-            >
-              <Icon size={16} />
-              {label}
-            </Button>
-          ))}
-        </div>
+        {!isDiscussing && (
+          <div className="mt-2 grid gap-2">
+            {starterPrompts.map(({ label, prompt, Icon, variant }) => (
+              <Button
+                key={label}
+                type="button"
+                variant={variant}
+                className="h-10 justify-start rounded-lg px-4 text-[13px]"
+                // Once the composer holds a typed draft or a quoted passage,
+                // firing a chip must not silently discard it.
+                disabled={starterDraft.trim().length > 0}
+                onClick={() => ask(prompt)}
+              >
+                <Icon size={16} />
+                {label}
+              </Button>
+            ))}
+          </div>
+        )}
       </div>
       <form
         className="flex flex-col gap-2"
