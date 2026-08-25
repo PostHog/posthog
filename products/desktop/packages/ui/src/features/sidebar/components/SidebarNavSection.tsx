@@ -9,7 +9,7 @@ import { useChannelReportsEnabled } from "@posthog/ui/features/feature-flags/use
 import { useContextLayerFlag } from "@posthog/ui/features/feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { useReportsInboxEnabled } from "@posthog/ui/features/feature-flags/useReportsInboxEnabled";
-import { useInboxDecisionCount } from "@posthog/ui/features/inbox/hooks/useInboxDecisionCount";
+import { useInboxReportCount } from "@posthog/ui/features/inbox/hooks/useInboxReportCount";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import {
   CUSTOMIZABLE_NAV_ITEM_IDS,
@@ -77,7 +77,7 @@ export function SidebarNavSection({
   // inbox disappears as a destination.
   const channelReportsEnabled = useChannelReportsEnabled();
   const reportsInboxEnabled = useReportsInboxEnabled();
-  const inboxDecisionCount = useInboxDecisionCount();
+  const inboxReportCount = useInboxReportCount();
   const contextEnabled = useContextLayerFlag();
   const inSpaces = useRouterState({
     select: (state) => state.location.pathname.startsWith("/spaces"),
@@ -161,7 +161,7 @@ export function SidebarNavSection({
         onClick={withNavTrack("inbox", navigateToInbox, depth, {
           href: "/inbox",
         })}
-        decisionCount={inboxDecisionCount}
+        reportCount={inboxReportCount}
       />
     ),
     "command-center": (depth) => (
