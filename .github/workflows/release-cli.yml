@@ -286,30 +286,6 @@ jobs:
                   release_tag="posthog-cli/v$NEW_VERSION"
                   echo "release-tag=$release_tag" >> "$GITHUB_OUTPUT"
 
-            - name: Send failure event to PostHog
-              if: failure()
-              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
-              with:
-                  posthog-token: '${{ secrets.POSTHOG_PROJECT_API_KEY }}'
-                  event: 'posthog-cli-github-release-workflow-failure'
-                  properties: >-
-                      {
-                        "commitSha": "${{ github.sha }}",
-                        "jobStatus": "${{ job.status }}",
-                        "ref": "${{ github.ref }}",
-                        "version": "${{ steps.prepare-release.outputs.new-version }}"
-                      }
-
-            - name: Notify Slack - Failed
-              if: failure() && needs.notify-approval-needed.outputs.slack_ts != ''
-              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
-              with:
-                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
-                  slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
-                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
-                  message: 'Failed to prepare posthog-cli release. View logs: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}'
-                  emoji_reaction: 'x'
-
     # Keep cargo-dist publishing in this workflow so the Release approval gates the full release path.
     # Run 'dist plan' (or host) to determine what tasks we need to do
     plan-release:
@@ -796,3 +772,76 @@ jobs:
                   thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
                   message: 'posthog-cli release ${{ needs.release.outputs.new-version }} published for ${{ needs.release.outputs.release-tag }}.'
                   emoji_reaction: 'rocket'
+
+    notify-failed:
+        name: Notify Slack - Release Failed
+        needs:
+            - check-changesets
+            - cli-release-preview
+            - notify-approval-needed
+            - release
+            - plan-release
+            - build-local-artifacts
+            - build-global-artifacts
+            - host-release
+            - publish-npm
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        # Covers every job in the release path, so a failure after the approval gate still alerts.
+        if: always() && contains(needs.*.result, 'failure')
+        steps:
+            - name: Collect failure metadata
+              id: failure-metadata
+              env:
+                  NEEDS_JSON: ${{ toJSON(needs) }}
+                  NEW_VERSION: ${{ needs.release.outputs.new-version }}
+              run: |
+                  set -euo pipefail
+
+                  failed_jobs=$(printf '%s' "$NEEDS_JSON" | jq -r '
+                      to_entries | map(select(.value.result == "failure") | .key) | join(", ")
+                  ')
+                  [ -n "$failed_jobs" ] || failed_jobs='unknown'
+
+                  package_ref='posthog-cli'
+                  if [ -n "$NEW_VERSION" ]; then
+                      package_ref="posthog-cli@v$NEW_VERSION"
+                  fi
+
+                  {
+                      echo "failed-jobs=$failed_jobs"
+                      echo "package-ref=$package_ref"
+                      echo "package-version=${NEW_VERSION:-unknown}"
+                  } >> "$GITHUB_OUTPUT"
+
+            - name: Send failure event to PostHog
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: '${{ secrets.POSTHOG_PROJECT_API_KEY }}'
+                  event: 'posthog-sdk-github-release-workflow-failure'
+                  properties: >-
+                      {
+                        "commitSha": "${{ github.sha }}",
+                        "jobStatus": "failure",
+                        "ref": "${{ github.ref }}",
+                        "repository": "${{ github.repository }}",
+                        "sdk": "posthog-cli",
+                        "jobName": "${{ steps.failure-metadata.outputs.failed-jobs }}",
+                        "packageName": "posthog-cli",
+                        "packageVersion": "${{ steps.failure-metadata.outputs.package-version }}",
+                        "actionUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+                        "alertText": ":rotating_light: Failed to release ${{ steps.failure-metadata.outputs.package-ref }} :rotating_light:",
+                        "alertContext": "These jobs failed in the posthog-cli release workflow: ${{ steps.failure-metadata.outputs.failed-jobs }}."
+                      }
+
+            - name: Notify Slack - Failed
+              continue-on-error: true # A Slack outage must not hide the PostHog alert
+              if: needs.notify-approval-needed.outputs.slack_ts != ''
+              uses: posthog/.github/.github/actions/slack-thread-reply@03565438486849ac0d19543de36c248a27d32a2f
+              with:
+                  slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
+                  slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
+                  thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
+                  message: '❌ Failed to release `${{ steps.failure-metadata.outputs.package-ref }}` (${{ steps.failure-metadata.outputs.failed-jobs }}). <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow run>'
+                  emoji_reaction: 'x'
