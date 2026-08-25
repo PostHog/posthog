@@ -58,6 +58,21 @@ class TestMCPReadOnlyEnforcement(APIBaseTest):
         response = self._request("post", {"key": f"flag-{_name}", "name": "e2e"}, mcp=mcp)
         assert response.status_code == 201
 
+    def test_non_member_gets_the_generic_denial_not_the_policy_message(self) -> None:
+        from posthog.models.organization import Organization
+
+        self._set_read_only(True)
+        _, _, other_team = Organization.objects.bootstrap(None, name="other org")
+
+        response = self.client.post(
+            f"/api/projects/{other_team.id}/feature_flags/",
+            {"key": "cross-org-probe", "name": "probe"},
+            HTTP_AUTHORIZATION=f"Bearer {self.key_value}",
+            headers={"User-Agent": f"cursor/1.0 {MCP_USER_AGENT_MARKER}; version: 1.0.0"},
+        )
+        assert response.status_code == 403
+        assert "read-only" not in response.json()["detail"]
+
     def test_flag_without_entitlement_does_not_enforce(self) -> None:
         self._set_read_only(True)
         self.organization.available_product_features = []

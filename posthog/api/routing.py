@@ -256,7 +256,7 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         else:
             # Domain enforcement and the MCP cap are tenant boundaries, not authorization
             # levels. Views that shape their own permission chain cannot remove them.
-            return [*dangerously_defined, MCPAccessPermission(), VerifiedDomainEnforcementPermission()]
+            return [*dangerously_defined, VerifiedDomainEnforcementPermission(), MCPAccessPermission()]
 
         if isinstance(self.request.successful_authenticator, InternalAPIAuthentication):
             return [IsAuthenticated()]
@@ -272,7 +272,6 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         permission_classes: list = [
             IsAuthenticated,
             APIScopePermission,
-            MCPAccessPermission,
             AccessControlPermission,
         ]
 
@@ -282,8 +281,10 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
             permission_classes.append(OrganizationMemberPermissions)
 
         # After the membership permission, so non-members get the generic denial and the
-        # organization row it resolved is reused.
+        # organization row it resolved is reused. The MCP cap follows for the same reason:
+        # its message must not disclose another organization's security settings.
         permission_classes.append(VerifiedDomainEnforcementPermission)
+        permission_classes.append(MCPAccessPermission)
 
         permission_classes.extend(self.permission_classes)
         return [permission() for permission in permission_classes]
