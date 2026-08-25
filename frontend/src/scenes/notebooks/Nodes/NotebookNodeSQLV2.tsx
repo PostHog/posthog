@@ -20,7 +20,7 @@ import { NotebookCodeSQLEditorSettings } from './components/NotebookSQLEditor'
 import { NotebookStaleCellBanner } from './components/NotebookStaleCellBanner'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { initialSizedRunId, outputHeightForShape } from './notebookNodeOutputHeight'
-import { SQL_V2_DEFAULT_PAGE_SIZE, collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
+import { SQL_V2_DEFAULT_PAGE_SIZE, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
 import { NotebookDataframeResult } from './pythonExecution'
 
 export type NotebookNodeSQLV2Media = { mime_type: string; data: string }
@@ -384,7 +384,7 @@ const Settings = ({
     updateAttributes,
 }: NotebookNodeAttributeProperties<NotebookNodeSQLV2Attributes>): JSX.Element => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
-    const { nodeId, notebookLogic, sqlV2ReturnVariable } = useValues(nodeLogic)
+    const { nodeId, notebookLogic } = useValues(nodeLogic)
     const notebookShortId = notebookLogic.props.shortId
 
     const dataLogic = notebookNodeSQLV2Logic({
@@ -395,8 +395,8 @@ const Settings = ({
         hasResult: !!attributes.result,
         getContent: () => notebookLogic.values.content ?? null,
     })
-    const { isRunning, isInterrupting, operationBlockReason } = useValues(dataLogic)
-    const { runQuery, interruptRun } = useActions(dataLogic)
+    const { isRunning } = useValues(dataLogic)
+    const { runNode } = useActions(dataLogic)
 
     return (
         <NotebookCodeSQLEditorSettings
@@ -404,21 +404,12 @@ const Settings = ({
             updateAttributes={updateAttributes}
             tabIdSuffix="datav2"
             persistConnection
-            // Refs come from the notebook content, not the tiptap editor: markdown notebooks
-            // (the only surface with SQLV2 cells) have no tiptap editor at all.
-            // outputName is what a rerouted (DuckDB) run binds its result to in the kernel, so
-            // downstream cells can read this cell's frame; a ClickHouse run ignores it.
-            onRunQuery={(code, connection) =>
-                runQuery(code, collectSqlV2Refs(notebookLogic.values.content, nodeId), {
-                    ...connection,
-                    outputName: sqlV2ReturnVariable,
-                })
-            }
+            // The cell runs from the notebook's own top row, so the editor keeps only its Cmd+Enter
+            // binding — which hands over what the editor holds, since the document catches up to a
+            // keystroke or a just-picked connection a render later.
+            hideRunButton
+            onRunQuery={(code, connection) => runNode({ code, ...connection })}
             runQueryLoading={isRunning}
-            runQueryDisabledReason={operationBlockReason ?? undefined}
-            runQueryTooltip="Run SQL query"
-            onCancelQuery={interruptRun}
-            cancelQueryLoading={isInterrupting}
         />
     )
 }

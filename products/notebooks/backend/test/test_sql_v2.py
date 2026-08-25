@@ -1275,10 +1275,16 @@ class TestSQLV2RunResult(APIBaseTest):
     def _url(self, run_id: str) -> str:
         return f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/sql_v2/runs/{run_id}/"
 
-    def _create_run(self, status, envelope=None, error="") -> NotebookNodeRun:
+    def _create_run(self, status, envelope=None, error="", node_type=NotebookNodeRun.NodeType.HOGQL) -> NotebookNodeRun:
         with team_scope(self.team.id):
             return NotebookNodeRun.objects.create(
-                team=self.team, notebook=self.notebook, node_id="n1", status=status, envelope=envelope, error=error
+                team=self.team,
+                notebook=self.notebook,
+                node_id="n1",
+                status=status,
+                envelope=envelope,
+                error=error,
+                node_type=node_type,
             )
 
     @parameterized.expand(
@@ -1330,18 +1336,26 @@ class TestSQLV2RunResult(APIBaseTest):
         _restrict_query_access(self)
         self.assertEqual(self.client.get(self._url(str(run.id))).status_code, 403)
 
+    @parameterized.expand(
+        [
+            # hogql: no query status left, so the run can never complete.
+            ("direct", NotebookNodeRun.NodeType.HOGQL, "expired"),
+            # python: the sandbox delivers its envelope once with no retry, so a lost
+            # delivery leaves nothing able to move the row.
+            ("kernel", NotebookNodeRun.NodeType.PYTHON, "never reported"),
+        ]
+    )
     @patch("products.notebooks.backend.presentation.views.notebook.is_sql_v2_enabled", return_value=True)
-    def test_running_direct_run_expires_to_failed_after_grace(self, _mock_enabled):
-        # A RUNNING hogql run with no query status left can never complete — this poll is
-        # its watchdog. Within the grace window it keeps waiting (covers pre-deploy
-        # kernel-executed hogql runs whose callback is still due).
+    def test_running_run_expires_to_failed_after_grace(self, _name, node_type, expected_error, _mock_enabled):
+        # This poll is the watchdog for both lanes. Within the grace window it keeps waiting,
+        # which for hogql also covers pre-deploy kernel-executed runs whose callback is due.
         with freeze_time("2026-07-01T00:00:00Z"):
-            expired = self._create_run(NotebookNodeRun.Status.RUNNING)
+            expired = self._create_run(NotebookNodeRun.Status.RUNNING, node_type=node_type)
         body = self.client.get(self._url(str(expired.id))).json()
         self.assertEqual(body["status"], NotebookNodeRun.Status.FAILED)
-        self.assertIn("expired", body["error"])
+        self.assertIn(expected_error, body["error"])
 
-        young = self._create_run(NotebookNodeRun.Status.RUNNING)
+        young = self._create_run(NotebookNodeRun.Status.RUNNING, node_type=node_type)
         body = self.client.get(self._url(str(young.id))).json()
         self.assertEqual(body["status"], NotebookNodeRun.Status.RUNNING)
 
@@ -1733,6 +1747,57 @@ class TestSQLV2DataPlaneEndpoint(APIBaseTest):
         # The real ClickHouse type must survive the Arrow round-trip (schema metadata).
         self.assertEqual(types[0][0], "answer")
         self.assertIn("Int", types[0][1])
+
+    @parameterized.expand(
+        [
+            # The reviewer's case on #88304: a python cell materializes one input per upstream
+            # node, in sequence, each with its own 11 minute data-plane deadline. Measured from
+            # dispatch, a two-input cell outruns the 20 minute budget while working correctly,
+            # and the watchdog fails it. A fetch is the kernel's only sign of life mid-run, so
+            # it has to move the clock.
+            ("running_run_stays_alive", NotebookNodeRun.Status.RUNNING, False, NotebookNodeRun.Status.RUNNING),
+            # And the guard on the other side: a fetch arriving after the run already finished
+            # must not revive its clock, or a late straggler would resurrect a settled row.
+            ("finished_run_is_not_revived", NotebookNodeRun.Status.DONE, False, NotebookNodeRun.Status.DONE),
+        ]
+    )
+    def test_a_data_plane_fetch_resets_the_run_watchdog_clock(
+        self, _name, initial_status, expect_expired, expected_status
+    ):
+        with freeze_time("2026-07-01T00:00:00Z"), team_scope(self.team.id):
+            run = NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                node_id="n1",
+                node_type=NotebookNodeRun.NodeType.PYTHON,
+                status=initial_status,
+            )
+        token = mint_data_plane_token(self.notebook.short_id, self.team.id, self.user.id, str(run.id))
+        self.assertEqual(self._post({"query": "select 1"}, token=token).status_code, 202)
+
+        from products.notebooks.backend.sql_v2_runs import expire_stale_kernel_run
+
+        run.refresh_from_db()
+        self.assertEqual(expire_stale_kernel_run(run), expect_expired)
+        self.assertEqual(run.status, expected_status)
+
+    def test_a_fetch_without_a_run_claim_touches_no_run(self):
+        # Tokens minted before the run claim existed stay valid across the deploy that adds
+        # it. They fetch data as before; they just cannot advance any run's clock.
+        with freeze_time("2026-07-01T00:00:00Z"), team_scope(self.team.id):
+            run = NotebookNodeRun.objects.create(
+                team=self.team,
+                notebook=self.notebook,
+                node_id="n1",
+                node_type=NotebookNodeRun.NodeType.PYTHON,
+                status=NotebookNodeRun.Status.RUNNING,
+            )
+        self.assertEqual(self._post({"query": "select 1"}, token=self._token()).status_code, 202)
+
+        from products.notebooks.backend.sql_v2_runs import expire_stale_kernel_run
+
+        run.refresh_from_db()
+        self.assertTrue(expire_stale_kernel_run(run))
 
     def test_outer_limit_and_offset_cap_the_page(self):
         response = self._run_to_completion({"query": "select number from numbers(10)", "limit": 3, "offset": 2})
