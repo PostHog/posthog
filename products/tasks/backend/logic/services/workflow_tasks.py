@@ -165,11 +165,11 @@ def create_workflow_task(
     if not user_has_current_team_access(gate_owner, team):
         observe_workflow_task_create(reason="owner_ineligible")
         raise WorkflowTaskOwnerIneligible()
-    workflow_day_count, team_day_count = _daily_task_counts(team.id, hog_flow_id)
-    if workflow_day_count >= WORKFLOW_TASK_RATE_CAP_PER_DAY:
+    daily_counts = _daily_task_counts(team.id, hog_flow_id)
+    if daily_counts.workflow >= WORKFLOW_TASK_RATE_CAP_PER_DAY:
         observe_workflow_task_create(reason="rate_capped")
         raise WorkflowTaskRateCapped(WORKFLOW_TASK_RATE_CAP_PER_DAY)
-    if team_day_count >= WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY:
+    if daily_counts.team >= WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY:
         observe_workflow_task_create(reason="team_rate_capped")
         raise WorkflowTaskTeamRateCapped(WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY)
 
@@ -237,11 +237,11 @@ def create_workflow_task(
             # above already ran the same query: that read was unlocked, so a concurrent
             # create could have pushed the count over the cap since then. This locked
             # read is the one that decides.
-            workflow_day_count, team_day_count = _daily_task_counts(team.id, hog_flow_id)
-            if workflow_day_count >= WORKFLOW_TASK_RATE_CAP_PER_DAY:
+            daily_counts = _daily_task_counts(team.id, hog_flow_id)
+            if daily_counts.workflow >= WORKFLOW_TASK_RATE_CAP_PER_DAY:
                 observe_workflow_task_create(reason="rate_capped")
                 raise WorkflowTaskRateCapped(WORKFLOW_TASK_RATE_CAP_PER_DAY)
-            if team_day_count >= WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY:
+            if daily_counts.team >= WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY:
                 observe_workflow_task_create(reason="team_rate_capped")
                 raise WorkflowTaskTeamRateCapped(WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY)
 
@@ -321,16 +321,23 @@ def _find_replayed_task(
     return _task_dto(existing, created=False)
 
 
-def _daily_task_counts(team_id: int, hog_flow_id: uuid.UUID) -> tuple[int, int]:
-    """(workflow_count, team_count) of Task rows created in the trailing 24h, checked
-    against the two daily caps. One function so the unlocked pre-check and the
-    authoritative locked recheck run the identical query and can't drift apart."""
+@frozen
+class _DailyTaskCounts:
+    """Task rows created in the trailing 24h, checked against the two daily caps."""
+
+    workflow: int
+    team: int
+
+
+def _daily_task_counts(team_id: int, hog_flow_id: uuid.UUID) -> _DailyTaskCounts:
+    """One function so the unlocked pre-check and the authoritative locked recheck run
+    the identical query and can't drift apart."""
     since = django_timezone.now() - timedelta(hours=24)
     workflow_count = Task.objects.filter(team_id=team_id, hog_flow_id=hog_flow_id, created_at__gte=since).count()
     team_count = Task.objects.filter(
         team_id=team_id, origin_product=Task.OriginProduct.WORKFLOW, created_at__gte=since
     ).count()
-    return workflow_count, team_count
+    return _DailyTaskCounts(workflow=workflow_count, team=team_count)
 
 
 def validate_connectors(team_id: int, owner_id: int, mcp_installation_ids: list[str] | None) -> None:
