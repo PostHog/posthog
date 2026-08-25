@@ -4956,4 +4956,220 @@ describe('PersonState.processEvent()', () => {
             })
         })
     })
+
+    describe('cross-consumer write consistency', () => {
+        // Each consumer builds its own BatchWritingPersonsStore over the shared
+        // Postgres tables, so two stores here are two ingestion consumers whose
+        // batches overlap on the same person. These tests pin what the
+        // fetch-diff-flush design guarantees — and what it loses — when the row
+        // changes underneath a store's cache: full-blob last-writer-wins between
+        // flushes, diff replay onto a merge target, and $set_once resolved
+        // against a person that no longer exists. A change that makes writes
+        // op-shaped or re-resolves them at apply time should flip the marked
+        // assertions deliberately.
+
+        function processorWithStore(store: BatchWritingPersonsStore, event: Partial<PluginEvent>) {
+            const fullEvent = { team_id: teamId, properties: {}, ...event }
+            const context = new PersonContext(
+                fullEvent as any,
+                mainTeam,
+                event.distinct_id!,
+                timestamp,
+                true,
+                createPersonOutputs(kafkaProducer),
+                new BatchBoundPersonsStore(store, 0),
+                0,
+                createDefaultSyncMergeMode(),
+                false,
+                false
+            )
+            return new PersonEventProcessor(
+                context,
+                new PersonPropertyService(context),
+                new PersonMergeService(context)
+            )
+        }
+
+        it('updates via two distinct ids of one person: the later flush overwrites the whole properties blob', async () => {
+            // Kafka partitions by distinct id, so a person with two distinct
+            // ids can be written by two consumers at once with per-distinct-id
+            // ordering fully intact. The NO_ASSERT flush materializes cached
+            // base + diff into a full properties blob keyed by uuid: two
+            // consumers that both fetched before either flushed each write
+            // their own blob, so the later flush erases the earlier one's
+            // property instead of merging.
+            await createPerson(
+                hub,
+                timestamp,
+                {},
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                newUserUuid,
+                { distinctId: newUserDistinctId },
+                [{ distinctId: oldUserDistinctId }]
+            )
+
+            const storeA = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer))
+            const storeB = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer))
+
+            const eventA: Partial<PluginEvent> = {
+                event: 'custom-event',
+                distinct_id: newUserDistinctId,
+                uuid: new UUIDT().toString(),
+                properties: { $set: { written_by_a: 'yes' } },
+            }
+            const eventB: Partial<PluginEvent> = {
+                event: 'custom-event',
+                distinct_id: oldUserDistinctId,
+                uuid: new UUIDT().toString(),
+                properties: { $set: { written_by_b: 'yes' } },
+            }
+
+            // Both consumers fetch (and cache) the person before either flushes.
+            expect((await processorWithStore(storeA, eventA).processEvent()).type).toBe(PipelineResultType.OK)
+            expect((await processorWithStore(storeB, eventB).processEvent()).type).toBe(PipelineResultType.OK)
+
+            await storeA.flush()
+            const afterA = await fetchPostgresPersonsH()
+            expect(afterA[0].properties).toEqual({ written_by_a: 'yes' })
+
+            // Store B never saw A's flush: its blob is its own stale base plus
+            // its own diff, so A's already-durable property is silently erased.
+            // The consistent outcome would keep both writes, leaving
+            // { written_by_a: 'yes', written_by_b: 'yes' }. A write path that
+            // applies per-key changes instead of the whole blob should flip
+            // this assertion to that deliberately.
+            await storeB.flush()
+            const afterB = await fetchPostgresPersonsH()
+            expect(afterB[0].properties).toEqual({ written_by_b: 'yes' })
+        })
+
+        it('a merge lands between fetch and flush: the flush replays its diff onto the merge target', async () => {
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, oldUserUuid, {
+                distinctId: oldUserDistinctId,
+            })
+            await createPerson(
+                hub,
+                timestamp,
+                { role: 'admin', plan: 'pro' },
+                {},
+                {},
+                teamId,
+                null,
+                false,
+                newUserUuid,
+                {
+                    distinctId: newUserDistinctId,
+                }
+            )
+
+            // Consumer A caches the source and accumulates a diff: a plain $set,
+            // and a $set_once resolved against the source (which has no plan).
+            const storeA = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer))
+            const eventA: Partial<PluginEvent> = {
+                event: 'custom-event',
+                distinct_id: oldUserDistinctId,
+                uuid: new UUIDT().toString(),
+                properties: { $set: { from_a: 'yes' }, $set_once: { plan: 'free' } },
+            }
+            expect((await processorWithStore(storeA, eventA).processEvent()).type).toBe(PipelineResultType.OK)
+
+            // Consumer B merges the source into the target and flushes: the
+            // source row is deleted and both distinct ids belong to the target.
+            const storeB = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer))
+            const identify: Partial<PluginEvent> = {
+                event: '$identify',
+                distinct_id: newUserDistinctId,
+                uuid: new UUIDT().toString(),
+                properties: { $anon_distinct_id: oldUserDistinctId },
+            }
+            expect((await processorWithStore(storeB, identify).processEvent()).type).toBe(PipelineResultType.OK)
+            await storeB.flush()
+
+            // Consumer A's flush now targets a deleted row: zero rows update, so
+            // it refetches by distinct id, lands on the target, and replays its
+            // diff there.
+            await storeA.flush()
+
+            const persons = await fetchPostgresPersonsH()
+            expect(persons.length).toEqual(1)
+            expect(persons[0].uuid).toEqual(newUserUuid)
+
+            // The diff journal is what makes the retry safe: only A's own
+            // changes replay, so the target's unrelated properties survive
+            // instead of being clobbered by A's stale full blob.
+            expect(persons[0].properties.from_a).toEqual('yes')
+            expect(persons[0].properties.role).toEqual('admin')
+
+            // The documented anomaly: the $set_once was resolved against the
+            // pre-merge source, which had no plan, and the journal keeps no
+            // record of the only-if-absent intent, so the replay overwrites the
+            // value the surviving person already had. First-writer-wins became
+            // last-writer-wins. The correct $set_once outcome is plan: 'pro',
+            // because the key was already set on the surviving person;
+            // re-resolving $set_once at apply time should flip this assertion
+            // to 'pro' deliberately.
+            expect(persons[0].properties.plan).toEqual('free')
+        })
+
+        it('a crash between merge commit and flush: replay reopens $set_once for properties the merge lost', async () => {
+            // The merge transaction durably moves distinct ids and deletes the
+            // source, while the property union only reaches the in-memory cache
+            // until the batch-end flush. A crash in between loses the union —
+            // and the loss is not just a missing value: keys the user had
+            // already set become absent, so a later $set_once claims them again.
+            await createPerson(hub, timestamp, { plan: 'free' }, {}, {}, teamId, null, false, oldUserUuid, {
+                distinctId: oldUserDistinctId,
+            })
+            await createPerson(hub, timestamp, {}, {}, {}, teamId, null, false, newUserUuid, {
+                distinctId: newUserDistinctId,
+            })
+
+            const identify: Partial<PluginEvent> = {
+                event: '$identify',
+                distinct_id: newUserDistinctId,
+                uuid: new UUIDT().toString(),
+                properties: { $anon_distinct_id: oldUserDistinctId },
+            }
+
+            // First attempt: the merge commits, then the process dies before
+            // flush — store1 is never flushed.
+            const store1 = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer))
+            expect((await processorWithStore(store1, identify).processEvent()).type).toBe(PipelineResultType.OK)
+
+            // Replay on a fresh process: the merge no-ops because both distinct
+            // ids already belong to the target, so the union is never
+            // recomputed and the source's plan has no durable copy left. The
+            // lossless outcome would be plan: 'free' here, carried over from
+            // the source by the merge's property union.
+            const store2 = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer))
+            expect((await processorWithStore(store2, identify).processEvent()).type).toBe(PipelineResultType.OK)
+            await store2.flush()
+            const afterReplay = await fetchPostgresPersonsH()
+            expect(afterReplay.length).toEqual(1)
+            expect(afterReplay[0].properties.plan).toBeUndefined()
+
+            // The consequence: a later $set_once, which must never move an
+            // already-set key, now claims it, so the person ends up with a plan
+            // the user only offered as a default. The correct result is
+            // plan: 'free', the value the user set before the merge; making the
+            // merge's property union durable inside the merge transaction
+            // should flip this assertion to 'free' deliberately.
+            const store3 = new BatchWritingPersonsStore(personRepository, createPersonOutputs(kafkaProducer))
+            const setOnceEvent: Partial<PluginEvent> = {
+                event: 'custom-event',
+                distinct_id: oldUserDistinctId,
+                uuid: new UUIDT().toString(),
+                properties: { $set_once: { plan: 'enterprise' } },
+            }
+            expect((await processorWithStore(store3, setOnceEvent).processEvent()).type).toBe(PipelineResultType.OK)
+            await store3.flush()
+
+            const final = await fetchPostgresPersonsH()
+            expect(final[0].properties).toEqual({ plan: 'enterprise' })
+        })
+    })
 })
