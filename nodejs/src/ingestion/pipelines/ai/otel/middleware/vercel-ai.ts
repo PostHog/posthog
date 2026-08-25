@@ -378,9 +378,8 @@ function process(event: PluginEvent, next: () => void): void {
     delete props['ai.response.finishReason']
     delete props['gen_ai.response.finish_reasons']
 
-    // Prefer the gateway's reported total over the token estimate. Only a total
-    // is available, so flag passthrough and let the pipeline skip estimation.
-    // Respect a total the caller already set.
+    // The gateway reports only a total with no input/output split, so flag
+    // passthrough to stop the pipeline estimating one.
     if (props['$ai_total_cost_usd'] === undefined) {
         const gatewayCost = extractGatewayCost(props['ai.response.providerMetadata'])
         if (gatewayCost !== undefined) {

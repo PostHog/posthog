@@ -107,7 +107,7 @@ const isString = (property: unknown): property is string => {
     return typeof property === 'string'
 }
 
-// Accept a boolean or its serialized string form.
+// Ingestion can deliver the flag JSON-serialized, so the string "true" also counts as set.
 const isCostPassthrough = (value: unknown): boolean => value === true || value === 'true'
 
 /**
