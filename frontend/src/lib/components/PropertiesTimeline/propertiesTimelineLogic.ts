@@ -1,6 +1,5 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { Dayjs, dayjsUtcToTimezone } from 'lib/dayjs'
@@ -114,22 +113,13 @@ export const propertiesTimelineLogic = kea<propertiesTimelineLogicType>([
             {
                 loadResult: async () => {
                     if (props.actor.type === 'person') {
-                        const response = await api.get<RawPropertiesTimelineResult>(
+                        // Zero points is a valid result: a merged person's events keep the pre-merge ID,
+                        // and the timeline query does not resolve person ID overrides, so nothing matches.
+                        return await api.get<RawPropertiesTimelineResult>(
                             `api/environments/${values.currentTeamId}/persons/${
                                 props.actor.id
                             }/properties_timeline/?${toParams(props.filter)}`
                         )
-                        if (response.points.length === 0) {
-                            // It should not be possible for a properties timeline to have zero points, as all actors
-                            // shown in the actors modal must have at least one relevant event in the period
-                            posthog.captureException(new Error('Properties Timeline returned no points'), {
-                                tags: { 'team.id': values.currentTeamId },
-                                extra: {
-                                    params: props.filter,
-                                },
-                            })
-                        }
-                        return response
                     }
                     throw new Error("Properties Timeline doesn't support groups-on-events yet")
                 },

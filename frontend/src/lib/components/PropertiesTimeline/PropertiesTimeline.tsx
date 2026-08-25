@@ -43,7 +43,9 @@ export function PropertiesTimeline({ actor, filter }: PropertiesTimelineProps): 
                         <span>
                             {!resultLoading
                                 ? crucialPropertyKeys.length > 0
-                                    ? 'Key person properties over time'
+                                    ? points.length > 0
+                                        ? 'Key person properties over time'
+                                        : 'No key person property history for this period'
                                     : 'No key person properties'
                                 : 'Loading key person properties…'}
                         </span>
