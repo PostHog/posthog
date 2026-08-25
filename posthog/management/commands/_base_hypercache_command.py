@@ -39,6 +39,9 @@ class BaseHyperCacheCommand(BaseCommand):
     Commands keep their own implementation logic while this class reduces boilerplate.
     """
 
+    dedicated_cache_alias = FLAGS_DEDICATED_CACHE_ALIAS
+    dedicated_cache_setting = "FLAGS_REDIS_URL"
+
     # Argument parsing helpers - commands can call these in add_arguments()
 
     def add_common_team_arguments(self, parser: CommandParser):
@@ -850,14 +853,14 @@ class BaseHyperCacheCommand(BaseCommand):
             if not self.check_dedicated_cache_configured():
                 return
         """
-        has_dedicated_cache = FLAGS_DEDICATED_CACHE_ALIAS in settings.CACHES
-        has_flags_redis_url = bool(settings.FLAGS_REDIS_URL)
+        has_dedicated_cache = self.dedicated_cache_alias in settings.CACHES
+        redis_url = getattr(settings, self.dedicated_cache_setting, None)
 
         # Display cache configuration status
         self.stdout.write("\n" + "=" * 70)
         self.stdout.write(self.style.SUCCESS("Cache Configuration:"))
         self.stdout.write("=" * 70)
-        self.stdout.write(f"FLAGS_REDIS_URL configured: {has_flags_redis_url}")
+        self.stdout.write(f"{self.dedicated_cache_setting} configured: {bool(redis_url)}")
         self.stdout.write(f"Dedicated cache available: {has_dedicated_cache}")
         self.stdout.write("=" * 70 + "\n")
 
@@ -868,17 +871,17 @@ class BaseHyperCacheCommand(BaseCommand):
 
             self.stdout.write(
                 self.style.ERROR(
-                    f"\nERROR: Dedicated cache (FLAGS_REDIS_URL) is NOT configured.\n"
+                    f"\nERROR: Dedicated cache ({self.dedicated_cache_setting}) is NOT configured.\n"
                     "\n"
                     f"This command {operation_description}.\n"
-                    "Without FLAGS_REDIS_URL set, the system falls back to the default Redis cache,\n"
+                    f"Without {self.dedicated_cache_setting} set, the system falls back to the default Redis cache,\n"
                     "which would cause incorrect behavior.\n"
                     "\n"
                     "To fix this:\n"
-                    "  1. Set the FLAGS_REDIS_URL environment variable to your dedicated Redis instance\n"
+                    f"  1. Set the {self.dedicated_cache_setting} environment variable to your dedicated Redis instance\n"
                     "  2. Re-run this command\n"
                     "\n"
-                    "Example: FLAGS_REDIS_URL=redis://your-redis:6379/0\n"
+                    f"Example: {self.dedicated_cache_setting}=redis://your-redis:6379/0\n"
                 )
             )
             return False

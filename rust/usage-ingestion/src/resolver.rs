@@ -1,9 +1,11 @@
-use std::time::Duration;
+use std::sync::Arc;
 
 use async_trait::async_trait;
-use moka::future::Cache;
+use common_hypercache::{HyperCacheReader, KeyType};
+use serde::Deserialize;
 use sqlx::PgPool;
 use thiserror::Error;
+use tracing::warn;
 use uuid::Uuid;
 
 #[derive(Debug, Error)]
@@ -21,45 +23,53 @@ pub trait OrganizationResolver: Send + Sync {
     async fn resolve(&self, team_id: i64) -> Result<Uuid, ResolveError>;
 }
 
-pub struct PostgresOrganizationResolver {
-    cache: Cache<i64, Option<Uuid>>,
+#[derive(Deserialize)]
+struct TeamOrganizationMapping {
+    organization_id: Uuid,
+}
+
+pub struct HyperCacheOrganizationResolver {
+    cache: Arc<HyperCacheReader>,
     database: PgPool,
 }
 
-impl PostgresOrganizationResolver {
-    pub fn new(database: PgPool) -> Self {
-        Self {
-            cache: Cache::builder()
-                .time_to_live(Duration::from_secs(5 * 60))
-                .build(),
-            database,
-        }
+impl HyperCacheOrganizationResolver {
+    pub fn new(cache: Arc<HyperCacheReader>, database: PgPool) -> Self {
+        Self { cache, database }
     }
 }
 
 #[async_trait]
-impl OrganizationResolver for PostgresOrganizationResolver {
+impl OrganizationResolver for HyperCacheOrganizationResolver {
     async fn resolve(&self, team_id: i64) -> Result<Uuid, ResolveError> {
         if team_id <= 0 {
             return Err(ResolveError::InvalidTeamId);
         }
-        if let Some(organization_id) = self.cache.get(&team_id).await {
-            metrics::counter!("usage_ingestion_organization_resolver_cache_lookups_total", "result" => "hit")
-                .increment(1);
-            return organization_id.ok_or(ResolveError::Missing);
+        let cache_team_id = i32::try_from(team_id).map_err(|_| ResolveError::InvalidTeamId)?;
+        match self.cache.get(&KeyType::int(cache_team_id)).await {
+            Ok(value) => match serde_json::from_value::<TeamOrganizationMapping>(value) {
+                Ok(mapping) => {
+                    metrics::counter!("usage_ingestion_organization_resolver_cache_lookups_total", "result" => "hit")
+                        .increment(1);
+                    return Ok(mapping.organization_id);
+                }
+                Err(error) => {
+                    warn!(team_id, %error, "Invalid team organization HyperCache payload; falling back to PostgreSQL")
+                }
+            },
+            Err(error) => {
+                warn!(team_id, %error, "Team organization HyperCache miss; falling back to PostgreSQL")
+            }
         }
         metrics::counter!("usage_ingestion_organization_resolver_cache_lookups_total", "result" => "miss")
             .increment(1);
 
-        // A short TTL bounds stale attribution after a project moves organizations while avoiding
-        // a PostgreSQL lookup for every invalid or repeated record.
-        let organization_id = sqlx::query_scalar::<_, Uuid>(
+        sqlx::query_scalar::<_, Uuid>(
             "SELECT organization_id FROM posthog_team WHERE id = $1 AND organization_id IS NOT NULL",
         )
         .bind(team_id)
         .fetch_optional(&self.database)
-        .await?;
-        self.cache.insert(team_id, organization_id).await;
-        organization_id.ok_or(ResolveError::Missing)
+        .await?
+        .ok_or(ResolveError::Missing)
     }
 }

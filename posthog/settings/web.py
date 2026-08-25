@@ -112,6 +112,7 @@ PRODUCTS_APPS = [
     "products.pulse.backend.apps.PulseConfig",
     "products.data_catalog.backend.apps.DataCatalogConfig",
     "products.data_quality.backend.apps.DataQualityConfig",
+    "products.usage_ingestion.backend.apps.UsageIngestionConfig",
 ]
 
 INSTALLED_APPS = [

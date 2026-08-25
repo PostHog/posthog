@@ -509,7 +509,13 @@ services:
             start_period: 10s
         environment:
             USAGE_INGESTION_DATABASE_URL: 'postgres://posthog:posthog@db:5432/posthog'
+            USAGE_INGESTION_TEAM_ORGANIZATION_REDIS_URL: 'redis://redis7:6379/2'
             KAFKA_HOSTS: 'kafka:9092'
+            OBJECT_STORAGE_BUCKET: 'posthog'
+            OBJECT_STORAGE_REGION: 'us-east-1'
+            OBJECT_STORAGE_ENDPOINT: 'http://objectstorage:19000'
+            AWS_ACCESS_KEY_ID: 'object_storage_root_user'
+            AWS_SECRET_ACCESS_KEY: 'object_storage_root_password'
             RUST_LOG: 'info'
 
     personhog-replica:

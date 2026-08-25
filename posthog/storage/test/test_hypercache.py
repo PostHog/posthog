@@ -4,6 +4,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
+from django.conf import settings
 from django.core.cache import cache
 from django.test import override_settings
 
@@ -37,7 +38,9 @@ class HyperCacheTestBase:
         def load_fn(team):
             return {"default": "data"}
 
-        return HyperCache(namespace="test_namespace", value="test_value", load_fn=load_fn)
+        return HyperCache(
+            bucket=settings.OBJECT_STORAGE_BUCKET, namespace="test_namespace", value="test_value", load_fn=load_fn
+        )
 
     def setUp(self):
         # Clear the cache for the commonly used hypercache
@@ -59,7 +62,14 @@ class TestHyperCache(HyperCacheTestBase):
         def load_fn(team):
             return {"data": "test"}
 
-        hc = HyperCache(namespace="test", value="value", load_fn=load_fn, cache_ttl=3600, cache_miss_ttl=1800)
+        hc = HyperCache(
+            bucket=settings.OBJECT_STORAGE_BUCKET,
+            namespace="test",
+            value="value",
+            load_fn=load_fn,
+            cache_ttl=3600,
+            cache_miss_ttl=1800,
+        )
 
         assert hc.namespace == "test"
         assert hc.value == "value"
@@ -73,10 +83,32 @@ class TestHyperCache(HyperCacheTestBase):
         def load_fn(team):
             return {"data": "test"}
 
-        hc = HyperCache(namespace="test", value="value", load_fn=load_fn)
+        hc = HyperCache(bucket=settings.OBJECT_STORAGE_BUCKET, namespace="test", value="value", load_fn=load_fn)
 
         assert hc.cache_ttl == DEFAULT_CACHE_TTL
         assert hc.cache_miss_ttl == DEFAULT_CACHE_MISS_TTL
+
+
+class TestHyperCacheBucketRequired:
+    @parameterized.expand([("s3_enabled", True), ("s3_disabled", False)])
+    def test_bucket_is_required_only_when_s3_is_enabled(self, _name, s3_enabled):
+        def load_fn(team):
+            return {"data": "test"}
+
+        def build():
+            return HyperCache(
+                bucket=None,
+                namespace="test",
+                value="value",
+                load_fn=load_fn,
+                s3_enabled=s3_enabled,
+            )
+
+        if s3_enabled:
+            with pytest.raises(ValueError, match="bucket is required"):
+                build()
+        else:
+            assert build().bucket is None
 
 
 class TestHyperCacheGetFromCache(HyperCacheTestBase):
@@ -144,7 +176,9 @@ class TestHyperCacheGetFromCache(HyperCacheTestBase):
         def load_fn_store_missing(team):
             return HyperCacheStoreMissing()
 
-        hc = HyperCache(namespace="test", value="value", load_fn=load_fn_store_missing)
+        hc = HyperCache(
+            bucket=settings.OBJECT_STORAGE_BUCKET, namespace="test", value="value", load_fn=load_fn_store_missing
+        )
 
         # Clear both Redis and S3
         hc.clear_cache(self.team_id, kinds=["redis", "s3"])
@@ -202,7 +236,13 @@ class TestHyperCacheRedisFailureDegrades(HyperCacheTestBase):
         def load_fn(team):
             return {"default": "data"}
 
-        hc = HyperCache(namespace="etag_ns", value="etag_value", load_fn=load_fn, enable_etag=True)
+        hc = HyperCache(
+            bucket=settings.OBJECT_STORAGE_BUCKET,
+            namespace="etag_ns",
+            value="etag_value",
+            load_fn=load_fn,
+            enable_etag=True,
+        )
 
         with patch.object(hc.cache_client, "get", side_effect=redis.exceptions.ConnectionError("redis down")):
             assert hc.get_etag(self.team_id) is None
@@ -215,7 +255,7 @@ class TestHyperCacheUpdateCache(HyperCacheTestBase):
         def load_fn(team):
             return self.sample_data
 
-        hc = HyperCache(namespace="test", value="value", load_fn=load_fn)
+        hc = HyperCache(bucket=settings.OBJECT_STORAGE_BUCKET, namespace="test", value="value", load_fn=load_fn)
 
         result = hc.update_cache(self.team_id)
 
@@ -236,7 +276,9 @@ class TestHyperCacheUpdateCache(HyperCacheTestBase):
         def load_fn_raises_exception(team):
             raise Exception("Database error")
 
-        hc = HyperCache(namespace="test", value="value", load_fn=load_fn_raises_exception)
+        hc = HyperCache(
+            bucket=settings.OBJECT_STORAGE_BUCKET, namespace="test", value="value", load_fn=load_fn_raises_exception
+        )
 
         result = hc.update_cache(self.team_id)
 
@@ -252,7 +294,12 @@ class TestHyperCacheDependencyUnavailable(HyperCacheTestBase):
         raise HyperCacheDependencyUnavailable("persons db down")
 
     def test_update_cache_returns_false_and_writes_nothing(self):
-        hc = HyperCache(namespace="dep_test", value="value", load_fn=self._load_fn_unavailable)
+        hc = HyperCache(
+            bucket=settings.OBJECT_STORAGE_BUCKET,
+            namespace="dep_test",
+            value="value",
+            load_fn=self._load_fn_unavailable,
+        )
         hc.clear_cache(self.team_id, kinds=["redis", "s3"])
 
         with (
@@ -272,7 +319,12 @@ class TestHyperCacheDependencyUnavailable(HyperCacheTestBase):
         mock_skipped.labels.return_value.inc.assert_called_once()
 
     def test_get_from_cache_returns_transient_miss_without_sentinel(self):
-        hc = HyperCache(namespace="dep_test", value="value", load_fn=self._load_fn_unavailable)
+        hc = HyperCache(
+            bucket=settings.OBJECT_STORAGE_BUCKET,
+            namespace="dep_test",
+            value="value",
+            load_fn=self._load_fn_unavailable,
+        )
         hc.clear_cache(self.team_id, kinds=["redis", "s3"])
 
         result, source = hc.get_from_cache_with_source(self.team_id)
@@ -286,14 +338,25 @@ class TestHyperCacheDependencyUnavailable(HyperCacheTestBase):
     def test_get_if_none_match_raises_when_etag_enabled_and_cold(self):
         # On a cold cache during an outage, the etag-aware read must surface the typed
         # signal to the caller (→ retryable 503), not degrade to a silent miss.
-        hc = HyperCache(namespace="dep_test", value="value", load_fn=self._load_fn_unavailable, enable_etag=True)
+        hc = HyperCache(
+            bucket=settings.OBJECT_STORAGE_BUCKET,
+            namespace="dep_test",
+            value="value",
+            load_fn=self._load_fn_unavailable,
+            enable_etag=True,
+        )
         hc.clear_cache(self.team_id, kinds=["redis", "s3"])
 
         with pytest.raises(HyperCacheDependencyUnavailable):
             hc.get_if_none_match(self.team_id, client_etag=None)
 
     def test_get_if_none_match_raises_when_etag_disabled_and_cold(self):
-        hc = HyperCache(namespace="dep_test", value="value", load_fn=self._load_fn_unavailable)
+        hc = HyperCache(
+            bucket=settings.OBJECT_STORAGE_BUCKET,
+            namespace="dep_test",
+            value="value",
+            load_fn=self._load_fn_unavailable,
+        )
         hc.clear_cache(self.team_id, kinds=["redis", "s3"])
 
         with pytest.raises(HyperCacheDependencyUnavailable):
@@ -302,7 +365,13 @@ class TestHyperCacheDependencyUnavailable(HyperCacheTestBase):
     def test_get_if_none_match_still_degrades_on_redis_failure(self):
         # A genuine Redis failure during the etag check must still degrade to full
         # data — only the dependency-unavailable signal is re-raised.
-        hc = HyperCache(namespace="dep_test", value="value", load_fn=lambda team: {"ok": True}, enable_etag=True)
+        hc = HyperCache(
+            bucket=settings.OBJECT_STORAGE_BUCKET,
+            namespace="dep_test",
+            value="value",
+            load_fn=lambda team: {"ok": True},
+            enable_etag=True,
+        )
         hc.clear_cache(self.team_id, kinds=["redis", "s3"])
 
         with patch.object(hc, "get_etag", side_effect=Exception("redis down")):
@@ -320,7 +389,7 @@ class TestHyperCacheIntegration(HyperCacheTestBase):
         def load_fn(team):
             return self.sample_data
 
-        hc = HyperCache(namespace="test", value="value", load_fn=load_fn)
+        hc = HyperCache(bucket=settings.OBJECT_STORAGE_BUCKET, namespace="test", value="value", load_fn=load_fn)
         hc.clear_cache(self.team_id, kinds=["redis", "s3"])
 
         # Get data (should load from DB and cache it)
@@ -346,7 +415,7 @@ class TestHyperCacheIntegration(HyperCacheTestBase):
         def load_fn(team):
             return self.sample_data
 
-        hc = HyperCache(namespace="test", value="value", load_fn=load_fn)
+        hc = HyperCache(bucket=settings.OBJECT_STORAGE_BUCKET, namespace="test", value="value", load_fn=load_fn)
 
         # Clear Redis but set S3
         hc.set_cache_value(self.team_id, self.sample_data)
@@ -372,7 +441,7 @@ class TestHyperCacheEdgeCases(HyperCacheTestBase):
         def load_fn(team):
             return non_serializable_data
 
-        hc = HyperCache(namespace="test", value="value", load_fn=load_fn)
+        hc = HyperCache(bucket=settings.OBJECT_STORAGE_BUCKET, namespace="test", value="value", load_fn=load_fn)
 
         hc.clear_cache(self.team_id, kinds=["redis", "s3"])
 
@@ -386,7 +455,7 @@ class TestHyperCacheEdgeCases(HyperCacheTestBase):
         def load_fn(team):
             return {"data": "test"}
 
-        hc = HyperCache(namespace="", value="", load_fn=load_fn)
+        hc = HyperCache(bucket=settings.OBJECT_STORAGE_BUCKET, namespace="", value="", load_fn=load_fn)
 
         # Should still work with empty strings
         result, source = hc.get_from_cache_with_source(self.team_id)
@@ -400,7 +469,7 @@ class TestHyperCacheEdgeCases(HyperCacheTestBase):
         def load_fn(team):
             return large_data
 
-        hc = HyperCache(namespace="test", value="value", load_fn=load_fn)
+        hc = HyperCache(bucket=settings.OBJECT_STORAGE_BUCKET, namespace="test", value="value", load_fn=load_fn)
 
         # Clear both Redis and S3
         hc.clear_cache(self.team_id, kinds=["redis", "s3"])
@@ -442,6 +511,7 @@ class TestHyperCacheCustomCacheClient(BaseTest):
 
         # Create HyperCache with custom cache alias
         hc = HyperCache(
+            bucket=settings.OBJECT_STORAGE_BUCKET,
             namespace="test",
             value="value",
             load_fn=load_fn,
@@ -486,6 +556,7 @@ class TestHyperCacheCustomCacheClient(BaseTest):
 
         # Create HyperCache with custom cache alias
         hc = HyperCache(
+            bucket=settings.OBJECT_STORAGE_BUCKET,
             namespace="test",
             value="value",
             load_fn=load_fn,
@@ -528,6 +599,7 @@ class TestHyperCacheCustomCacheClient(BaseTest):
 
         # Create HyperCache with custom cache alias
         hc = HyperCache(
+            bucket=settings.OBJECT_STORAGE_BUCKET,
             namespace="test",
             value="value",
             load_fn=load_fn,
@@ -560,6 +632,7 @@ class TestHyperCacheCustomCacheClient(BaseTest):
 
         # Create HyperCache without cache_alias (should use default)
         hc = HyperCache(
+            bucket=settings.OBJECT_STORAGE_BUCKET,
             namespace="test",
             value="value",
             load_fn=load_fn,
@@ -599,6 +672,7 @@ class TestHyperCacheCustomCacheClient(BaseTest):
             return self.sample_data
 
         hc = HyperCache(
+            bucket=settings.OBJECT_STORAGE_BUCKET,
             namespace="test",
             value="value",
             load_fn=load_fn,
@@ -663,6 +737,7 @@ class TestHyperCacheSecondaryCache(BaseTest):
             return data
 
         hc = HyperCache(
+            bucket=settings.OBJECT_STORAGE_BUCKET,
             namespace="test",
             value="value",
             load_fn=load_fn,
@@ -715,6 +790,7 @@ class TestHyperCacheSecondaryCache(BaseTest):
             return self.sample_data
 
         hc = HyperCache(
+            bucket=settings.OBJECT_STORAGE_BUCKET,
             namespace="test",
             value="value",
             load_fn=load_fn,
@@ -749,6 +825,7 @@ class TestHyperCacheSecondaryCache(BaseTest):
             return self.sample_data
 
         hc = HyperCache(
+            bucket=settings.OBJECT_STORAGE_BUCKET,
             namespace="test",
             value="value",
             load_fn=load_fn,
@@ -776,7 +853,9 @@ class TestHyperCacheBatchGetFromCache(BaseTest):
         def load_fn(team):
             return {"default": "data"}
 
-        return HyperCache(namespace="test_batch", value="test_value", load_fn=load_fn)
+        return HyperCache(
+            bucket=settings.OBJECT_STORAGE_BUCKET, namespace="test_batch", value="test_value", load_fn=load_fn
+        )
 
     def test_batch_get_from_cache_all_hits(self):
         """Test batch get when all teams have cached data."""
@@ -917,7 +996,13 @@ class TestHyperCacheBatchGetFromCache(BaseTest):
         def load_fn(team):
             return {"default": "data"}
 
-        hc = HyperCache(namespace="test_batch_etag", value="test_value", load_fn=load_fn, enable_etag=True)
+        hc = HyperCache(
+            bucket=settings.OBJECT_STORAGE_BUCKET,
+            namespace="test_batch_etag",
+            value="test_value",
+            load_fn=load_fn,
+            enable_etag=True,
+        )
         hc.set_cache_value(self.team, self.sample_data)
 
         results = hc.batch_get_from_cache([self.team])
@@ -938,7 +1023,13 @@ class TestHyperCacheBatchGetFromCache(BaseTest):
         def load_fn(team):
             return {"default": "data"}
 
-        hc = HyperCache(namespace="test_batch_no_etag", value="test_value", load_fn=load_fn, enable_etag=True)
+        hc = HyperCache(
+            bucket=settings.OBJECT_STORAGE_BUCKET,
+            namespace="test_batch_no_etag",
+            value="test_value",
+            load_fn=load_fn,
+            enable_etag=True,
+        )
         hc.set_cache_value(self.team, self.sample_data)
         # Simulate the regression class: payload present, etag absent.
         hc.cache_client.delete(hc.get_etag_key(self.team))
@@ -957,7 +1048,13 @@ class TestHyperCacheBatchGetFromCache(BaseTest):
         def load_fn(team):
             return {"default": "data"}
 
-        hc = HyperCache(namespace="test_batch_one_call", value="test_value", load_fn=load_fn, enable_etag=True)
+        hc = HyperCache(
+            bucket=settings.OBJECT_STORAGE_BUCKET,
+            namespace="test_batch_one_call",
+            value="test_value",
+            load_fn=load_fn,
+            enable_etag=True,
+        )
         hc.set_cache_value(self.team, self.sample_data)
 
         original_get_many = hc.cache_client.get_many
@@ -1016,7 +1113,13 @@ class TestHyperCacheETag(HyperCacheTestBase):
         def load_fn(team):
             return {"default": "data"}
 
-        return HyperCache(namespace="test_namespace", value="test_value", load_fn=load_fn, enable_etag=True)
+        return HyperCache(
+            bucket=settings.OBJECT_STORAGE_BUCKET,
+            namespace="test_namespace",
+            value="test_value",
+            load_fn=load_fn,
+            enable_etag=True,
+        )
 
     def test_etag_key_format(self):
         """Test that ETag key is derived correctly from cache key"""
@@ -1226,6 +1329,7 @@ class TestHyperCacheRemoveExpiryTracking(BaseTest):
 
     def _make_hypercache(self, token_based: bool = False) -> HyperCache:
         return HyperCache(
+            bucket=settings.OBJECT_STORAGE_BUCKET,
             namespace="test",
             value="value",
             load_fn=lambda key: {"data": "test"},
@@ -1271,6 +1375,7 @@ class TestHyperCacheRemoveExpiryTracking(BaseTest):
     @patch("posthog.storage.hypercache.get_client")
     def test_clear_cache_skips_expiry_tracking_when_no_sorted_set_key(self, mock_get_client):
         hc = HyperCache(
+            bucket=settings.OBJECT_STORAGE_BUCKET,
             namespace="test",
             value="value",
             load_fn=lambda key: {"data": "test"},
@@ -1332,6 +1437,7 @@ class TestHyperCacheSetCacheValueRedisOnly(BaseTest):
 
     def _make_hypercache(self, secondary: bool = False) -> HyperCache:
         return HyperCache(
+            bucket=settings.OBJECT_STORAGE_BUCKET,
             namespace="test",
             value="value",
             load_fn=lambda key: {"data": "test"},
@@ -1424,6 +1530,7 @@ class TestHyperCacheSkipIfUnchanged(BaseTest):
 
     def _hypercache(self, enable_etag: bool = True) -> HyperCache:
         return HyperCache(
+            bucket=settings.OBJECT_STORAGE_BUCKET,
             namespace="skip_ns",
             value="skip_value",
             load_fn=lambda team: {"default": "data"},
@@ -1435,6 +1542,7 @@ class TestHyperCacheSkipIfUnchanged(BaseTest):
         """skip_if_unchanged on a cache with no expiry tracking can't keep entries alive,
         so it raises rather than silently letting them expire."""
         hc = HyperCache(
+            bucket=settings.OBJECT_STORAGE_BUCKET,
             namespace="skip_ns",
             value="skip_value",
             load_fn=lambda team: {"default": "data"},

@@ -1,8 +1,8 @@
 # Usage ingestion service
 
 `usage-ingestion` is the internal gRPC gateway for durable usage records. It
-validates records, resolves an omitted organization ID from core PostgreSQL,
-caches successful lookups in memory for five minutes, and publishes
+validates records, resolves an omitted organization ID from the dedicated
+team-to-organization HyperCache (with PostgreSQL fallback), and publishes
 JSONEachRow messages to `clickhouse_billing_usage_records`.
 
 The service is the shared gateway for every usage stream; `IngestBillingUsage`
@@ -24,8 +24,8 @@ docker compose -f docker-compose.dev.yml up usage-ingestion
 ```
 
 The gRPC endpoint listens on port 7143 and metrics/readiness on port 7144.
-PostgreSQL is the source of truth. The service retains successful team-to-
-organization lookups in its process-local cache for five minutes.
+The Django publisher warms the `usage_ingestion/organization_id.json`
+HyperCache; PostgreSQL remains the source of truth for cold or stale mappings.
 
 When `DEBUG` is set, the service writes readable, colorized logs for local
 development. It uses structured JSON logs otherwise.

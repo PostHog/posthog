@@ -120,6 +120,10 @@ from products.tasks.backend.facade.tasks import (
     refresh_stale_sandbox_custom_images_task,
     sweep_loop_task_retention_task,
 )
+from products.usage_ingestion.backend.facade.tasks import (
+    cleanup_stale_team_organization_cache_entries,
+    refresh_expiring_team_organization_cache_entries,
+)
 from products.warehouse_sources.backend.facade.tasks import sweep_stopped_schema_syncs
 from products.web_analytics.backend.achievements.tasks import sweep_web_analytics_achievement_team_tracks
 from products.web_analytics.backend.tasks.heatmap_screenshot import (
@@ -269,6 +273,18 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="*", minute="10"),
         refresh_gateway_credentials.s(),
         name="gateway credential cache sync",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="*", minute="15"),
+        refresh_expiring_team_organization_cache_entries.s(),
+        name="usage ingestion team organization cache sync",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="3", minute="15"),
+        cleanup_stale_team_organization_cache_entries.s(),
+        name="usage ingestion team organization cache cleanup",
     )
 
     # Gateway credential last-used drain - every 5 min; the only writer of last_used_at for gateway keys.

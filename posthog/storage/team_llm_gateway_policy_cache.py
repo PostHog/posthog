@@ -95,6 +95,7 @@ team_llm_gateway_policy_hypercache = HyperCache(
     value="llm_gateway_policy.json",
     token_based=True,
     load_fn=_load_llm_gateway_policy,
+    bucket=settings.OBJECT_STORAGE_BUCKET,
     batch_load_fn=_batch_load_llm_gateway_policy,
     cache_ttl=LLM_GATEWAY_POLICY_CACHE_TTL,
     cache_miss_ttl=LLM_GATEWAY_POLICY_CACHE_MISS_TTL,

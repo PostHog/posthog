@@ -10,6 +10,8 @@ Covers:
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
+
 from prometheus_client import CollectorRegistry
 
 from posthog.models.team.team import Team
@@ -35,6 +37,7 @@ def create_test_hypercache(
         return {"test": "data"}
 
     return HyperCache(
+        bucket=settings.OBJECT_STORAGE_BUCKET,
         namespace=namespace,
         value=value,
         load_fn=load_fn,

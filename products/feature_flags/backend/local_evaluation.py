@@ -401,6 +401,7 @@ flag_definitions_hypercache = HyperCache(
     namespace="feature_flags",
     value="flags_with_cohorts.json",
     load_fn=_load_flag_definitions_with_cohorts,
+    bucket=settings.OBJECT_STORAGE_BUCKET,
     cache_ttl=settings.FLAGS_CACHE_TTL,
     cache_miss_ttl=settings.FLAGS_CACHE_MISS_TTL,
     batch_load_fn=lambda teams: _get_flags_response_for_local_evaluation_batch(teams),
