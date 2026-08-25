@@ -120,7 +120,7 @@ class PrepareSandboxForRepositoryInput:
     context: TaskProcessingContext
 
 
-@dataclass
+@frozen
 class PrepareSandboxForRepositoryOutput:
     sandbox_name: str
     repository: str | None
@@ -134,6 +134,7 @@ class PrepareSandboxForRepositoryOutput:
     shallow_clone: bool
     image_source: str
     image_source_label: str
+    sandbox_template: str = SandboxTemplate.DEFAULT_BASE.value
     snapshot_kind: str = SNAPSHOT_KIND_FILESYSTEM
     snapshot_mount_path: str | None = None
     snapshot_source: str = "none"
@@ -729,6 +730,7 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
             shallow_clone=shallow_clone,
             image_source=image_source,
             image_source_label=image_source_label,
+            sandbox_template=run_state.sandbox_template or SandboxTemplate.DEFAULT_BASE.value,
             snapshot_kind=snapshot_kind,
             snapshot_mount_path=snapshot_mount_path,
             snapshot_source=snapshot_source,
@@ -773,7 +775,7 @@ def _create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cr
         resource_overrides = _dev_stack_preview_resources(ctx)
         config = SandboxConfig(
             name=prepared.sandbox_name,
-            template=SandboxTemplate.VM_BASE if use_vm_sandbox else SandboxTemplate.DEFAULT_BASE,
+            template=SandboxTemplate.VM_BASE if use_vm_sandbox else SandboxTemplate(prepared.sandbox_template),
             workload=workload_for_origin_product(ctx.origin_product),
             custom_image_name=ctx.custom_image_name if use_vm_sandbox else None,
             environment_variables=prepared.environment_variables,
