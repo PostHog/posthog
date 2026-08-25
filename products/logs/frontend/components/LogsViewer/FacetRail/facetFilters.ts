@@ -16,18 +16,19 @@ import {
 
 import type { FacetSource } from './facets'
 
-/** The property-filter type a facet's selection is stored as, per source kind. */
-export type FacetFilterType = PropertyFilterType.Log | PropertyFilterType.LogResourceAttribute
-
-/** The property filter a facet owns inside the filterGroup: one type + key pair, both polarities. */
+/**
+ * The property filter a selection is stored under: one type + key pair, holding both polarities. The
+ * rail only ever names a `log` column or a `log_resource_attribute`, but the search bar reconciles
+ * whatever type the picker produced, so the type stays open.
+ */
 export interface FacetFilterTarget {
     key: string
-    type: FacetFilterType
+    type: PropertyFilterType
 }
 
 interface RailPropertyFilter {
     key: string
-    type: FacetFilterType
+    type: PropertyFilterType
     operator: PropertyOperator
     value?: PropertyFilterValue
 }
@@ -57,26 +58,36 @@ export interface FacetSelection {
     excluded: string[]
 }
 
-// The rail owns a key's `exact` (include) and `is_not` (exclude) filters. A chip on the same key
-// with any other operator (e.g. icontains) is not rail state: it's ignored on read and preserved
-// untouched on write.
-const RAIL_OPERATORS: PropertyOperator[] = [PropertyOperator.Exact, PropertyOperator.IsNot]
+// A selection is held by a key's `exact` (include) and `is_not` (exclude) filters. A chip on the same
+// key with any other operator (e.g. icontains) is not part of one: it's ignored on read and preserved
+// untouched on write. Exported because the search bar reconciles against the same pair.
+export const EQUALITY_OPERATORS: PropertyOperator[] = [PropertyOperator.Exact, PropertyOperator.IsNot]
+
+/** Whether two targets name the same attribute. */
+export function isSameFilterTarget(a: FacetFilterTarget | null, b: FacetFilterTarget | null): boolean {
+    return a !== null && b !== null && a.type === b.type && a.key === b.key
+}
 
 function isRailFacetFilter(entry: RailFilterEntry, target: FacetFilterTarget): entry is RailPropertyFilter {
     return (
         isPropertyLeaf(entry) &&
         entry?.type === target.type &&
         entry?.key === target.key &&
-        RAIL_OPERATORS.includes(entry?.operator)
+        EQUALITY_OPERATORS.includes(entry?.operator)
     )
 }
 
-function filterValues(filter: RailPropertyFilter): string[] {
+/**
+ * A filter's values as a list. Values keep their own type, so merging into a numeric filter does not
+ * rewrite it to strings; callers that compare stringify at the point of comparison. Empty strings are
+ * dropped: external state (a URL, a saved view) carrying one would select a value with no visible row.
+ */
+export function filterValues(filter: { value?: PropertyFilterValue }): unknown[] {
     const value = filter.value
     if (Array.isArray(value)) {
-        return value as string[]
+        return value.filter((v) => v !== '')
     }
-    return value != null && value !== '' ? [String(value)] : []
+    return value != null && value !== '' ? [value] : []
 }
 
 /** The filterGroup property filter a facet's selection is stored in, derived from its source. */
@@ -89,10 +100,12 @@ export function facetFilterTarget(source: FacetSource): FacetFilterTarget {
 /** A facet's selection, read from the exact (include) and is_not (exclude) filters it owns. */
 export function facetSelection(group: UniversalFiltersGroup | undefined, target: FacetFilterTarget): FacetSelection {
     const railFilters = innerFilters(group).filter((f) => isRailFacetFilter(f, target))
-    return {
-        included: railFilters.filter((f) => f.operator === PropertyOperator.Exact).flatMap(filterValues),
-        excluded: railFilters.filter((f) => f.operator === PropertyOperator.IsNot).flatMap(filterValues),
-    }
+    const valuesOf = (operator: PropertyOperator): string[] =>
+        railFilters
+            .filter((f) => f.operator === operator)
+            .flatMap(filterValues)
+            .map((v) => String(v))
+    return { included: valuesOf(PropertyOperator.Exact), excluded: valuesOf(PropertyOperator.IsNot) }
 }
 
 /**
@@ -118,7 +131,10 @@ export function setFacetSelection(
     const inner = group?.values?.[0] as UniversalFiltersGroup | undefined
     return {
         type: group?.type ?? FilterLogicalOperator.And,
-        values: [{ type: inner?.type ?? FilterLogicalOperator.And, values }, ...(group?.values?.slice(1) ?? [])],
+        values: [
+            { type: inner?.type ?? FilterLogicalOperator.And, values } as UniversalFiltersGroup,
+            ...(group?.values?.slice(1) ?? []),
+        ],
     }
 }
 

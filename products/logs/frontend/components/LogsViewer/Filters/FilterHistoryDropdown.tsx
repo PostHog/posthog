@@ -5,7 +5,8 @@ import { LemonButton, LemonMenu, LemonMenuSection } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 
-import { getFiltersSummaryLines, summaryServiceNames } from 'products/logs/frontend/utils'
+import { SERVICE_NAME_FILTER } from 'products/logs/frontend/components/LogsViewer/FacetRail/facetFilters'
+import { getFiltersSummaryLines, summaryColumnSelection } from 'products/logs/frontend/utils'
 
 import { LogsFiltersHistoryEntry } from '../../../types'
 import { logsFilterHistoryLogic } from './logsFilterHistoryLogic'
@@ -18,7 +19,7 @@ const formatHistoryEntryDetails = (entry: LogsFiltersHistoryEntry): string => {
 }
 
 const formatServiceNames = (entry: LogsFiltersHistoryEntry): string => {
-    const serviceNames = summaryServiceNames(entry.filters)
+    const serviceNames = summaryColumnSelection(entry.filters, 'serviceNames', SERVICE_NAME_FILTER)
 
     if (serviceNames.length > 0) {
         const maxDisplayed = 3

@@ -19,22 +19,16 @@ import {
  * filterGroup) or the `exact` log filter the viewer writes now. Read both, so an old entry and a new
  * one summarize identically.
  */
-function columnSelection(filters: Record<string, any>, legacyField: string, target: FacetFilterTarget): string[] {
+export function summaryColumnSelection(
+    filters: Record<string, any>,
+    legacyField: 'severityLevels' | 'serviceNames',
+    target: FacetFilterTarget
+): string[] {
     const legacy = filters[legacyField]
     if (Array.isArray(legacy) && legacy.length > 0) {
         return legacy as string[]
     }
     return facetSelection(filters.filterGroup, target).included
-}
-
-/** The severity levels a filters object selects, from either shape. */
-export function summarySeverityLevels(filters: Record<string, any>): string[] {
-    return columnSelection(filters, 'severityLevels', SEVERITY_LEVEL_FILTER)
-}
-
-/** The service names a filters object selects, from either shape. */
-export function summaryServiceNames(filters: Record<string, any>): string[] {
-    return columnSelection(filters, 'serviceNames', SERVICE_NAME_FILTER)
 }
 
 /**
@@ -79,7 +73,7 @@ export function getFiltersSummaryLines(filters: Record<string, any>): FiltersSum
         lines.push({ label: 'Date range', value: label })
     }
 
-    const severityLevels = summarySeverityLevels(filters)
+    const severityLevels = summaryColumnSelection(filters, 'severityLevels', SEVERITY_LEVEL_FILTER)
     if (severityLevels.length > 0) {
         lines.push({
             label: 'Severity',
@@ -87,7 +81,7 @@ export function getFiltersSummaryLines(filters: Record<string, any>): FiltersSum
         })
     }
 
-    const serviceNames = summaryServiceNames(filters)
+    const serviceNames = summaryColumnSelection(filters, 'serviceNames', SERVICE_NAME_FILTER)
     if (serviceNames.length > 0) {
         const maxDisplayed = 3
         const displayed = serviceNames.slice(0, maxDisplayed)

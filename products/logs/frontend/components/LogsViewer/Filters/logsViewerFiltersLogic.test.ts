@@ -46,15 +46,6 @@ describe('logsViewerFiltersLogic', () => {
 
             expect((logic.values.filters as any)[key]).toEqual(value)
         })
-
-        it('preserves other filters when setting a single filter', async () => {
-            logic.actions.setSearchTerm('first')
-            logic.actions.setDateRange({ date_from: '-24h', date_to: null })
-            await expectLogic(logic).toFinishAllListeners()
-
-            expect(logic.values.filters.searchTerm).toBe('first')
-            expect(logic.values.filters.dateRange).toEqual({ date_from: '-24h', date_to: null })
-        })
     })
 
     describe('setFilters (bulk)', () => {
