@@ -381,27 +381,25 @@ function linkExistingIssueForm(integration: ErrorTrackingIntegration, onSubmit: 
     LemonDialog.openForm({
         title: `Link existing ${label} issue`,
         shouldAwaitSubmit: true,
-        initialValues: { externalContext: null as ErrorTrackingExternalIssueResultApiExternalContext | null },
+        initialValues: { externalIssue: null as ErrorTrackingExternalIssueResultApi | null },
         content: (
-            <LemonField name="externalContext" label="Issue">
+            <LemonField name="externalIssue" label="Issue">
                 <ExistingIssueSelect integrationId={integration.id} kind={integration.kind} />
             </LemonField>
         ),
         errors: {
-            externalContext: (externalContext) => (!externalContext ? 'You must select an issue' : undefined),
+            externalIssue: (externalIssue) => (!externalIssue ? 'You must select an issue' : undefined),
         },
-        onSubmit: ({ externalContext }) => {
-            if (externalContext) {
-                onSubmit(integration.id, externalContext)
+        onSubmit: ({ externalIssue }) => {
+            if (externalIssue) {
+                onSubmit(integration.id, externalIssue.external_context)
             }
         },
     })
 }
 
-// Searchable picker of existing provider issues. Designed to sit inside a LemonField, so it takes the
-// field's value/onChange and emits the selected issue's external_context (the payload the backend stores).
 // Searchable picker of existing provider issues. Search state lives in externalIssueSearchLogic;
-// this component only bridges the LemonField value/onChange to the selected issue's external_context.
+// this component only bridges the LemonField value/onChange to the selected issue.
 function ExistingIssueSelect({
     integrationId,
     kind,
@@ -410,8 +408,8 @@ function ExistingIssueSelect({
 }: {
     integrationId: number
     kind: ErrorTrackingIntegrationKind
-    value?: ErrorTrackingExternalIssueResultApiExternalContext | null
-    onChange?: (value: ErrorTrackingExternalIssueResultApiExternalContext | null) => void
+    value?: ErrorTrackingExternalIssueResultApi | null
+    onChange?: (value: ErrorTrackingExternalIssueResultApi | null) => void
 }): JSX.Element {
     const requiresRepository = kind === 'github'
     const logic = externalIssueSearchLogic({ integrationId, requiresRepository })
@@ -419,11 +417,16 @@ function ExistingIssueSelect({
     const { setRepository, inputChanged, issueSelected } = useActions(logic)
 
     const optionKey = (result: ErrorTrackingExternalIssueResultApi): string => result.url || `${result.id}`
+    const selectedKey = value ? optionKey(value) : null
     const options = results.map((result) => ({
         key: optionKey(result),
         label: result.title,
     }))
-    const selectedResult = value ? results.find((result) => result.external_context === value) : undefined
+    // A results refresh must not visually drop a valid selection, so the selected
+    // issue stays in the options even when the fresh results no longer include it.
+    if (value && selectedKey && !options.some((option) => option.key === selectedKey)) {
+        options.push({ key: selectedKey, label: value.title })
+    }
 
     return (
         <div className="flex flex-col gap-y-2">
@@ -449,7 +452,7 @@ function ExistingIssueSelect({
                 // would hide valid matches whose titles don't contain the raw query text.
                 disableFiltering
                 options={options}
-                value={selectedResult ? [optionKey(selectedResult)] : []}
+                value={selectedKey ? [selectedKey] : []}
                 onInputChange={(query) => {
                     inputChanged(query)
                     // Typing a new query invalidates the current pick - submitting while results
@@ -460,11 +463,13 @@ function ExistingIssueSelect({
                 }}
                 onChange={(selection) => {
                     const key = selection[0] ?? null
-                    const selected = results.find((result) => optionKey(result) === key)
+                    const selected =
+                        results.find((result) => optionKey(result) === key) ??
+                        (key !== null && key === selectedKey ? value : null)
                     if (selected) {
                         issueSelected()
                     }
-                    onChange?.(selected ? selected.external_context : null)
+                    onChange?.(selected ?? null)
                 }}
             />
         </div>
