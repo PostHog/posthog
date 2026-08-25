@@ -361,6 +361,15 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 '("nxdomain"). This usually means the database project is paused or deleted. Check '
                 "that your database is active, then re-enable the sync."
             ),
+            # Supabase's Supavisor pooler reports a routing failure to its upstream backend as
+            # "FATAL: Failed to connect to database: {:error, :enetunreach}" — Erlang's wording for
+            # ENETUNREACH, the same OS condition libpq surfaces as "Network is unreachable" (handled
+            # below). Unlike the sibling ":etimedout"/":econnrefused" tuples in
+            # `_CONNECTION_DROPPED_ERROR_SUBSTRINGS` — a transient blip reaching a backend that's up —
+            # there's no route to the backend's network at all, which is deterministic for the
+            # configured host (an IPv6-only backend PostHog can't route to, or a firewall dropping our
+            # IPs), so retrying re-hits the same wall. Match the stable erlang-tuple fragment.
+            "{:error, :enetunreach}": _HOST_UNREACHABLE_ERROR,
             # Supabase/Supavisor poolers reject a connection that carries no tenant identifier with
             # "FATAL: (ENOIDENTIFIER) no tenant identifier provided (external_id or sni_hostname
             # required)". The shared regional pooler host (e.g. aws-0-<region>.pooler.supabase.com)
