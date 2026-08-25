@@ -176,13 +176,14 @@ class MarkRepoReadyInput:
     release_barrier: bool = True
 
 
-@dataclass
+@frozen
 class StartAgentServerOutput:
     sandbox_url: str
     connect_token: str | None = None
     launch_ms: int | None = None
     ready_wait_ms: int | None = None
     session_init_ms: int | None = None
+    boot_phases_ms: dict[str, int] = field(default_factory=dict)
     boot_total_ms: int | None = None
 
 
@@ -510,7 +511,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         emit_agent_log(ctx.run_id, "debug", f"Agent server started at {input.sandbox_url}")
         activity.logger.info(f"Agent server started at {input.sandbox_url} for task {ctx.task_id}")
 
-        session_init_ms = sandbox.read_agent_server_session_init_ms()
+        session_init_ms, boot_phases_ms = sandbox.read_agent_server_boot_metrics()
         if session_init_ms is not None:
             record_agent_server_session_init_ms(
                 session_init_ms, boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
@@ -525,6 +526,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
             connect_token=input.sandbox_connect_token,
             ready_wait_ms=ready_timer.elapsed_ms,
             session_init_ms=session_init_ms,
+            boot_phases_ms=boot_phases_ms,
             boot_total_ms=boot_total_ms,
         )
 
@@ -641,7 +643,7 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
         emit_agent_log(ctx.run_id, "debug", f"Agent server ready at {input.sandbox_url}")
         activity.logger.info(f"Agent server ready at {input.sandbox_url} for task {ctx.task_id}")
 
-        session_init_ms = sandbox.read_agent_server_session_init_ms()
+        session_init_ms, boot_phases_ms = sandbox.read_agent_server_boot_metrics()
         if session_init_ms is not None:
             record_agent_server_session_init_ms(
                 session_init_ms, boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
@@ -656,5 +658,6 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
             connect_token=input.sandbox_connect_token,
             ready_wait_ms=ready_timer.elapsed_ms,
             session_init_ms=session_init_ms,
+            boot_phases_ms=boot_phases_ms,
             boot_total_ms=boot_total_ms,
         )
