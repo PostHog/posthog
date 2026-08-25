@@ -46,14 +46,20 @@ export function useAutoCompact({
   }
 
   useEffect(() => {
+    // While a send is in flight the latch is already held. A re-render here
+    // must not recompute it: writing the decision back mid-send would rearm the
+    // latch the fire just opened and start a second compaction once the session
+    // settles — the loop decideAutoCompact is written to prevent.
+    if (sendingRef.current) return;
+
     const decision = decideAutoCompact({
       thresholdPercent,
       percentage: usage?.percentage ?? null,
       isCompacting,
       isRunning,
-      armed: armedRef.current && !sendingRef.current,
+      armed: armedRef.current,
     });
-    armedRef.current = decision.armed || sendingRef.current;
+    armedRef.current = decision.armed;
     if (!decision.compact) return;
 
     sendingRef.current = true;
