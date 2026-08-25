@@ -7,10 +7,13 @@ from posthog.llm.gateway_internal_client import (
     ADMIN_ACTOR,
     IDEMPOTENCY_KEY_HEADER,
     INTERNAL_ACTOR_HEADER,
+    AIGatewayBudgetSuperseded,
     AIGatewayInternalError,
     AIGatewayNotConfigured,
     add_credit,
     get_wallet,
+    list_budgets,
+    set_budget,
 )
 
 
@@ -154,6 +157,82 @@ class TestAddCredit:
         with patch("posthog.llm.gateway_internal_client.httpx.post", return_value=_response(200, body)):
             result = add_credit(42, "10", "x", "key-123")
         assert result.balance_usd == "0"
+
+
+class TestSetBudget:
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_writes_node_and_returns_stored_row(self, mock_settings):
+        _configured(mock_settings)
+        body = {
+            "team_id": 42,
+            "scope_type": "product",
+            "scope_value": "signals_scout",
+            "limit_usd": "500",
+            "window_seconds": 86400,
+        }
+        with patch("posthog.llm.gateway_internal_client.httpx.put", return_value=_response(200, body)) as mock_put:
+            budget = set_budget(42, "product", "signals_scout", "500", 86400)
+
+        assert mock_put.call_args.args[0] == "http://gw/internal/teams/42/budgets"
+        assert mock_put.call_args.kwargs["headers"][INTERNAL_ACTOR_HEADER] == ADMIN_ACTOR
+        # A config replace is idempotent by nature, so it must not consume an
+        # idempotency key the credit path needs.
+        assert IDEMPOTENCY_KEY_HEADER not in mock_put.call_args.kwargs["headers"]
+        assert mock_put.call_args.kwargs["json"]["scope_value"] == "signals_scout"
+        assert budget.scope_value == "signals_scout"
+        assert budget.window_seconds == 86400
+
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_conflict_is_distinct_from_failure(self, mock_settings):
+        # The row committed; a concurrent write's limit is what enforces. A caller
+        # that saw a generic error here would retry a write that cannot win.
+        _configured(mock_settings)
+        body = {"error": "a concurrent update set a newer budget for this node"}
+        with patch("posthog.llm.gateway_internal_client.httpx.put", return_value=_response(409, body)):
+            with pytest.raises(AIGatewayBudgetSuperseded):
+                set_budget(42, "product", "signals_scout", "500", 86400)
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            {"team_id": 42, "limit_usd": "500"},
+            {"team_id": 42, "scope_value": "", "limit_usd": "500"},
+            {"team_id": 42, "scope_value": "signals_scout"},
+        ],
+    )
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_partial_success_body_is_an_error(self, mock_settings, body):
+        # Coercing these to empty strings would report a budget on a node that has none.
+        _configured(mock_settings)
+        with patch("posthog.llm.gateway_internal_client.httpx.put", return_value=_response(200, body)):
+            with pytest.raises(AIGatewayInternalError):
+                set_budget(42, "product", "signals_scout", "500", 86400)
+
+
+class TestListBudgets:
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_parses_rows(self, mock_settings):
+        _configured(mock_settings)
+        body = {
+            "budgets": [
+                {
+                    "team_id": 42,
+                    "scope_type": "product",
+                    "scope_value": "signals_scout",
+                    "limit_usd": "500",
+                    "window_seconds": 86400,
+                }
+            ]
+        }
+        with patch("posthog.llm.gateway_internal_client.httpx.get", return_value=_response(200, body)):
+            budgets = list_budgets(42)
+        assert [(b.scope_type, b.scope_value) for b in budgets] == [("product", "signals_scout")]
+
+    @patch("posthog.llm.gateway_internal_client.settings")
+    def test_no_budgets_is_empty_not_an_error(self, mock_settings):
+        _configured(mock_settings)
+        with patch("posthog.llm.gateway_internal_client.httpx.get", return_value=_response(200, {})):
+            assert list_budgets(42) == []
 
 
 class TestNotConfigured:

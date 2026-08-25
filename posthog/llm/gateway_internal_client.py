@@ -21,6 +21,15 @@ class AIGatewayNotConfigured(AIGatewayInternalError):
     """AI_GATEWAY_INTERNAL_URL / AI_GATEWAY_INTERNAL_TOKEN are not set."""
 
 
+class AIGatewayBudgetSuperseded(AIGatewayInternalError):
+    """A concurrent write published a newer budget for this node.
+
+    The durable row still committed, so the write happened; the limit now being
+    enforced is someone else's. Separate from a failure so a re-run can report
+    "not mine" instead of retrying a write that cannot win.
+    """
+
+
 @dataclasses.dataclass(frozen=True)
 class LedgerEntry:
     when: str
@@ -41,6 +50,19 @@ class Wallet:
     has_ledger: bool
     balance: str | None
     recent: list[LedgerEntry]
+
+
+@dataclasses.dataclass(frozen=True)
+class Budget:
+    team_id: int
+    scope_type: str
+    # The value the gateway stored. It sanitizes on write (control-strip, length
+    # bound) exactly as admission sanitizes a request's node, so a caller that
+    # sent an unsanitary value gets the stored form back here rather than the one
+    # it asked for — and a budget keyed on the other string would never bind.
+    scope_value: str
+    limit_usd: str
+    window_seconds: int
 
 
 @dataclasses.dataclass(frozen=True)
@@ -140,6 +162,77 @@ def add_credit(team_id: int, amount_usd: str, reason: str, idempotency_key: str)
         balance_usd=data.get("balance_usd", ""),
         duplicate=bool(data.get("duplicate", False)),
     )
+
+
+def _parse_budget(row: dict[str, Any], default_team_id: int) -> Budget:
+    return Budget(
+        team_id=int(row.get("team_id", default_team_id)),
+        scope_type=row.get("scope_type", ""),
+        scope_value=row.get("scope_value", ""),
+        limit_usd=row.get("limit_usd", ""),
+        window_seconds=int(row.get("window_seconds", 0)),
+    )
+
+
+def set_budget(team_id: int, scope_type: str, scope_value: str, limit_usd: str, window_seconds: int) -> Budget:
+    """Upsert one attribution node's spend budget for a team.
+
+    Budgets are per team: every key the enforcer builds is namespaced by team_id,
+    so there is no fleet-wide pool to set here. A node with no row is unbudgeted,
+    and enforcement fails open, so this is a ceiling rather than a hard floor —
+    the team wallet remains the only thing that cannot be bypassed.
+
+    Carries no idempotency key: the write is a config replace, so a re-run is
+    inherently idempotent. Raises AIGatewayBudgetSuperseded when a concurrent
+    write already published a newer limit for the same node.
+    """
+    url, token = _config()
+    try:
+        response = httpx.put(
+            f"{url}/internal/teams/{team_id}/budgets",
+            headers=_auth_headers(token, {INTERNAL_ACTOR_HEADER: ADMIN_ACTOR}),
+            json={
+                "scope_type": scope_type,
+                "scope_value": scope_value,
+                "limit_usd": limit_usd,
+                "window_seconds": window_seconds,
+            },
+            timeout=INTERNAL_API_TIMEOUT_SECONDS,
+            trust_env=False,
+        )
+    except httpx.HTTPError as exc:
+        raise AIGatewayInternalError(f"budget write failed: {exc}") from exc
+
+    if response.status_code == 409:
+        raise AIGatewayBudgetSuperseded(_error_detail(response))
+    if response.status_code >= 400:
+        raise AIGatewayInternalError(_error_detail(response))
+
+    try:
+        data = response.json()
+    except ValueError as exc:
+        raise AIGatewayInternalError(f"budget response was not valid JSON: {exc}") from exc
+    # A 2xx with a partial body would coerce to an empty scope_value, which reads
+    # as a budget on a different node than the one requested.
+    if not data.get("scope_value") or data.get("limit_usd") is None:
+        raise AIGatewayInternalError("budget response missing required fields (scope_value/limit_usd)")
+    return _parse_budget(data, team_id)
+
+
+def list_budgets(team_id: int) -> list[Budget]:
+    url, token = _config()
+    try:
+        response = httpx.get(
+            f"{url}/internal/teams/{team_id}/budgets",
+            headers=_auth_headers(token),
+            timeout=INTERNAL_API_TIMEOUT_SECONDS,
+            trust_env=False,
+        )
+        response.raise_for_status()
+        data = response.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise AIGatewayInternalError(f"budget read failed: {exc}") from exc
+    return [_parse_budget(row, team_id) for row in data.get("budgets") or []]
 
 
 def _error_detail(response: httpx.Response) -> str:
