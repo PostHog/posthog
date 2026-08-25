@@ -1745,6 +1745,10 @@ export class ApiRequest {
         return this.query(teamId).addPathComponent(queryId).addPathComponent('log')
     }
 
+    public queryCancel(clientQueryId: string, teamId?: TeamType['id']): ApiRequest {
+        return this.query(teamId).addPathComponent(clientQueryId)
+    }
+
     // Endpoints
     public endpoint(teamId?: TeamType['id']): ApiRequest {
         return this.environmentsDetail(teamId).addPathComponent('endpoints')
@@ -6813,6 +6817,14 @@ const api = {
 
     queryURL: (queryKind?: string): string => {
         return new ApiRequest().query(undefined, queryKind).assembleFullUrl(true)
+    },
+
+    /**
+     * Stop the ClickHouse query that a request named with its `client_query_id`. Dropping the HTTP
+     * request does not reach ClickHouse, which keeps working on the query until it finishes.
+     */
+    async cancelQuery(clientQueryId: string): Promise<void> {
+        await new ApiRequest().queryCancel(clientQueryId).delete()
     },
 
     async query<T extends Record<string, any> = QuerySchema>(

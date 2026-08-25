@@ -11,6 +11,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { getEntryAccessDisabledReason, getProductAccessDisabledReason } from 'lib/utils/accessControlUtils'
+import { uuid } from 'lib/utils/dom'
 import { GroupQueryResult, mapGroupQueryResponse } from 'lib/utils/groups'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { newInternalTab } from 'lib/utils/newInternalTab'
@@ -630,9 +631,10 @@ export const searchLogic = kea<searchLogicType>([
                         return []
                     }
 
+                    const clientQueryId: string | null = cache.personSearchQueryId
                     try {
                         const response = await api.persons.list(
-                            { search: trimmed, limit: SEARCH_LIMIT },
+                            { search: trimmed, limit: SEARCH_LIMIT, client_query_id: clientQueryId ?? undefined },
                             { signal: cache.searchAbortController?.signal }
                         )
                         breakpoint()
@@ -640,6 +642,11 @@ export const searchLogic = kea<searchLogicType>([
                         return response.results
                     } catch (error) {
                         return rethrowSearchError(error, breakpoint)
+                    } finally {
+                        // The request is over, so there is no ClickHouse query left to cancel.
+                        if (cache.personSearchQueryId === clientQueryId) {
+                            cache.personSearchQueryId = null
+                        }
                     }
                 },
             },
@@ -1676,8 +1683,8 @@ export const searchLogic = kea<searchLogicType>([
         setSearch: async ({ search }, breakpoint) => {
             if (search.trim() === '') {
                 // An empty term means the palette closed or the box was cleared, so no later run
-                // will replace what is in flight. Drop it now, because a person search can run
-                // until the query times out and nobody is waiting on the answer.
+                // will replace what is in flight. Stop it now, because a person search can run for
+                // a minute and nobody is waiting on the answer.
                 cache.disposables.dispose('searchAbortController')
                 return
             }
@@ -1689,10 +1696,21 @@ export const searchLogic = kea<searchLogicType>([
             cache.disposables.add(
                 () => {
                     const controller = new AbortController()
+                    const clientQueryId = uuid()
                     cache.searchAbortController = controller
+                    cache.personSearchQueryId = clientQueryId
                     return () => {
+                        const personSearchRunning = cache.personSearchQueryId === clientQueryId
                         cache.searchAbortController = null
+                        cache.personSearchQueryId = null
                         controller.abort()
+                        if (personSearchRunning) {
+                            // Dropping the request does not reach ClickHouse, so the person search
+                            // would keep scanning and holding a query slot. Kill it by name.
+                            api.cancelQuery(clientQueryId).catch((error) =>
+                                console.warn('Failed cancelling person search', error)
+                            )
+                        }
                     }
                 },
                 'searchAbortController',

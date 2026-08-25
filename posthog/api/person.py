@@ -1,3 +1,4 @@
+import re
 import json
 import uuid
 import builtins
@@ -42,6 +43,7 @@ from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.constants import LIMIT, OFFSET
+from posthog.errors import QueryErrorCategory, classify_query_error
 from posthog.event_usage import get_request_analytics_properties
 from posthog.helpers.impersonation import is_impersonated
 from posthog.metrics import LABEL_TEAM_ID
@@ -92,6 +94,24 @@ logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
 DEFAULT_PAGE_LIMIT = 100
+
+# The cancel path matches on `query_id LIKE '<team_id>_<client_query_id>%'`, so `_` and `%` would
+# make one id match other queries in the same team. This charset excludes both.
+CLIENT_QUERY_ID_PATTERN = re.compile(r"[A-Za-z0-9-]{1,64}")
+
+# Nginx's "Client Closed Request". Django and DRF have no name for it.
+HTTP_CLIENT_CLOSED_REQUEST = 499
+
+
+def tag_client_query_id(client_query_id: str | None) -> None:
+    """Name this request's ClickHouse queries so the caller can cancel them by that id."""
+    if not client_query_id:
+        return
+    if not CLIENT_QUERY_ID_PATTERN.fullmatch(client_query_id):
+        raise ValidationError({"client_query_id": "Must be 1 to 64 characters from [A-Za-z0-9-]."})
+    tag_queries(client_query_id=client_query_id)
+
+
 # Sync with .../lib/constants.tsx and .../cdp/utils.ts
 # It's almost certainly wrong to add more properties to this list, instead convince the user to send data to use with
 # these properties, or use e.g. a CDP transformation to rewrite their events.
@@ -543,11 +563,21 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 OpenApiTypes.STR,
                 description="Search persons, either by email (full text search) or distinct_id (exact match).",
             ),
+            OpenApiParameter(
+                "client_query_id",
+                OpenApiTypes.STR,
+                description=(
+                    "Names the ClickHouse query this request runs. Send the same id to "
+                    "`DELETE /api/projects/:project_id/query/:client_query_id/` to stop a search that is still "
+                    "running. Up to 64 characters from [A-Za-z0-9-]."
+                ),
+            ),
             PersonPropertiesSerializer(required=False),
         ],
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         tag_queries(product=ProductKey.PERSONS, feature=Feature.QUERY)
+        tag_client_query_id(request.GET.get("client_query_id"))
         team = self.team
         filter = Filter(request=request, team=self.team)
 
@@ -628,7 +658,14 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # insight-caching wrapper. With an id-only select there's no actor-column hydration, so
             # we still hydrate the person objects ourselves via get_serialized_people.
             actors_runner = ActorsQueryRunner(team=team, query=actors_query)
-            actor_ids = [row[0] for row in actors_runner.calculate().results]
+            try:
+                actor_ids = [row[0] for row in actors_runner.calculate().results]
+            except Exception as err:
+                if classify_query_error(err) is not QueryErrorCategory.CANCELLED:
+                    raise
+                # The caller killed this search, so there is no body to return and nothing went wrong.
+                # Raising would report a server error for every cancelled search.
+                return Response(status=HTTP_CLIENT_CLOSED_REQUEST)
             with personhog_caller_tag("persons/list"):
                 serialized_actors = get_serialized_people(team, actor_ids)
 

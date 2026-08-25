@@ -18,13 +18,18 @@ from posthog.test.base import (
 )
 from unittest import mock
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
 import posthog.models.person.deletion
+from posthog.api.person import tag_client_query_id
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import get_query_tag_value, reset_query_tags
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, Person, PropertyDefinition, Team
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
@@ -110,6 +115,32 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(completed[0]["outcome"], "success")
         self.assertEqual(completed[0]["result_count"], 1)
         self.assertGreater(completed[0]["duration_ms"], 0)
+
+    @parameterized.expand(
+        [
+            ("accepts a uuid", "5d92fb51-5088-45e8-91b2-843aef3d69bd", status.HTTP_200_OK),
+            ("rejects a like wildcard", "%25", status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_search_with_client_query_id(self, _name: str, client_query_id: str, expected_status: int) -> None:
+        response = self.client.get(f"/api/person/?search=someone&client_query_id={client_query_id}")
+        self.assertEqual(response.status_code, expected_status)
+
+    def test_search_answers_499_when_the_query_was_cancelled(self) -> None:
+        with mock.patch(
+            "posthog.hogql_queries.actors_query_runner.ActorsQueryRunner.calculate",
+            side_effect=ServerException("Query was cancelled", code=394),
+        ):
+            response = self.client.get("/api/person/?search=someone")
+        self.assertEqual(response.status_code, 499)
+
+    def test_search_still_raises_on_a_query_error_that_is_not_a_cancellation(self) -> None:
+        with mock.patch(
+            "posthog.hogql_queries.actors_query_runner.ActorsQueryRunner.calculate",
+            side_effect=ServerException("Boom", code=999),
+        ):
+            with self.assertRaises(ServerException):
+                self.client.get("/api/person/?search=someone")
 
     @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
     @snapshot_clickhouse_queries
@@ -2183,6 +2214,34 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         results = response.json()["results"]
         self.assertNotIn(distinct_ids[200], results)
+
+
+class TestTagClientQueryId(SimpleTestCase):
+    def setUp(self) -> None:
+        super().setUp()
+        reset_query_tags()
+
+    @parameterized.expand([("uuid", "5d92fb51-5088-45e8-91b2-843aef3d69bd"), ("short id", "abc123")])
+    def test_names_the_clickhouse_query(self, _name: str, client_query_id: str) -> None:
+        tag_client_query_id(client_query_id)
+        self.assertEqual(get_query_tag_value("client_query_id"), client_query_id)
+
+    def test_ignores_a_missing_id(self) -> None:
+        tag_client_query_id(None)
+        self.assertIsNone(get_query_tag_value("client_query_id"))
+
+    @parameterized.expand(
+        [
+            ("like wildcard", "%"),
+            ("like single character wildcard", "a_b"),
+            ("longer than 64 characters", "a" * 65),
+            ("quote", "a'b"),
+        ]
+    )
+    def test_rejects_an_unsafe_id(self, _name: str, client_query_id: str) -> None:
+        with self.assertRaises(ValidationError):
+            tag_client_query_id(client_query_id)
+        self.assertIsNone(get_query_tag_value("client_query_id"))
 
 
 class TestPersonFromClickhouse(TestPerson):
