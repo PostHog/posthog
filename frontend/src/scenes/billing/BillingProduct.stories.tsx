@@ -8,7 +8,7 @@ import { makeBillingWithPlatformAddons } from '~/mocks/fixtures/_billing_platfor
 import preflightJson from '~/mocks/fixtures/_preflight.json'
 import { BillingProductV2Type, BillingType, StartupProgramLabel } from '~/types'
 
-import { POSTHOG_CODE_USAGE_PRODUCT_KEY, STARTUP_PROGRAM_BILLING_LIMIT_MAX } from './billingLimitConfig'
+import { POSTHOG_CODE_USAGE_PRODUCT_KEY, STARTUP_PROGRAM_BILLING_LIMIT_MAX_BY_PRODUCT } from './billingLimitConfig'
 import { BillingProduct } from './BillingProduct'
 
 const meta: Meta = {
@@ -34,6 +34,9 @@ export default meta
 
 type Story = StoryObj<{}>
 
+const POSTHOG_CODE_USAGE_STARTUP_PROGRAM_BILLING_LIMIT_MAX =
+    STARTUP_PROGRAM_BILLING_LIMIT_MAX_BY_PRODUCT[POSTHOG_CODE_USAGE_PRODUCT_KEY]
+
 const BillingProductStoryFrame = ({ children }: { children: JSX.Element }): JSX.Element => (
     <div className="w-[960px] max-w-full">{children}</div>
 )
@@ -58,9 +61,12 @@ const makePostHogCodeUsageBilling = ({
         docs_url: 'https://posthog.com/docs/posthog-desktop',
         subscribed: true,
         type: POSTHOG_CODE_USAGE_PRODUCT_KEY,
-        current_amount_usd: currentLimitUsd > STARTUP_PROGRAM_BILLING_LIMIT_MAX ? '3750.00' : '25.00',
-        projected_amount_usd: currentLimitUsd > STARTUP_PROGRAM_BILLING_LIMIT_MAX ? '4100.00' : '75.00',
-        projected_amount_usd_with_limit: currentLimitUsd > STARTUP_PROGRAM_BILLING_LIMIT_MAX ? '3750.00' : '75.00',
+        current_amount_usd:
+            currentLimitUsd > POSTHOG_CODE_USAGE_STARTUP_PROGRAM_BILLING_LIMIT_MAX ? '3750.00' : '25.00',
+        projected_amount_usd:
+            currentLimitUsd > POSTHOG_CODE_USAGE_STARTUP_PROGRAM_BILLING_LIMIT_MAX ? '4100.00' : '75.00',
+        projected_amount_usd_with_limit:
+            currentLimitUsd > POSTHOG_CODE_USAGE_STARTUP_PROGRAM_BILLING_LIMIT_MAX ? '3750.00' : '75.00',
         plans: sourceProduct.plans.map((plan) => ({
             ...plan,
             initial_billing_limit: 50,
@@ -175,7 +181,7 @@ export const BillingProductPostHogCodeLimitNextPeriodCapped: Story = {
     render: () =>
         renderPostHogCodeUsageBillingProduct({
             currentLimitUsd: 3750,
-            nextPeriodLimitUsd: 3000,
+            nextPeriodLimitUsd: POSTHOG_CODE_USAGE_STARTUP_PROGRAM_BILLING_LIMIT_MAX,
         }),
 }
 

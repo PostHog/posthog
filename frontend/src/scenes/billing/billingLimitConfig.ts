@@ -4,7 +4,10 @@ export const MAX_BILLING_LIMIT: number = 50000
 
 export const POSTHOG_CODE_USAGE_PRODUCT_KEY = 'posthog_code_usage'
 export const REPLAY_VISION_PRODUCT_KEY = 'replay_vision'
-export const STARTUP_PROGRAM_BILLING_LIMIT_MAX: number = 3000
+export const STARTUP_PROGRAM_BILLING_LIMIT_MAX_BY_PRODUCT: Record<string, number> = {
+    [POSTHOG_CODE_USAGE_PRODUCT_KEY]: 500,
+    [REPLAY_VISION_PRODUCT_KEY]: 3000,
+}
 
 export type BillingLimitConfig = {
     max: number
@@ -34,13 +37,12 @@ type BillingLimitConfigResolver = (context: BillingLimitConfigContext) => Partia
 // Mirrors the caps the billing service enforces for startup-program customers, so the form
 // rejects out-of-range limits before the API does. The billing API product names are too
 // verbose for copy (e.g. "PostHog Desktop (usage-based)").
-const startupProgramCapResolver = (productName: string): BillingLimitConfigResolver => {
+const startupProgramCapResolver = (productName: string, cap: number): BillingLimitConfigResolver => {
     return ({ billing, customLimitUsd, billingLimitNextPeriod }) => {
         if (!billing?.startup_program_label) {
             return null
         }
 
-        const cap = STARTUP_PROGRAM_BILLING_LIMIT_MAX
         return {
             max: cap,
             help: `While your organization is in the startup program, ${productName} billing limits can be set from $0 to $${cap.toLocaleString()} per month.`,
@@ -58,8 +60,14 @@ const startupProgramCapResolver = (productName: string): BillingLimitConfigResol
 }
 
 const BILLING_LIMIT_CONFIG_BY_PRODUCT: Record<string, BillingLimitConfigResolver> = {
-    [POSTHOG_CODE_USAGE_PRODUCT_KEY]: startupProgramCapResolver('Desktop'),
-    [REPLAY_VISION_PRODUCT_KEY]: startupProgramCapResolver('Replay vision'),
+    [POSTHOG_CODE_USAGE_PRODUCT_KEY]: startupProgramCapResolver(
+        'Desktop',
+        STARTUP_PROGRAM_BILLING_LIMIT_MAX_BY_PRODUCT[POSTHOG_CODE_USAGE_PRODUCT_KEY]
+    ),
+    [REPLAY_VISION_PRODUCT_KEY]: startupProgramCapResolver(
+        'Replay vision',
+        STARTUP_PROGRAM_BILLING_LIMIT_MAX_BY_PRODUCT[REPLAY_VISION_PRODUCT_KEY]
+    ),
 }
 
 export const getBillingLimitConfig = (context: BillingLimitConfigContext): BillingLimitConfig => {

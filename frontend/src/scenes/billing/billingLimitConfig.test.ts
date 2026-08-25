@@ -6,7 +6,7 @@ import {
     MAX_BILLING_LIMIT,
     POSTHOG_CODE_USAGE_PRODUCT_KEY,
     REPLAY_VISION_PRODUCT_KEY,
-    STARTUP_PROGRAM_BILLING_LIMIT_MAX,
+    STARTUP_PROGRAM_BILLING_LIMIT_MAX_BY_PRODUCT,
 } from './billingLimitConfig'
 
 describe('getBillingLimitConfig', () => {
@@ -23,14 +23,16 @@ describe('getBillingLimitConfig', () => {
         })
 
     it.each([
-        [POSTHOG_CODE_USAGE_PRODUCT_KEY, 'Desktop'],
-        [REPLAY_VISION_PRODUCT_KEY, 'Replay vision'],
-    ])('caps %s for startup program customers and explains why', (productType, productName) => {
+        [POSTHOG_CODE_USAGE_PRODUCT_KEY, 'Desktop', 500],
+        [REPLAY_VISION_PRODUCT_KEY, 'Replay vision', 3000],
+    ])('caps %s for startup program customers and explains why', (productType, productName, cap) => {
         const config = getConfig(productType, StartupProgramLabel.YC)
-        expect(config.max).toBe(STARTUP_PROGRAM_BILLING_LIMIT_MAX)
+        expect(config.max).toBe(cap)
         expect(config.removalDisabledReason).toBeTruthy()
         expect(config.help).toContain(`${productName} billing limits`)
+        expect(config.help).toContain(`$${cap.toLocaleString()}`)
         expect(config.maxExceededError).toContain(`${productName} billing limits`)
+        expect(config.maxExceededError).toContain(`$${cap.toLocaleString()}`)
     })
 
     it.each(['posthog_code_usage', 'replay_vision', 'product_analytics'])(
@@ -44,13 +46,15 @@ describe('getBillingLimitConfig', () => {
     )
 
     it.each([
-        [3750, 2000, true],
-        [3750, 5000, false],
-        [null, 2000, false],
+        [POSTHOG_CODE_USAGE_PRODUCT_KEY, 750, 500, true],
+        [POSTHOG_CODE_USAGE_PRODUCT_KEY, 750, 600, false],
+        [REPLAY_VISION_PRODUCT_KEY, 3750, 2000, true],
+        [REPLAY_VISION_PRODUCT_KEY, 3750, 5000, false],
+        [REPLAY_VISION_PRODUCT_KEY, null, 2000, false],
     ])(
-        'with current limit %p and next period limit %p, above-cap notice shown: %p',
-        (customLimitUsd, billingLimitNextPeriod, noticeShown) => {
-            const config = getConfig('replay_vision', StartupProgramLabel.YC, {
+        'for %s with current limit %p and next period limit %p, above-cap notice shown: %p',
+        (productType, customLimitUsd, billingLimitNextPeriod, noticeShown) => {
+            const config = getConfig(productType, StartupProgramLabel.YC, {
                 customLimitUsd,
                 billingLimitNextPeriod,
             })
@@ -61,4 +65,11 @@ describe('getBillingLimitConfig', () => {
             }
         }
     )
+
+    it('exports startup program caps by product', () => {
+        expect(STARTUP_PROGRAM_BILLING_LIMIT_MAX_BY_PRODUCT).toEqual({
+            [POSTHOG_CODE_USAGE_PRODUCT_KEY]: 500,
+            [REPLAY_VISION_PRODUCT_KEY]: 3000,
+        })
+    })
 })
