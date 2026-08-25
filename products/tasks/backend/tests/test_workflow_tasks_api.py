@@ -1,13 +1,16 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.test import SimpleTestCase, override_settings
-from django.utils import timezone
+from django.utils import (
+    timezone,
+    timezone as django_timezone,
+)
 
 from parameterized import parameterized
 from rest_framework import status
@@ -21,6 +24,10 @@ from posthog.models.team.team import Team
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
+from products.tasks.backend.logic.services.workflow_tasks import (
+    WORKFLOW_TASK_RATE_CAP_PER_DAY,
+    WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY,
+)
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.visibility import task_control_q, task_visibility_q
 from products.workflows.backend.api.workflow_tasks import WorkflowTaskCreateSerializer
@@ -74,6 +81,30 @@ class TestWorkflowTasksAPI(APIBaseTest):
         )
         TaskRun.objects.create(task=task, team=self.team, status=run_status)
         return task
+
+    def _seed_created_tasks(
+        self,
+        count: int,
+        *,
+        hog_flow_id: UUID | None,
+        origin_product: str = Task.OriginProduct.WORKFLOW,
+        created_at: datetime | None = None,
+    ) -> None:
+        # No TaskRun rows: the daily caps count Task rows only, and runless tasks keep the
+        # in-flight count at 0, so a cap test cannot pass via the in-flight 409 instead.
+        Task.objects.bulk_create(
+            [
+                Task(
+                    team=self.team,
+                    title=f"seed-{i}",
+                    description="seed",
+                    origin_product=origin_product,
+                    hog_flow_id=hog_flow_id,
+                    **({"created_at": created_at} if created_at is not None else {}),
+                )
+                for i in range(count)
+            ]
+        )
 
     def test_creates_a_task_and_run_attributed_to_the_workflow_and_its_owner(self) -> None:
         response = self._post()
@@ -210,7 +241,8 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
         assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
 
-    def test_refuses_a_workflow_whose_owner_is_deactivated(self) -> None:
+    @patch("products.tasks.backend.logic.services.workflow_tasks.usage_limit_response")
+    def test_refuses_a_workflow_whose_owner_is_deactivated(self, usage_limit_response_mock) -> None:
         self.user.is_active = False
         self.user.save()
 
@@ -218,8 +250,12 @@ class TestWorkflowTasksAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
         assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
+        # A deactivated owner must never reach the gate: it would mint an OAuth token
+        # scoped to this owner and team before anything has confirmed they still belong.
+        usage_limit_response_mock.assert_not_called()
 
-    def test_refuses_an_owner_removed_from_the_organization(self) -> None:
+    @patch("products.tasks.backend.logic.services.workflow_tasks.usage_limit_response")
+    def test_refuses_an_owner_removed_from_the_organization(self, usage_limit_response_mock) -> None:
         former_member = self._create_user("former@posthog.com")
         flow = HogFlow.objects.create(team=self.team, name="Orphaned", created_by=former_member)
         OrganizationMembership.objects.filter(user=former_member, organization=self.organization).delete()
@@ -228,6 +264,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
         assert not Task.objects.filter(hog_flow_id=flow.id).exists()
+        usage_limit_response_mock.assert_not_called()
 
     @parameterized.expand([("unknown_workflow",), ("another_teams_workflow",)])
     def test_refuses_a_workflow_it_cannot_find_in_the_tokens_team(self, case: str) -> None:
@@ -257,6 +294,58 @@ class TestWorkflowTasksAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
+    @parameterized.expand(["per_workflow", "team_wide"])
+    @patch("products.tasks.backend.logic.services.workflow_tasks.usage_limit_response")
+    def test_skips_creation_at_the_daily_cap(self, scope: str, usage_limit_response_mock) -> None:
+        if scope == "per_workflow":
+            self._seed_created_tasks(WORKFLOW_TASK_RATE_CAP_PER_DAY, hog_flow_id=self.hog_flow.id)
+            expected_fragment = "This workflow reached its daily limit"
+        else:
+            # Two other workflows fill the team budget; this workflow is far under its own cap.
+            for _ in range(2):
+                self._seed_created_tasks(WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY // 2, hog_flow_id=uuid4())
+            expected_fragment = "This project reached its daily limit"
+        seeded = Task.objects.count()
+
+        response = self._post()
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        assert expected_fragment in response.json()["detail"]
+        assert Task.objects.count() == seeded
+        # A workflow or team already at its cap must never reach the gate, or every
+        # remaining event that day would still pay for an OAuth mint and a gateway
+        # round trip only to be rejected anyway.
+        usage_limit_response_mock.assert_not_called()
+
+    @parameterized.expand(["older_than_24h", "non_workflow_origin"])
+    def test_old_and_foreign_tasks_do_not_consume_the_daily_caps(self, case: str) -> None:
+        if case == "older_than_24h":
+            self._seed_created_tasks(
+                WORKFLOW_TASK_RATE_CAP_PER_DAY,
+                hog_flow_id=self.hog_flow.id,
+                created_at=django_timezone.now() - timedelta(hours=25),
+            )
+        else:
+            self._seed_created_tasks(
+                WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY,
+                hog_flow_id=None,
+                origin_product=Task.OriginProduct.LOOP,
+            )
+
+        response = self._post()
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+
+    @patch("products.tasks.backend.logic.services.workflow_tasks.usage_limit_response")
+    def test_rejects_creation_when_the_owner_is_over_the_usage_limit(self, usage_limit_response_mock) -> None:
+        usage_limit_response_mock.return_value = object()  # any non-None reply means blocked
+
+        response = self._post()
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        assert "usage limit" in response.json()["detail"]
+        assert Task.objects.count() == 0
+
     def test_replaying_an_idempotency_key_returns_the_existing_task(self) -> None:
         first = self._post({"idempotency_key": "invocation-1"})
         replay = self._post({"idempotency_key": "invocation-1"})
@@ -275,10 +364,13 @@ class TestWorkflowTasksAPI(APIBaseTest):
         first = self._post({"idempotency_key": "invocation-1", "connectors": ["inst-1"], "max_parallel_tasks": 1})
         assert first.status_code == status.HTTP_201_CREATED, first.json()
 
-        # The connector is gone and the workflow is at its limit; the retry of the
-        # already-created request must still return the existing task.
+        # The connector is gone, the workflow is at its in-flight and daily limits, and the
+        # owner is over the usage limit; the retry of the already-created request must
+        # still return the existing task.
         get_active_installations.return_value = []
-        replay = self._post({"idempotency_key": "invocation-1", "connectors": ["inst-1"], "max_parallel_tasks": 1})
+        self._seed_created_tasks(WORKFLOW_TASK_RATE_CAP_PER_DAY, hog_flow_id=self.hog_flow.id)
+        with patch("products.tasks.backend.logic.services.workflow_tasks.usage_limit_response", return_value=object()):
+            replay = self._post({"idempotency_key": "invocation-1", "connectors": ["inst-1"], "max_parallel_tasks": 1})
 
         assert replay.status_code == status.HTTP_200_OK, replay.json()
         assert replay.json()["id"] == first.json()["id"]

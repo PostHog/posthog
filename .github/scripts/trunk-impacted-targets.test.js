@@ -257,6 +257,7 @@ test('proto configuration at the root claims every tree', () => {
         'proto/ingestion/worker/v1/worker.proto',
         'proto/kafka_assigner/v1/service.proto',
         'proto/prometheus/v1/remote_write.proto',
+        'proto/usage_ingestion/v1/service.proto',
     ]) {
         for (const target of computeTargets([file], PROTO_CONTEXT)) {
             union.add(target)
