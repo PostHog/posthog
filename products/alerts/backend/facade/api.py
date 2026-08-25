@@ -12,10 +12,10 @@ import structlog
 
 from posthog.models.activity_logging.model_activity import ActingUserContext
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.user_permissions import UserPermissions
 from posthog.utils import relative_date_parse
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.alerts.backend.destination_configs import (
     DESTINATION_TEMPLATE_IDS,
     AlertDestinationData,
