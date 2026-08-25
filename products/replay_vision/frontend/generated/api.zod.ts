@@ -1136,6 +1136,22 @@ export const VisionScannersInlineScanCreateBody = /* @__PURE__ */ zod
     .describe('Body of POST \/vision\/scanners\/inline_scan\/ - a prompt plus the sessions to point it at.')
 
 /**
+ * Turn a free-text scope phrase into matched product surfaces and a recording filter.
+ */
+export const visionScannersResolveCreateBodyScopeMax = 120
+
+export const VisionScannersResolveCreateBody = /* @__PURE__ */ zod
+    .object({
+        scope: zod
+            .string()
+            .max(visionScannersResolveCreateBodyScopeMax)
+            .describe(
+                "Free-text description of the part of the product to scan, e.g. 'billing' or 'checkout flow'. Matched against the team's page paths, playlists, actions, and custom events."
+            ),
+    })
+    .describe('Body of POST \/vision\/scanners\/resolve\/ — what the user said they want to scan.')
+
+/**
  * Suggest classifier tags grounded in the scanner's own observations and the org's product data.
  */
 export const visionScannersSuggestTagsCreateBodyPromptMax = 10000

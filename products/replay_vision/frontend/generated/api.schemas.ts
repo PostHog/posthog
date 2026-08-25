@@ -2079,6 +2079,84 @@ export interface InlineScanResponseApi {
 }
 
 /**
+ * Body of POST /vision/scanners/resolve/ — what the user said they want to scan.
+ */
+export interface ResolveScopeRequestApi {
+    /**
+     * Free-text description of the part of the product to scan, e.g. 'billing' or 'checkout flow'. Matched against the team's page paths, playlists, actions, and custom events.
+     * @maxLength 120
+     */
+    scope: string
+}
+
+/**
+ * * `page` - page
+ * * `playlist` - playlist
+ * * `action` - action
+ * * `event` - event
+ */
+export type SurfaceKindEnumApi = (typeof SurfaceKindEnumApi)[keyof typeof SurfaceKindEnumApi]
+
+export const SurfaceKindEnumApi = {
+    Page: 'page',
+    Playlist: 'playlist',
+    Action: 'action',
+    Event: 'event',
+} as const
+
+/**
+ * One part of the product the scope phrase matched.
+ */
+export interface ResolvedSurfaceApi {
+    /** Which source matched: a page path, a saved playlist, an action, or a custom event.
+     *
+     * * `page` - page
+     * * `playlist` - playlist
+     * * `action` - action
+     * * `event` - event */
+    surface_kind: SurfaceKindEnumApi
+    /** Identifier for the surface — the pathname, playlist short id, action id, or event name. */
+    key: string
+    /** What to show the user for this surface. */
+    name: string
+    /** The surface's description or summary, where it has one. Empty string otherwise. */
+    detail: string
+    /** How closely the surface matched the scope phrase. Higher is closer; use only for ordering. */
+    score: number
+    /**
+     * Recorded sessions that touched this page in the last 7 days. Null for every surface kind except `page`, which is the only one carrying volume of its own.
+     * @nullable
+     */
+    sessions: number | null
+}
+
+/**
+ * The surfaces a scope phrase named, the recording filter they became, and what that filter matches.
+ */
+export interface ResolveScopeResponseApi {
+    /** The scope phrase this resolution answers. Echoed from the request. */
+    scope: string
+    /** Matched surfaces, closest first. Playlists lead, then pages, then actions, then events. */
+    surfaces: ResolvedSurfaceApi[]
+    /** `RecordingsQuery` the matched surfaces became, ready to hand to `estimate` or to a new scanner. A matched playlist reuses its saved filters; otherwise matched pages become a single `visited_page` property listing every path, which matches a session that touched any of them. Null when nothing matched — an empty filter is better than one matching everything. `date_from`/`date_to` are stripped; a scanner's window comes from its sweep. */
+    query: unknown
+    /**
+     * Sessions matching `query` within `window_days`. Null when there is no query, or when the count failed — check `degraded_sources`.
+     * @nullable
+     */
+    matched_sessions: number | null
+    /**
+     * Lookback `matched_sessions` covers. Smaller than the requested window when the team has fewer days of recordings. Null whenever `matched_sessions` is.
+     * @nullable
+     */
+    window_days: number | null
+    /** True when the count was extrapolated from a sample rather than counted exactly. */
+    sampled: boolean
+    /** Sources that errored and contributed nothing: any of `pages`, `playlists`, `actions`, `events`, `estimate`. Empty on a complete answer; a non-empty list means the result is partial. */
+    degraded_sources: string[]
+}
+
+/**
  * Per-scanner-type count of enabled vs total scanners.
  */
 export interface ScannerTypeStatsApi {

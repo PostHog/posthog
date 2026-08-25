@@ -44,6 +44,7 @@ from products.replay_vision.backend.queries import ESTIMATE_STALE_AFTER, SAVE_ES
 from products.replay_vision.backend.queries.scanner_candidate_query import SETTLE_INTERVAL
 from products.replay_vision.backend.quota import BillingPeriod, _current_period_bounds
 from products.replay_vision.backend.scanner_draft import DraftError, ScannerDraft
+from products.replay_vision.backend.scope_resolution import ScopeResolution, SurfaceMatch
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_EXECUTION_TIMEOUT,
     APPLY_SCANNER_WORKFLOW_NAME,
@@ -3550,3 +3551,83 @@ class TestScannerSelfDrivingStatsAPI(_VisionAPITestCase):
         assert kwargs["source_product"] == "replay_vision"
         assert kwargs["source_type"] == "scanner_finding"
         assert kwargs["extra_equals"] == {"scanner_id": str(scanner.id)}
+
+
+class TestScannerResolveAPI(_VisionAPITestCase):
+    @property
+    def resolve_url(self) -> str:
+        return f"{self.scanners_url}resolve/"
+
+    def _patch_resolve(self, resolution: ScopeResolution):
+        return patch(
+            "products.replay_vision.backend.api.scanners.resolve_scope",
+            return_value=resolution,
+        )
+
+    def test_resolve_requires_session_recording_read(self) -> None:
+        # The response carries page paths, playlist names and a session count, so without this gate
+        # the endpoint answers questions about recordings the caller can't read.
+        with patch(
+            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_resource",
+            side_effect=lambda resource, **_: resource != "session_recording",
+        ):
+            response = self.client.post(self.resolve_url, data={"scope": "billing"}, format="json")
+
+        assert response.status_code == 403
+
+    def test_resolve_rejects_a_blank_scope(self) -> None:
+        # Wiring guard: the action must run the request serializer rather than pass the body through.
+        response = self.client.post(self.resolve_url, data={"scope": "  "}, format="json")
+
+        assert response.status_code == 400
+
+    def test_resolve_serializes_the_whole_resolution(self) -> None:
+        # Serializer drift here silently empties the generated TypeScript types and MCP tool schemas.
+        resolution = ScopeResolution(
+            scope="billing",
+            surfaces=(
+                SurfaceMatch(kind="page", key="/billing", name="/billing", detail="", score=2.0, sessions=900),
+                SurfaceMatch(kind="action", key="7", name="Upgrade", detail="Clicked upgrade", score=1.0),
+            ),
+            query={
+                "kind": "RecordingsQuery",
+                "properties": [
+                    {"type": "recording", "key": "visited_page", "value": ["/billing"], "operator": "icontains"}
+                ],
+            },
+            matched_sessions=4200,
+            window_days=7,
+            sampled=True,
+            degraded_sources=("events",),
+        )
+        with self._patch_resolve(resolution) as mock_resolve:
+            response = self.client.post(self.resolve_url, data={"scope": "billing"}, format="json")
+
+        assert response.status_code == 200
+        assert response.json() == {
+            "scope": "billing",
+            "surfaces": [
+                {
+                    "surface_kind": "page",
+                    "key": "/billing",
+                    "name": "/billing",
+                    "detail": "",
+                    "score": 2.0,
+                    "sessions": 900,
+                },
+                {
+                    "surface_kind": "action",
+                    "key": "7",
+                    "name": "Upgrade",
+                    "detail": "Clicked upgrade",
+                    "score": 1.0,
+                    "sessions": None,
+                },
+            ],
+            "query": resolution.query,
+            "matched_sessions": 4200,
+            "window_days": 7,
+            "sampled": True,
+            "degraded_sources": ["events"],
+        }
+        assert mock_resolve.call_args.kwargs["scope"] == "billing"

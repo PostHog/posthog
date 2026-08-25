@@ -42,6 +42,8 @@ import type {
     ReplayScannerApi,
     ReplayScannerBackfillApi,
     ReplayScannerPromptSuggestionApi,
+    ResolveScopeRequestApi,
+    ResolveScopeResponseApi,
     RetryResponseApi,
     RunActionResponseApi,
     ScannerCreatorsResponseApi,
@@ -1283,6 +1285,26 @@ export const visionScannersInlineScanCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(inlineScanRequestApi),
+    })
+}
+
+export const getVisionScannersResolveCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/vision/scanners/resolve/`
+}
+
+/**
+ * Turn a free-text scope phrase into matched product surfaces and a recording filter.
+ */
+export const visionScannersResolveCreate = async (
+    projectId: string,
+    resolveScopeRequestApi: ResolveScopeRequestApi,
+    options?: RequestInit
+): Promise<ResolveScopeResponseApi> => {
+    return apiMutator<ResolveScopeResponseApi>(getVisionScannersResolveCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(resolveScopeRequestApi),
     })
 }
 

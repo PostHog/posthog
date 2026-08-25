@@ -106,6 +106,7 @@ from products.replay_vision.backend.scanner_config import (
 )
 from products.replay_vision.backend.scanner_draft import DraftError, draft_scanner_from_goal
 from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN, run_inline_scan, scan_existing_scanner
+from products.replay_vision.backend.scope_resolution import resolve_scope
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
 from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
@@ -1190,6 +1191,94 @@ class EstimateResponseSerializer(serializers.Serializer):
     )
 
 
+class ResolveScopeRequestSerializer(serializers.Serializer):
+    """Body of POST /vision/scanners/resolve/ — what the user said they want to scan."""
+
+    scope = serializers.CharField(
+        max_length=120,
+        trim_whitespace=True,
+        allow_blank=False,
+        help_text=(
+            "Free-text description of the part of the product to scan, e.g. 'billing' or 'checkout flow'. "
+            "Matched against the team's page paths, playlists, actions, and custom events."
+        ),
+    )
+
+
+class ResolvedSurfaceSerializer(serializers.Serializer):
+    """One part of the product the scope phrase matched."""
+
+    surface_kind = serializers.ChoiceField(
+        source="kind",
+        choices=["page", "playlist", "action", "event"],
+        help_text="Which source matched: a page path, a saved playlist, an action, or a custom event.",
+    )
+    key = serializers.CharField(
+        help_text="Identifier for the surface — the pathname, playlist short id, action id, or event name.",
+    )
+    name = serializers.CharField(help_text="What to show the user for this surface.")
+    detail = serializers.CharField(
+        allow_blank=True,
+        help_text="The surface's description or summary, where it has one. Empty string otherwise.",
+    )
+    score = serializers.FloatField(
+        help_text="How closely the surface matched the scope phrase. Higher is closer; use only for ordering.",
+    )
+    sessions = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Recorded sessions that touched this page in the last 7 days. Null for every surface kind "
+            "except `page`, which is the only one carrying volume of its own."
+        ),
+    )
+
+
+class ResolveScopeResponseSerializer(serializers.Serializer):
+    """The surfaces a scope phrase named, the recording filter they became, and what that filter matches."""
+
+    scope = serializers.CharField(help_text="The scope phrase this resolution answers. Echoed from the request.")
+    surfaces = ResolvedSurfaceSerializer(
+        many=True,
+        help_text="Matched surfaces, closest first. Playlists lead, then pages, then actions, then events.",
+    )
+    query = extend_schema_field(RecordingsQuery)(  # type: ignore[arg-type, type-var]
+        serializers.JSONField(
+            allow_null=True,
+            help_text=(
+                "`RecordingsQuery` the matched surfaces became, ready to hand to `estimate` or to a new "
+                "scanner. A matched playlist reuses its saved filters; otherwise matched pages become a "
+                "single `visited_page` property listing every path, which matches a session that touched "
+                "any of them. Null when nothing matched — an empty filter is better than one matching "
+                "everything. `date_from`/`date_to` are stripped; a scanner's window comes from its sweep."
+            ),
+        )
+    )
+    matched_sessions = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Sessions matching `query` within `window_days`. Null when there is no query, or when the "
+            "count failed — check `degraded_sources`."
+        ),
+    )
+    window_days = serializers.IntegerField(
+        allow_null=True,
+        help_text=(
+            "Lookback `matched_sessions` covers. Smaller than the requested window when the team has "
+            "fewer days of recordings. Null whenever `matched_sessions` is."
+        ),
+    )
+    sampled = serializers.BooleanField(
+        help_text="True when the count was extrapolated from a sample rather than counted exactly.",
+    )
+    degraded_sources = serializers.ListField(
+        child=serializers.CharField(),
+        help_text=(
+            "Sources that errored and contributed nothing: any of `pages`, `playlists`, `actions`, "
+            "`events`, `estimate`. Empty on a complete answer; a non-empty list means the result is partial."
+        ),
+    )
+
+
 class SuggestTagsRequestSerializer(serializers.Serializer):
     """Body of POST /vision/scanners/suggest_tags/ — the classifier config currently being edited."""
 
@@ -1951,6 +2040,45 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
                 }
             ).data
         )
+
+    @extend_schema(
+        request=ResolveScopeRequestSerializer,
+        responses={
+            200: ResolveScopeResponseSerializer,
+            400: OpenApiResponse(
+                response=ReplayVisionErrorSerializer, description="The scope phrase is missing, blank, or too long."
+            ),
+            403: OpenApiResponse(
+                response=ReplayVisionErrorSerializer,
+                description="The caller lacks session_recording read access.",
+            ),
+        },
+    )
+    @action(
+        detail=False,
+        methods=["post"],
+        url_path="resolve",
+        required_scopes=["replay_scanner:read", "session_recording:read"],
+        throttle_classes=[ReplayVisionEstimateBurstRateThrottle, ReplayVisionEstimateSustainedRateThrottle],
+    )
+    def resolve(self, request: Request, **kwargs: Any) -> Response:
+        """Turn a free-text scope phrase into matched product surfaces and a recording filter."""
+        # The response carries page paths, playlist names and a session count, all of which are
+        # recording metadata; gate it exactly as `estimate` is gated.
+        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
+            raise PermissionDenied("Resolving a scanner scope requires session_recording read access.")
+
+        body = ResolveScopeRequestSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+
+        resolution = resolve_scope(
+            team=self.team,
+            scope=body.validated_data["scope"],
+            # The exposure filter's access check inside the estimate runs as the requesting user.
+            user=cast(User, request.user),
+            user_access_control=self.user_access_control,
+        )
+        return Response(ResolveScopeResponseSerializer(resolution).data)
 
     @extend_schema(
         request=SuggestTagsRequestSerializer,
