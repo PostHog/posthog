@@ -624,6 +624,8 @@ jobs:
                   else
                       TEST_TARGETS=(posthog/dags products/*/dags)
                   fi
+                  # Call-only times so the timing-update workflow's migration-tax corrector
+                  # sees the same setup-free signal it gets from the backend segments.
                   pytest "${TEST_TARGETS[@]}" \
                       --reuse-db \
                       --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
@@ -632,6 +634,7 @@ jobs:
                       "${SPLIT_GRANULARITY[@]}" \
                       --reruns 2 --reruns-delay 1 \
                       -r fEsxX \
+                      -o junit_duration_report=call \
                       --junitxml=junit-dagster-${{ matrix.group }}.xml
 
             - name: Upload test results
