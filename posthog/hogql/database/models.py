@@ -265,6 +265,9 @@ class Table(FieldOrTable):
         return asterisk
 
 
+_CI_INDEX_CACHE_KEY = "_case_insensitive_index_cache"
+
+
 class TableNode(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -295,6 +298,24 @@ class TableNode(BaseModel):
 
         return self.table
 
+    def _case_insensitive_index(self) -> dict[str, "TableNode"]:
+        # Stored as a plain __dict__ entry, not a pydantic PrivateAttr: any private state would
+        # knock every node off the _slim_pickle_getstate fast path, and the slim setstate drops it.
+        # Validity is self-checking — reassigning `children` changes its identity and del/pop/adds
+        # change its length; a same-key replacement goes through add_child, which pops the cache.
+        # Concurrent readers may race to build the index; the build is idempotent and the
+        # last write wins, which is safe under the GIL.
+        cache: Optional[tuple[dict[str, TableNode], int, dict[str, TableNode]]] = self.__dict__.get(_CI_INDEX_CACHE_KEY)
+        if cache is None or cache[0] is not self.children or cache[1] != len(self.children):
+            index: dict[str, TableNode] = {}
+            for key, node in self.children.items():
+                if node.case_insensitive:
+                    # setdefault keeps the first child in iteration order, matching the scan this replaces
+                    index.setdefault(key.lower(), node)
+            cache = (self.children, len(self.children), index)
+            object.__setattr__(self, _CI_INDEX_CACHE_KEY, cache)
+        return cache[2]
+
     def _match_child(self, name: str) -> Optional["TableNode"]:
         child = self.children.get(name)
         if child is not None:
@@ -302,11 +323,7 @@ class TableNode(BaseModel):
         # Fall back to a case-insensitive match, but only to children that opt in — keeps
         # ClickHouse/event tables exact-match while letting Snowflake schemas/tables resolve
         # the way Snowflake itself does (unquoted identifiers fold case).
-        target = name.lower()
-        for key, node in self.children.items():
-            if node.case_insensitive and key.lower() == target:
-                return node
-        return None
+        return self._case_insensitive_index().get(name.lower())
 
     # NOTE: This only returns True if the path we pass in
     # is a valid path to a child table - not just any path.
@@ -339,6 +356,9 @@ class TableNode(BaseModel):
         table_conflict_mode: Literal["override", "ignore"] = "ignore",
         children_conflict_mode: Literal["override", "merge", "ignore"] = "merge",
     ):
+        # A same-name override keeps `children`'s identity and length, which the lookup index's
+        # validity check can't see — drop the cache explicitly.
+        self.__dict__.pop(_CI_INDEX_CACHE_KEY, None)
         # If there's a conflict, we act according to the conflict modes
         if child.name in self.children:
             if children_conflict_mode == "override":
