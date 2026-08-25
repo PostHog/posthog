@@ -9,6 +9,7 @@ import {
     isToolCallPayload,
 } from '@/lib/build-tool-result'
 import { estimateTokens } from '@/lib/estimate-tokens'
+import { withAgentNote } from '@/tools/tool-utils'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, POSTHOG_META_KEY } from '@/tools/types'
 import { APP_DATA_META_KEY } from '@/ui-apps/types'
 
@@ -191,7 +192,7 @@ describe('buildToolResultPayload — agent notes', () => {
 
     it('appends the note to the text channel when a formatted table replaces the serialized result', () => {
         const payload = buildToolResultPayload({
-            handlerResult: { ...queryTrendsHandlerResult(), _agentNote: AGENT_NOTE },
+            handlerResult: withAgentNote(queryTrendsHandlerResult(), AGENT_NOTE),
             toolMeta: queryTrendsToolMeta,
             toolName: 'query-trends',
             params: {},
@@ -204,7 +205,7 @@ describe('buildToolResultPayload — agent notes', () => {
 
     it('does not duplicate the note when the serialized result already carries it', () => {
         const payload = buildToolResultPayload({
-            handlerResult: { ...queryTrendsHandlerResult(false), _agentNote: AGENT_NOTE },
+            handlerResult: withAgentNote(queryTrendsHandlerResult(false), AGENT_NOTE),
             toolMeta: queryTrendsToolMeta,
             toolName: 'query-trends',
             params: {},
@@ -215,9 +216,37 @@ describe('buildToolResultPayload — agent notes', () => {
         expect(occurrences).toBe(1)
     })
 
+    it('counts the structured payload for token estimation when a note is present', () => {
+        const payload = buildToolResultPayload({
+            handlerResult: withAgentNote(queryTrendsHandlerResult(false), AGENT_NOTE),
+            toolMeta: queryTrendsToolMeta,
+            toolName: 'query-trends',
+            params: {},
+            forceUiDataToMeta: true,
+            distinctId: 'test-distinct-id',
+        })
+
+        expect(payload.content[0]!.text).toBe(STRUCTURED_CONTENT_ONLY_TEXT)
+        expect(estimateResponseTokens(payload)).toBe(estimateTokens(payload.structuredContent))
+    })
+
+    it('does not append the note when structuredContent already carries it', () => {
+        const payload = buildToolResultPayload({
+            handlerResult: withAgentNote(queryTrendsHandlerResult(), AGENT_NOTE),
+            toolMeta: queryTrendsToolMeta,
+            toolName: 'query-trends',
+            params: {},
+            suppressStructuredContentForFormattedResults: false,
+            distinctId: 'test-distinct-id',
+        })
+
+        expect(payload.structuredContent).toMatchObject({ _agentNote: AGENT_NOTE })
+        expect(payload.content[0]!.text).toBe(FORMATTED_TABLE)
+    })
+
     it('leaves raw JSON output machine-parseable, carrying the note as a field', () => {
         const payload = buildToolResultPayload({
-            handlerResult: { ...queryTrendsHandlerResult(false), _agentNote: AGENT_NOTE },
+            handlerResult: withAgentNote(queryTrendsHandlerResult(false), AGENT_NOTE),
             toolMeta: queryTrendsToolMeta,
             toolName: 'query-trends',
             params: { output_format: 'json' },
