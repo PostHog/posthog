@@ -80,7 +80,7 @@ export async function compileHog(hog: string): Promise<HogBytecode> {
         cache.set(hog, output)
         if (CACHE_REWRITE) {
             await mkdir(CACHE_DIR, { recursive: true })
-            await writeFile(file, JSON.stringify(output, null, 2) + '\n')
+            await writeFile(file, JSON.stringify(output) + '\n')
         }
 
         return output
