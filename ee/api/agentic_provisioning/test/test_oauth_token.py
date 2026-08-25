@@ -11,9 +11,10 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 
+from products.access_control.backend.models.access_control import AccessControl
+
 from ee.api.agentic_provisioning.constants import AUTH_CODE_CACHE_PREFIX
 from ee.api.agentic_provisioning.test.base import TEST_PARTNER_SCOPES, ProvisioningTestBase, provisioning_config
-from ee.models.rbac.access_control import AccessControl
 
 TOKEN_URL = "/api/agentic/oauth/token"
 
