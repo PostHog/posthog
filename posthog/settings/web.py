@@ -1315,7 +1315,13 @@ AI_GATEWAY_API_KEY = get_from_env("AI_GATEWAY_API_KEY", "")
 
 # Projected into gateway_credential.json: a JSON team_id -> tier map
 # ("free"/"pro"/"enterprise") for the gateway's rate-limit bucket.
-AI_GATEWAY_TEAM_TIER_OVERRIDES = get_from_env("AI_GATEWAY_TEAM_TIER_OVERRIDES", {}, type_cast=json.loads)
+# Parsed defensively rather than with type_cast=json.loads: that runs at settings
+# import, so a malformed value takes every process down at boot, while the
+# consumer is written to degrade to no overrides.
+try:
+    AI_GATEWAY_TEAM_TIER_OVERRIDES = json.loads(get_from_env("AI_GATEWAY_TEAM_TIER_OVERRIDES", "{}"))
+except ValueError:
+    AI_GATEWAY_TEAM_TIER_OVERRIDES = {}
 
 # Wizard gateway-token mint. WIZARD_GATEWAY_MINT_KEY unset disables the endpoint
 # (404), which the CLI treats as "stay on the legacy gateway".
@@ -1329,10 +1335,10 @@ WIZARD_GATEWAY_CLIENT_IDS = [
     client_id for client_id in get_list(get_from_env("WIZARD_GATEWAY_CLIENT_IDS", "")) if client_id
 ]
 WIZARD_GATEWAY_TOKEN_CAP_USD = get_from_env("WIZARD_GATEWAY_TOKEN_CAP_USD", "20")
-# Wizard programs that get their own pinned product node (and so their own
-# per-program budget and mint quota). A program absent here still runs: it
-# degrades to the bare `wizard` node, which is budgeted, rather than to an
-# unbudgeted one. Mirrors the CLI's PROGRAM_REGISTRY.
+# Wizard programs that may mint, each getting its own pinned product node and so
+# its own per-program budget and mint quota. The list is authoritative: a program
+# absent here is refused, not folded into a generic node, so listing a new program
+# is required rather than optional. Mirrors the CLI's PROGRAM_REGISTRY.
 WIZARD_GATEWAY_PROGRAM_IDS = get_list(get_from_env("WIZARD_GATEWAY_PROGRAM_IDS", ""))
 WIZARD_GATEWAY_TOKEN_TTL_SECONDS = get_from_env("WIZARD_GATEWAY_TOKEN_TTL_SECONDS", 86400, type_cast=int)
 

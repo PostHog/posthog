@@ -1039,10 +1039,24 @@ class SetupWizardQueryRateThrottle(SimpleRateThrottle):
 
 
 class SetupWizardGatewayTokenRateThrottle(SimpleRateThrottle):
-    """Mint throttle for the wizard's gateway token. Its own namespace, so a mint
-    never spends the wizard query allowance and a gateway flap cannot exhaust the
-    budget the legacy fallback depends on.
+    """Counts a user's gateway-token MINTS per program, not requests.
+
+    Its own namespace, so a mint never spends the wizard query allowance and a
+    gateway flap cannot exhaust the budget the legacy fallback depends on.
+
+    DRF evaluates throttles in `initial()`, before the view body, so charging on
+    arrival would spend a run's quota on requests that never mint: the feature
+    unconfigured, the org not rolled out, or a program this deploy has not been
+    told about. Each answers 404, which the CLI is meant to treat as an invisible
+    "stay on the legacy gateway" and will retry; at 5/day the sixth such retry
+    would return a run-killing 429 for a rollout state the user cannot see. The
+    same reasoning as the sibling cloud-run throttle, which counts runs rather
+    than requests for exactly this reason.
     """
+
+    # Assigned by SimpleRateThrottle.__init__ from the parsed rate.
+    num_requests: int
+    duration: int
 
     scope = "wizard_gateway_token"
 
@@ -1050,6 +1064,33 @@ class SetupWizardGatewayTokenRateThrottle(SimpleRateThrottle):
         if settings.DEBUG:
             return "1000/day"
         return "5/day"
+
+    def allow_request(self, request, view):
+        """Read the bucket without consuming it; `record` charges a real mint."""
+        if self.rate is None:
+            return True
+        self.key = self.get_cache_key(request, view)
+        if self.key is None:
+            return True
+        self.history = self.cache.get(self.key, [])
+        self.now = self.timer()
+        while self.history and self.history[-1] <= self.now - self.duration:
+            self.history.pop()
+        return len(self.history) < self.num_requests
+
+    def record(self, request, view) -> None:
+        """Charge one mint. Called by the view only once a token was issued."""
+        if self.rate is None:
+            return
+        key = self.get_cache_key(request, view)
+        if key is None:
+            return
+        now = self.timer()
+        history = self.cache.get(key, [])
+        while history and history[-1] <= now - self.duration:
+            history.pop()
+        history.insert(0, now)
+        self.cache.set(key, history, self.duration)
 
     def get_cache_key(self, request, view):
         # request.user is anonymous here: the viewset authenticates sessions only and

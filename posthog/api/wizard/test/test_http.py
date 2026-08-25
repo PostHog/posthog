@@ -787,7 +787,9 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         response = self.client.post(
             self.GATEWAY_TOKEN_URL, {"program": "invented"}, headers={"authorization": "Bearer pha_test"}
         )
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        # 404, not 400: the CLI falls back only on 404, so an unlisted program keeps
+        # running on the legacy gateway instead of having its run killed.
+        assert response.status_code == status.HTTP_404_NOT_FOUND
         mock_mint.assert_not_called()
 
     @patch("posthog.api.wizard.http.mint_wizard_gateway_token")
@@ -798,5 +800,24 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         # A CLI that names no program cannot mint: there is no node to pin it to.
         self._mock_oauth(mock_authentication)
         response = self.client.post(self.GATEWAY_TOKEN_URL, headers={"authorization": "Bearer pha_test"})
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+        mock_mint.assert_not_called()
+
+    @patch("posthog.api.wizard.http.mint_wizard_gateway_token")
+    @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
+    @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
+    @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
+    def test_a_non_string_program_is_refused_not_a_500(
+        self, mock_authentication, mock_flag, mock_authorized, mock_mint
+    ):
+        # The value is caller JSON: an unhashable one would raise on the set
+        # membership, from inside a throttle that runs before authentication.
+        self._mock_oauth(mock_authentication)
+        response = self.client.post(
+            self.GATEWAY_TOKEN_URL,
+            data=json.dumps({"program": ["integration"]}),
+            content_type="application/json",
+            headers={"authorization": "Bearer pha_test"},
+        )
+        assert response.status_code == status.HTTP_404_NOT_FOUND
         mock_mint.assert_not_called()

@@ -25,7 +25,12 @@ _MINT_TIMEOUT_SECONDS = 10
 
 # The gateway refuses a TTL outside these bounds with a 400, so clamp locally: a
 # misconfigured setting should not turn every mint into a 503.
-_MIN_TTL_SECONDS = 60
+# Deliberately far above the gateway's own 60s floor. A run's holders capture the
+# bearer once (the agent subprocess at spawn, the triage provider at boot) and
+# cannot re-resolve, so a token must outlive the whole run, and the CLI refuses
+# anything under two minutes outright. Clamping to the gateway's floor would turn
+# a misconfigured knob into mid-run 401s instead of the fallback the clamp is for.
+_MIN_TTL_SECONDS = 3600
 _MAX_TTL_SECONDS = 86400
 
 # The gateway 400s a cap that is non-positive, over 6dp, or above its top-up
@@ -45,10 +50,14 @@ def wizard_product_node(program: str | None) -> str | None:
     folded into a generic node. Gateway budgets match a node value exactly, so
     folding would report a new program's spend as plain wizard spend and leave the
     program itself with no budget of its own, and the drift would be silent. A
-    refusal is visible in the mint outcome counter, and the CLI reads any non-200
-    as "stay on the legacy gateway", so runs continue while the list is updated.
+    refusal is visible in the mint outcome counter. The CLI stays on the legacy
+    gateway only for a 404, so an unlisted program fails its run rather than
+    silently spending unattributed.
     """
-    if program and program in set(settings.WIZARD_GATEWAY_PROGRAM_IDS):
+    # isinstance first: the value is caller JSON, and an unhashable one (a list
+    # or object) raises on the set membership below, inside a throttle that runs
+    # before authentication.
+    if isinstance(program, str) and program in set(settings.WIZARD_GATEWAY_PROGRAM_IDS):
         return f"{WIZARD_PRODUCT}:{program}"
     return None
 
@@ -65,8 +74,18 @@ class WizardGatewayMintError(Exception):
 
 
 def wizard_gateway_configured() -> bool:
-    """Every one of the three is required; any missing piece answers 404."""
-    return bool(settings.WIZARD_GATEWAY_MINT_KEY and settings.WIZARD_GATEWAY_URL and settings.WIZARD_GATEWAY_CLIENT_IDS)
+    """Every one of the four is required; any missing piece answers 404.
+
+    The program list is a hard requirement, not a refinement: an empty one
+    refuses every program, so without it the deploy would report itself
+    configured and 400 every request as though the callers were at fault.
+    """
+    return bool(
+        settings.WIZARD_GATEWAY_MINT_KEY
+        and settings.WIZARD_GATEWAY_URL
+        and settings.WIZARD_GATEWAY_CLIENT_IDS
+        and settings.WIZARD_GATEWAY_PROGRAM_IDS
+    )
 
 
 def wizard_gateway_base_url() -> str:
@@ -137,9 +156,15 @@ def _cap_usd() -> str:
         logger.warning("wizard_gateway_token: cap_usd is not a decimal, using the default", cap=raw)
         cap = _DEFAULT_CAP_USD
     # Quantize before the range check: a positive value below a microdollar
-    # rounds to 0.000000, which the gateway rejects as non-positive.
+    # rounds to 0.000000, which the gateway rejects as non-positive. Guarded
+    # because quantize raises once the result needs more digits than the decimal
+    # context allows, and this function's contract is to fall back, never raise.
     if cap.is_finite():
-        cap = cap.quantize(_CAP_QUANTUM)
+        try:
+            cap = cap.quantize(_CAP_QUANTUM)
+        except InvalidOperation:
+            logger.warning("wizard_gateway_token: cap_usd is out of representable range, using the default", cap=raw)
+            cap = _DEFAULT_CAP_USD.quantize(_CAP_QUANTUM)
     if not cap.is_finite() or cap <= 0 or cap > _MAX_CAP_USD:
         logger.warning("wizard_gateway_token: cap_usd out of range, using the default", cap=raw)
         cap = _DEFAULT_CAP_USD.quantize(_CAP_QUANTUM)

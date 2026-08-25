@@ -418,8 +418,8 @@ class SetupWizardViewSet(viewsets.ViewSet):
 
         The CLI uses the returned phe_ (pinned product=wizard / obo=<customer org>,
         capped, expiring) as its gateway bearer and re-calls near expiry. It treats
-        any non-200 as "stay on the legacy gateway", so rollout is controlled here
-        rather than by a CLI release.
+        a 404 as "stay on the legacy gateway", so rollout is controlled here rather
+        than by a CLI release. Every other failure fails the run.
         """
         if not wizard_gateway_configured():
             WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="unconfigured").inc()
@@ -454,8 +454,11 @@ class SetupWizardViewSet(viewsets.ViewSet):
             raise exceptions.ValidationError("Access token must be scoped to exactly one team.")
         team = Team.objects.select_related("organization").filter(id=scoped_team_ids[0]).first()
         if team is None:
+            # Not 404: the CLI reads that as "not rolled out" and downgrades to
+            # the legacy posture. A team that vanished is an authorization
+            # failure, not a rollout state.
             WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="team_missing").inc()
-            raise exceptions.NotFound(ERROR_PROJECT_NOT_FOUND)
+            raise exceptions.PermissionDenied(ERROR_PROJECT_NOT_FOUND)
 
         # scoped_teams is frozen at consent, so re-check what it cannot see: the user
         # is still active, still a member, and still has project access.
@@ -479,8 +482,11 @@ class SetupWizardViewSet(viewsets.ViewSet):
         # pinned. Refusing keeps every pinned node one that carries a budget.
         product = wizard_product_node(request.data.get("program") if isinstance(request.data, dict) else None)
         if product is None:
+            # 404, not 400: the CLI falls back only on 404, and a program this
+            # deploy has not been told about should keep running on the legacy
+            # gateway rather than failing. It still cannot mint.
             WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="program_unknown").inc()
-            raise exceptions.ValidationError("Unrecognized wizard program.")
+            raise exceptions.NotFound("Unrecognized wizard program.")
         try:
             minted = mint_wizard_gateway_token(obo=str(team.organization_id), user=distinct_id, product=product)
         except WizardGatewayMintError as e:
@@ -488,6 +494,10 @@ class SetupWizardViewSet(viewsets.ViewSet):
             capture_exception(e, {"ai_product": "wizard", "team_id": team.id})
             return Response({"error": "Gateway token mint failed."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
+        # Charged here rather than on arrival: every gate above answers 404 or a
+        # refusal without minting, and a request that issues no token must not
+        # spend a run's quota.
+        SetupWizardGatewayTokenRateThrottle().record(request, self)
         WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="minted").inc()
         return Response(
             {

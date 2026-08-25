@@ -21,6 +21,7 @@ MINT_SETTINGS = {
     # honored-setting and fell-back-to-default assertions indistinguishable.
     "WIZARD_GATEWAY_TOKEN_CAP_USD": "25",
     "WIZARD_GATEWAY_TOKEN_TTL_SECONDS": 86400,
+    "WIZARD_GATEWAY_PROGRAM_IDS": ["integration"],
 }
 
 
@@ -79,11 +80,14 @@ class TestMintWizardGatewayToken:
         assert post.call_args.kwargs["json"]["ttl_seconds"] == 86400
 
     @override_settings(WIZARD_GATEWAY_TOKEN_TTL_SECONDS=5)
-    def test_ttl_clamped_to_gateway_floor(self):
+    def test_ttl_clamped_to_a_ttl_that_outlives_a_run(self):
+        # Not the gateway's own 60s floor: a run's holders capture the bearer once
+        # and cannot re-resolve, so a token clamped to the gateway minimum would
+        # 401 mid-run rather than falling back.
         minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
         with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post:
             mint_wizard_gateway_token(obo="org_1", user="user_1")
-        assert post.call_args.kwargs["json"]["ttl_seconds"] == 60
+        assert post.call_args.kwargs["json"]["ttl_seconds"] == 3600
 
     @pytest.mark.parametrize(
         "response",
@@ -170,16 +174,26 @@ class TestMintWizardGatewayToken:
 
 
 class TestWizardGatewayConfigured:
-    def test_all_three_present(self):
+    def test_all_four_present(self):
         with override_settings(**MINT_SETTINGS):
             assert wizard_gateway_configured() is True
 
     @pytest.mark.parametrize(
         "missing",
-        ["WIZARD_GATEWAY_URL", "WIZARD_GATEWAY_MINT_KEY", "WIZARD_GATEWAY_CLIENT_IDS"],
+        [
+            "WIZARD_GATEWAY_URL",
+            "WIZARD_GATEWAY_MINT_KEY",
+            "WIZARD_GATEWAY_CLIENT_IDS",
+            # An empty program list refuses every program, so leaving it out is an
+            # unconfigured deploy, not a fleet of callers sending bad names.
+            "WIZARD_GATEWAY_PROGRAM_IDS",
+        ],
     )
     def test_any_missing_piece_disables(self, missing):
-        blank: dict = {**MINT_SETTINGS, missing: [] if missing == "WIZARD_GATEWAY_CLIENT_IDS" else ""}
+        blank: dict = {
+            **MINT_SETTINGS,
+            missing: [] if missing in ("WIZARD_GATEWAY_CLIENT_IDS", "WIZARD_GATEWAY_PROGRAM_IDS") else "",
+        }
         with override_settings(**blank):
             assert wizard_gateway_configured() is False
 
