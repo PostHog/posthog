@@ -232,14 +232,21 @@ jobs:
         name: Determine need to run backend and migration checks
         # Set job outputs to values from filter step
         outputs:
-            backend: ${{ steps.filter.outputs.backend || 'true' }}
+            # run-ci-backend is documented as forcing the full matrices, but every
+            # gate reads this output, so the label cannot reach them while the paths
+            # filter says false. Nothing under .github/ is in the backend filter, so
+            # a sharding or timing script change was untestable on its own PR.
+            backend: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') && 'true' || (steps.filter.outputs.backend || 'true') }}
             backend_files: ${{ steps.filter.outputs.backend_files }}
             migrations: ${{ steps.filter.outputs.migrations || 'true' }}
             migrations_files: ${{ steps.filter.outputs.migrations_files }}
             migrations_any: ${{ steps.filter.outputs.migrations_any || 'true' }}
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
-            legacy: ${{ steps.filter.outputs.legacy || 'true' }}
+            # The label has to reach discovery as well: `backend` alone only starts the
+            # discover job, which then sees no legacy change and no affected product and
+            # emits an empty matrix. A forced legacy change makes it test everything.
+            legacy: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') && 'true' || (steps.filter.outputs.legacy || 'true') }}
             schema: ${{ steps.filter.outputs.schema || 'true' }}
             product_yamls: ${{ steps.filter.outputs.product_yamls || 'false' }}
             product_yamls_files: ${{ steps.filter.outputs.product_yamls_files }}
@@ -607,6 +614,30 @@ jobs:
                   key: posthog-segment-durations-${{ github.run_id }}
                   restore-keys: |
                       posthog-segment-durations-
+
+            - name: Prefer a junit-scaled union over an unscaled cache copy
+              # Transition guard: the timing caches only carry junit-scaled product
+              # magnitudes once the updated timing workflow has run. Until then the
+              # newest cache would shadow the scaled committed baseline with call-only
+              # undercounts. Scaled beats unscaled regardless of age; once the caches
+              # carry the marker this step never fires and can be removed.
+              shell: bash
+              run: |
+                  # git show on a blob:none checkout is unreliable here; git checkout --
+                  # restores from the index, whose blob the original checkout already
+                  # materialized. Keep the cache copy when the committed file is not
+                  # scaled either, so the newer cache still wins outside the transition.
+                  if ! grep -q '"products/.junit-scaled"' .test_durations 2>/dev/null; then
+                      cp .test_durations /tmp/union-from-cache
+                      if git checkout -- .test_durations 2>/dev/null && grep -q '"products/.junit-scaled"' .test_durations; then
+                          echo "Using the junit-scaled committed .test_durations over an unscaled cache copy"
+                      else
+                          mv /tmp/union-from-cache .test_durations
+                          echo "Neither the cache nor the committed union is junit-scaled, keeping the cache copy"
+                      fi
+                  else
+                      echo "Restored union already junit-scaled"
+                  fi
             - name: Discover products to test
               id: discover
               env:
@@ -649,11 +680,15 @@ jobs:
         # the full matrices on a PR.
         # Trunk's merge-queue branches open as draft PRs, but their run IS the
         # merge gate, so they must never get the narrowed selection.
+        # run_legacy=false means the django job below is skipped outright, so there
+        # is no matrix left to narrow — only the exact string skips, which keeps an
+        # empty output (turbo-discover skipped or failed) on the selecting path.
         if: |
             github.event_name == 'pull_request' &&
             !startsWith(github.head_ref, 'trunk-merge/') &&
             !contains(github.event.pull_request.labels.*.name, 'run-ci-backend') &&
-            needs.changes.outputs.backend == 'true'
+            needs.changes.outputs.backend == 'true' &&
+            needs.turbo-discover.outputs.run_legacy != 'false'
         runs-on: depot-ubuntu-24.04
         # Headroom over checkout + uv + the selector's whole-tree parse. A timeout here
         # leaves MODE empty, which on a ready PR means the full matrix — the worst case.
@@ -825,16 +860,19 @@ jobs:
 
                   # Partition selected files by the Django segment that owns them.
                   # Mirrors the positional path arguments in the Run Core / Run Temporal pytest invocations:
-                  #   Core (POE off): posthog ee/  (minus posthog/temporal, posthog/dags,
-                  #                   posthog/test/repo_invariants)
-                  #   Core POE on:    posthog/clickhouse, posthog/queries, posthog/api/test/test_insight*,
-                  #                   posthog/api/test/dashboards/test_dashboard.py, ee/clickhouse/
-                  #   Temporal:       posthog/temporal, products/{batch_exports,tasks}/backend/temporal,
-                  #                   products/signals/backend/emission
+                  #   Core (POE on):  posthog ee/  (minus posthog/temporal, posthog/dags,
+                  #                   common/hogvm/python/test, posthog/test/repo_invariants)
+                  #   POE-off safeguard: posthog/clickhouse, posthog/queries, ee/clickhouse/,
+                  #                   products/product_analytics/backend/tests/api,
+                  #                   posthog/api/test/dashboards/test_dashboard.py
+                  #   Temporal:       posthog/temporal, products/signals/backend/emission
                   #   Compat:         CLICKHOUSE_COMPAT_PYTEST_TARGETS (posthog/clickhouse, ee/clickhouse)
                   # Files outside posthog/ and ee/ (e.g. products/foo/backend/test_*) are not in this
-                  # matrix. turbo-tests handles them; warehouse_sources and managed_warehouse run
-                  # their own temporal suites there.
+                  # matrix. turbo-tests handles them, including the temporal suites of
+                  # batch_exports, managed_warehouse, tasks and warehouse_sources, because every
+                  # shard starts the temporal profile, so running them there costs nothing
+                  # extra. Keep this list in sync with PRODUCTS_RUNNING_TEMPORAL_IN_JOB and
+                  # DJANGO_SEGMENTS in turbo-discover.js.
                   core=()
                   poe=()
                   temporal=()
@@ -852,10 +890,10 @@ jobs:
                           fi
                       done
                       case "$f" in
-                          posthog/temporal/*|products/batch_exports/backend/tests/temporal/*|products/tasks/backend/temporal/*|products/signals/backend/emission/*)
+                          posthog/temporal/*|products/signals/backend/emission/*)
                               temporal+=("$f")
                               ;;
-                          posthog/clickhouse/*|posthog/queries/*|ee/clickhouse/*|products/product_analytics/backend/tests/api/*|posthog/api/test/test_insight*|posthog/api/test/dashboards/test_dashboard.py)
+                          posthog/clickhouse/*|posthog/queries/*|ee/clickhouse/*|products/product_analytics/backend/tests/api/*|posthog/api/test/dashboards/test_dashboard.py)
                               poe+=("$f")
                               core+=("$f")
                               ;;
@@ -1086,6 +1124,12 @@ jobs:
               # pytest_args: optional pytest-split flags for sharded products (e.g. "-- --splits 3 --group 1")
               env:
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
+                  # products/tasks/backend/temporal moved here from the Django Temporal
+                  # segment, and its conftest and workflows talk to Modal. Injected only
+                  # when that directory changed, matching the gate the Django job used.
+                  MODAL_TOKEN_ID: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_ID || '' }}
+                  MODAL_TOKEN_SECRET: ${{ needs.changes.outputs.tasks_temporal == 'true' && secrets.MODAL_TOKEN_SECRET || '' }}
+                  AWS_S3_ALLOW_UNSAFE_RENAME: 'true'
                   # --reuse-db: keep the test database between sequential product runs to avoid
                   # ClickHouse drop/create race conditions with ReplicatedMergeTree ZK metadata.
                   # --durations-path: turbo runs products from products/<name>/, so pytest-split
@@ -1565,6 +1609,7 @@ jobs:
                   # at all. Not-draft makes the empty MODE fall through to the full
                   # matrix, which is what the queue has to run.
                   IS_DRAFT: ${{ github.event.pull_request.draft && !startsWith(github.head_ref, 'trunk-merge/') }}
+                  IS_PR_RUN: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') }}
                   FORCE_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') }}
                   # Manual shadow runs compare with canonical master pushes, which run legacy schema only.
                   RUN_NEW_EVENTS_SCHEMA: ${{ contains(github.event.pull_request.labels.*.name, 'test-new-events-schema') }}
@@ -1628,7 +1673,7 @@ jobs:
                         }]
                       ')
                       poe_count=0
-                      [[ "$RUN_POE" == "true" ]] && poe_count=$(jq -r '.poe' <<< "$segment_shards")
+                      [[ "$IS_PR_RUN" != "true" && "$RUN_POE" == "true" ]] && poe_count=$(jq -r '.poe' <<< "$segment_shards")
                       core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$poe_count" '
                         [range(1; $n + 1) | {
                           segment: "Core",
@@ -1721,6 +1766,16 @@ jobs:
                         echo "Auto-sharding: Core=$CORE_SHARDS, CorePOE=$CORE_POE_SHARDS, Temporal=$TEMPORAL_SHARDS"
                       else
                         echo "::warning::Django shard auto-sizing unavailable, using defaults: Core=$CORE_SHARDS, CorePOE=$CORE_POE_SHARDS, Temporal=$TEMPORAL_SHARDS"
+                      fi
+
+                      # The legacy-mode safeguard leg runs only where a regression must not
+                      # land: merge queue and master. Ordinary PR lanes run the
+                      # customer-default mode only, so a PR pays no shards for the legacy
+                      # mode. The queue's trunk-merge/** run is a pull_request event as well,
+                      # so it is exempted by branch. Compat keeps its own legacy-mode rows in
+                      # every lane, because it guards old servers, not this.
+                      if [[ "$IS_PR_RUN" == "true" ]]; then
+                          CORE_POE_SHARDS=0
                       fi
 
                       core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$CORE_SHARDS" '
@@ -1865,7 +1920,7 @@ jobs:
         # increase for tmate testing
         # 45 to match canonical; the shadow is non-blocking so no deploy-gate coupling.
         timeout-minutes: 45
-        name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
+        name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }} (persons-on-events ${{ (matrix.segment == 'Core' && !matrix.person-on-events && !matrix.compat) && 'on' || 'off' }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         # Match canonical's runner size. The shadow restores the same master-primed
         # schema cache (turbo-discover key + check-migrations save), so shards skip
         # migrations exactly like canonical once Depot's cache is warmed by a master run.
@@ -2158,7 +2213,17 @@ jobs:
               id: run-core-tests
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
               env:
-                  PERSON_ON_EVENTS_V2_ENABLED: ${{ matrix.person-on-events && 'true' || 'false' }}
+                  # Person-on-events v2 reads are the production default for every
+                  # project created since 2024-06-14, so the full Core rows run with the
+                  # mode on. matrix.person-on-events marks the safeguard allowlist leg
+                  # that keeps the legacy joined mode covered, not the mode itself: every
+                  # other condition keyed on it (targets, snapshot ownership, timing
+                  # artifacts) selects the leg. Compat rows run the legacy mode as well,
+                  # as the old-server safeguard.
+                  # marker: person-on-events-default. The run block below greps the
+                  # checked-out workflow for this token to tell a head that carries the
+                  # flip from one that predates it.
+                  PERSON_ON_EVENTS_V2_ENABLED: ${{ !matrix.person-on-events && !matrix.compat && 'true' || 'false' }}
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
                   MODE: ${{ needs.select-tests.outputs.mode }}
                   CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
@@ -2177,6 +2242,14 @@ jobs:
                   # pointing at a missing file is a hard error, so drop coverage rather than fail.
                   if [[ -n "$COV_ARGS" && ! -f .github/coverage-core.cfg ]]; then
                       COV_ARGS=""
+                  fi
+                  # The job checks out the PR head while this workflow runs merged with
+                  # master. A head that predates the person-on-events default lacks the
+                  # test pins that came with it, so keep it on the legacy mode until it
+                  # rebases. The marker sits on this step's env line in the checked-out copy.
+                  if [[ "$PERSON_ON_EVENTS_V2_ENABLED" == "true" ]] && ! grep -qF "marker: person-on-events-default" .github/workflows/ci-backend.yml; then
+                      echo "::notice::Checked-out revision predates the person-on-events default, running Core in legacy mode"
+                      export PERSON_ON_EVENTS_V2_ENABLED=false
                   fi
                   # Pick the split algorithm and granularity at runtime: optimal_chunks + file
                   # granularity only when the installed pytest-split offers them, else
@@ -2299,9 +2372,9 @@ jobs:
                   if python -c "from pytest_split.algorithms import Algorithms; from pytest_split.plugin import PytestSplitFilePlugin; raise SystemExit(0 if 'optimal_chunks' in Algorithms.names() else 1)" 2>/dev/null; then
                       SPLITTING_ALGORITHM=optimal_chunks
                       SPLIT_GRANULARITY=(--split-granularity=file)
-                      if [ -f .test_durations.temporal ] && python -c "from pytest_split.plugin import SUPPORTS_SPLIT_PLAN_PATH" 2>/dev/null; then
-                          SPLIT_GRANULARITY+=(--split-plan-path .test_durations.temporal)
-                      fi
+                      # Plan path disabled while the cached plan predates the temporal
+                      # routing move, see the .github workflow for the full note.
+                      :
                   fi
                   # Depot-only quarantine: the data-modeling materialize path (get_s3_client) 403s on
                   # MinIO on Depot-native CI only — MinIO itself is reachable with the standard test creds
@@ -2334,7 +2407,7 @@ jobs:
                       # No per-test pytest --timeout; rely on the job-level timeout-minutes as the single
                       # safety net. The per-test timeout also terminates the whole process, so it adds
                       # no protection beyond the job timeout.
-                      pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal products/signals/backend/emission -m "not async_migrations" \
+                      pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/signals/backend/emission -m "not async_migrations" \
                           --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_with_minio_bucket" \
                           --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_timeout_does_not_pause_schedule_without_consecutive_failures" \
                           --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_timeout_pauses_schedule_after_5_consecutive_failures" \
