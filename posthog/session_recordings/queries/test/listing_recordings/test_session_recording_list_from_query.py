@@ -3616,6 +3616,30 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             [session_id_one, session_id_two],
         )
 
+        # A negated filter means "no URL matches", so session one is excluded even though its other
+        # page (/home) does not contain "pricing". Session three has no URLs, so nothing matches there.
+        self._assert_query_matches_session_ids(
+            {
+                "properties": '[{"key": "visited_page", "value": "pricing", "operator": "not_icontains", "type": "recording"}]'
+            },
+            [session_id_two, session_id_three],
+        )
+
+        self._assert_query_matches_session_ids(
+            {
+                "properties": '[{"key": "visited_page", "value": ["https://example.com/pricing"], "operator": "is_not", "type": "recording"}]'
+            },
+            [session_id_two, session_id_three],
+        )
+
+        # Multi-value negation excludes a session matching any of the values.
+        self._assert_query_matches_session_ids(
+            {
+                "properties": '[{"key": "visited_page", "value": ["pricing", "billing"], "operator": "not_icontains", "type": "recording"}]'
+            },
+            [session_id_three],
+        )
+
     def test_duration_always_anded_with_visited_page_under_or(self):
         user = "test_duration_visited_page-user"
         create_person(team=self.team, distinct_ids=[user], properties={"email": "bla"})

@@ -88,13 +88,19 @@ describe('session recording utils', () => {
             ['pageview scoped by URL: hint and swap', [pageview([pageProperty('$current_url')])], true, true],
             // Recorded URLs are absolute, so an exact pathname value would stop matching once rewritten.
             ['exact pathname: hint only', [pageProperty('$pathname', PropertyOperator.Exact)], true, false],
-            // Negated operators compile to arrayExists over the recording's URLs, which asks "some URL
-            // doesn't match" rather than "no URL matches". Swapping those would change the result set.
+            ['is-not pathname: hint only', [pageProperty('$pathname', PropertyOperator.IsNot)], true, false],
+            // The backend negates the whole array match, so these mean "no URL matches" on both sides.
             [
-                'negated current URL: hint only',
+                'negated current URL: hint and swap',
                 [pageProperty('$current_url', PropertyOperator.NotIContains)],
                 true,
-                false,
+                true,
+            ],
+            [
+                'negated regex current URL: hint and swap',
+                [pageProperty('$current_url', PropertyOperator.NotRegex)],
+                true,
+                true,
             ],
             [
                 'valueless current URL: neither',
@@ -129,6 +135,7 @@ describe('session recording utils', () => {
                             pageProperty('$current_url'),
                             pageview([pageProperty('$pathname', PropertyOperator.Regex, '^/docs')]),
                             pageProperty('$current_url', PropertyOperator.NotIContains),
+                            pageProperty('$pathname', PropertyOperator.Exact),
                             event('a'),
                         ],
                     },
@@ -148,7 +155,13 @@ describe('session recording utils', () => {
                     operator: PropertyOperator.Regex,
                     value: '^/docs',
                 },
-                pageProperty('$current_url', PropertyOperator.NotIContains),
+                {
+                    type: PropertyFilterType.Recording,
+                    key: 'visited_page',
+                    operator: PropertyOperator.NotIContains,
+                    value: '/pricing',
+                },
+                pageProperty('$pathname', PropertyOperator.Exact),
                 event('a'),
             ])
         })

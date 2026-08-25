@@ -94,6 +94,7 @@ export const PageviewFilterWithSwapOffered: Story = {
     ]),
 }
 
+// An exact pathname cannot be rewritten: recorded URLs are absolute, so the value would stop matching.
 export const PageFilterThatCannotBeSwapped: Story = {
-    parameters: withPageFilter([{ type: 'event', key: '$current_url', operator: 'not_icontains', value: '/pricing' }]),
+    parameters: withPageFilter([{ type: 'event', key: '$pathname', operator: 'exact', value: '/pricing' }]),
 }

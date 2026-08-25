@@ -62,6 +62,7 @@ from posthog.models import Property, PropertyDefinition, Team
 from posthog.models.element import Element
 from posthog.models.event import Selector
 from posthog.models.property import BehavioralPropertyType, PropertyGroup, ValueT
+from posthog.models.property.property import OperatorType
 from posthog.models.property.util import build_selector_regex
 from posthog.utils import get_from_dict_or_attr, relative_date_parse
 
@@ -78,6 +79,17 @@ from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by
 # and the per-field injection in rust/feature-flags/src/flags/flag_matching_utils.rs.
 # `test_person_metadata_fields_match_taxonomy` enforces the Python ↔ taxonomy half.
 PERSON_METADATA_FIELDS = {"created_at"}
+
+# Negated operators paired with the match they invert. Used by array-valued properties, where the
+# negation has to wrap the whole match rather than the comparison inside it.
+NEGATED_TO_POSITIVE_OPERATORS: dict[PropertyOperator, OperatorType] = {
+    PropertyOperator.IS_NOT: "exact",
+    PropertyOperator.NOT_ICONTAINS: "icontains",
+    PropertyOperator.NOT_STARTS_WITH: "starts_with",
+    PropertyOperator.NOT_ENDS_WITH: "ends_with",
+    PropertyOperator.NOT_REGEX: "regex",
+    PropertyOperator.NOT_IN: "in",
+}
 
 
 @frozen
@@ -1281,6 +1293,27 @@ def property_to_expr(
         if is_visited_page_property:
             # Use the all_urls array field to filter for pages visited during recording.
             all_urls_field = ast.Call(name="groupUniqArrayArray", args=[ast.Field(chain=["all_urls"])])
+
+            # Every match below compiles to arrayExists over the recording's URLs, so negating the
+            # comparison inside the lambda asks "some URL does not match" — true for any recording with
+            # a second page. Build the positive match and negate the whole thing instead, so the filter
+            # means "no URL matches". Negating out here also keeps the multi-value paths correct, which
+            # recurse on property.operator and pick AND vs OR from it.
+            if operator in NEGATED_TO_POSITIVE_OPERATORS:
+                return ast.Not(
+                    expr=property_to_expr(
+                        Property(
+                            type=property.type,
+                            key=property.key,
+                            operator=NEGATED_TO_POSITIVE_OPERATORS[operator],
+                            group_type_index=property.group_type_index,
+                            value=value,
+                        ),
+                        team,
+                        scope,
+                        strict=strict,
+                    )
+                )
 
         is_exception_string_array_property = (
             property.type == "event" and property.key in EXCEPTION_STRING_ARRAY_PROPERTIES

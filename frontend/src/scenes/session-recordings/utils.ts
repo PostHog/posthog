@@ -59,20 +59,27 @@ const isPagePropertyFilter = (filter: PageProperty): boolean =>
     filter.value !== '' &&
     !(Array.isArray(filter.value) && filter.value.length === 0)
 
-// `visited_page` compiles to `arrayExists(...)` over the recording's URLs, so a negated operator would
-// mean "some URL doesn't match" rather than "no URL matches". Only offer the swap where the two agree.
+// Operators `visited_page` answers the same way a pageview filter does. Negated forms are included
+// because the backend negates the whole array match, so they mean "no URL matches" on both sides.
+// Ordering and is_set/is_not_set are left out: they compare a recording's URL list, not a page.
 const VISITED_PAGE_SAFE_OPERATORS: PropertyOperator[] = [
     PropertyOperator.Exact,
+    PropertyOperator.IsNot,
     PropertyOperator.IContains,
+    PropertyOperator.NotIContains,
     PropertyOperator.Regex,
+    PropertyOperator.NotRegex,
 ]
 
-// Those URLs are absolute, so an exact `$pathname` would stop matching once rewritten. Substring and
-// pattern matches still line up.
+// Recorded URLs are absolute, so an exact `$pathname` would stop matching once rewritten. Substring
+// and pattern matches still line up.
 const isSwappablePageProperty = (filter: PageProperty): boolean =>
     isPagePropertyFilter(filter) &&
     VISITED_PAGE_SAFE_OPERATORS.includes(filter.operator!) &&
-    !(filter.key === '$pathname' && filter.operator === PropertyOperator.Exact)
+    !(
+        filter.key === '$pathname' &&
+        (filter.operator === PropertyOperator.Exact || filter.operator === PropertyOperator.IsNot)
+    )
 
 const isSwappablePageFilter = (filter: UniversalFilterValue): boolean =>
     filter.type === PropertyFilterType.Event && isSwappablePageProperty(filter)
