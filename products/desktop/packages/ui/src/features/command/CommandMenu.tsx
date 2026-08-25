@@ -360,7 +360,7 @@ export function CommandMenu({ open, onOpenChange }: CommandMenuProps) {
         : [
             {
               id: "inbox",
-              label: "Inbox",
+              label: "Self-driving",
               keywords: "reports pull requests agents notifications",
               icon: <EnvelopeSimple size={12} className="text-gray-11" />,
               action: "open-inbox",

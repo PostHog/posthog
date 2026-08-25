@@ -127,9 +127,9 @@ export function getTaskPrUrl(task: Task): string | null {
 }
 
 /**
- * Whether a task's latest run reports its PR as merged. Newer runs carry
- * `pr_state: "merged"`; runs merged before `pr_state` existed only carry the
- * legacy `pr_merged` flag, so honor both (matches feedQuery's `prStateOf`).
+ * Has the task's PR merged? A merged PR is history, not live work. `pr_state` is
+ * the current signal; runs merged before it existed carry only the legacy
+ * `pr_merged` flag (see feedQuery), so honor both.
  */
 export function isTaskPrMerged(task: Task): boolean {
   const output = task.latest_run?.output;
@@ -141,11 +141,11 @@ export function isTaskPrMerged(task: Task): boolean {
  * Find an implementation task linked to the report whose work is still live, so
  * re-engaging the report should resume it rather than spin up a duplicate PR. A
  * task is continuable when its latest run already produced a PR that is still
- * open (the report's `implementation_pr_url` may be stale or not yet set, but
- * the task knows) or is still running. A merged PR is history, not live work —
- * its branch is closed, so the report reads by its own state and a fresh
- * attempt starts a new PR. A failed/cancelled run with no PR is *not*
- * continuable either — the user can legitimately start a fresh attempt there.
+ * open (the report's `implementation_pr_url` may be stale or not yet set, but the
+ * task knows) or is still running. A failed/cancelled run with no PR is *not*
+ * continuable, and neither is a *merged* PR — a report that outlived its merged
+ * fix (evidence kept arriving) legitimately gets a fresh attempt, not a
+ * "continue" of the closed one.
  *
  * Prefers a task with a PR over a merely-running one; `reportTasks` is already
  * implementation-first ordered, so the first match wins among equals.

@@ -75,6 +75,17 @@ export const CHANNEL_REPORTS_FLAG = "posthog-desktop-channel-reports";
  */
 export const REPORTS_INBOX_FLAG = "posthog-desktop-reports-inbox";
 
+/** Experiment: open the report chat panel when a report detail loads. */
+export const REPORT_CHAT_DEFAULT_OPEN_FLAG =
+  "posthog-desktop-report-chat-default-open";
+
+/**
+ * One-report-at-a-time keyboard triage inside the reports inbox. On by
+ * default in dev builds for iteration (see useTriageFocusEnabled); off in
+ * production until it stabilizes.
+ */
+export const TRIAGE_FOCUS_FLAG = "posthog-desktop-triage-focus";
+
 /**
  * Serves a session's Claude traffic from Bedrock instead of Anthropic. The
  * `test` variant sends `x-posthog-provider: bedrock`, which the gateway routes

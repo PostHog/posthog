@@ -1,5 +1,7 @@
 import { FileTextIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { REPORT_CHAT_DEFAULT_OPEN_FLAG } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/types";
+import { useFeatureFlagVariant } from "@posthog/ui/features/feature-flags/useFeatureFlagVariant";
 import {
   AskAboutSelection,
   quoteSelection,
@@ -9,9 +11,8 @@ import { InboxDetailFrame } from "@posthog/ui/features/inbox/components/InboxDet
 import { InboxReportDetailGate } from "@posthog/ui/features/inbox/components/InboxReportDetailGate";
 import { ReportChatSidebar } from "@posthog/ui/features/inbox/components/ReportChatSidebar";
 import { ReportDetailActions } from "@posthog/ui/features/inbox/components/ReportDetailActions";
-import { ReportVerdictBanner } from "@posthog/ui/features/inbox/components/ReportVerdictBanner";
 import { useReportChatPanelStore } from "@posthog/ui/features/inbox/stores/reportChatPanelStore";
-import { useCallback, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 
 interface ReportDetailProps {
   reportId: string;
@@ -26,7 +27,7 @@ interface ReportDetailProps {
 export function ReportDetail({
   reportId,
   cachedReport = null,
-  backTo = "/code/inbox/reports",
+  backTo = "/inbox/reports",
   backLabel = "Back to reports",
   statusRedirect = true,
 }: ReportDetailProps) {
@@ -51,9 +52,9 @@ export function ReportDetail({
 }
 
 /**
- * A report reads answer-first: the verdict (what state it's in and what it
- * asks, with the action beside it), then the story (summary + charts), then
- * the evidence. Pipeline machinery (runs, activity logs, reviewer reasoning)
+ * A report reads story-first: the summary and charts, then the evidence.
+ * The document stays pure content while its conversation owns follow-up
+ * actions. Pipeline machinery (runs, activity logs, reviewer reasoning)
  * deliberately doesn't render.
  *
  * The report owns its own scroll so the chat dock can sit full-height beside
@@ -72,7 +73,15 @@ function ReportDetailContent({
   const chatOpen = useReportChatPanelStore((s) => s.open);
   const setChatOpen = useReportChatPanelStore((s) => s.setOpen);
   const setPendingQuote = useReportChatPanelStore((s) => s.setPendingQuote);
+  const defaultOpenVariant = useFeatureFlagVariant(
+    REPORT_CHAT_DEFAULT_OPEN_FLAG,
+  );
   const contentRef = useRef<HTMLDivElement>(null);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each report should start in its assigned default state rather than inherit the previous report's panel state.
+  useEffect(() => {
+    setChatOpen(defaultOpenVariant !== "control");
+  }, [defaultOpenVariant, report.id, setChatOpen]);
 
   const handleAsk = useCallback(
     (text: string) => {
@@ -90,10 +99,11 @@ function ReportDetailContent({
           backTo={backTo}
           backLabel={backLabel}
           fallbackTitle="Untitled report"
-          primaryAction={<ReportDetailActions report={report} />}
-          aboveSummary={<ReportVerdictBanner report={report} />}
+          primaryAction={
+            <ReportDetailActions report={report} placement="header" />
+          }
           summarySection={{ Icon: FileTextIcon, title: "Summary" }}
-          belowSummary={<ReportFeedbackFooter report={report} />}
+          footer={<ReportFeedbackFooter report={report} />}
           evidenceSection={{ Icon: MagnifyingGlassIcon, title: "Evidence" }}
         />
       </div>

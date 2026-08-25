@@ -150,7 +150,7 @@ export function navigateToChannelReportDetail(
   reportId: string,
 ): void {
   void getRouterOrNull()?.navigate({
-    to: "/website/$channelId/reports/$reportId",
+    to: "/spaces/$channelId/reports/$reportId",
     params: { channelId, reportId },
   });
 }

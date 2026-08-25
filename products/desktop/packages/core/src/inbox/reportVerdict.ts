@@ -81,7 +81,7 @@ export function deriveReportVerdict(
       return {
         tone: "decision",
         title: "Needs your decision",
-        body: "The agent can fix this with code. Start the pull request, or archive the report if it isn't worth fixing.",
+        body: "The agent can fix this with code and open a pull request. The report keeps watching its signals and reopens if the problem comes back.",
       };
     case "requires_human_input":
       return {

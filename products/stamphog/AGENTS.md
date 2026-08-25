@@ -166,13 +166,15 @@ narrow:
 - A manually-created repo config (blank `installation_id`) binds **disabled** when a sync adopts
   it: its flags were set by someone who never proved GitHub access. Reinstall rebinds keep
   settings — those were configured under a verified binding.
-- Auto-provisioned digest channels arrive **enabled**, a bare Slack name match included. Only
-  workspace members can create a channel, and a digest carries merged PR titles and summaries those
-  same people can read on the PRs, so gating a name match behind a human enable bought a silent
-  no-op — a channel row, no run row, no post, and an info log in a worker pod — rather than
-  protection. The exclusion that stays is the shared-channel one, the only path where a digest
-  leaves the workspace: only the repo's own `digest:` channel skips it, because the `owners.yaml`
-  registry can name a channel for a team the declaring repo does not own.
+- Digest routing is derived every run from the repositories and never stored, so nothing here can
+  go stale silently — and nothing degrades either. A registry that cannot be read stops the whole
+  team's run (`RoutingUnavailable`) rather than falling through to derived channel names: the
+  unreadable repo could be the one every other repo inherits from. A repo that is permanently
+  broken gets switched off, which drops it from the candidate list.
+- A name match binds an audience to a Slack channel nobody chose for it, so the shared-channel
+  guard stays on for it and for registry entries alike — that is the only path where a digest
+  leaves the workspace. Only the repo's own `digest:` channel skips the guard, because the
+  `owners.yaml` registry can name a channel for a team the declaring repo does not own.
 - The app is not a member of a channel it only matched by name, so `post_digest` joins on
   `not_in_channel` and retries the post once. The join is attempted, never gated on the scope:
   `conversations.join` needs `channels:join`, and whether an install granted it is invisible to the
