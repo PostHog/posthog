@@ -1222,3 +1222,7 @@ environment:
         bin_script: verify-ai-ingestion-stack
         description: 'Check the multimodal AI ingestion path at the data layer: send an $ai_generation with an inline base64 image through capture-ai and assert ingestion offloaded it to a blob pointer in ClickHouse'
         hidden: true
+    report:jest:timings:
+        bin_script: report-jest-timings
+        description: 'Render a Jest test-speed report from timing artifacts'
+        hidden: true

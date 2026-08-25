@@ -846,8 +846,7 @@ jobs:
                   cat nodejs-test-speed.md >> "$GITHUB_STEP_SUMMARY"
 
     node_tests:
-        # report-test-speed is a continue-on-error diagnostic and deliberately not in
-        # needs: it must never gate (nor hold up) the required check.
+        # report-test-speed is deliberately not in needs: it is visible but non-gating.
         needs: [tests, rust_ingestion_e2e, build, lint]
         name: Node.js Tests Pass
         runs-on: ubuntu-latest
