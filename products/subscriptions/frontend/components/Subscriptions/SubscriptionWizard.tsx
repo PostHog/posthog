@@ -429,7 +429,8 @@ function SubscriptionContentStep({
     subscription: SubscriptionType
     aiSubscriptionBlocked: boolean
 }): JSX.Element {
-    const { applyDefaultSelectedInsights, selectAiAnalysisWindow, selectAiExamplePrompt } = useActions(
+    const { previewLoading, previewError, previewImageUrl } = useValues(subscriptionLogic(logicProps))
+    const { applyDefaultSelectedInsights, generatePreview, selectAiAnalysisWindow, selectAiExamplePrompt } = useActions(
         subscriptionLogic(logicProps)
     )
     const isAiPrompt = subscription.resource_type === SubscriptionResourceTypes.AiPrompt
@@ -474,6 +475,36 @@ function SubscriptionContentStep({
                         />
                     )}
                 </LemonField>
+            ) : null}
+            {logicProps.insightShortId && !isAiPrompt ? (
+                <div>
+                    <LemonLabel className="mb-2">Preview</LemonLabel>
+                    <div className="border rounded p-2">
+                        <LemonButton
+                            type="secondary"
+                            htmlType="button"
+                            onClick={generatePreview}
+                            loading={previewLoading}
+                            disabled={previewLoading}
+                            size="small"
+                            data-attr="subscription-wizard-generate-preview"
+                        >
+                            Generate preview
+                        </LemonButton>
+
+                        {previewError ? (
+                            <LemonBanner type="error" className="mt-2">
+                                {previewError}
+                            </LemonBanner>
+                        ) : null}
+
+                        {previewImageUrl ? (
+                            <div className="mt-2 border rounded">
+                                <img src={previewImageUrl} alt="Subscription export preview" className="w-full" />
+                            </div>
+                        ) : null}
+                    </div>
+                </div>
             ) : null}
             <SubscriptionSettingsStep subscription={subscription} logicProps={logicProps} />
         </div>
