@@ -41,7 +41,7 @@ Use them only when the user asks for specific events or wants to omit specific e
 For `hogql`, pass the query as `hogql_query` and leave out `data_interval_start`, `data_interval_end`, `include`, and `exclude`.
 The query runs as of the time the export starts, so there is no interval to choose.
 Every column in the SELECT clause must be a field or have an alias, and placeholders are not supported.
-This model is in closed beta and is enabled per team, so check the watch-outs below before offering it.
+This model is in closed beta and is enabled per team.
 
 ### 2. Start the export
 
