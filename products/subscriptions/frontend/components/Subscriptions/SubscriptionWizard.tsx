@@ -744,21 +744,21 @@ function SubscriptionReviewStep({
                 <div>
                     <LemonLabel className="mb-2">Preview</LemonLabel>
                     <div className="border rounded p-2">
-                        <LemonButton
-                            type="secondary"
-                            htmlType="button"
-                            onClick={generatePreview}
-                            loading={previewLoading}
-                            disabled={previewLoading}
-                            size="small"
-                            data-attr="subscription-wizard-generate-preview"
-                        >
-                            Generate preview
-                        </LemonButton>
+                        {previewLoading ? <div className="text-sm text-secondary">Generating preview…</div> : null}
                         {previewError ? (
-                            <LemonBanner type="error" className="mt-2">
-                                {previewError}
-                            </LemonBanner>
+                            <div className="flex flex-col items-start gap-2">
+                                <LemonBanner type="error">{previewError}</LemonBanner>
+                                <LemonButton
+                                    type="secondary"
+                                    htmlType="button"
+                                    onClick={generatePreview}
+                                    disabled={previewLoading}
+                                    size="small"
+                                    data-attr="subscription-wizard-generate-preview"
+                                >
+                                    Try again
+                                </LemonButton>
+                            </div>
                         ) : null}
                         {previewImageUrl ? (
                             <div className="mt-2 border rounded">
