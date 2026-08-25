@@ -3,9 +3,12 @@ import json
 import logging
 from typing import Any, Optional
 
+import pydantic
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
+
+from posthog.schema import PropertyGroupFilterValue
 
 from posthog.hogql import ast
 from posthog.hogql.compiler.bytecode import create_bytecode
@@ -832,6 +835,56 @@ class InputsSerializer(serializers.DictField):
 DATA_WAREHOUSE_SOURCES = ("data-warehouse-table", "data-warehouse-view")
 
 
+@extend_schema_field(
+    {
+        "oneOf": [
+            {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+            {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "enum": ["AND", "OR"]},
+                    "values": {"type": "array", "items": {"type": "object", "additionalProperties": True}},
+                },
+                "required": ["type", "values"],
+            },
+        ]
+    }
+)
+class HogFunctionGlobalPropertiesField(serializers.Field):
+    """Global property filters applied to every event before it reaches the function.
+
+    Accepts either a flat list of filter objects (combined with AND — the shape every existing
+    destination uses) or a single property group ``{"type": "AND"|"OR", "values": [...]}`` so a
+    destination can combine conditions with OR. The compiler folds a group into the matching
+    And/Or expression; a flat list keeps the historical per-filter AND behavior.
+    """
+
+    def to_internal_value(self, data: Any) -> Any:
+        if isinstance(data, list):
+            if not all(isinstance(item, dict) for item in data):
+                raise ValidationError("Each property filter must be an object")
+            return data
+        if isinstance(data, dict):
+            if data.get("type") not in ("AND", "OR"):
+                raise ValidationError('Property group "type" must be "AND" or "OR"')
+            if not isinstance(data.get("values", []), list):
+                raise ValidationError('Property group "values" must be a list')
+            # The compiler rebuilds this exact model, so a leaf it would choke on has to fail here
+            # as a field error — the transpiled path calls the compiler outside any guard, and a
+            # pydantic error escaping the serializer becomes a 500.
+            try:
+                PropertyGroupFilterValue(**data)
+            except pydantic.ValidationError as e:
+                first = e.errors()[0]
+                location = ".".join(str(part) for part in first["loc"])
+                raise ValidationError(f"Invalid property group at {location or 'root'}: {first['msg']}")
+            return data
+        raise ValidationError("properties must be a list of filters or a property group")
+
+    def to_representation(self, value: Any) -> Any:
+        return value
+
+
 class HogFunctionFiltersSerializer(serializers.Serializer):
     source = serializers.ChoiceField(
         choices=["events", "person-updates", *DATA_WAREHOUSE_SOURCES], required=False, default="events"
@@ -839,7 +892,7 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
     actions = serializers.ListField(child=serializers.DictField(), required=False)
     events = serializers.ListField(child=serializers.DictField(), required=False)
     data_warehouse = serializers.ListField(child=serializers.DictField(), required=False)
-    properties = serializers.ListField(child=serializers.DictField(), required=False)
+    properties = HogFunctionGlobalPropertiesField(required=False)
     bytecode = serializers.JSONField(required=False, allow_null=True)
     transpiled = serializers.JSONField(required=False)
     filter_test_accounts = serializers.BooleanField(required=False)

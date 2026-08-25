@@ -40446,14 +40446,17 @@ export namespace Schemas {
 
     export type HogFunctionFiltersDataWarehouseItem = { [key: string]: unknown };
 
-    export type HogFunctionFiltersPropertiesItem = { [key: string]: unknown };
+    export type HogFunctionFiltersProperties = { [key: string]: unknown }[] | {
+      type: 'AND' | 'OR';
+      values: { [key: string]: unknown }[];
+    };
 
     export interface HogFunctionFilters {
       source?: HogFunctionFiltersSourceEnum;
       actions?: HogFunctionFiltersActionsItem[];
       events?: HogFunctionFiltersEventsItem[];
       data_warehouse?: HogFunctionFiltersDataWarehouseItem[];
-      properties?: HogFunctionFiltersPropertiesItem[];
+      properties?: HogFunctionFiltersProperties;
       bytecode?: unknown;
       transpiled?: unknown;
       filter_test_accounts?: boolean;

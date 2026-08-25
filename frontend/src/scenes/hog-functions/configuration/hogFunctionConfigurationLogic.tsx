@@ -84,6 +84,7 @@ import {
 
 import type { GroupType, GroupTypeIndex, HogFunctionMappingTemplateType, ProjectType } from '../../../types'
 import type { TeamPublicType, TeamType } from '../../../types'
+import { normalizeHogFunctionProperties } from '../hog-function-utils'
 import { performWideEventsQueryInTwoPhases } from '../sampleEventsQuery'
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
 import { SAMPLE_GLOBALS_CONTEXTS } from './sampleGlobalsContexts'
@@ -1663,15 +1664,14 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         values: actionProperties,
                     })
                 }
-                if ((configuration.filters?.properties?.length ?? 0) > 0) {
-                    const globalProperties: PropertyGroupFilterValue = {
-                        type: FilterLogicalOperator.And,
-                        values: [],
-                    }
-                    for (const property of configuration.filters?.properties ?? []) {
-                        globalProperties.values.push(property as AnyPropertyFilter)
-                    }
-                    properties.values.push(globalProperties)
+                const { type: globalType, values: globalValues } = normalizeHogFunctionProperties(
+                    configuration.filters?.properties
+                )
+                if (globalValues.length > 0) {
+                    properties.values.push({
+                        type: globalType,
+                        values: globalValues as AnyPropertyFilter[],
+                    })
                 }
                 return properties
             },
@@ -1684,7 +1684,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 const filters = configuration.filters
                 let containsPersonProperties = false
                 if (filters?.properties && !containsPersonProperties) {
-                    containsPersonProperties = filters.properties.some((p) => p.type === 'person')
+                    const { values } = normalizeHogFunctionProperties(filters.properties)
+                    containsPersonProperties = values.some((p) => p.type === 'person')
                 }
                 if (filters?.actions && !containsPersonProperties) {
                     containsPersonProperties = filters.actions.some((a) =>

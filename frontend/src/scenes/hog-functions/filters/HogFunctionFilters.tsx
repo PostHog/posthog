@@ -20,12 +20,24 @@ import MaxTool from 'scenes/max/MaxTool'
 import { urls } from 'scenes/urls'
 
 import { groupsModel } from '~/models/groupsModel'
-import { AnyPropertyFilter, CyclotronJobFiltersType, EntityTypes, FilterType } from '~/types'
+import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
+import {
+    AnyPropertyFilter,
+    CyclotronJobFilterPropertyFilter,
+    CyclotronJobFiltersType,
+    EntityTypes,
+    FilterLogicalOperator,
+    FilterType,
+} from '~/types'
 
 import { useAttachedContext } from 'products/posthog_ai/frontend/api/logics'
 
 import { hogFunctionConfigurationLogic } from '../configuration/hogFunctionConfigurationLogic'
-import { truncateHogFunctionContext } from '../hog-function-utils'
+import {
+    normalizeHogFunctionProperties,
+    serializeHogFunctionProperties,
+    truncateHogFunctionContext,
+} from '../hog-function-utils'
 import { HogFunctionFiltersInternal } from './HogFunctionFiltersInternal'
 
 const MASKING_HASH_ALL = 'all'
@@ -300,19 +312,47 @@ export function HogFunctionFilters({
                                             fullWidth
                                         />
                                     )}
-                                    <PropertyFilters
-                                        propertyFilters={(currentFilters?.properties ?? []) as AnyPropertyFilter[]}
-                                        taxonomicGroupTypes={taxonomicGroupTypes}
-                                        onChange={(properties: AnyPropertyFilter[]) => {
-                                            const newValue = {
-                                                ...currentFilters,
-                                                properties,
-                                            }
-                                            onChange(newValue as CyclotronJobFiltersType)
-                                        }}
-                                        pageKey={`HogFunctionPropertyFilters.${type}`}
-                                        excludedProperties={excludedProperties}
-                                    />
+                                    {(() => {
+                                        const { type: propertiesOperator, values: propertyValues } =
+                                            normalizeHogFunctionProperties(currentFilters?.properties)
+                                        return (
+                                            <>
+                                                {propertyValues.length > 1 && (
+                                                    <AndOrFilterSelect
+                                                        value={propertiesOperator}
+                                                        onChange={(operator) => {
+                                                            onChange({
+                                                                ...currentFilters,
+                                                                properties: serializeHogFunctionProperties(
+                                                                    operator,
+                                                                    propertyValues
+                                                                ),
+                                                            } as CyclotronJobFiltersType)
+                                                        }}
+                                                        prefix="Match"
+                                                        suffix={['filter', 'filters']}
+                                                    />
+                                                )}
+                                                <PropertyFilters
+                                                    propertyFilters={propertyValues as AnyPropertyFilter[]}
+                                                    taxonomicGroupTypes={taxonomicGroupTypes}
+                                                    onChange={(properties: AnyPropertyFilter[]) => {
+                                                        onChange({
+                                                            ...currentFilters,
+                                                            properties: serializeHogFunctionProperties(
+                                                                propertiesOperator,
+                                                                properties as CyclotronJobFilterPropertyFilter[]
+                                                            ),
+                                                        } as CyclotronJobFiltersType)
+                                                    }}
+                                                    pageKey={`HogFunctionPropertyFilters.${type}`}
+                                                    excludedProperties={excludedProperties}
+                                                    orFiltering={propertiesOperator === FilterLogicalOperator.Or}
+                                                    propertyGroupType={propertiesOperator}
+                                                />
+                                            </>
+                                        )
+                                    })()}
                                 </>
                             )}
 
@@ -334,7 +374,9 @@ export function HogFunctionFilters({
                                     </p>
                                     <ActionFilter
                                         bordered
-                                        filters={currentFilters ?? {} /* TODO: this is any */}
+                                        // ActionFilter only reads events/actions; drop the global
+                                        // property group, which its FilterType prop can't hold.
+                                        filters={{ ...currentFilters, properties: undefined } as FilterType}
                                         setFilters={(payload) => {
                                             onChange({
                                                 ...currentFilters,

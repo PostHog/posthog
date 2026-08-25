@@ -353,14 +353,19 @@ export type HogFunctionFiltersApiEventsItem = { [key: string]: unknown }
 
 export type HogFunctionFiltersApiDataWarehouseItem = { [key: string]: unknown }
 
-export type HogFunctionFiltersApiPropertiesItem = { [key: string]: unknown }
+export type HogFunctionFiltersApiProperties =
+    | { [key: string]: unknown }[]
+    | {
+          type: 'AND' | 'OR'
+          values: { [key: string]: unknown }[]
+      }
 
 export interface HogFunctionFiltersApi {
     source?: HogFunctionFiltersSourceEnumApi
     actions?: HogFunctionFiltersApiActionsItem[]
     events?: HogFunctionFiltersApiEventsItem[]
     data_warehouse?: HogFunctionFiltersApiDataWarehouseItem[]
-    properties?: HogFunctionFiltersApiPropertiesItem[]
+    properties?: HogFunctionFiltersApiProperties
     bytecode?: unknown
     transpiled?: unknown
     filter_test_accounts?: boolean

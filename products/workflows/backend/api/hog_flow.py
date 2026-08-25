@@ -60,7 +60,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import log_activity_from_viewset
 from posthog.auth import InternalAPIAuthentication
-from posthog.cdp.filters import compile_filters_expr
+from posthog.cdp.filters import compile_filters_expr, iter_global_property_leaves
 from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
 from posthog.cdp.validation import (
     DATA_WAREHOUSE_SOURCES,
@@ -772,11 +772,8 @@ def _normalize_slack_channel_filters(filters: dict) -> None:
     storing the picker's value verbatim compiles a filter that can never match. The frontend strips
     it too; this is here because the same dead filter is one API or MCP call away otherwise.
     """
-    properties = filters.get("properties")
-    if not isinstance(properties, list):
-        return
-    for prop in properties:
-        if not isinstance(prop, dict) or prop.get("key") != "channel":
+    for prop in iter_global_property_leaves(filters.get("properties")):
+        if prop.get("key") != "channel":
             continue
         value = prop.get("value")
         if isinstance(value, str):
@@ -1196,12 +1193,10 @@ class HogFlowActionSerializer(serializers.Serializer):
         # that for API/MCP callers. Static cohorts are exempt regardless of how they were built — their
         # membership is frozen and precalculated — matching the audience-picker exemption in
         # _build_cohort_dependency_graph in products/cohorts/backend/models/dependencies.py.
-        if not isinstance(properties, list):
-            return
         cohort_ids = [
             p["value"]
-            for p in properties
-            if isinstance(p, dict) and p.get("type") == "cohort" and p.get("value") is not None
+            for p in iter_global_property_leaves(properties)
+            if p.get("type") == "cohort" and p.get("value") is not None
         ]
         if not cohort_ids:
             return

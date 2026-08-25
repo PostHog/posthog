@@ -228,6 +228,27 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         assert execute_bytecode(bytecode, {"properties": {"$survey_response_1": 6}}).result is True
         assert execute_bytecode(bytecode, {"properties": {"$survey_response_1": 7}}).result is False
 
+    def test_global_property_group_combines_with_or(self):
+        # A global property group with `type: "OR"` must match when either leaf matches — the whole
+        # reason the group shape exists. A flat list (or an AND group) still requires every leaf.
+        leaves = [
+            {"key": "clickid", "value": "is_set", "operator": "is_set", "type": "event"},
+            {"key": "stored_clickid", "value": "is_set", "operator": "is_set", "type": "person"},
+        ]
+        event_only: dict = {"properties": {"clickid": "abc"}, "person": {"properties": {}}}
+        person_only: dict = {"properties": {}, "person": {"properties": {"stored_clickid": "abc"}}}
+        neither: dict = {"properties": {}, "person": {"properties": {}}}
+
+        or_bytecode = compile_filters_bytecode({"properties": {"type": "OR", "values": leaves}}, self.team)["bytecode"]
+        assert execute_bytecode(or_bytecode, event_only).result is True
+        assert execute_bytecode(or_bytecode, person_only).result is True
+        assert execute_bytecode(or_bytecode, neither).result is False
+
+        and_bytecode = compile_filters_bytecode({"properties": {"type": "AND", "values": leaves}}, self.team)[
+            "bytecode"
+        ]
+        assert execute_bytecode(and_bytecode, event_only).result is False
+
     @parameterized.expand(
         [
             (True, True),

@@ -194,7 +194,7 @@ const setSimpleFilterValue = (
     // binding to the parent resource must survive.
     if (
         (contextId === 'logs-alerting' || contextId === 'batch-export-alerts') &&
-        previous?.properties &&
+        Array.isArray(previous?.properties) &&
         previous.properties.length > 0
     ) {
         next.properties = previous.properties
@@ -251,7 +251,7 @@ export function HogFunctionFiltersInternal(): JSX.Element {
                         {taxonomicGroupTypes.length > 0 ? (
                             <PropertyFilters
                                 key={contextId}
-                                propertyFilters={value?.properties ?? []}
+                                propertyFilters={Array.isArray(value?.properties) ? value.properties : []}
                                 taxonomicGroupTypes={taxonomicGroupTypes}
                                 onChange={(properties: AnyPropertyFilter[]) => {
                                     onChange({
@@ -273,7 +273,9 @@ export function HogFunctionFiltersInternal(): JSX.Element {
 }
 
 function LogsAlertBindingHint({ filters }: { filters: CyclotronJobFiltersType | undefined }): JSX.Element | null {
-    const alertIdProp = filters?.properties?.find((p) => 'key' in p && p.key === 'alert_id')
+    const alertIdProp = Array.isArray(filters?.properties)
+        ? filters.properties.find((p) => 'key' in p && p.key === 'alert_id')
+        : undefined
     const rawValue = alertIdProp && 'value' in alertIdProp ? alertIdProp.value : undefined
     const alertId =
         typeof rawValue === 'string'

@@ -2400,25 +2400,27 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == 201, response.json()
 
-    def test_hog_flow_slack_trigger_stores_the_bare_channel_id(self):
+    @parameterized.expand([("flat_list", False), ("property_group", True)])
+    def test_hog_flow_slack_trigger_stores_the_bare_channel_id(self, _name, as_group):
         # The channel picker identifies a channel as `C123|#name`, but the event carries `C123`, so
         # storing the composite compiles a filter that never matches and the workflow never runs.
+        # The normalization must reach a channel condition inside a property group too.
+        channel_property = {
+            "key": "channel",
+            "value": ["C0ALERTS|#alerts"],
+            "operator": "exact",
+            "type": "event",
+        }
+        properties: list | dict = [channel_property]
+        if as_group:
+            properties = {"type": "OR", "values": properties}
         trigger_action = {
             "id": "trigger_node",
             "name": "trigger_1",
             "type": "trigger",
             "config": {
                 "type": "slack-message",
-                "filters": {
-                    "properties": [
-                        {
-                            "key": "channel",
-                            "value": ["C0ALERTS|#alerts"],
-                            "operator": "exact",
-                            "type": "event",
-                        }
-                    ]
-                },
+                "filters": {"properties": properties},
             },
         }
 
@@ -2426,7 +2428,8 @@ class TestHogFlowAPI(APIBaseTest):
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == 201, response.json()
-        stored = response.json()["trigger"]["filters"]["properties"][0]["value"]
+        stored_properties = response.json()["trigger"]["filters"]["properties"]
+        stored = stored_properties["values"][0]["value"] if as_group else stored_properties[0]["value"]
         assert stored == ["C0ALERTS"]
 
     @staticmethod
@@ -2776,23 +2779,42 @@ class TestHogFlowAPI(APIBaseTest):
             filters = {"properties": properties}
         return Cohort.objects.create(team=self.team, name="c", filters=filters, is_static=static)
 
-    def _post_batch_with_cohort(self, cohort_id: int, *, status: str = "active", trigger_type: str = "batch", **extra):
+    def _post_batch_with_cohort(
+        self,
+        cohort_id: int,
+        *,
+        status: str = "active",
+        trigger_type: str = "batch",
+        as_group: bool = False,
+        **extra,
+    ):
+        properties: list | dict = [{"key": "id", "type": "cohort", "value": cohort_id, "operator": "in"}]
+        if as_group:
+            properties = {"type": "OR", "values": properties}
         trigger_action = {
             "id": "trigger_node",
             "name": "trigger_1",
             "type": "trigger",
             "config": {
                 "type": trigger_type,
-                "filters": {"properties": [{"key": "id", "type": "cohort", "value": cohort_id, "operator": "in"}]},
+                "filters": {"properties": properties},
             },
         }
         hog_flow = {"name": "Test Batch Flow", "status": status, "actions": [trigger_action]}
         return self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, **extra)
 
-    @parameterized.expand(["batch", "schedule"])
-    def test_hog_flow_audience_rejects_behavioral_cohort(self, trigger_type: str):
+    @parameterized.expand(
+        [
+            ("batch", False),
+            ("schedule", False),
+            # Schedule audiences accept the OR/AND group shape (batch rejects any non-array
+            # properties upstream), so the guard must find a behavioral cohort inside a group too.
+            ("schedule", True),
+        ]
+    )
+    def test_hog_flow_audience_rejects_behavioral_cohort(self, trigger_type: str, as_group: bool):
         cohort = self._make_cohort(behavioral=True)
-        response = self._post_batch_with_cohort(cohort.pk, trigger_type=trigger_type)
+        response = self._post_batch_with_cohort(cohort.pk, trigger_type=trigger_type, as_group=as_group)
         assert response.status_code == 400, response.json()
         assert "behavior" in response.json()["detail"].lower()
 

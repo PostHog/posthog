@@ -169,12 +169,13 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
         alertId: [
             (s) => [s.configuration],
             (configuration: HogFunctionType | null): string | undefined => {
-                if (!configuration?.filters?.properties) {
+                const properties = configuration?.filters?.properties
+                // Internal alert destinations always store a flat property list; a property group
+                // (used for OR filters on regular destinations) never binds an alert id.
+                if (!Array.isArray(properties)) {
                     return undefined
                 }
-                const alertIdProp = configuration.filters.properties.find(
-                    (p: CyclotronJobFilterPropertyFilter) => p.key === 'alert_id'
-                )
+                const alertIdProp = properties.find((p: CyclotronJobFilterPropertyFilter) => p.key === 'alert_id')
                 const value = alertIdProp?.value
                 return value ? String(value) : undefined
             },
