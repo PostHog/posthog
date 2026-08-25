@@ -120,7 +120,7 @@ export function ResultDetails({
         },
         {
             key: 'total-users',
-            title: 'Total users',
+            title: 'Exposures',
             render: (_, item) => humanFriendlyNumber(item.number_of_samples),
         },
         {
