@@ -493,6 +493,7 @@ class ReportConfidenceLedgerSerializer(serializers.Serializer):
         help_text="Claims the agent could not check, each with why.",
     )
 
+
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
     headline = serializers.CharField(
