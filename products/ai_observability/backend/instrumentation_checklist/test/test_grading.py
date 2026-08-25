@@ -76,7 +76,7 @@ def _graded(stats: ChecklistStats, key: CheckKey, dismissed_keys: Iterable[str] 
 
 
 class TestGradeChecklist:
-    def test_grades_every_check_exactly_once_in_key_order(self):
+    def test_grades_every_check_exactly_once_in_key_order(self) -> None:
         assert [check.key for check in grade_checklist(_stats(), ())] == list(CheckKey)
 
     @parameterized.expand(
@@ -101,7 +101,7 @@ class TestGradeChecklist:
         generations: int,
         signal: int,
         expected: CheckStatus,
-    ):
+    ) -> None:
         stats = _stats(**{"generations": generations, denominator: generations, field: signal})
         assert _graded(stats, key).status == expected
 
@@ -112,12 +112,16 @@ class TestGradeChecklist:
             ("above_floor", VOLUME_FLOOR + 1, CheckStatus.WARNING),
         ]
     )
-    def test_volume_floor_boundary_for_trace_structure(self, _name: str, total_events: int, expected: CheckStatus):
+    def test_volume_floor_boundary_for_trace_structure(
+        self, _name: str, total_events: int, expected: CheckStatus
+    ) -> None:
         stats = _stats(total_events=total_events, spans=0, events_with_parent=0)
         assert _graded(stats, CheckKey.TRACE_STRUCTURE).status == expected
 
     @parameterized.expand([(key.value, key) for key, *_ in GENERATION_DENOMINATED])
-    def test_generation_denominated_checks_stay_pending_at_a_spans_only_project(self, _name: str, key: CheckKey):
+    def test_generation_denominated_checks_stay_pending_at_a_spans_only_project(
+        self, _name: str, key: CheckKey
+    ) -> None:
         stats = _stats(generations=0, spans=25, events_with_parent=25)
         assert _graded(stats, key).status == CheckStatus.PENDING
 
@@ -133,20 +137,20 @@ class TestGradeChecklist:
     )
     def test_declining_a_session_answers_the_sessions_check(
         self, _name: str, with_session: int, declining: int, expected: CheckStatus, expected_detail: str
-    ):
+    ) -> None:
         stats = _stats(generations=40, events_with_session=with_session, events_declining_session=declining)
         graded = _graded(stats, CheckKey.SESSIONS)
         assert (graded.status, graded.detail) == (expected, expected_detail)
 
-    def test_declining_a_session_cannot_lift_a_project_off_the_volume_floor(self):
+    def test_declining_a_session_cannot_lift_a_project_off_the_volume_floor(self) -> None:
         stats = _stats(generations=VOLUME_FLOOR - 1, events_declining_session=VOLUME_FLOOR - 1)
         assert _graded(stats, CheckKey.SESSIONS).status == CheckStatus.PENDING
 
-    def test_trace_structure_is_graded_at_a_spans_only_project(self):
+    def test_trace_structure_is_graded_at_a_spans_only_project(self) -> None:
         stats = _stats(generations=0, spans=25)
         assert _graded(stats, CheckKey.TRACE_STRUCTURE).status == CheckStatus.OK
 
-    def test_trace_structure_warns_when_only_traces_arrive(self):
+    def test_trace_structure_warns_when_only_traces_arrive(self) -> None:
         stats = _stats(generations=0, spans=0, events_with_parent=0, total_events=25)
         assert _graded(stats, CheckKey.TRACE_STRUCTURE).status == CheckStatus.WARNING
 
@@ -160,7 +164,7 @@ class TestGradeChecklist:
     )
     def test_trace_structure_warns_only_when_spans_and_parents_are_both_zero(
         self, _name: str, spans: int, events_with_parent: int, expected: CheckStatus
-    ):
+    ) -> None:
         stats = _stats(total_events=100, spans=spans, events_with_parent=events_with_parent)
         assert _graded(stats, CheckKey.TRACE_STRUCTURE).status == expected
 
@@ -176,7 +180,9 @@ class TestGradeChecklist:
             (CheckKey.TRACE_STRUCTURE.value, CheckKey.TRACE_STRUCTURE, {"total_events": 1000, "spans": 1}),
         ]
     )
-    def test_any_presence_grades_ok_regardless_of_coverage(self, _name: str, key: CheckKey, counts: dict[str, int]):
+    def test_any_presence_grades_ok_regardless_of_coverage(
+        self, _name: str, key: CheckKey, counts: dict[str, int]
+    ) -> None:
         assert _graded(_stats(**counts), key).status == CheckStatus.OK
 
     @parameterized.expand(
@@ -270,7 +276,7 @@ class TestGradeChecklist:
     )
     def test_detail_copy_matches_status(
         self, _name: str, counts: dict[str, int], key: CheckKey, expected_status: CheckStatus, expected_detail: str
-    ):
+    ) -> None:
         check = _graded(_stats(**counts), key)
         assert check.status == expected_status
         assert check.detail == expected_detail
@@ -284,12 +290,12 @@ class TestGradeChecklist:
     )
     def test_dismissal_overrides_every_other_status_but_keeps_the_underlying_detail(
         self, _name: str, counts: dict[str, int], expected_detail: str
-    ):
+    ) -> None:
         check = _graded(_stats(**counts), CheckKey.SESSIONS, dismissed_keys=[CheckKey.SESSIONS])
         assert check.status == CheckStatus.DISMISSED
         assert check.detail == expected_detail
 
-    def test_dismissal_applies_only_to_the_named_check(self):
+    def test_dismissal_applies_only_to_the_named_check(self) -> None:
         stats = _stats(generations=40)
         assert _graded(stats, CheckKey.TOOL_CALLS, ["tool_calls"]).status == CheckStatus.DISMISSED
         assert _graded(stats, CheckKey.SESSIONS, ["tool_calls"]).status == CheckStatus.WARNING
@@ -301,10 +307,10 @@ class TestGradeChecklist:
             ("set_of_strings", {"sessions"}),
         ]
     )
-    def test_dismissed_keys_accept_strings_and_enum_members(self, _name: str, dismissed_keys: Iterable[str]):
+    def test_dismissed_keys_accept_strings_and_enum_members(self, _name: str, dismissed_keys: Iterable[str]) -> None:
         assert _graded(_stats(), CheckKey.SESSIONS, dismissed_keys).status == CheckStatus.DISMISSED
 
-    def test_dismissed_keys_may_be_a_single_pass_iterable(self):
+    def test_dismissed_keys_may_be_a_single_pass_iterable(self) -> None:
         result = grade_checklist(_stats(), (key for key in ["trace_structure"]))
         assert [check.status for check in result] == [
             CheckStatus.PENDING,
@@ -339,7 +345,7 @@ class TestGradeChecklist:
     )
     def test_each_check_reports_only_the_counts_it_was_graded_from(
         self, _name: str, key: CheckKey, expected_stats: dict[str, int]
-    ):
+    ) -> None:
         stats = _stats(
             generations=40,
             events_with_session=7,
@@ -356,7 +362,7 @@ class TestGradeChecklist:
 
 
 class TestChecklistStats:
-    def test_rejects_a_total_below_the_events_it_counted(self):
+    def test_rejects_a_total_below_the_events_it_counted(self) -> None:
         with pytest.raises(ValueError):
             ChecklistStats(
                 generations=100,
