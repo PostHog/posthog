@@ -23,6 +23,13 @@ CREATE TABLE IF NOT EXISTS conversion_watchers (
     parent_run_id UUID,
     distinct_id TEXT,
     person_id TEXT,
+    -- Watermark for person_id. Merge repoints are not Kafka-keyed, so a chain (anon -> A -> B) can
+    -- arrive out of order and across batches; without a persisted high-water mark a late lower-version
+    -- repoint would rewind the anchor and the (team_id, person_id) lookup would stop resolving. -1
+    -- rather than 0 so a version-0 first mapping ("this distinct_id now has a person") still applies
+    -- once. A row starts unwatermarked: the enrolling run reads its person through the person store,
+    -- which does not carry the version, so only re-keys move this forward.
+    person_version INT NOT NULL DEFAULT -1,
     -- The version the run started under, so a per-version conversion rate divides a versioned
     -- numerator by a versioned denominator.
     flow_version INT,

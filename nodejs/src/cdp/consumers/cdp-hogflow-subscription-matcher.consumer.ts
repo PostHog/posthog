@@ -951,11 +951,15 @@ export class CdpHogflowSubscriptionMatcherConsumer<
         // watcher in the batch on its pre-merge person until it expires, silently under-counting.
         const result = await this.cyclotronPool.query(
             `UPDATE conversion_watchers w
-             SET person_id = u.person_id
+             SET person_id = u.person_id, person_version = u.version
              FROM (
                  SELECT unnest($1::int[]) AS team_id, unnest($2::text[]) AS distinct_id, unnest($3::text[]) AS person_id, unnest($4::int[]) AS version
              ) u
              WHERE w.team_id = u.team_id AND w.distinct_id = u.distinct_id AND w.person_id IS DISTINCT FROM u.person_id
+               -- Ordering within a batch is handled above; this is the cross-batch half. A repoint that
+               -- arrives after a higher-versioned one would otherwise rewind the anchor to an
+               -- intermediate person, leaving the watcher unreachable by person_id until it expires.
+               AND u.version > w.person_version
                -- A first mapping (version 0) only says "this distinct_id now has a person"; it may fill
                -- an empty anchor but must not overwrite one a merge already set, mirroring the
                -- onlyNullAnchor scope applyMoves uses. Repoints (version > 0) may repoint any anchor.
