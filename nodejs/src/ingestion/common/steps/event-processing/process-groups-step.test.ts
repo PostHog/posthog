@@ -107,26 +107,39 @@ describe('createProcessGroupsStep', () => {
         }
     })
 
-    it('calls upsertGroup for $groupidentify events', async () => {
-        mockGroupTypeManager.fetchGroupTypeIndex.mockResolvedValue(0)
+    // The groups API captures $groupidentify with person processing off, so the upsert must run in
+    // both modes or group updates are silently lost.
+    it.each([true, false])(
+        'calls upsertGroup for $groupidentify events when processPerson=%s',
+        async (processPerson) => {
+            mockGroupTypeManager.fetchGroupTypeIndex.mockResolvedValue(0)
 
-        const step = createStep()
-        const result = await step(
-            createInput({
-                preparedEvent: createTestPreIngestionEvent({
-                    event: '$groupidentify',
-                    properties: {
-                        $group_type: 'organization',
-                        $group_key: 'org::5',
-                        $group_set: { foo: 'bar' },
-                    },
-                }),
-            })
-        )
+            const step = createStep()
+            const result = await step(
+                createInput({
+                    processPerson,
+                    preparedEvent: createTestPreIngestionEvent({
+                        event: '$groupidentify',
+                        properties: {
+                            $group_type: 'organization',
+                            $group_key: 'org::5',
+                            $group_set: { foo: 'bar' },
+                        },
+                    }),
+                })
+            )
 
-        expect(result.type).toBe(PipelineResultType.OK)
-        expect(mockGroupStore.upsertGroup).toHaveBeenCalledWith(1, 1, 0, 'org::5', { foo: 'bar' }, expect.any(DateTime))
-    })
+            expect(result.type).toBe(PipelineResultType.OK)
+            expect(mockGroupStore.upsertGroup).toHaveBeenCalledWith(
+                1,
+                1,
+                0,
+                'org::5',
+                { foo: 'bar' },
+                expect.any(DateTime)
+            )
+        }
+    )
 
     it.each([
         {
