@@ -199,6 +199,10 @@ async function rasterizeRecordingActivity(
         } else {
             RasterizationMetrics.incrementError('UNKNOWN', true)
         }
+        // Classification collapses the raw rejection into a stable ApplicationFailure message that
+        // drops the CDP method and stack. Log the original here, the last point that still holds it,
+        // so a setup-phase death (browser-pool logs nothing at error level) stays diagnosable.
+        log.error({ err, code: rasterizationError?.code ?? 'UNKNOWN' }, 'rasterization failed')
         throw toActivityError(err)
     } finally {
         clearInterval(heartbeatInterval)
