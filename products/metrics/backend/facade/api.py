@@ -343,6 +343,7 @@ def list_metric_error_spikes(*, team: Team, date_from: dt.datetime, date_to: dt.
         date_from=date_from.isoformat(),
         date_to=date_to.isoformat(),
         limit=_ERROR_SPIKES_LIMIT,
+        include_total_count=False,
     )
     return [
         MetricErrorSpike(

@@ -104,6 +104,17 @@ const DATE_OPTIONS: DateMappingOption[] = [
     },
 ]
 
+// Shared shape behind every chart-marker overlay (trace exemplars, error spikes, ...):
+// map a source list to markers, or skip it entirely when disabled (missing access,
+// or a toggle that's off) so a marker never appears without something to click into.
+function overlayMarkers<T>(
+    items: T[],
+    disabled: string | null | boolean,
+    toMarker: (item: T) => MetricsExemplar
+): MetricsExemplar[] {
+    return disabled ? [] : items.map(toMarker)
+}
+
 export const MetricsViewer = (): JSX.Element => {
     const logic = metricsViewerLogic()
     // Keep the picker logic mounted alongside the viewer so the chosen metric's
@@ -169,21 +180,19 @@ export const MetricsViewer = (): JSX.Element => {
     // the user can't view traces, so a dot never leads to a dead end.
     const exemplarMarkers: MetricsExemplar[] = useMemo(
         () =>
-            tracingDisabledReason
-                ? []
-                : traceExemplars.map((exemplar) => ({
-                      timeMs: dayjs(exemplar.timestamp).valueOf(),
-                      onClick: () => {
-                          exemplarDotClicked(!!exemplar.spanId)
-                          router.actions.push(
-                              traceUrl({
-                                  traceId: exemplar.traceId,
-                                  spanId: exemplar.spanId || null,
-                                  ts: exemplar.timestamp,
-                              })
-                          )
-                      },
-                  })),
+            overlayMarkers(traceExemplars, tracingDisabledReason, (exemplar) => ({
+                timeMs: dayjs(exemplar.timestamp).valueOf(),
+                onClick: () => {
+                    exemplarDotClicked(!!exemplar.spanId)
+                    router.actions.push(
+                        traceUrl({
+                            traceId: exemplar.traceId,
+                            spanId: exemplar.spanId || null,
+                            ts: exemplar.timestamp,
+                        })
+                    )
+                },
+            })),
         [traceExemplars, tracingDisabledReason, exemplarDotClicked]
     )
 
@@ -192,15 +201,13 @@ export const MetricsViewer = (): JSX.Element => {
     // trace exemplars, and skipped entirely without Error Tracking view access.
     const errorSpikeMarkers: MetricsExemplar[] = useMemo(
         () =>
-            !showErrorSpikes || errorTrackingDisabledReason
-                ? []
-                : errorSpikeExemplars.map((spike) => ({
-                      timeMs: dayjs(spike.timestamp).valueOf(),
-                      color: 'danger',
-                      onClick: () => {
-                          router.actions.push(urls.errorTrackingIssue(spike.issueId, { timestamp: spike.timestamp }))
-                      },
-                  })),
+            overlayMarkers(errorSpikeExemplars, !showErrorSpikes || errorTrackingDisabledReason, (spike) => ({
+                timeMs: dayjs(spike.timestamp).valueOf(),
+                color: 'danger',
+                onClick: () => {
+                    router.actions.push(urls.errorTrackingIssue(spike.issueId, { timestamp: spike.timestamp }))
+                },
+            })),
         [showErrorSpikes, errorSpikeExemplars, errorTrackingDisabledReason]
     )
 

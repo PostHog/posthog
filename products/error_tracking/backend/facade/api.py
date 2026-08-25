@@ -244,11 +244,12 @@ def list_spike_events(
     order_by: str | None = None,
     limit: int | None = None,
     offset: int = 0,
+    include_total_count: bool = True,
 ) -> tuple[list[contracts.ErrorTrackingSpikeEvent], int]:
     qs = logic.list_spike_events(
         team_id=team_id, issue_ids=issue_ids, date_from=date_from, date_to=date_to, order_by=order_by
     )
-    total = qs.count()
+    total = qs.count() if include_total_count else 0
     rows = qs if limit is None else qs[offset : offset + limit]
     return [_to_spike_event(event) for event in rows], total
 
