@@ -381,22 +381,24 @@ export const errorTrackingIssueReleasesQuery = ({
 }): HogQLQuery => {
     const group = filterGroup.values[0] as UniversalFiltersGroup
     const properties = [...group.values] as AnyPropertyFilter[]
+    // Inlined rather than passed through `values`: the runner resolves `values` placeholders at parse
+    // time, which leaves no `{filters}` placeholder for the filters pass to fill in.
+    const interval = Math.max(1, Math.floor(bucketSeconds))
 
     return {
         kind: NodeKind.HogQLQuery,
         query: `
             SELECT
-                toUnixTimestamp(toStartOfInterval(timestamp, toIntervalSecond({bucketSeconds}))) AS bucket,
+                toUnixTimestamp(toStartOfInterval(timestamp, toIntervalSecond(${interval}))) AS bucket,
                 properties.$app_namespace AS namespace,
                 properties.$app_version AS version,
                 toString(properties.$app_build) AS build,
                 count() AS occurrences
             FROM events
-            WHERE event = '$exception' AND issue_id = {issueId} AND {filters}
+            WHERE event = '$exception' AND issue_id = ${escapeHogQLString(issueId)} AND {filters}
             GROUP BY bucket, namespace, version, build
             ORDER BY bucket
         `,
-        values: { issueId, bucketSeconds },
         filters: { dateRange, filterTestAccounts, properties },
         tags: { productKey: ProductKey.ERROR_TRACKING },
     }

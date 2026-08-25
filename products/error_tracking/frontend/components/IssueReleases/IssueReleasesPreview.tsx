@@ -25,7 +25,7 @@ export function IssueReleasesPreview({ issueId }: { issueId: string }): JSX.Elem
                 <ReleasesSummary timeline={timeline} loading={releasesLoading} />
             </IssueFilterPreviewHeader>
             <div className="flex min-h-40 flex-col px-3 pb-3 pt-2">
-                {releasesLoading || timeline === null ? (
+                {releasesLoading ? (
                     <div className="flex min-h-40 flex-1 items-center justify-center">
                         <Spinner />
                     </div>
@@ -36,7 +36,7 @@ export function IssueReleasesPreview({ issueId }: { issueId: string }): JSX.Elem
                             Retry
                         </Button>
                     </div>
-                ) : !hasReleases ? (
+                ) : timeline === null || !hasReleases ? (
                     <div className="flex min-h-40 flex-1 flex-col items-center justify-center gap-1 text-center">
                         <Text variant="muted">No release information for these exceptions.</Text>
                         <Text size="xs" variant="muted">
@@ -58,12 +58,15 @@ function ReleasesSummary({
     timeline: IssueReleaseTimeline | null
     loading: boolean
 }): JSX.Element | null {
-    if (loading || timeline === null) {
+    if (loading) {
         return (
             <Skeleton className="h-4 w-24">
                 <span>Loading…</span>
             </Skeleton>
         )
+    }
+    if (timeline === null) {
+        return null
     }
     const releaseCount = timeline.groups.reduce((sum, group) => sum + group.releases.length, 0)
     if (releaseCount === 0) {
