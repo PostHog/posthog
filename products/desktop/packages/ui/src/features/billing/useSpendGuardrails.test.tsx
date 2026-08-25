@@ -7,9 +7,13 @@ const spendTotals = vi.hoisted(() => ({
   value: null as SpendSnapshot | null,
 }));
 const toastMock = vi.hoisted(() => ({ warning: vi.fn(), dismiss: vi.fn() }));
+const spendAvailable = vi.hoisted(() => ({ value: true }));
 
 vi.mock("@posthog/ui/features/billing/useSpendTotals", () => ({
   useSpendTotals: () => spendTotals.value,
+}));
+vi.mock("@posthog/ui/features/billing/useUserSpendLimit", () => ({
+  useSpendLimitAvailable: () => spendAvailable.value,
 }));
 vi.mock("../../primitives/toast", () => ({ toast: toastMock }));
 vi.mock("@posthog/ui/features/settings/hooks/useOpenSettings", () => ({
@@ -22,6 +26,7 @@ describe("useSpendGuardrails", () => {
   beforeEach(() => {
     toastMock.warning.mockClear();
     toastMock.dismiss.mockClear();
+    spendAvailable.value = true;
     useSettingsStore.setState({
       spendLimits: {
         day: { warnUsd: null, stopUsd: null },
@@ -59,5 +64,32 @@ describe("useSpendGuardrails", () => {
     });
 
     expect(toastMock.dismiss).toHaveBeenCalledWith("spend-limit-day-stop");
+  });
+
+  it("raises no stop and pauses nothing when availability is off, but the warn at the same threshold still fires", () => {
+    useSettingsStore.setState({
+      spendLimits: {
+        day: { warnUsd: 50, stopUsd: 50 },
+        month: { warnUsd: null, stopUsd: null },
+      },
+    });
+    spendTotals.value = { todayUsd: 60, monthUsd: 60, avgDailyUsd: 0 };
+    spendAvailable.value = false;
+
+    renderHook(() => useSpendGuardrails());
+
+    // The stored stop is inert while the deployment cannot hold it: no stop
+    // toast fires, and the sticky stop id is never registered.
+    const stopCalls = toastMock.warning.mock.calls.filter((call) =>
+      String(call[0]).includes("stop line"),
+    );
+    expect(stopCalls).toHaveLength(0);
+    expect(toastMock.dismiss).toHaveBeenCalledWith("spend-limit-day-stop");
+
+    // The warn at the same threshold still fires.
+    expect(toastMock.warning).toHaveBeenCalledWith(
+      expect.stringContaining("passed $50.00"),
+      expect.objectContaining({ id: "spend-limit-day-warn" }),
+    );
   });
 });

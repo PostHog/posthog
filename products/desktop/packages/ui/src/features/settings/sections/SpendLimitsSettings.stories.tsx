@@ -23,7 +23,7 @@ const meta: Meta<typeof SpendLimitsSettingsView> = {
   args: {
     spendLimits: LINES,
     totals: { todayUsd: 7.31, monthUsd: 84.2, avgDailyUsd: 12.4 },
-    enforced: true,
+    stopAvailable: true,
     onCommit: () => {},
   },
 };
@@ -51,5 +51,5 @@ export const StopCrossed: Story = {
 
 /** No gateway behind the lines, so they inform and pause this app only. */
 export const InformOnly: Story = {
-  args: { enforced: false },
+  args: { stopAvailable: false },
 };

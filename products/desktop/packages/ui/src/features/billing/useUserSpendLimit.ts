@@ -20,7 +20,7 @@ export function useUserSpendLimit() {
     enabled: client !== null,
     staleTime: 60_000,
     retry: false,
-    // The enforced limit is per user: drop it on any auth transition so a new
+    // The stop limit is per user: drop it on any auth transition so a new
     // account never reads the previous one's line from this shared key.
     meta: AUTH_SCOPED_QUERY_META,
   });
@@ -28,7 +28,7 @@ export function useUserSpendLimit() {
 
 /**
  * Writes the stop line to the gateway. Null clears it. The query cache takes
- * the response, so the card reflects the limit that is actually enforced
+ * the response, so the card reflects the limit that is actually held
  * rather than the one that was requested.
  */
 export function useSetUserSpendLimit() {
@@ -47,4 +47,10 @@ export function useSetUserSpendLimit() {
     onSuccess: (limit) =>
       queryClient.setQueryData(USER_SPEND_LIMIT_QUERY_KEY, limit),
   });
+}
+
+/** Whether this deployment can hold a stop line. False while loading or on error. */
+export function useSpendLimitAvailable(): boolean {
+  const limit = useUserSpendLimit();
+  return limit.data?.available === true;
 }

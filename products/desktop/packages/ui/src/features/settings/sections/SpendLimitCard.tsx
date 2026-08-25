@@ -29,6 +29,8 @@ interface SpendLimitCardProps {
   onCommit: (limits: SpendLimitsPatch) => void;
   /** Lines to apply when the scope is switched on, if any can be derived. */
   suggested?: { warnUsd: number; stopUsd: number } | null;
+  /** The deployment can hold a stop line. False renders and seeds the warning line only. */
+  stopAvailable: boolean;
 }
 
 /**
@@ -49,9 +51,11 @@ export function SpendLimitCard({
   limits,
   onCommit,
   suggested = null,
+  stopAvailable,
 }: SpendLimitCardProps) {
   const { warnUsd, stopUsd } = limits[scope];
-  const enabled = warnUsd !== null || stopUsd !== null;
+  const effectiveStopUsd = stopAvailable ? stopUsd : null;
+  const enabled = warnUsd !== null || effectiveStopUsd !== null;
   const summary =
     spentUsd !== null
       ? `${formatUsdCompact(spentUsd, { exactCents: true })}${soFarLabel ? ` ${soFarLabel}` : ""}`
@@ -66,7 +70,12 @@ export function SpendLimitCard({
     // round starter lines keep the scope editable rather than committing
     // nulls, which would read as the switch refusing to turn on.
     const seed = suggested ?? STARTER_SPEND_LINES[scope];
-    onCommit({ [scope]: { warnUsd: seed.warnUsd, stopUsd: seed.stopUsd } });
+    onCommit({
+      [scope]: {
+        warnUsd: seed.warnUsd,
+        stopUsd: stopAvailable ? seed.stopUsd : null,
+      },
+    });
   };
 
   return (
@@ -106,7 +115,7 @@ export function SpendLimitCard({
         <div className="border-(--gray-4) border-t border-dashed pt-3.5">
           <SpendLimitSlider
             warnUsd={warnUsd}
-            stopUsd={stopUsd}
+            stopUsd={effectiveStopUsd}
             spentUsd={spentUsd ?? 0}
             markerUsd={markerUsd}
             markerTitle={markerTitle}
@@ -121,8 +130,12 @@ export function SpendLimitCard({
                   [level]: clampSpendLine(
                     level,
                     value,
-                    level === "warn" ? stopUsd : warnUsd,
+                    level === "warn" ? effectiveStopUsd : warnUsd,
                   ),
+                  // A stop commit is inert where the deployment cannot hold one.
+                  ...(level === "stop" && !stopAvailable
+                    ? { stopUsd: null }
+                    : {}),
                 },
               })
             }

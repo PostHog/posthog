@@ -12,7 +12,7 @@ function SpendGuardrailNotices({ level }: { level: "warn" | "stop" | "both" }) {
     if (level !== "stop") {
       toast.warning("Daily spend passed $20.00", {
         id: "story-spend-warn",
-        description: "$21.37 spent in this app today. Nothing is paused.",
+        description: "$21.37 spent today.",
         action,
         duration: Number.POSITIVE_INFINITY,
       });

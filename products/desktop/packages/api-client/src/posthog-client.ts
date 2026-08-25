@@ -6275,7 +6275,7 @@ export class PostHogAPIClient {
 
   /**
    * The signed-in person's own spend limit, as the gateway holds it. A
-   * deployment without the gateway wired answers `enforced: false` rather than
+   * deployment without the gateway wired answers `available: false` rather than
    * failing, so the settings page can say the limit informs only.
    */
   async getUserSpendLimit(): Promise<UserSpendLimit> {

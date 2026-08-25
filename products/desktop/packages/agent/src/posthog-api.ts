@@ -228,7 +228,7 @@ export class PostHogAPIClient {
    * resolves to no user (a task-scoped token). This is the distinct id, not the
    * uuid: it has to match what a per-person spend limit is keyed on and what a
    * cloud run pins into its token, so the `user_{id}` fallback mirrors
-   * posthog/models/user_gateway_node.py exactly — diverging from it writes a
+   * products/ai_gateway/backend/logic.py (_spend_node) exactly — diverging from it writes a
    * budget nothing debits. Successful lookups are cached, since the node never
    * changes for a credential; a failed lookup is not, so a startup network blip
    * doesn't permanently disable the spend-limit header.
