@@ -133,9 +133,9 @@ class TestResolveObjectAccess(BaseMostSpecificResolutionTest):
         ]
     )
     def test_source_system_default_is_equivalent_to_legacy_explicit_true(self, _name, rules):
-        # The new resolvers have no `explicit` parameter: legacy explicit=True returning None is
+        # The new resolvers have no `explicit` parameter: explicit=True returning None is
         # exactly the new answer carrying source="system_default". Enforcement relies on this
-        # equivalence when the legacy signature becomes an adapter.
+        # equivalence when the enforced signature becomes an adapter.
         self._apply(rules)
 
         legacy_explicit = self.user_access_control.get_user_access_level(self.dashboard, explicit=True)
@@ -178,7 +178,7 @@ class TestResolveObjectAccessFallbackParent(BaseMostSpecificResolutionTest):
             # A rule about the source reaches the tables it syncs
             ("source_deny_reaches_the_table", {"this_source": "none"}, "none", "parent_object"),
             # The table's own default row is nearer than the source, so it wins — under the
-            # enforced legacy ladder the source's row would win here
+            # enforced ladder the source's row would win here
             (
                 "table_default_beats_source_deny",
                 {"this_table_default": "editor", "this_source": "none"},

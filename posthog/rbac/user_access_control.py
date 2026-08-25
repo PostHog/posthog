@@ -399,8 +399,10 @@ class UserAccessControl:
         self._team = team
         self._cache: dict[str, list[AccessControl]] = {}
         self._sibling_team_access_controls: dict[int, UserAccessControl] = {}
-        # Shadow-resolution divergences already reported by this instance, so a list endpoint
-        # resolving many objects with the same divergent rules emits one event, not hundreds
+        # Shadow divergences already reported by this instance (one request). Without this,
+        # volume tracks our internals instead of customer rules: project access resolves several
+        # times per request, and list endpoints resolve per object — the same divergence would be
+        # reported hundreds of times per request for an affected org.
         self._shadow_divergences_reported: set[tuple] = set()
 
         if not organization_id and team:
@@ -957,14 +959,14 @@ class UserAccessControl:
             )
 
         row = self._highest_access_from_rows(resource, access_controls)
-        legacy = ResolvedAccess(
+        access = ResolvedAccess(
             access_level=row.access_level,
             source="resource",
             source_subject=self._row_subject(row),
             source_resource=resource,
         )
-        self._capture_shadow_divergence("resource", resource, legacy, lambda: self.resolve_resource_access(resource))
-        return legacy
+        self._report_shadow_divergence("resource", resource, access, lambda: self.resolve_resource_access(resource))
+        return access
 
     def has_access_levels_for_resource(self, resource: APIScopeObject) -> bool:
         if not self._team:
@@ -1570,7 +1572,7 @@ class UserAccessControl:
         if not explicit:
             # explicit=True changes the enforced answer but not the future one, so comparing
             # there would report divergence that is really just the flag
-            self._capture_shadow_divergence("object", resource, access, lambda: self.resolve_object_access(obj))
+            self._report_shadow_divergence("object", resource, access, lambda: self.resolve_object_access(obj))
         return access.access_level if access else None
 
     def bulk_object_access_levels(
@@ -1614,21 +1616,18 @@ class UserAccessControl:
         return results
 
     # ------------------------------------------------------------
-    # Most-specific-wins resolution (RFC 557) — WORK IN PROGRESS, NOT ENFORCED
+    # Most-specific-wins resolution (RFC 557). Not enforced.
     #
-    # These resolvers implement the future semantics: the nearest scope with any rule decides
-    # (object -> fallback source -> resource -> the source's resource), and within a scope the
-    # most specific subject decides (the member's own row -> their roles' rows -> the
-    # everyone-row). A more specific rule wins even when it grants less, which is what makes an
-    # explicit deny possible. Today's enforced semantics differ: max() across member and role
-    # rows, and the resource level outranks the object's own default row.
+    # The nearest scope with a rule decides: object -> fallback source -> resource -> the
+    # source's resource. In a scope, the most specific subject decides: member row -> role
+    # rows -> everyone-row. A more specific rule wins even when it grants less. The enforced
+    # walk differs: it takes max() across member and role rows, and the resource level
+    # outranks the object's default row.
     #
-    # DO NOT call these for enforcement or display yet. Until the migration completes, use
-    # `get_user_access_level` / `check_access_level_for_object` / `access_level_for_resource`,
-    # which stay the enforced source of truth. These methods exist so the shadow comparison and
-    # the migration preview can measure the future answer against the enforced one; a repo
-    # invariant (posthog/test/repo_invariants/test_rbac_shadow_resolver_callers.py) fails any
-    # new caller outside this module.
+    # Do not call these methods for enforcement or display. Use `get_user_access_level` /
+    # `check_access_level_for_object` / `access_level_for_resource`. A repo invariant
+    # (posthog/test/repo_invariants/test_rbac_shadow_resolver_callers.py) fails any caller
+    # outside this module.
     # ------------------------------------------------------------
 
     def _rows_by_subject(self, rows: list[_AccessControl]) -> list[list[_AccessControl]]:
@@ -1643,7 +1642,7 @@ class UserAccessControl:
         """Future source of truth for object access — NOT enforced yet, see the section comment.
 
         There is no `explicit` parameter: the full answer is always returned, and
-        `resolved.source != "system_default"` is what `explicit=True` means on the legacy methods.
+        `resolved.source != "system_default"` is what `explicit=True` means on the enforced methods.
         """
         resource = model_to_resource(obj)
         if not resource:
@@ -1752,19 +1751,19 @@ class UserAccessControl:
             source_resource=resource,
         )
 
-    def _capture_shadow_divergence(
+    def _report_shadow_divergence(
         self,
         kind: Literal["object", "resource"],
         resource: APIScopeObject,
         current: Optional[ResolvedAccess],
         proposed_fn: Callable[[], Optional[ResolvedAccess]],
     ) -> None:
-        """Emit a PostHog event when the enforced resolution and the most-specific one disagree.
+        """Capture a PostHog event when the enforced resolution and the most-specific one disagree.
 
         Read-only telemetry for the RFC 557 migration: nothing here changes the enforced answer.
         `proposed_fn` defers the second resolution so it only runs when the shadow is live.
-        Deduplicated per instance, and skipped on subclasses (SubjectAccessControl resolves other
-        people's access for display — its divergences describe the subject, not this user).
+        Skipped on subclasses: SubjectAccessControl resolves other people's access for display,
+        so its divergences describe the subject, not this user.
         """
         if type(self) is not UserAccessControl or current is None:
             return
@@ -1777,33 +1776,26 @@ class UserAccessControl:
             return
         self._shadow_divergences_reported.add(key)
 
-        try:
-            order = ordered_access_levels(resource)
-            direction = (
-                "widens" if order.index(proposed.access_level) > order.index(current.access_level) else "narrows"
-            )
-            # Deliberately no object ids and no emails: enough to size the migration, nothing more
-            posthoganalytics.capture(
-                distinct_id=self._user.distinct_id,
-                event="rbac shadow resolution divergence",
-                properties={
-                    "kind": kind,
-                    "resource": resource,
-                    "direction": direction,
-                    "current_level": current.access_level,
-                    "current_source": current.source,
-                    "current_source_subject": current.source_subject,
-                    "proposed_level": proposed.access_level,
-                    "proposed_source": proposed.source,
-                    "proposed_source_subject": proposed.source_subject,
-                    "team_id": self._team.id if self._team else None,
-                    "organization_id": str(self._organization_id) if self._organization_id else None,
-                },
-            )
-        except Exception:
-            # Telemetry must never break resolution (and in Celery, capture may silently no-op —
-            # acceptable for shadow data, unacceptable to crash on)
-            pass
+        order = ordered_access_levels(resource)
+        direction = "widens" if order.index(proposed.access_level) > order.index(current.access_level) else "narrows"
+        # Deliberately no object ids and no emails: enough to size the migration, nothing more
+        posthoganalytics.capture(
+            distinct_id=self._user.distinct_id,
+            event="rbac shadow resolution divergence",
+            properties={
+                "kind": kind,
+                "resource": resource,
+                "direction": direction,
+                "current_level": current.access_level,
+                "current_source": current.source,
+                "current_source_subject": current.source_subject,
+                "proposed_level": proposed.access_level,
+                "proposed_source": proposed.source,
+                "proposed_source_subject": proposed.source_subject,
+                "team_id": self._team.id if self._team else None,
+                "organization_id": str(self._organization_id) if self._organization_id else None,
+            },
+        )
 
 
 class UserAccessControlSerializerMixin(serializers.Serializer):
