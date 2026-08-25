@@ -236,4 +236,13 @@ def start_onboarding_session(team: Team, user: User) -> UUID | None:
         sources_enabled=facts.sources_enabled,
         sources_newly_enabled=facts.sources_newly_enabled,
     )
+    posthoganalytics.capture(
+        distinct_id=str(user.distinct_id),
+        event="Onboarding domain research completed",
+        properties={
+            "task_id": str(created.task_id),
+            "outcome": facts.research.outcome if facts.research else "not_applicable",
+        },
+        groups=groups(team.organization, team),
+    )
     return created.task_id
