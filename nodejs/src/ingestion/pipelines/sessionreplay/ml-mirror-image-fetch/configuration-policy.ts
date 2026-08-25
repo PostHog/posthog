@@ -488,7 +488,7 @@ function evaluateRobotsPolicy(
                 if (!/^\d+(?:\.\d+)?$/.test(value)) {
                     return []
                 }
-                // Round before the safe-integer guard, because 16.1 * 1000 is 16100.000000000002 and the guard would then discard a delay that README 7.9 accepts.
+                // A decimal multiplied by 1000 is not always exact. 16.1 * 1000 is 16100.000000000002. The safe-integer guard below rejects that value, but README 7.9 accepts the delay.
                 const milliseconds = Math.round(Number(value) * 1000)
                 return Number.isSafeInteger(milliseconds) ? [milliseconds] : []
             })
@@ -616,7 +616,7 @@ export function responseOptOutReason(
 function xRobotsTagRefuses(value: string): boolean {
     const lower = value.toLowerCase()
     const colon = lower.indexOf(':')
-    // `unavailable_after` also carries a colon, so the text before the first colon is a bot scope only when it is one comma-free token. If it were not, `noai, unavailable_after: <date>` would read as another bot's scope and README 2.6 would lose the opt-out.
+    // The directive `unavailable_after` also carries a colon. Text before the first colon is a bot scope only when it is a single token with no comma. Without that test, the lane reads `noai, unavailable_after: <date>` as another bot's scope. It then ignores an opt-out that README 2.6 requires.
     const prefix = colon >= 0 ? lower.slice(0, colon).trim() : undefined
     const scoped = prefix !== undefined && !prefix.includes(',')
     if (scoped && prefix !== BOT_NAME.toLowerCase()) {

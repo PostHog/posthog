@@ -102,7 +102,7 @@ describe('robots policy', () => {
             'Crawl-delay: 0x10',
             'Crawl-delay: 1e3',
             'Crawl-delay: 2.5',
-            // 16.1 * 1000 is 16100.000000000002 in floating point, so this guards the rounding.
+            // 16.1 * 1000 is 16100.000000000002, which is not a safe integer.
             'Crawl-delay: 16.1',
             'Allow: /',
         ].join('\n')
