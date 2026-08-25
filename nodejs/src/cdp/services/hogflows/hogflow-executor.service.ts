@@ -894,9 +894,27 @@ export class HogFlowExecutorService {
         }
 
         const storedSummary = allStoredKeys
-            .map((key) => `${key} = ${JSON.stringify(result.invocation.state.variables![key])}`)
+            .map((key) => `${key} = ${this.describeStoredVariable(action, result.invocation.state.variables![key])}`)
             .join(', ')
         this.log(result, 'debug', `Stored action result in variable(s): ${storedSummary}`)
+    }
+
+    // The create-ai-task destination's result variable is what lets a workflow author jump from a
+    // run's logs to the task it kicked off. Everything else stays plain JSON.
+    private describeStoredVariable(action: HogFlowAction, value: unknown): string {
+        const isCreateAiTaskAction =
+            action.type === 'function' && action.config.template_id === 'template-posthog-create-task'
+        if (
+            isCreateAiTaskAction &&
+            value &&
+            typeof value === 'object' &&
+            typeof (value as Record<string, unknown>).id === 'string' &&
+            (value as Record<string, unknown>).id !== ''
+        ) {
+            const runId = (value as Record<string, unknown>).run_id
+            return `[Task:${(value as Record<string, unknown>).id}|${typeof runId === 'string' ? runId : ''}]`
+        }
+        return JSON.stringify(value)
     }
 
     private logExecutionTriggerInfo(invocation: CyclotronJobInvocationHogFlow): MinimalLogEntry {

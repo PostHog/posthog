@@ -37,6 +37,7 @@ Judges the report for safety, then persists it at the judged status.
 | `actionability`             | enum                    | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make this call — the channel does not re-research it.                                                                                                                                                                                                                |
 | `already_addressed`         | bool, default `false`   | Set when the underlying issue is already handled and you're filing for the record.                                                                                                                                                                                                                                                             |
 | `charts`                    | list, ≤20, optional     | Queries the inbox draws on the report — the report's full set, replacing any it already had. Each `{chart_id, title, query, caption?, size?}`. See _Attaching charts_ below.                                                                                                                                                                   |
+| `suggested_prompts`         | list, ≤3, optional      | Follow-up questions the inbox offers above the report's `Ask AI` box, each ≤200 characters and all distinct. See _Suggesting follow-up questions_ below.                                                                                                                                                                                       |
 
 **Cite each entity as a link, not a bare id.** In `summary` and in `evidence` descriptions, write
 the entity you name as a markdown link: reuse the url the returning tool attached (`_posthogUrl`
@@ -133,6 +134,29 @@ Leave `charts` out entirely and the report keeps the ones it has; read the repor
 Send `charts: []` to take every chart down, for when the finding has moved on and the old chart would now mislead.
 Cap is **20 charts per report** (and a combined query-size budget), which is far more than most reports should use. Each chart runs its query when the report is opened, so attach the ones that carry the argument rather than everything you looked at: three charts a reader studies beat a dozen they scroll past.
 
+### Suggesting follow-up questions
+
+`suggested_prompts` are questions the inbox offers above the report's `Ask AI` box.
+Clicking one fills the box with it; nothing is sent on the click, so the reader can send it as written or edit it first.
+You did the research and know which threads you left open, so this hands the reader that knowledge instead of leaving them to invent a question from an empty box.
+
+Optional, and worth it only when you can name a question worth an agent run.
+Write none rather than pad to the cap — a report with no suggestions looks exactly as it did before.
+
+**Ask what your research left open, not what it already answered.**
+A question the summary answers spends an agent run restating the report.
+Good ones widen the finding (who else is affected, since when, what changed), test a hypothesis you could not, or ask for the next step you did not have the standing to take.
+
+**Write the question the reader would ask, in their words**, and make each one stand alone — the question reaches an agent that gets the report as context but not your run, so it can't point at "the above" or "the second chart".
+
+**`suggested_prompts` on an edit is the report's whole set, not an addition.**
+It replaces what the report had, the way `summary` replaces the summary, so re-send every question you want kept.
+Leave the field out and the report keeps the ones it has; send `suggested_prompts: []` to take them down.
+Rewriting `summary` on an edit does not clear them for you, so send the new set (or `[]`) in the same call.
+The research pipeline does clear them when it rewrites a report it re-researches, since the questions were written against the prose it replaces.
+
+Cap is **3 questions per report**, each **≤200 characters**, and duplicates are refused.
+
 ### Opening a draft PR (autostart)
 
 A surfaced, immediately-actionable report can open a draft PR automatically — the same autostart path the pipeline uses.
@@ -189,8 +213,8 @@ The fleet's reviewer map should compound over time.
 
 ## `edit_report` — update an existing report
 
-Rewrite `title`/`summary`, append a note, and/or set `suggested_reviewers` on a report that already exists.
-Pass `run_id` (the current run) and `report_id`, plus at least one of `title`, `summary`, `append_note`, `suggested_reviewers`, `charts`.
+Rewrite `title`/`summary`, append a note, set `suggested_reviewers`, and/or replace `charts` / `suggested_prompts` on a report that already exists.
+Pass `run_id` (the current run) and `report_id`, plus at least one of `title`, `summary`, `append_note`, `suggested_reviewers`, `charts`, `suggested_prompts`.
 
 `edit_report` can target **any** of the team's inbox reports — not just ones a scout authored.
 That makes it the right tool when a later run learns something about a report the pipeline (or another scout) created.
@@ -200,6 +224,7 @@ Rules of good behavior:
   A note is additive and audit-friendly (it carries your scout as the author); a rewrite silently overwrites a human- or pipeline-authored headline.
 - **Don't fight an in-flight pipeline.** A report the summary/research workflow is mid-run on can have its fields overwritten under you.
   If a report is actively being worked, append a note rather than rewriting.
+- **Take the questions down when you replace the prose they answer.** Rewriting `summary` leaves the report's `suggested_prompts` in place, and they were written against the summary you just replaced — send a fresh set in the same call, or `[]` to clear them.
 - **Use `suggested_reviewers` to rescue an unrouted report.** Setting reviewers (same `{github_login?, user_uuid?}` shape as `emit_report`) replaces the report's reviewer list and re-runs autostart — so a report that surfaced routed to no one can be assigned to an owner you resolved later, and a now-actionable report with a repo + priority can open a draft PR.
   An empty list is a no-op (it never clears existing reviewers).
 

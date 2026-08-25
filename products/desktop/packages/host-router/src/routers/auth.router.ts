@@ -80,6 +80,12 @@ export const authRouter = router({
       ctx.container.get<AuthService>(AUTH_SERVICE).redeemInviteCode(input.code),
     ),
 
+  retryDesktopAccess: publicProcedure
+    .output(authStateSchema)
+    .mutation(async ({ ctx }) =>
+      ctx.container.get<AuthService>(AUTH_SERVICE).retryDesktopAccess(),
+    ),
+
   logout: publicProcedure.output(authStateSchema).mutation(async ({ ctx }) => {
     return ctx.container.get<AuthService>(AUTH_SERVICE).logout();
   }),

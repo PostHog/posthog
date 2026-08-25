@@ -1,6 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::api::symbol_sets::SymbolSetUpload;
+pub use crate::utils::xcode::PlistInfo;
 use anyhow::{anyhow, Result};
 use clap::Subcommand;
 use posthog_symbol_data::{write_symbol_data, AppleDsym};
