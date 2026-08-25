@@ -24,7 +24,7 @@ class _RequiredSettings(typing.Protocol):
     def DEBUG(self) -> bool: ...
 
 
-def _load_as_bytes(raw: str | bytes, /, check_length: bool = True) -> bytes:
+def _load_as_bytes(raw: str | bytes, /, check_length: bool = True, label: str = "key") -> bytes:
     if isinstance(raw, bytes):
         loaded = raw
 
@@ -47,7 +47,10 @@ def _load_as_bytes(raw: str | bytes, /, check_length: bool = True) -> bytes:
 
     # TODO: Also, make the check exact after removing legacy format
     if check_length and len(loaded) < 32:
-        raise ValueError(f"Expected at least 32 bytes, got '{len(loaded)}'")
+        raise ValueError(
+            f"{label} must decode to at least 32 bytes, got {len(loaded)}. "
+            f"Prefix the value with 'hex:', 'base64:', or 'base64-urlsafe:' to set how it decodes."
+        )
 
     return loaded
 
@@ -83,10 +86,10 @@ class EncryptionCodec(PayloadCodec):
         key: The preferred encryption key.
         fallback_keys: Any number of additional keys to be used when decrypting with
             key fails. This allows rotating keys by moving the current key to the
-            fallbacks temporarily.
+            fallbacks temporarily. Defaults to no fallback keys.
     """
 
-    def __init__(self, key: bytes, fallback_keys: collections.abc.Iterable[bytes]) -> None:
+    def __init__(self, key: bytes, fallback_keys: collections.abc.Iterable[bytes] = ()) -> None:
         super().__init__()
 
         main = Fernet(key)
@@ -107,12 +110,18 @@ class EncryptionCodec(PayloadCodec):
                 environments.
         """
         should_check_length = not settings.TEST and not settings.DEBUG
-        main_key = _prepare_key(_load_as_bytes(settings.TEMPORAL_SECRET_KEY, check_length=should_check_length))
+        main_key = _prepare_key(
+            _load_as_bytes(settings.TEMPORAL_SECRET_KEY, check_length=should_check_length, label="TEMPORAL_SECRET_KEY")
+        )
         fallback_keys = map(
             _prepare_key,
             (
-                _load_as_bytes(secret, check_length=should_check_length)
-                for secret in settings.TEMPORAL_FALLBACK_SECRET_KEYS
+                _load_as_bytes(
+                    secret,
+                    check_length=should_check_length,
+                    label=f"TEMPORAL_FALLBACK_SECRET_KEYS[{index}]",
+                )
+                for index, secret in enumerate(settings.TEMPORAL_FALLBACK_SECRET_KEYS)
             ),
         )
 
