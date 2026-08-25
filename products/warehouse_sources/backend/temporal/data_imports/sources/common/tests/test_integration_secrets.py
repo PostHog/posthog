@@ -9,7 +9,7 @@ import jwt
 import requests
 
 from posthog.integration_secrets.callers import IntegrationCaller
-from posthog.integration_secrets.errors import SecretMissingError
+from posthog.integration_secrets.errors import IntegrationServiceUnreachableError, SecretInRecoveryError
 from posthog.jwt import PosthogJwtAudience
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common import integration_secrets
@@ -133,15 +133,12 @@ class TestHelper(SimpleTestCase):
             secret = integration_secrets.get_secret_with_incoming(KEY)
         assert (secret.current, secret.incoming) == ("live", "staged")
 
-    # The sequencing constraint, pinned as behaviour rather than left in a docstring: with the
-    # service on, a key that isn't in it raises instead of quietly reading settings. A silent
-    # fallback is how a half-finished rollout looks exactly like a finished one — so a call site
-    # may only move after its key exists in the service for every environment that runs it.
-    def test_a_key_not_yet_in_the_service_raises_rather_than_reading_settings(self) -> None:
-        with mock.patch.dict("os.environ", {KEY: "value-still-in-the-environment"}):
-            with self._patched_post({"secrets": {}, "missing": [KEY]}):
-                with pytest.raises(SecretMissingError):
-                    integration_secrets.get_secret(KEY)
+    # A key the service holds is read from the service, not from the environment it also still
+    # sits in. Otherwise the migration would look complete while changing nothing.
+    def test_the_service_wins_over_a_value_still_in_the_environment(self) -> None:
+        with mock.patch.dict("os.environ", {KEY: "stale-copy-in-settings"}):
+            with self._patched_post():
+                assert integration_secrets.get_secret(KEY) == "token"
 
 
 class TestServiceOff(SimpleTestCase):
@@ -166,3 +163,107 @@ class TestNoRequestsExceptionEscapes(SimpleTestCase):
             ):
                 with pytest.raises(IntegrationServiceUnreachableError):
                     integration_secrets.get_secret(KEY)
+
+
+@override_settings(**SERVICE_SETTINGS)
+class TestSettingsFallbackBridge(SimpleTestCase):
+    """The temporary bridge that lets call sites move before their keys do.
+
+    Every test here is about a boundary of it. The bridge is the risky part of this migration:
+    too wide and it hides a broken rollout, too narrow and it breaks eight sources on deploy.
+    """
+
+    def setUp(self) -> None:
+        flag = mock.patch(FLAG, return_value=True)
+        flag.start()
+        self.addCleanup(flag.stop)
+        integration_secrets.SETTINGS_FALLBACK_COUNTER.clear()
+
+    def _missing(self) -> Any:
+        return mock.patch.object(
+            integration_secrets._session,
+            "post",
+            return_value=_FakeResponse({"secrets": {}, "missing": [KEY]}),
+        )
+
+    # The whole point: the service is already live on the worker, so a call site whose key hasn't
+    # moved must keep working rather than failing every sync for that source.
+    def test_a_key_not_in_the_service_falls_back_to_settings(self) -> None:
+        with self._missing():
+            with mock.patch.dict("os.environ", {KEY: "still-in-settings"}):
+                assert integration_secrets.get_secret(KEY) == "still-in-settings"
+
+    # The fallback is what you watch to know the rollout is done, so it has to be countable and
+    # name the key. A silent one would be the failure mode the client refuses to have.
+    def test_the_fallback_is_counted_and_named(self) -> None:
+        with self._missing():
+            with mock.patch.dict("os.environ", {KEY: "still-in-settings"}):
+                with mock.patch.object(integration_secrets, "logger") as log:
+                    integration_secrets.get_secret(KEY)
+
+        assert integration_secrets.SETTINGS_FALLBACK_COUNTER.labels(key=KEY, outcome="settings")._value.get() == 1
+        assert log.warning.call_args.kwargs["key"] == KEY
+
+    # Recovery means the credential is known-burned. The settings copy is the burned value, so
+    # falling back would turn the kill switch into a no-op — worse than the sync stopping.
+    def test_recovery_does_not_fall_back(self) -> None:
+        payload = {"secrets": {KEY: {"state": "recovery", "version_id": "v1", "fetched_at": "now"}}, "missing": []}
+        with mock.patch.object(integration_secrets._session, "post", return_value=_FakeResponse(payload)):
+            with mock.patch.dict("os.environ", {KEY: "the-burned-value"}):
+                with pytest.raises(SecretInRecoveryError):
+                    integration_secrets.get_secret(KEY)
+
+        assert integration_secrets.SETTINGS_FALLBACK_COUNTER.labels(key=KEY, outcome="settings")._value.get() == 0
+
+    # An outage is not a rollout gap. There is no last known good here, and treating "no answer"
+    # as "the key isn't there" would quietly serve stale credentials through an incident.
+    def test_an_unreachable_service_does_not_fall_back(self) -> None:
+        with mock.patch.object(integration_secrets._session, "post", side_effect=requests.ConnectionError("refused")):
+            with mock.patch.dict("os.environ", {KEY: "still-in-settings"}):
+                with pytest.raises(IntegrationServiceUnreachableError):
+                    integration_secrets.get_secret(KEY)
+
+    # Configured nowhere is the normal state of an integration a deployment doesn't use, and it
+    # is what `settings.X` already returned. This migration moves where a credential comes from;
+    # changing what happens when there isn't one would reach far past it — every self-hosted
+    # install without this integration, and every test that never set it.
+    def test_configured_nowhere_returns_what_settings_returned(self) -> None:
+        with self._missing():
+            with mock.patch.dict("os.environ", {}, clear=True):
+                assert integration_secrets.get_secret(KEY) == ""
+
+        counter = integration_secrets.SETTINGS_FALLBACK_COUNTER
+        assert counter.labels(key=KEY, outcome="unset")._value.get() == 1
+        # Not a rollout gap, so it must not be counted as one.
+        assert counter.labels(key=KEY, outcome="settings")._value.get() == 0
+
+    # A part-migrated batch is the normal state during the rollout: the batch can't say which key
+    # was missing, so it re-resolves per key and each one takes the path it needs.
+    def test_a_batch_with_one_missing_key_resolves_the_rest_per_key(self) -> None:
+        other = "GOOGLE_ADS_APP_CLIENT_ID"
+        in_service = {"state": "steady", "value": "from-service", "version_id": "v1", "fetched_at": "now"}
+
+        def post(*args: Any, **kwargs: Any) -> Any:
+            asked = _keys_asked_for(kwargs["headers"]["Authorization"])
+            if KEY in asked and other in asked:
+                return _FakeResponse({"secrets": {other: in_service}, "missing": [KEY]})
+            if asked == [other]:
+                return _FakeResponse({"secrets": {other: in_service}, "missing": []})
+            return _FakeResponse({"secrets": {}, "missing": [KEY]})
+
+        with mock.patch.object(integration_secrets._session, "post", side_effect=post):
+            with mock.patch.dict("os.environ", {KEY: "still-in-settings"}):
+                assert integration_secrets.get_secrets([KEY, other]) == {
+                    KEY: "still-in-settings",
+                    other: "from-service",
+                }
+
+
+def _keys_asked_for(authorization: str) -> list[str]:
+    claims = jwt.decode(
+        authorization.removeprefix("Bearer "),
+        "signing-key",
+        algorithms=["HS256"],
+        audience=PosthogJwtAudience.INTEGRATION_SERVICE.value,
+    )
+    return list(claims["keys"])
