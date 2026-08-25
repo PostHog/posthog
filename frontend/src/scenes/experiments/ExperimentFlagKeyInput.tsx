@@ -4,13 +4,12 @@ import { LemonBanner, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
+import { hasEnded, isLaunched } from 'scenes/experiments/experimentStatus'
 import { FeatureFlagFiltersSection } from 'scenes/feature-flags/FeatureFlagFilters'
 import { FeatureFlagsFilters } from 'scenes/feature-flags/featureFlagsLogic'
 import { urls } from 'scenes/urls'
 
 import { Experiment, FeatureFlagType } from '~/types'
-
-import { hasEnded, isLaunched } from 'products/experiments/frontend/scenes/experimentsLogic'
 
 import { featureFlagEligibleForExperiment } from './utils'
 

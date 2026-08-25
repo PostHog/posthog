@@ -11,8 +11,6 @@ import {
 import { Experiment } from '~/types'
 
 /** Whether an experiment is in a state where it can be archived (ignoring permissions). */
-
-/** Whether an experiment is in a state where it can be archived (ignoring permissions). */
 export function canArchiveExperiment(
     experiment: Pick<Experiment, 'archived' | 'start_date' | 'end_date' | 'status'>
 ): boolean {
