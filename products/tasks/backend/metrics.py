@@ -282,6 +282,14 @@ LOOP_FIRE_TOTAL = Counter(
     labelnames=["reason"],
 )
 
+# reason is one of: created, replayed, gate_blocked, rate_capped, team_rate_capped,
+# limit_reached, owner_ineligible, a fixed, code-defined set, safe as a label.
+WORKFLOW_TASK_CREATE_TOTAL = Counter(
+    "posthog_tasks_workflow_task_create_total",
+    'Workflow "Create AI task" action outcomes',
+    labelnames=["reason"],
+)
+
 LOOP_AUTO_PAUSED_TOTAL = Counter(
     "posthog_tasks_loop_auto_paused_total",
     "Loops auto-paused after exceeding the consecutive-failure threshold",
@@ -611,6 +619,10 @@ def observe_followup_denied_permission_stop(task_run: "TaskRun | None") -> None:
 
 def observe_loop_fire(*, reason: str) -> None:
     LOOP_FIRE_TOTAL.labels(reason=reason).inc()
+
+
+def observe_workflow_task_create(*, reason: str) -> None:
+    WORKFLOW_TASK_CREATE_TOTAL.labels(reason=reason).inc()
 
 
 def observe_loop_auto_paused() -> None:

@@ -2,14 +2,16 @@ import { useHostTRPC } from "@posthog/host-router/react";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { useOpenInboxReport } from "@posthog/ui/features/inbox/hooks/useOpenInboxReport";
+import { navigateToInbox } from "@posthog/ui/router/navigationBridge";
 import { useQuery } from "@tanstack/react-query";
 import { useSubscription } from "@trpc/tanstack-react-query";
-import { useEffect } from "react";
+import { useCallback, useEffect } from "react";
 
 /**
  * Hook that subscribes to inbox report deep link events (`<scheme>://inbox/{reportId}`,
  * e.g. `posthog-code://…` in production and `posthog-code-dev://…` in local dev)
- * and opens the report in the inbox view.
+ * and opens the report in the inbox view. A link with no report segment
+ * (`<scheme>://inbox`) opens the inbox itself.
  *
  * The actual open – fetch by id, seed the detail cache, reset filters, and
  * navigate to the right tab (Pulls if it has an implementation PR, otherwise
@@ -25,6 +27,16 @@ export function useInboxDeepLink() {
   );
 
   const openReport = useOpenInboxReport();
+  const open = useCallback(
+    (reportId: string | null): void => {
+      if (reportId) {
+        void openReport(reportId);
+      } else {
+        navigateToInbox();
+      }
+    },
+    [openReport],
+  );
 
   const pendingDeepLink = useQuery(
     trpcReact.deepLink.getPendingReportLink.queryOptions(undefined, {
@@ -37,15 +49,15 @@ export function useInboxDeepLink() {
   );
 
   useEffect(() => {
-    if (pendingDeepLink.data?.reportId) {
-      void openReport(pendingDeepLink.data.reportId);
+    if (pendingDeepLink.data) {
+      open(pendingDeepLink.data.reportId);
     }
-  }, [pendingDeepLink.data, openReport]);
+  }, [pendingDeepLink.data, open]);
 
   useSubscription(
     trpcReact.deepLink.onOpenReport.subscriptionOptions(undefined, {
       onData: (data) => {
-        if (data?.reportId) void openReport(data.reportId);
+        if (data) open(data.reportId);
       },
     }),
   );
