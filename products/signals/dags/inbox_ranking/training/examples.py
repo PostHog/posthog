@@ -61,6 +61,9 @@ def build_examples(snapshots: Mapping[datetime.date, Snapshot], head: Head) -> p
         if len(ids) == 0:
             continue
         state, labels_now, labels_later = now.state.loc[ids], now.labels.loc[ids], later.labels.loc[ids]
+        # The cohort reads the later snapshot on purpose. The sweep scores a report before users see
+        # it, so the impression that puts a report in the cohort usually lands after `now`. A cohort
+        # read at `now` would drop those pre-impression scoring moments, which are the serving case.
         keep = head.cohort(labels_later) & ~head.label(labels_now) & state["signal_count"].notna()
         if not keep.any():
             continue

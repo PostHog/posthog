@@ -95,9 +95,14 @@ def test_build_examples_is_a_scoring_moment_with_a_future_label():
     later = D0 + datetime.timedelta(days=open_head.horizon_days)
     ids = ["a", "b", "c", "d"]
     snapshots = {
-        # a: not opened at D0, opened by D0+3 -> positive; b: already opened at D0 -> excluded;
-        # c: never opened -> negative; d: never impressed -> outside the cohort.
-        D0: Snapshot(date=D0, state=_state(ids), labels=_labels(ids, open_count=[0, 1, 0, 0])),
+        # a: not yet impressed or opened at D0, impressed and opened by D0+3 -> positive;
+        # b: already opened at D0 -> excluded; c: never opened -> negative;
+        # d: never impressed -> outside the cohort.
+        D0: Snapshot(
+            date=D0,
+            state=_state(ids),
+            labels=_labels(ids, open_count=[0, 1, 0, 0], impression_unit_count=[0, 1, 1, 0]),
+        ),
         later: Snapshot(
             date=later,
             state=_state(ids),
