@@ -104,7 +104,9 @@ export function createRenderUiTool(allTools: Tool<ZodObjectAny>[], context: Cont
             // `render-ui` only emits a render directive — it never executes the inner tool,
             // so the inner tool is deliberately not counted in per-tool call metrics. The
             // umbrella call itself is tracked under `render-ui` by the executor.
-            const distinctId = await context.getDistinctId()
+            // Best-effort: the id only stamps attribution, so a persistent resolution
+            // failure must degrade to the token hash rather than fail the render.
+            const distinctId = await context.getDistinctIdBestEffort()
 
             const payload: ToolResultPayload = {
                 content: [{ type: 'text', text: `Rendering the ${tool.name} visualization for the user.` }],

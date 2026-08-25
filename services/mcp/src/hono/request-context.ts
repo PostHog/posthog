@@ -147,6 +147,21 @@ export class RequestContext {
         return this.distinctIdPromise
     }
 
+    /**
+     * Distinct id for attribution that must never fail the caller. Falls back to the
+     * token hash when resolution rejects (a persistent user-endpoint failure), so a
+     * tool that only needs the id to stamp analytics or UI metadata still runs. Use
+     * `getDistinctId` where the real id matters and a failure should surface.
+     */
+    async getDistinctIdBestEffort(): Promise<string> {
+        try {
+            return await this.getDistinctId()
+        } catch (error) {
+            console.warn('[request-context] distinct-id resolution failed; using token hash:', error)
+            return this.props.userHash
+        }
+    }
+
     private async resolveDistinctId(): Promise<string> {
         const cached = await this.tokenCache.get('distinctId')
         if (cached) {
@@ -171,6 +186,7 @@ export class RequestContext {
             stateManager,
             sessionManager: this.sessionManager,
             getDistinctId: () => this.getDistinctId(),
+            getDistinctIdBestEffort: () => this.getDistinctIdBestEffort(),
         }
         const trackEvent: Context['trackEvent'] = async (event, properties = {}) => {
             const analyticsContext = await this.safelyGetAnalyticsContext(partialContext)

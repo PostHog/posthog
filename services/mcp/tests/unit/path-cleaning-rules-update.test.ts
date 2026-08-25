@@ -216,6 +216,7 @@ function createMockContext(overrides: {
         sessionManager: {} as any,
         cache: {} as any,
         getDistinctId: async () => 'test-distinct-id',
+        getDistinctIdBestEffort: async () => 'test-distinct-id',
         trackEvent: async () => {},
     }
 }

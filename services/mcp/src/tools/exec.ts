@@ -974,7 +974,9 @@ export function createExecTool(
                     const isInlineUiAppHost = isPostHogCodeConsumer(mcpConsumer) || options.isInlineExecUiHost === true
                     if (tool._meta?.ui?.resourceUri && isInlineUiAppHost) {
                         const isStringResult = typeof result === 'string'
-                        const distinctId = isStringResult ? undefined : await context.getDistinctId()
+                        // Best-effort: the id only stamps UI-payload attribution, so a persistent
+                        // resolution failure must degrade to the token hash rather than fail the call.
+                        const distinctId = isStringResult ? undefined : await context.getDistinctIdBestEffort()
                         const payload = markExecPayload(
                             buildToolResultPayload({
                                 handlerResult: result,

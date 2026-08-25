@@ -53,6 +53,7 @@ export function createTestContext(client: ApiClient): Context {
         stateManager,
         sessionManager: new SessionManager(cache),
         getDistinctId: async () => 'test-distinct-id',
+        getDistinctIdBestEffort: async () => 'test-distinct-id',
         trackEvent: async () => {},
     }
 

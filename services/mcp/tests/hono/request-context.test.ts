@@ -177,6 +177,24 @@ describe('RequestContext', () => {
         })
     })
 
+    describe('getDistinctIdBestEffort', () => {
+        it('returns the resolved distinctId when the user endpoint succeeds', async () => {
+            mockMe.mockResolvedValue({ success: true, data: { distinct_id: 'user-123' } })
+            const ctx = new RequestContext(fakeRedis(), env, makeProps())
+
+            expect(await ctx.getDistinctIdBestEffort()).toBe('user-123')
+        })
+
+        it('falls back to the token hash when resolution keeps failing', async () => {
+            // A persistent user-endpoint failure must degrade attribution, not fail the
+            // tool call — UI/attribution sites rely on this fallback.
+            mockMe.mockResolvedValue({ success: false, error: { message: 'fetch failed' } })
+            const ctx = new RequestContext(fakeRedis(), env, makeProps({ userHash: 'hash-fallback' }))
+
+            expect(await ctx.getDistinctIdBestEffort()).toBe('hash-fallback')
+        })
+    })
+
     describe('getSessionUuid', () => {
         it('returns undefined when sessionId is undefined', async () => {
             const ctx = new RequestContext(fakeRedis(), env, makeProps())

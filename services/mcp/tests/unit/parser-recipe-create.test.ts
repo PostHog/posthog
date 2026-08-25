@@ -65,6 +65,7 @@ function createContext(options: { events: EventShape[]; queryError?: string; req
         sessionManager: {} as any,
         cache: {} as any,
         getDistinctId: async () => 'distinct-id',
+        getDistinctIdBestEffort: async () => 'distinct-id',
         trackEvent: async () => {},
     } as Context
     return { context, execute, request }

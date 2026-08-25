@@ -24,6 +24,7 @@ function makeContext(distinctId: string = 'did-1', connectionId?: string): Conte
         stateManager: stub,
         sessionManager: stub,
         getDistinctId: () => Promise.resolve(distinctId),
+        getDistinctIdBestEffort: () => Promise.resolve(distinctId),
         trackEvent: () => Promise.resolve(),
         ...(connectionId ? { connection: { localProjectId: '7', connectionId } } : {}),
     } as Context
