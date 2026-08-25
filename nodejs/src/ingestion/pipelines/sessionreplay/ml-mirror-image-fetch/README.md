@@ -191,6 +191,8 @@ XMP is an opt-out for that image when it has one of these values:
 
 **3.22** The lane uses separate cache entries for robots.txt, tdmrep.json, and each URL crawl result. A robots.txt or tdmrep.json success, absence, or valid refusal has a 24-hour TTL. An unreachable result without a cached version has a 1-hour TTL. A terminal URL result has a minimum TTL of 30 days. If the response's explicit freshness lifetime is longer, the entry uses that longer TTL.
 
+**3.23** A retained configuration body must be valid UTF-8. If the 500KiB robots.txt prefix ends inside a UTF-8 code point, the lane discards that incomplete code point. Any other invalid UTF-8 makes the configuration file unreachable.
+
 ### 4. Web Bot Auth
 
 **4.1** Our User Agent starts with `PostHogImageFetcherBot` and contains a link to https://posthog.com/docs/ai-research/image-fetcher-bot. An example value is `PostHogImageFetcherBot/1.0 (+https://posthog.com/docs/ai-research/image-fetcher-bot)`
@@ -402,7 +404,7 @@ A terminal refusal has no destination Kafka record, so it starts at step 2. A de
 }
 ```
 
-`v` is the integer `2`. `jobs` contains 1 to 1,000 entries, and the decoded JSON record cannot exceed 512 KiB. `originalRef` is the ref calculated for the URL first seen in the replay. `currentUrl` is the next URL to request after any redirects. `remainingHops`, `notBeforeMs`, `firstSeenAtMs`, `fetchCount`, and `republishCount` are non-negative safe integers. `firstSeenAtMs` is the Unix time when the producer first collected the URL. `fetchCount` counts image HTTP requests, and `republishCount` counts frontier and delay-topic republishes. `lastRepublishReason` is `null`, `redirect`, `retry`, `not_ready`, `pass_deadline`, `origin_map_full`, or `registrable_domain_map_full`.
+`v` is the integer `2`. The parser also accepts the two version `1` shapes that preceded this schema, so records already in a topic drain across an upgrade. `jobs` contains 1 to 1,000 entries, and the decoded JSON record cannot exceed 512 KiB. `originalRef` is the ref calculated for the URL first seen in the replay. `currentUrl` is the next URL to request after any redirects. `remainingHops`, `notBeforeMs`, `firstSeenAtMs`, `fetchCount`, and `republishCount` are non-negative safe integers. `firstSeenAtMs` is the Unix time when the producer first collected the URL. `fetchCount` counts image HTTP requests, and `republishCount` counts frontier and delay-topic republishes. `lastRepublishReason` is `null`, `redirect`, `retry`, `not_ready`, `pass_deadline`, `origin_map_full`, or `registrable_domain_map_full`.
 
 The parser ignores unknown fields so that a producer can add optional data without breaking an older consumer. It rejects a missing field, an invalid field type or value, an unsupported version, or a record whose jobs do not all match the Kafka key. It derives the current origin and registrable domain from `currentUrl` with the shared URL-policy implementation. It uses `originalRef` as the crawl-history key so that a redirect result completes the URL that the recording referenced.
 

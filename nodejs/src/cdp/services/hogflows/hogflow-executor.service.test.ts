@@ -26,6 +26,7 @@ import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.se
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from '../messaging/email-suppression.service'
 import { EmailValidationService } from '../messaging/email-validation.service'
 import { RecipientPreferencesService } from '../messaging/recipient-preferences.service'
+import { CohortMembershipRepository } from '../cohorts/cohort-membership-repository'
 import { HogFlowExecutorService, createHogFlowInvocation } from './hogflow-executor.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
 
@@ -157,10 +158,14 @@ describe('Hogflow Executor', () => {
 
         await insertHogFunctionTemplate(hub.postgres, posthogCaptureTemplate)
 
+        const stubCohortMembershipRepository: CohortMembershipRepository = {
+            getMemberCohortIds: () => Promise.resolve([]),
+        }
         executor = new HogFlowExecutorService(
             hogFlowFunctionsService,
             recipientPreferencesService,
-            emailValidationService
+            emailValidationService,
+            stubCohortMembershipRepository
         )
     })
 
@@ -2539,6 +2544,53 @@ describe('Hogflow Executor', () => {
 
             // No variables should be set since no result was produced
             expect(result.invocation.state.variables).toBeUndefined()
+        })
+
+        it('links a create-ai-task result to the task in the stored action result log', async () => {
+            // Mirrors the shape template-posthog-create-task returns on success: { id, run_id }.
+            // A non-empty inputs_schema sidesteps an insertRow quirk where an empty array param
+            // reaches the jsonb column as an empty object, not an empty array.
+            await insertHogFunctionTemplate(hub.postgres, {
+                id: 'template-posthog-create-task',
+                name: 'Create AI task',
+                code: `return { 'id': 'task-1234', 'run_id': 'run-5678' }`,
+                inputs_schema: [{ key: 'prompt', type: 'string', required: false }],
+            })
+
+            const hogFlow = new FixtureHogFlowBuilder()
+                .withWorkflow({
+                    actions: {
+                        trigger: {
+                            type: 'trigger',
+                            config: {
+                                type: 'event',
+                                filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
+                            },
+                        },
+                        action_1: {
+                            type: 'function',
+                            config: {
+                                template_id: 'template-posthog-create-task',
+                                inputs: {},
+                            },
+                            output_variable: { key: 'task', result_path: null },
+                        } as any,
+                        exit: {
+                            type: 'exit',
+                            config: {},
+                        },
+                    },
+                    edges: [
+                        { from: 'trigger', to: 'action_1', type: 'continue' },
+                        { from: 'action_1', to: 'exit', type: 'continue' },
+                    ],
+                })
+                .build()
+
+            const result = await executeToCompletion(hogFlow)
+
+            expect(result.invocation.state.variables?.task).toEqual({ id: 'task-1234', run_id: 'run-5678' })
+            expect(result.logs.some((l) => l.message.includes('task = [Task:task-1234|run-5678]'))).toBe(true)
         })
     })
 

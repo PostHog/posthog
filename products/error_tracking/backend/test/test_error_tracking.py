@@ -15,6 +15,7 @@ from parameterized import parameterized
 
 from posthog.models import Team, User
 
+from products.error_tracking.backend.hogql_queries.issue_state_overlay import latest_issue_state_watermark
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueAssignment,
@@ -57,6 +58,22 @@ class TestErrorTracking(ErrorTrackingIssueTestMixin, BaseTest):
 
         # deletes issue one
         assert ErrorTrackingIssue.objects.count() == 1
+
+    def test_merge_keeps_state_watermark_monotonic(self):
+        target = self.create_issue(["fingerprint_target"])
+        source = self.create_issue(["fingerprint_source"])
+
+        source_stamp = datetime(2022, 1, 10, 12, 0, tzinfo=UTC)
+        ErrorTrackingIssue.objects.filter(id=source.id).update(state_updated_at=source_stamp)
+        assert latest_issue_state_watermark(self.team.id) == source_stamp
+
+        with freeze_time("2022-01-10T12:05:00"):
+            assert target.merge(issue_ids=[source.id]) == ErrorTrackingIssueMergeResult.MERGED
+
+        target.refresh_from_db()
+        assert target.state_updated_at == datetime(2022, 1, 10, 12, 5, tzinfo=UTC)
+        watermark = latest_issue_state_watermark(self.team.id)
+        assert watermark is not None and watermark >= source_stamp
 
     def test_merge_multiple_times(self):
         issue_one = self.create_issue(["fingerprint_one"])

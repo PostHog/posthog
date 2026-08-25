@@ -3556,6 +3556,7 @@ class TestExperimentService(APIBaseTest):
         assert paused.end_date is None
         assert paused.is_paused is True
         assert paused.is_running is True  # status remains running while paused
+        assert ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.pk), activity="paused").exists()
 
     def test_resume_experiment_success(self):
         experiment = self._create_running_experiment(name="Resume Test", feature_flag_key="resume-flag")
@@ -3570,6 +3571,7 @@ class TestExperimentService(APIBaseTest):
         assert resumed.feature_flag.active is True
         assert resumed.start_date is not None
         assert resumed.end_date is None
+        assert ActivityLog.objects.filter(scope="Experiment", item_id=str(experiment.pk), activity="resumed").exists()
 
     def test_pause_experiment_already_paused_raises(self):
         experiment = self._create_running_experiment(name="Already Paused", feature_flag_key="already-paused-flag")
