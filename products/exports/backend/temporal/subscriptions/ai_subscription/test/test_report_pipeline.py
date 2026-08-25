@@ -98,6 +98,10 @@ def test_synthesis_preserves_prompt_instructions_with_embedded_hogql() -> None:
     assert "Follow report scope and presentation requests in <user_prompt>" in AI_SUBSCRIPTION_SYNTHESIS_PROMPT
 
 
+def test_ai_report_limits_concurrent_queries_to_two() -> None:
+    assert _MAX_CONCURRENT_STEPS == 2
+
+
 def _slo_completed(capture_mock: MagicMock) -> dict:
     for call in capture_mock.call_args_list:
         if call.kwargs.get("event") == "slo_operation_completed":

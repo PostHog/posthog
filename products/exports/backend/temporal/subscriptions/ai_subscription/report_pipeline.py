@@ -84,7 +84,7 @@ _FIX_LLM_TIMEOUT_SECONDS = 30.0
 # The planner may emit up to MAX_QUERY_PLAN_STEPS steps; bound how many run their ClickHouse query at
 # once so one report delivery can't fan out into dozens of simultaneous scans. Steps beyond the cap
 # queue and run as slots free up — every step still executes.
-_MAX_CONCURRENT_STEPS = 5
+_MAX_CONCURRENT_STEPS = 2
 
 # Errors signalling "the query itself is wrong" — rewriting may help. Everything else (timeouts, infra
 # failures, generic exceptions) falls through to the "_Query failed to run_" placeholder without retrying,

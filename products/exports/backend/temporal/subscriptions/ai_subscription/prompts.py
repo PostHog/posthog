@@ -121,6 +121,8 @@ Output rules:
   `{{window_end}}` substitute to bare `toDateTime('…')` literals where a pattern needs a single bound.
 - Each step's `description` must briefly explain *why* that query is relevant to the prompt.
 - Keep queries cheap: prefer aggregation over raw selects; cap with LIMIT 50; avoid wildcards on large tables.
+  Use `uniq` or `uniqIf` for distinct counts unless the user explicitly requires an exact result; avoid
+  `countDistinct` and `uniqExact`, whose exact cardinality state can exceed the query memory limit.
 - Format each query for readability: each clause (SELECT, FROM, WHERE, GROUP BY, ORDER BY, LIMIT) on
   its own line, one selected column per line. Queries are shown to users verbatim.
 
@@ -390,7 +392,8 @@ rewrite MUST follow the same HogQL syntax constraints used by the planner:
   `now() - INTERVAL …` / `today()`, and do NOT resolve a placeholder into dates yourself.
 - Time bucketing: `toStartOfHour/Day/Week(timestamp)`.
 - String literals use single quotes; identifiers are unquoted.
-- Keep it cheap: LIMIT 50.
+- Keep it cheap: LIMIT 50. Use `uniq` or `uniqIf` instead of `countDistinct` or `uniqExact` unless
+  exact cardinality is explicitly required.
 
 Return ONLY a `fixed_hogql` field containing the rewritten query. Do not include explanations,
 comments, or backticks. If the original query is unfixable, return a simpler query that addresses
