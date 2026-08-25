@@ -17,6 +17,7 @@ from rest_framework.permissions import BasePermission
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
+from rest_framework.views import APIView
 
 from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -206,7 +207,7 @@ class CommunityPublishOwnerPermission(BasePermission):
         "Only an owner can publish this skill to the community. Ask an owner to publish it, or to add you as one."
     )
 
-    def has_permission(self, request: Request, view: "LLMSkillViewSet") -> bool:
+    def has_permission(self, request: Request, view: APIView) -> bool:
         if getattr(view, "action", None) != "publish_to_community":
             return True
 
@@ -214,12 +215,13 @@ class CommunityPublishOwnerPermission(BasePermission):
         if not user or not user.is_authenticated:
             return False
 
+        skill_view = cast("LLMSkillViewSet", view)
         try:
-            team = view.team
+            team = skill_view.team
         except (ValueError, KeyError, AttributeError):
             return False
 
-        skill_name = view.kwargs.get("skill_name") or ""
+        skill_name = skill_view.kwargs.get("skill_name") or ""
         owners = resolve_skill_owners(team, skill_name)
         if any(owner.pk == user.pk for owner in owners):
             return True
