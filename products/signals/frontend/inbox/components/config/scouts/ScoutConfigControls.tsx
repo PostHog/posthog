@@ -24,6 +24,7 @@ import {
     timeToDailyCron,
 } from '../../../utils/scoutRunsWindow'
 import { ScoutMcpServersPicker } from './ScoutMcpServersPicker'
+import { ScoutRunSettingsToggles } from './ScoutRunSettingsToggles'
 import { ScoutSlackDestination } from './ScoutSlackDestination'
 import { ScoutTagsEditor } from './ScoutTagsEditor'
 
@@ -59,10 +60,7 @@ export function ScoutEnabledSwitch({ config, onUpdate, updating = false }: Scout
     )
 }
 
-/**
- * Labeled settings form for one scout, shown when a fleet row's gear is toggled
- * open. Everything except enablement, which stays on the row.
- */
+/** Labeled settings form for one scout, shown in the scout settings modal. */
 export function ScoutConfigForm({
     config,
     onUpdate,
@@ -82,6 +80,13 @@ export function ScoutConfigForm({
 
     return (
         <div className="flex flex-col gap-2">
+            <ScoutRunSettingsToggles
+                enabled={config.enabled}
+                emit={config.emit}
+                onEnabledChange={(enabled) => onUpdate(config.id, { enabled })}
+                onEmitChange={(emit) => onUpdate(config.id, { emit })}
+                disabledReason={updating ? 'Saving scout settings' : undefined}
+            />
             <div className="flex items-center justify-between gap-4">
                 <div className="flex flex-col min-w-0">
                     <span className="text-xs text-default">Schedule</span>

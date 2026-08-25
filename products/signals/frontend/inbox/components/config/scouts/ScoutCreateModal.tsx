@@ -2,15 +2,7 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useId } from 'react'
 
-import {
-    LemonButton,
-    LemonInput,
-    LemonInputSelect,
-    LemonModal,
-    LemonSelect,
-    LemonSwitch,
-    LemonTextArea,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonInputSelect, LemonModal, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { teamLogic } from 'scenes/teamLogic'
@@ -31,6 +23,7 @@ import {
 } from '../../../utils/scoutRunsWindow'
 import { MAX_SCOUT_TAGS, normalizeScoutTags } from '../../../utils/scoutTags'
 import { ScoutMcpServersPicker } from './ScoutMcpServersPicker'
+import { ScoutRunSettingsToggles } from './ScoutRunSettingsToggles'
 import { ScoutSlackDestination } from './ScoutSlackDestination'
 
 export interface ScoutCreateModalProps {
@@ -211,30 +204,22 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
                             </LemonField.Pure>
                         ) : null}
                         <LemonField name="config.enabled">
-                            {({ value, onChange }) => (
-                                <LemonSwitch
-                                    checked={value}
-                                    onChange={onChange}
-                                    label="Enable this scout"
-                                    bordered
-                                    fullWidth
-                                />
+                            {({ value: enabled, onChange: onEnabledChange }) => (
+                                <LemonField name="config.emit">
+                                    {({ value: emit, onChange: onEmitChange }) => (
+                                        <ScoutRunSettingsToggles
+                                            enabled={enabled}
+                                            emit={emit}
+                                            onEnabledChange={onEnabledChange}
+                                            onEmitChange={onEmitChange}
+                                            disabledReason={
+                                                isScoutCreateFormSubmitting ? 'Creating the scout' : undefined
+                                            }
+                                        />
+                                    )}
+                                </LemonField>
                             )}
                         </LemonField>
-                        <LemonField name="config.emit">
-                            {({ value, onChange }) => (
-                                <LemonSwitch
-                                    checked={value}
-                                    onChange={onChange}
-                                    label="Write signals to the inbox"
-                                    bordered
-                                    fullWidth
-                                />
-                            )}
-                        </LemonField>
-                        <span className="text-xs text-muted">
-                            Turn off inbox signals to run the scout in dry-run mode.
-                        </span>
                         <LemonField name="config.output_destinations">
                             {({ value, onChange }) => (
                                 <ScoutSlackDestination

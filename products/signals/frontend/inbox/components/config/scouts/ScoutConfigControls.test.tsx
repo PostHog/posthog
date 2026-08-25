@@ -1,4 +1,4 @@
-import { fireEvent, render } from '@testing-library/react'
+import { cleanup, fireEvent, render } from '@testing-library/react'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -41,6 +41,19 @@ describe('ScoutConfigForm', () => {
     })
 
     beforeEach(() => initKeaTests())
+    afterEach(cleanup)
+
+    it('updates enablement and inbox emission from the settings form', () => {
+        const onUpdate = jest.fn()
+        const { getByText } = render(<ScoutConfigForm config={config} onUpdate={onUpdate} />)
+
+        fireEvent.click(getByText('Enable this scout'))
+        fireEvent.click(getByText('Write signals to the inbox'))
+
+        expect(onUpdate).toHaveBeenNthCalledWith(1, 'config-1', { enabled: false })
+        expect(onUpdate).toHaveBeenNthCalledWith(2, 'config-1', { emit: false })
+        expect(getByText('Turn off inbox signals to run the scout in dry-run mode.')).toBeTruthy()
+    })
 
     it('saves the daily run time on blur and never clears the schedule from an empty input', () => {
         const onUpdate = jest.fn()
