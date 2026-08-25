@@ -4,6 +4,7 @@ import { GroupTypeManager } from '~/common/groups/group-type-manager'
 import { HogTransformer } from '~/common/hog-transformations/hog-transformer.interface'
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { TeamManager } from '~/common/utils/team-manager'
 import { GroupStoreForBatch } from '~/ingestion/common/groups/group-store-for-batch'
 import { WithMergeFoldDecision } from '~/ingestion/common/persons/person-merge-fold'
@@ -19,6 +20,11 @@ import { createProcessGroupsStep } from '~/ingestion/common/steps/event-processi
 import { createProcessPersonlessStep } from '~/ingestion/common/steps/event-processing/process-personless-step'
 import { createProcessPersonsStep } from '~/ingestion/common/steps/event-processing/process-persons-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
+import {
+    createRecordEventUsageAfterIngestStep,
+    createRecordEventUsageStep,
+} from '~/ingestion/common/steps/usage-records-steps'
+import { resolveAnalyticsUsageKey } from '~/ingestion/common/usage-records/billable-events'
 import { PipelineBuilder, StartPipelineBuilder } from '~/ingestion/framework/builders/pipeline-builders'
 import { TopHogWrapper, sum, sumOk, sumResult, timer } from '~/ingestion/framework/extensions/tophog'
 import { isDropResult } from '~/ingestion/framework/results'
@@ -52,6 +58,7 @@ export interface EventSubpipelineInput {
     headers: EventHeaders
     personsStoreForBatch: PersonsStoreForBatch
     groupStoreForBatch: GroupStoreForBatch
+    eventUsageBatch: UsageRecordBatch
 }
 
 export interface EventSubpipelineConfig {
@@ -150,6 +157,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput & Wi
             ]),
             { retry: { tries: 5, sleepMs: 100, name: 'process_groups' } }
         )
+        .pipe(createRecordEventUsageStep(resolveAnalyticsUsageKey))
         .pipe(createCreateEventStep(EVENTS_OUTPUT, options.EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS))
         .pipe(
             topHog(
@@ -183,5 +191,6 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput & Wi
             ),
             { retry: { tries: 5, sleepMs: 100, name: 'emit_event' } }
         )
+        .pipe(createRecordEventUsageAfterIngestStep())
         .pipe(createRecordIngestionLagStep())
 }
