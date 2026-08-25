@@ -91,7 +91,11 @@ from products.notebooks.backend.sql_v2_serializers import (
     NotebookSQLV2RunStatusResponseSerializer,
     NotebookSQLV2StateResponseSerializer,
 )
-from products.notebooks.backend.sql_v2_state import build_notebook_cell_state
+from products.notebooks.backend.sql_v2_state import (
+    NotebookCellLimitExceeded,
+    build_notebook_cell_state,
+    validate_cell_count,
+)
 from products.notebooks.backend.temporal.client import start_sql_v2_run_workflow
 from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput
 from products.tasks.backend.facade.exceptions import SandboxProvisionError
@@ -381,6 +385,12 @@ class NotebookSerializer(NotebookMinimalSerializer):
     def validate_content(self, value: Any) -> Any:
         if not isinstance(value, dict):
             return value
+        # self.instance is set on update and None on create, so a new notebook is measured
+        # against an empty document and an edit against what it currently holds.
+        try:
+            validate_cell_count(self.instance.content if self.instance else None, value)
+        except NotebookCellLimitExceeded as err:
+            raise serializers.ValidationError(str(err))
         try:
             return normalize_notebook_query_nodes(value)
         except InvalidNotebookQueryError as err:
@@ -1672,6 +1682,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     current_version=locked_notebook.version,
                 )
             else:
+                # Checked against the locked row rather than in the serializer, so two saves
+                # racing to add a cell cannot both read the same under-limit count and pass.
+                # This is the path the MCP cell tools write through, so it is the one an agent
+                # adding cells in a loop actually meets.
+                try:
+                    validate_cell_count(locked_notebook.content, submitted_content)
+                except NotebookCellLimitExceeded as err:
+                    raise serializers.ValidationError(str(err))
                 annotated_content = annotate_python_nodes(submitted_content)
                 diff = markdown_collab.build_markdown_update_diff(locked_notebook.content, annotated_content)
                 result = markdown_collab.submit_markdown_update(
