@@ -7,6 +7,7 @@ import { IconCheck, IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { IconBlank } from 'lib/lemon-ui/icons'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -44,9 +45,10 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { otherOrganizations } = useValues(userLogic)
+    const { otherOrganizations, switchingToOrganizationId } = useValues(userLogic)
     const { updateCurrentOrganization } = useActions(userLogic)
     const { closeOrgSwitcher, setAccountMenuOpen } = useActions(newAccountMenuLogic)
+    const isSwitchingOrganization = switchingToOrganizationId !== null
     const [searchValue, setSearchValue] = useState('')
     const inputRef = useRef<HTMLInputElement>(null!)
 
@@ -116,7 +118,11 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
                 )
                 closeOrgSwitcher()
             } else if (!item.isCurrent && !item.isDisabled) {
-                closeOrgSwitcher()
+                // Ignore repeat clicks while a switch is in flight. The pending switch reloads the
+                // page on success, so the menu closes on its own.
+                if (isSwitchingOrganization) {
+                    return
+                }
                 updateCurrentOrganization(item.org.id)
             }
         },
@@ -126,6 +132,7 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
             guardAvailableFeature,
             showCreateOrganizationModal,
             setAccountMenuOpen,
+            isSwitchingOrganization,
         ]
     )
 
@@ -248,11 +255,15 @@ export function OrgSwitcher({ dialog = true }: { dialog?: boolean }): JSX.Elemen
                                                     {...props}
                                                     menuItem
                                                     fullWidth
-                                                    disabled={item.isDisabled}
+                                                    disabled={item.isDisabled || isSwitchingOrganization}
                                                     tooltip={item.isDisabled ? item.disabledReason : undefined}
                                                     tooltipPlacement="right"
                                                 >
-                                                    <IconBlank />
+                                                    {switchingToOrganizationId === item.org.id ? (
+                                                        <Spinner textColored />
+                                                    ) : (
+                                                        <IconBlank />
+                                                    )}
                                                     <UploadedLogo
                                                         size="xsmall"
                                                         name={item.org.name}

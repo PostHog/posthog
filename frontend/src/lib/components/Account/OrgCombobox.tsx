@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconCheck, IconPlusSmall } from '@posthog/icons'
 
 import { IconBlank } from 'lib/lemon-ui/icons'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { UploadedLogo } from 'lib/lemon-ui/UploadedLogo'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
@@ -22,9 +23,10 @@ export function OrgCombobox({ allowCreate = true }: { allowCreate?: boolean }): 
     const { preflight } = useValues(preflightLogic)
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
     const { currentOrganization } = useValues(organizationLogic)
-    const { otherOrganizations } = useValues(userLogic)
+    const { otherOrganizations, switchingToOrganizationId } = useValues(userLogic)
     const { updateCurrentOrganization } = useActions(userLogic)
     const { guardAvailableFeature } = useValues(upgradeModalLogic)
+    const isSwitchingOrganization = switchingToOrganizationId !== null
 
     return (
         <Combobox>
@@ -74,7 +76,12 @@ export function OrgCombobox({ allowCreate = true }: { allowCreate?: boolean }): 
                                 <Combobox.Item key={otherOrganization.id} asChild>
                                     <ButtonPrimitive
                                         menuItem
-                                        onClick={() => updateCurrentOrganization(otherOrganization.id)}
+                                        onClick={() => {
+                                            if (isSwitchingOrganization) {
+                                                return
+                                            }
+                                            updateCurrentOrganization(otherOrganization.id)
+                                        }}
                                         tooltip={
                                             otherOrganization.is_active === false
                                                 ? otherOrganization.is_not_active_reason || 'Organization is disabled'
@@ -82,9 +89,13 @@ export function OrgCombobox({ allowCreate = true }: { allowCreate?: boolean }): 
                                         }
                                         tooltipPlacement="right"
                                         data-attr="tree-navbar-organization-dropdown-other-organization-button"
-                                        disabled={otherOrganization.is_active === false}
+                                        disabled={otherOrganization.is_active === false || isSwitchingOrganization}
                                     >
-                                        <IconBlank />
+                                        {switchingToOrganizationId === otherOrganization.id ? (
+                                            <Spinner textColored />
+                                        ) : (
+                                            <IconBlank />
+                                        )}
                                         <UploadedLogo
                                             size="xsmall"
                                             name={otherOrganization.name}

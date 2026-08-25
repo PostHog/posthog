@@ -78,6 +78,7 @@ export interface userLogicValues {
     optimisticThemeMode: UserTheme | null
     otherOrganizations: OrganizationBasicType[]
     showUserDetailsErrors: boolean
+    switchingToOrganizationId: string | null
     themeMode: UserTheme
     user: UserType | null
     userDetails: UserDetailsFormType
@@ -247,6 +248,9 @@ export interface userLogicActions {
     ) => {
         destination: string | undefined
         organizationId: string
+    }
+    updateCurrentOrganizationFailure: () => {
+        value: true
     }
     updateDataPipelineErrorThreshold: (threshold: number) => {
         threshold: number
@@ -419,6 +423,7 @@ export const userLogic = kea<userLogicType>([
     actions(() => ({
         loadUser: (resetOnFailure?: boolean) => ({ resetOnFailure }),
         updateCurrentOrganization: (organizationId: string, destination?: string) => ({ organizationId, destination }),
+        updateCurrentOrganizationFailure: true,
         logout: (preserveLocation = false) => ({ preserveLocation }),
         upgradeImpersonation: (reason: string) => ({ reason }),
         updateUser: (user: Partial<UserType>, successCallback?: () => void) => ({
@@ -585,6 +590,16 @@ export const userLogic = kea<userLogicType>([
                 upgradeImpersonationFailure: () => false,
             },
         ],
+        // Id of the organization the user is switching to. Drives the pending state on the
+        // switcher row and blocks repeat clicks. A successful switch reloads the page, so this
+        // only clears on failure.
+        switchingToOrganizationId: [
+            null as string | null,
+            {
+                updateCurrentOrganization: (_, { organizationId }) => organizationId,
+                updateCurrentOrganizationFailure: () => null,
+            },
+        ],
         optimisticThemeMode: [
             null as UserTheme | null,
             {
@@ -744,16 +759,27 @@ export const userLogic = kea<userLogicType>([
                 toastId: 'deleteUser',
             })
         },
-        updateCurrentOrganization: async ({ organizationId, destination }, breakpoint) => {
+        updateCurrentOrganization: async ({ organizationId, destination }) => {
             if (values.user?.organization?.id === organizationId) {
                 return
             }
-            await breakpoint(10)
-            await api.update('api/users/@me/', { set_current_organization: organizationId })
+            // Ignore repeat clicks while a switch is in flight. A kea breakpoint would instead cancel
+            // the running switch on every extra click, so the user would never navigate.
+            if (cache.switchingOrganization) {
+                return
+            }
+            cache.switchingOrganization = true
+            try {
+                await api.update('api/users/@me/', { set_current_organization: organizationId })
 
-            sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
+                sidePanelStateLogic.findMounted()?.actions.closeSidePanel()
 
-            window.location.href = destination || '/'
+                window.location.href = destination || '/'
+            } catch {
+                cache.switchingOrganization = false
+                actions.updateCurrentOrganizationFailure()
+                lemonToast.error('Could not switch organization. Please try again.')
+            }
         },
         updateHasSeenProductIntroFor: async ({ productKey, value }, breakpoint) => {
             await breakpoint(10)
