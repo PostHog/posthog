@@ -2385,6 +2385,10 @@ describe('Workflows E2E (postgres-v2)', () => {
             expect(parseJSON(options.body)).toEqual({
                 prompt: 'Investigate the error spike',
                 title: 'Error spike',
+                event: expect.objectContaining({
+                    event: '$pageview',
+                    uuid: 'b3a1fe86-b10c-43cc-acaf-d208977608d0',
+                }),
                 idempotency_key: expect.stringMatching(/^[0-9a-f-]{36}:function_1$/),
             })
 
