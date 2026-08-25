@@ -197,6 +197,10 @@ export class ErrorTrackingServer implements NodeServer {
         // 3. Error tracking consumer
         const serviceLoaders: (() => Promise<PluginServerService>)[] = []
 
+        // One client for the process: the batch factory runs per batch, and each client owns a transport.
+        const usageClient = createUsageIngestionClient(this.config, 'exceptions')
+        const usageTeamMatcher = usageReportTeamMatcher(this.config, 'exceptions')
+
         serviceLoaders.push(async () => {
             const consumer = new ErrorTrackingConsumer(
                 {
@@ -226,10 +230,7 @@ export class ErrorTrackingServer implements NodeServer {
                     redisPool: this.redisPool!,
                     personRepository,
                     createEventUsageBatch: () =>
-                        new UsageRecordBatch(createUsageIngestionClient(this.config, 'exceptions'), {
-                            unit: 'events',
-                            isTeamEnabled: usageReportTeamMatcher(this.config, 'exceptions'),
-                        }),
+                        new UsageRecordBatch(usageClient, { unit: 'events', isTeamEnabled: usageTeamMatcher }),
                 }
             )
             await consumer.start()
