@@ -157,10 +157,31 @@ The target repo is public, so a failed publish must not leave anything behind:
 - Content becomes public at the branch write, before the pull request that moderates it. Confirming
   that with the user is a UI concern, and it gates enabling the flag rather than shipping this code.
 
-Errors surface as `400` (invalid payload), `404` (unknown skill), `502` (GitHub refused a step), or
-`503` when the instance has no publisher App configured. The 503 is the fail-safe that keeps
-publishing off until the GitHub App is installed. A private key that cannot sign is a 503 too: it is
-a deployment nobody can retry their way out of, so it must not read as GitHub being down.
+### Who can publish
+
+Publishing a skill is restricted to that skill's own owners (`LLMSkillOwner`), on top of the access
+`AccessControlPermission` already requires. `CommunityPublishOwnerPermission` enforces it.
+
+Ownership is an audit claim on top of editor access, not a separate authorization boundary. Any
+member with edit access to a skill can add themselves as an owner through `PATCH name/<slug>`, so
+publishing means an editor took ownership of that skill explicitly, and the `LLMSkillOwner` row
+records who did and when. Reach across skills is closed by the object-level check on every
+`name/<slug>` action, not by ownership. Owner rows are filtered by current project access rather
+than deleted when access goes away, so a member who regains access is an owner again; that is
+equivalent to them adding themselves back, and it keeps a skill whose owners all left readable as
+"owned, nobody current" rather than as unowned.
+
+A skill with no current owners is publishable by nobody, and answers `403`. Owners leave the set when
+a member loses project access, and a skill can be created with an explicit empty owner list, so the
+alternative is a fallback to edit access for exactly the skills that have nobody to answer for them.
+Adding an owner is the remedy. There is no exemption for project or organization admins; an admin who
+wants to publish adds themselves as an owner first.
+
+Errors surface as `400` (invalid payload), `403` (the requester does not own the skill, or it has no
+owners), `404` (unknown skill), `502` (GitHub refused a step), or `503` when the instance has no
+publisher App configured. The 503 is the fail-safe that keeps publishing off until the GitHub App is
+installed. A private key that cannot sign is a 503 too: it is a deployment nobody can retry their way
+out of, so it must not read as GitHub being down.
 
 The three are kept apart on purpose, because each sends the publisher somewhere different. The skill
 is rendered before GitHub is touched, so a skill that has to be edited answers `400` even while the
