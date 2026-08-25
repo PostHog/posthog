@@ -299,13 +299,17 @@ class TableNode(BaseModel):
         return self.table
 
     def _case_insensitive_index(self) -> dict[str, "TableNode"]:
-        # Cached in the instance __dict__ rather than a pydantic PrivateAttr, because private
-        # state would take every node off the _slim_pickle_getstate fast path. The cache is
-        # pickled with the node and stays valid on load, since the pickle memo restores the
-        # same `children` object that the identity check below compares against.
-        # Staleness is caught by the identity and length checks; the one mutation they cannot
-        # see, a same-key override, goes through add_child, which drops the cache itself.
-        # Racing builders are fine: the build is idempotent and last-write-wins under the GIL.
+        # The cache is stored in self.__dict__ directly instead of as a pydantic PrivateAttr.
+        # Giving these nodes any private attribute would force them through pydantic's slower
+        # generic pickling (see _slim_pickle_getstate above), and the whole table catalog is
+        # pickled as a cache, so that slowdown would hit every node.
+        # Pickling saves this cache with the node, and it is still correct after loading:
+        # pickle keeps the saved cache pointing at the same restored `children` dict, so the
+        # freshness check below passes.
+        # The cache rebuilds whenever `children` is a different dict object or a different
+        # length. The one edit that misses, replacing a child under an existing name, is
+        # handled by add_child dropping the cache. If two threads build at once, both compute
+        # the same index and either result is valid.
         cache: Optional[tuple[dict[str, TableNode], int, dict[str, TableNode]]] = self.__dict__.get(_CI_INDEX_CACHE_KEY)
         if cache is None or cache[0] is not self.children or cache[1] != len(self.children):
             index: dict[str, TableNode] = {}
@@ -357,8 +361,8 @@ class TableNode(BaseModel):
         table_conflict_mode: Literal["override", "ignore"] = "ignore",
         children_conflict_mode: Literal["override", "merge", "ignore"] = "merge",
     ):
-        # A same-name override keeps `children`'s identity and length, so the lookup index's
-        # validity check cannot see it. Drop the cache explicitly.
+        # Replacing a child under an existing name leaves `children` the same dict object at the
+        # same length, so the lookup cache's freshness check cannot notice it. Drop the cache here.
         self.__dict__.pop(_CI_INDEX_CACHE_KEY, None)
         # If there's a conflict, we act according to the conflict modes
         if child.name in self.children:
