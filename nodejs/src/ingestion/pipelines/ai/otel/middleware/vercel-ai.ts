@@ -1,4 +1,5 @@
 import { parseJSON } from '~/common/utils/json-parse'
+import { finiteNumberOrUndefined } from '~/ingestion/pipelines/ai/costs/cost-utils'
 import { mustAddReasoningCost } from '~/ingestion/pipelines/ai/costs/output-costs'
 import { PluginEvent } from '~/plugin-scaffold'
 
@@ -141,6 +142,32 @@ function promptToMessages(prompt: unknown): unknown[] | null {
         return result.length > 0 ? result : null
     }
     return null
+}
+
+// Vercel AI Gateway reports the actual charged cost for a request under
+// ai.response.providerMetadata.gateway.cost — a USD value the SDK sends as a
+// string. It reflects the real bill (BYOK rates, discounts, cached tokens,
+// per-request provider fallback), which PostHog's token-times-pricing-table
+// estimate cannot match. Read it so the estimate is skipped for gateway traffic.
+// The OTel attribute arrives as a JSON string, but accept an object too in case
+// a collector already parsed it.
+function extractGatewayCost(providerMetadata: unknown): number | undefined {
+    let parsed = providerMetadata
+    if (typeof parsed === 'string') {
+        try {
+            parsed = parseJSON(parsed)
+        } catch {
+            return undefined
+        }
+    }
+    if (parsed === null || typeof parsed !== 'object') {
+        return undefined
+    }
+    const gateway = (parsed as Record<string, unknown>).gateway
+    if (gateway === null || typeof gateway !== 'object') {
+        return undefined
+    }
+    return finiteNumberOrUndefined((gateway as Record<string, unknown>).cost)
 }
 
 function numericValue(value: unknown): number | null {
@@ -353,6 +380,17 @@ function process(event: PluginEvent, next: () => void): void {
     }
     delete props['ai.response.finishReason']
     delete props['gen_ai.response.finish_reasons']
+
+    // Trust the gateway's reported total over PostHog's estimate. Only the total
+    // is available here — the gateway does not break it into input/output — so the
+    // per-component breakdown stays estimated downstream. Respect a total the
+    // caller already set.
+    if (props['$ai_total_cost_usd'] === undefined) {
+        const gatewayCost = extractGatewayCost(props['ai.response.providerMetadata'])
+        if (gatewayCost !== undefined) {
+            props['$ai_total_cost_usd'] = gatewayCost
+        }
+    }
 
     if (eveSpan) {
         const eveSessionId = props['eve.session.id']

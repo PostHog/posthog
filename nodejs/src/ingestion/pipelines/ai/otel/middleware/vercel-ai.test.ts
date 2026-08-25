@@ -137,6 +137,46 @@ describe('vercel-ai middleware', () => {
             expect(event.properties!['$ai_stop_reason']).toBe('stop')
         })
 
+        it('maps the Vercel AI Gateway reported cost to $ai_total_cost_usd', () => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                'gen_ai.response.model': 'gpt-4o-mini',
+                'gen_ai.usage.input_tokens': 23,
+                'gen_ai.usage.output_tokens': 14,
+                'ai.response.providerMetadata': JSON.stringify({ gateway: { cost: '0.001234' } }),
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_total_cost_usd']).toBe(0.001234)
+            expect(event.properties!['ai.response.providerMetadata']).toBeUndefined()
+        })
+
+        it('does not override a total cost the caller already set', () => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                $ai_total_cost_usd: 0.5,
+                'ai.response.providerMetadata': JSON.stringify({ gateway: { cost: '0.001234' } }),
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_total_cost_usd']).toBe(0.5)
+        })
+
+        it.each([
+            ['no gateway cost', JSON.stringify({ gateway: { generationId: 'gen-1' } })],
+            ['non-numeric cost', JSON.stringify({ gateway: { cost: 'free' } })],
+            ['no gateway metadata', '{}'],
+            ['malformed json', 'not json'],
+        ])('leaves cost unset when providerMetadata has %s', (_label, providerMetadata) => {
+            const event = createEvent('$ai_generation', {
+                'ai.operationId': 'ai.generateText.doGenerate',
+                'ai.response.providerMetadata': providerMetadata,
+            })
+            convertOtelEvent(event)
+
+            expect(event.properties!['$ai_total_cost_usd']).toBeUndefined()
+        })
+
         it('ignores empty functionId telemetry', () => {
             const event = createEvent('$ai_generation', {
                 'ai.operationId': 'ai.generateText.doGenerate',
