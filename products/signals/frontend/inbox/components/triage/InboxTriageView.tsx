@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useEffect, useRef } from 'react'
 
-import { IconArchive, IconArrowLeft, IconArrowRight, IconPullRequest } from '@posthog/icons'
+import { IconArchive, IconArrowLeft, IconPullRequest } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
@@ -157,13 +157,16 @@ function TriageCard({ report, expanded }: { report: SignalReport; expanded: bool
                             No summary yet. An agent is still investigating.
                         </p>
                     )}
-                    <Link
-                        to={currentReportUrl ?? undefined}
-                        className="inline-flex items-center gap-1 text-xs"
-                        data-attr="inbox-triage-full-report"
-                    >
-                        Full report <IconArrowRight className="size-3" />
-                    </Link>
+                    <div className="flex items-center gap-2">
+                        <Link
+                            to={currentReportUrl ?? undefined}
+                            className="text-xs"
+                            data-attr="inbox-triage-full-report"
+                        >
+                            Full report
+                        </Link>
+                        <KeyboardShortcut command enter className="text-accent" />
+                    </div>
                 </div>
             )}
 
@@ -281,7 +284,7 @@ export function InboxTriageView(): JSX.Element {
         // The card is centered in whatever height the scene gives; the 70vh floor keeps it centered
         // on a page that doesn't stretch its scene (Storybook, an embedded frame) instead of
         // collapsing to the top.
-        <div className="flex min-h-[70vh] flex-1 flex-col overflow-hidden">
+        <div className="-mt-2 flex min-h-[70vh] flex-1 flex-col overflow-hidden">
             <div className="flex items-center justify-between gap-2 px-4">
                 <LemonButton
                     type="tertiary"

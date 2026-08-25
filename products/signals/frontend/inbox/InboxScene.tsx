@@ -148,7 +148,7 @@ function InboxDetailView({ report }: { report: SignalReport }): JSX.Element {
 
     return (
         <div
-            className="flex flex-col min-h-0 flex-1 overflow-auto"
+            className="-mt-2 flex flex-col min-h-0 flex-1 overflow-auto"
             onScroll={() => {
                 if (scrolledReportRef.current !== report.id) {
                     scrolledReportRef.current = report.id
@@ -319,7 +319,7 @@ export function InboxScene(): JSX.Element {
                     ) : selectedReport ? (
                         <InboxDetailView report={selectedReport} />
                     ) : selectedReportLoading ? (
-                        <div className="flex flex-col min-h-0 flex-1 overflow-auto">
+                        <div className="-mt-2 flex flex-col min-h-0 flex-1 overflow-auto">
                             <ReportDetailSkeleton />
                         </div>
                     ) : (

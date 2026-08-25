@@ -41,7 +41,7 @@ export function ReportFeedbackFooter({ report }: { report: SignalReport }): JSX.
     }
 
     return (
-        <div className="flex flex-col gap-2 pt-1">
+        <div className="flex flex-col items-end gap-2 pt-1">
             {/* `select-none` stays on the rating row: on the wrapper it would also cover the note
                 textarea, where it blocks selecting text to edit or copy a draft. */}
             <div className="flex items-center gap-2 flex-wrap text-xs text-tertiary select-none">
