@@ -39,12 +39,15 @@ inputs:
 runs:
     using: composite
     steps:
-        - name: Install pnpm
-          uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-        - name: Fix node-gyp permissions
+        # Install pnpm through corepack, at the version pinned in the packageManager
+        # field of package.json. corepack ships with Node, so this reads the pin
+        # from the checkout and downloads pnpm from the npm registry. It fetches no
+        # remote action from codeload, which a push fan-out can rate-limit.
+        - name: Enable pnpm via corepack
           shell: bash
-          run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
+          env:
+              COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+          run: corepack enable && corepack prepare --activate
 
         - name: Resolve Node version
           id: node-version

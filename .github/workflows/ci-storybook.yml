@@ -202,10 +202,10 @@ jobs:
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
             - name: Install pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Fix node-gyp permissions
-              run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
+              shell: bash
+              env:
+                  COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+              run: corepack enable && corepack prepare --activate
 
             - name: Mint setup-action GitHub token
               id: setup-gh-token
@@ -423,10 +423,10 @@ jobs:
                   repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
 
             - name: Install pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Fix node-gyp permissions
-              run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
+              shell: bash
+              env:
+                  COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+              run: corepack enable && corepack prepare --activate
 
             - name: Mint setup-action GitHub token
               id: setup-gh-token
@@ -611,10 +611,10 @@ jobs:
                   repository: ${{ github.event.pull_request.head.repo.full_name }}
 
             - name: Install pnpm
-              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
-
-            - name: Fix node-gyp permissions
-              run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
+              shell: bash
+              env:
+                  COREPACK_ENABLE_DOWNLOAD_PROMPT: '0'
+              run: corepack enable && corepack prepare --activate
 
             - name: Mint setup-action GitHub token
               id: setup-gh-token
