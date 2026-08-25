@@ -545,8 +545,16 @@ describe("AgentServer HTTP Mode", () => {
       expect(body).toEqual({
         status: "ok",
         hasSession: true,
+        readiness: "ready",
         bootMs: expect.any(Number),
         sessionInitMs: expect.any(Number),
+        boot: expect.objectContaining({
+          contractVersion: 1,
+          bootId: "test-run-id",
+          state: "ready",
+          totalMs: expect.any(Number),
+          phasesMs: expect.any(Object),
+        }),
       });
     }, 30000);
 

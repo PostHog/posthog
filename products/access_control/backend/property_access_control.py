@@ -20,8 +20,7 @@ from posthog.synthetic_user import SyntheticUser
 
 from products.access_control.backend.facade.contracts import PropertyAccessLevel
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
-
-from ee.models.rbac.role import RoleMembership
+from products.access_control.backend.models.role import RoleMembership
 
 # Scoped memoization for `get_restricted_properties_for_team`. A single request, Celery task,
 # or other unit of work can construct many query runners (e.g. a dashboard with N insights),
@@ -259,7 +258,7 @@ def get_non_writable_property_names(
         org_id = Team.objects.values_list("organization_id", flat=True).get(id=team_id)
         membership = OrganizationMembership.objects.filter(user=user, organization_id=org_id).only("id").first()
 
-        from ee.models.rbac.role import RoleMembership
+        from products.access_control.backend.models.role import RoleMembership
 
         user_role_ids = set(RoleMembership.objects.filter(user=user).values_list("role_id", flat=True))
 
