@@ -10,17 +10,12 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.rbac.user_access_control import ACCESS_CONTROL_RESOURCES, model_to_resource
 
+from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES, model_to_resource
+from products.access_control.backend.models.access_control import AccessControl
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
-
 
 TRIGGER_ACTION = {
     "id": "trigger_node",

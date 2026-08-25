@@ -4,8 +4,7 @@ from unittest.mock import patch
 
 from django.apps import apps
 
-from posthog.rbac.user_access_control import UserAccessControl
-
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.notebooks.backend import logic
 from products.notebooks.backend.analytics import NotebookCreationSource
 from products.notebooks.backend.facade import api, content
