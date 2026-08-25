@@ -38,6 +38,7 @@
                 "properties": {
                     "name": {
                         "description": "Identifier the cell reads: `{name}` in a SQL cell, a plain global in a Python cell.",
+                        "maxLength": 200,
                         "type": "string"
                     },
                     "type": {
