@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-08-24 10:14:05 UTC
+// Generated at: 2026-08-25 10:09:06 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -54,6 +54,7 @@ export type CanonicalProvider =
     | 'crusoe-fp8'
     | 'darkbloom'
     | 'darkbloom-fp4'
+    | 'darkbloom-fp8'
     | 'decart-fp4'
     | 'deepinfra'
     | 'deepinfra-base'
@@ -105,6 +106,8 @@ export type CanonicalProvider =
     | 'minimax-fp8'
     | 'minimax-highspeed'
     | 'mistral'
+    | 'mistral-eu'
+    | 'mistral-us'
     | 'mistral-zdr'
     | 'modal-mxfp4'
     | 'modal-nvfp4'
@@ -133,7 +136,6 @@ export type CanonicalProvider =
     | 'novita-fp8'
     | 'novita-int4'
     | 'nvidia'
-    | 'nvidia-bf16'
     | 'nvidia-nvfp4'
     | 'open-inference-bf16'
     | 'open-inference-fp4'
@@ -141,6 +143,7 @@ export type CanonicalProvider =
     | 'openai-default'
     | 'openai-default-flex'
     | 'openai-default-priority'
+    | 'openai-fast'
     | 'openai-flex'
     | 'openai-priority'
     | 'parasail-bf16'

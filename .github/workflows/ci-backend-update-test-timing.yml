@@ -11,6 +11,11 @@ on:
                 description: 'Dagster CI run ID (leave empty to use latest successful run)'
                 required: false
                 type: string
+            open_pr:
+                description: 'Also commit the merged .test_durations and open the update PR (master only). Off: refresh the caches only.'
+                required: false
+                type: boolean
+                default: false
     schedule:
         # Every 6 hours: merge the latest CI timing artifacts and refresh the Actions cache
         # that ci-backend / ci-dagster restore for sharding. Frequent refresh keeps splits
@@ -204,6 +209,10 @@ jobs:
                   if [ -n "$DAGSTER_RUN_ID" ]; then
                       gh run download "$DAGSTER_RUN_ID" --pattern "timing_data-Dagster-*" --dir timing_artifacts
                       echo "Downloaded Dagster timing artifacts"
+                      # JUnit too, so the Dagster segment can prune dead nodeids like the others.
+                      # Naming differs from the backend artifacts: junit-results-dagster-N.
+                      gh run download "$DAGSTER_RUN_ID" --pattern "junit-results-dagster-*" --dir junit_artifacts || \
+                          echo "::warning::No Dagster JUnit artifacts found — Dagster runs unscoped"
                   else
                       echo "Skipping Dagster timing artifacts (no suitable run found)"
                   fi
@@ -215,17 +224,37 @@ jobs:
               run: |
                   # Process each segment separately with migration tax correction, then merge.
                   # Core, Temporal, and Products use JUnit for precise carrier detection.
-                  uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/core_durations \
-                      --segment Core --junit-dir junit_artifacts
-                  uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/temporal_durations \
-                      --segment Temporal --junit-dir junit_artifacts
+                  # Scope Core, Temporal, and Dagster to the nodeids their run's JUnit saw run.
+                  # Every shard restores the merged union and refreshes only its own slice, so
+                  # without scoping a deleted or renamed test rides every refresh and never
+                  # leaves these files, and the union merge below keeps inflating sharding
+                  # budgets with dead nodeids. --scope-to-junit hard-fails when JUnit artifacts
+                  # are missing, so retry unscoped to keep the existing behavior.
+                  if ! uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/core_durations \
+                      --segment Core --junit-dir junit_artifacts --scope-to-junit; then
+                      echo "::warning::Scoped Core durations failed, retrying unscoped"
+                      uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/core_durations \
+                          --segment Core --junit-dir junit_artifacts
+                  fi
+                  if ! uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/temporal_durations \
+                      --segment Temporal --junit-dir junit_artifacts --scope-to-junit; then
+                      echo "::warning::Scoped Temporal durations failed, retrying unscoped"
+                      uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/temporal_durations \
+                          --segment Temporal --junit-dir junit_artifacts
+                  fi
+                  # Products has its own guarded scoping inside the script (only scopes when the
+                  # JUnit shard set is complete), so no flag here.
                   uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/products_durations \
                       --segment Products --junit-dir junit_artifacts
 
                   # Process Dagster segment if available
                   if [ -n "$DAGSTER_RUN_ID" ]; then
-                      uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/dagster_durations \
-                          --segment Dagster
+                      if ! uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/dagster_durations \
+                          --segment Dagster --junit-dir junit_artifacts --scope-to-junit; then
+                          echo "::warning::Scoped Dagster durations failed, retrying unscoped"
+                          uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/dagster_durations \
+                              --segment Dagster
+                      fi
                       echo "Processed Dagster timing data"
                   fi
 
@@ -292,6 +321,7 @@ jobs:
                   EVENT_NAME: ${{ github.event_name }}
                   REF: ${{ github.ref }}
                   SCHEDULE: ${{ github.event.schedule }}
+                  OPEN_PR: ${{ inputs.open_pr }}
               run: |
                   # Full ISO-8601 cache key → each run writes its own entry. Restores match by
                   # prefix and only ever touch the newest entry, so prior entries age out 7 days
@@ -301,13 +331,14 @@ jobs:
                   NOW=$(date -u +%FT%H%M%SZ)
                   echo "date=$NOW" >> "$GITHUB_OUTPUT"
                   echo "cache_key=posthog-test-durations-$NOW" >> "$GITHUB_OUTPUT"
-                  # Every run refreshes the cache; only the monthly cron (or a manual dispatch)
-                  # also commits the repo fallback, so the daily runs don't churn the 11 MB file.
+                  # Every run refreshes the cache; only the monthly cron, or a manual dispatch
+                  # with open_pr set, also commits the repo fallback, so the daily runs don't
+                  # churn the file and a hand-run cache refresh opens no PR by default.
                   # SCHEDULE is the cron that triggered the run — keep it in sync with the monthly
                   # entry under `on.schedule`. Gated to master so a workflow_dispatch on another
                   # branch can't reset chore/update-test-timings to a non-master SHA and open a PR
                   # full of unrelated diffs (the cache still saves on any branch).
-                  if [ "$REF" = "refs/heads/master" ] && { [ "$EVENT_NAME" = "workflow_dispatch" ] || [ "$SCHEDULE" = "0 4 1 * *" ]; }; then
+                  if [ "$REF" = "refs/heads/master" ] && { { [ "$EVENT_NAME" = "workflow_dispatch" ] && [ "$OPEN_PR" = "true" ]; } || [ "$SCHEDULE" = "0 4 1 * *" ]; }; then
                       echo "should_commit=true" >> "$GITHUB_OUTPUT"
                   else
                       echo "should_commit=false" >> "$GITHUB_OUTPUT"

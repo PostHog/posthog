@@ -15,6 +15,7 @@ from posthog.hogql.parser import parse_select
 from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.endpoints.backend.materialization_transforms import (
     DownstreamCTEShape,
     MaterializableVariable,
@@ -28,8 +29,6 @@ from products.endpoints.backend.materialization_transforms import (
     transform_query_for_materialization,
 )
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
-
-from ee.models.rbac.access_control import AccessControl
 
 pytestmark = [pytest.mark.django_db]
 
