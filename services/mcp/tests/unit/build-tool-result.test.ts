@@ -199,7 +199,7 @@ describe('buildToolResultPayload — agent notes', () => {
             distinctId: 'test-distinct-id',
         })
 
-        expect(payload.content[0]!.text).toBe(`${FORMATTED_TABLE}\n\n${AGENT_NOTE}`)
+        expect(payload.content[0]!.text).toBe(`${FORMATTED_TABLE}\n\n_agentNote: ${JSON.stringify(AGENT_NOTE)}`)
     })
 
     it('does not duplicate the note when the serialized result already carries it', () => {

@@ -34,6 +34,21 @@ export type WithAgentNote<T = unknown> = T extends readonly (infer U)[]
 
 export const AGENT_NOTE_KEY = '_agentNote'
 
+/**
+ * Re-attaches a result's agent note to text that replaced the serialized result, such as a
+ * backend-formatted table. Both the exec path and buildToolResultPayload make that swap, and
+ * the note is the only part of the payload the model would otherwise never see.
+ */
+export function appendAgentNote(text: string, result: unknown): string {
+    const note = (result as Record<string, unknown> | null | undefined)?.[AGENT_NOTE_KEY]
+    if (typeof note !== 'string' || note.length === 0) {
+        return text
+    }
+    // Rendered as the same labelled field the serialized payload carries. Appended as bare prose
+    // it reads as text smuggled into the data, and agents refuse it as a prompt injection.
+    return `${text}\n\n${AGENT_NOTE_KEY}: ${JSON.stringify(note)}`
+}
+
 /** Adds `_agentNote` to a result. Wraps raw arrays in `{ results, _agentNote }` (see type above). */
 export function withAgentNote<T>(result: T, note: string): WithAgentNote<T> {
     if (Array.isArray(result)) {
