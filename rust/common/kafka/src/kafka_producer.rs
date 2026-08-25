@@ -148,7 +148,12 @@ fn build_client_config(config: &KafkaConfig) -> ClientConfig {
 
 /// Ping the Kafka brokers by fetching metadata, so a broker that's unreachable
 /// at startup surfaces as an error here rather than silently later.
-fn ping_brokers<C, P>(producer: &P) -> Result<(), KafkaError>
+///
+/// Reports the liveness component healthy on success. The stats callback is the
+/// only other heartbeat and first fires one `statistics.interval.ms` in, so a
+/// readiness probe before then would fail on a producer that just proved it can
+/// reach the cluster.
+fn ping_brokers<C, P>(producer: &P, liveness: &impl SyncLivenessReporter) -> Result<(), KafkaError>
 where
     C: ProducerContext,
     P: Producer<C>,
@@ -162,6 +167,7 @@ where
                 "Successfully connected to Kafka brokers. Found {} topics.",
                 metadata.topics().len()
             );
+            liveness.report_healthy();
             Ok(())
         }
         Err(error) => {
@@ -181,9 +187,9 @@ where
     let client_config = build_client_config(config);
     debug!("rdkafka configuration: {:?}", client_config);
     let api: FutureProducer<KafkaContext> =
-        client_config.create_with_context(KafkaContext::new(liveness))?;
+        client_config.create_with_context(KafkaContext::new(liveness.clone()))?;
 
-    ping_brokers(&api)?;
+    ping_brokers(&api, &liveness)?;
 
     Ok(api)
 }
@@ -255,9 +261,9 @@ where
     L: SyncLivenessReporter + Clone + 'static,
     F: Fn(&DeliveryResult, K) + Send + Sync + 'static,
 {
-    let producer = create_threaded_kafka_producer_no_ping(config, liveness, on_delivery)?;
+    let producer = create_threaded_kafka_producer_no_ping(config, liveness.clone(), on_delivery)?;
 
-    ping_brokers(&producer)?;
+    ping_brokers(&producer, &liveness)?;
 
     Ok(producer)
 }
