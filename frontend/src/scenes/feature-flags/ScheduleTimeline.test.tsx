@@ -58,6 +58,24 @@ describe('ScheduleTimeline', () => {
         expect(container.querySelector('svg')).not.toBeInTheDocument()
     })
 
+    it('summarizes an added condition by its own rollout, not the projected max', () => {
+        const addCondition = occurrence({
+            operation: ScheduledChangeOperationType.AddReleaseCondition,
+            schedule: {
+                ...occurrence().schedule,
+                payload: {
+                    operation: ScheduledChangeOperationType.AddReleaseCondition,
+                    value: { groups: [{ properties: [], rollout_percentage: 10, variant: null }] },
+                },
+            },
+            // Projected max stays at an existing 100% condition set; the summary must not report it.
+            projected: { active: true, rolloutPercentage: 100, variantCount: null },
+        })
+        render(<ScheduleTimeline occurrences={[addCondition]} currentRolloutPercentage={100} timezone="UTC" />)
+
+        expect(screen.getByText('Next: add a condition at 10% rollout on Aug 26, 2099 10:22 AM')).toBeInTheDocument()
+    })
+
     it('renders the step chart for two or more occurrences', () => {
         const { container } = render(
             <ScheduleTimeline

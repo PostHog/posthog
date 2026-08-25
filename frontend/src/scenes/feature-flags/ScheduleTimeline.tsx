@@ -2,7 +2,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 
 import { ScheduledChangeOperationType } from '~/types'
 
-import { ScheduleOccurrence } from './scheduleOccurrences'
+import { maxRolloutPercentage, ScheduleOccurrence } from './scheduleOccurrences'
 
 const WIDTH = 600
 const HEIGHT = 140
@@ -14,14 +14,17 @@ const BASELINE_Y = MARGIN.top + PLOT_HEIGHT
 const TIME_LABEL_MIN_GAP = 40
 
 function describeOccurrence(occurrence: ScheduleOccurrence): string {
-    const { operation, projected } = occurrence
-    if (operation === ScheduledChangeOperationType.UpdateStatus) {
-        return projected.active ? 'enabled' : 'disabled'
+    const { payload } = occurrence.schedule
+    if (payload.operation === ScheduledChangeOperationType.UpdateStatus) {
+        return occurrence.projected.active ? 'enabled' : 'disabled'
     }
-    if (operation === ScheduledChangeOperationType.AddReleaseCondition) {
-        return projected.rolloutPercentage !== null ? `rollout to ${projected.rolloutPercentage}%` : 'new condition'
+    if (payload.operation === ScheduledChangeOperationType.AddReleaseCondition) {
+        // Describe the condition this change adds, not the flag's projected max rollout: the change
+        // appends a condition set, so an existing higher one would otherwise be misreported here.
+        const added = maxRolloutPercentage(payload.value.groups)
+        return added !== null ? `add a condition at ${added}% rollout` : 'add a condition'
     }
-    return `${projected.variantCount} variant${projected.variantCount === 1 ? '' : 's'}`
+    return `${occurrence.projected.variantCount} variant${occurrence.projected.variantCount === 1 ? '' : 's'}`
 }
 
 function markerLabel(occurrence: ScheduleOccurrence): string {
