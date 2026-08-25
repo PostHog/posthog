@@ -2956,6 +2956,19 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 datetime(2022, 3, 22, 0, 0, tzinfo=ZoneInfo("UTC")),
             )
 
+    def test_insight_viewed_not_recorded_during_impersonation(self) -> None:
+        filter_dict = {"events": [{"id": "$pageview"}]}
+        insight = Insight.objects.create(filters=Filter(data=filter_dict).to_dict(), team=self.team, short_id="viewed0")
+
+        with patch("products.product_analytics.backend.presentation.insight.is_impersonated", return_value=True):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/insights/viewed",
+                {"insight_ids": [insight.id]},
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(InsightViewed.objects.count(), 0)
+
     def test_update_insight_viewed(self) -> None:
         filter_dict = {"events": [{"id": "$pageview"}]}
         insight = Insight.objects.create(
