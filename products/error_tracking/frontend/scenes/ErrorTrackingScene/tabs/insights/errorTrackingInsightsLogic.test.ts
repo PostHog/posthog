@@ -1,6 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { ApiError } from 'lib/api-error'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -102,5 +103,21 @@ describe('errorTrackingInsightsLogic', () => {
         expect(JSON.stringify(lastSummaryStatsQuery.filters.properties)).not.toContain(
             PropertyFilterType.ErrorTrackingIssue
         )
+    })
+
+    it('surfaces a query-validation 400 on the card instead of letting it escape', async () => {
+        jest.mocked(api.query).mockRejectedValue(
+            new ApiError('trailing tokens after expression', 400, undefined, {
+                detail: "trailing tokens after expression: 'properties' (Ident)",
+                code: 'hogql_syntax_error',
+            })
+        )
+
+        await expectLogic(insights, () => {
+            insights.actions.loadSummaryStats(null)
+        }).toFinishAllListeners()
+
+        expect(insights.values.summaryStats).toBeNull()
+        expect(insights.values.summaryStatsError).toEqual("trailing tokens after expression: 'properties' (Ident)")
     })
 })

@@ -1,13 +1,21 @@
 import { useValues } from 'kea'
 
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { compactNumber } from 'lib/utils/numbers'
 
 import { errorTrackingInsightsLogic } from './errorTrackingInsightsLogic'
 
 export function SummaryStats(): JSX.Element {
-    const { summaryStats, summaryStatsLoading } = useValues(errorTrackingInsightsLogic)
+    const { summaryStats, summaryStatsError, summaryStatsLoading } = useValues(errorTrackingInsightsLogic)
+
+    if (summaryStatsError) {
+        return (
+            <LemonBanner type="warning">
+                <span className="font-semibold">Could not load summary stats.</span> {summaryStatsError}
+            </LemonBanner>
+        )
+    }
 
     const cards = [
         { label: 'Total exceptions', value: summaryStats ? compactNumber(summaryStats.totalExceptions) : null },

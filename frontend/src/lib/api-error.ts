@@ -41,6 +41,20 @@ const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
 ])
 
 /**
+ * Deterministic HogQL query failures. The backend returns a 400 with one of these DRF codes
+ * (see `code_name` on the `ExposedHogQLError` subclasses in `posthog/hogql/errors.py`) when the
+ * submitted query or expression is invalid. That is a user input error — for example pasting a
+ * full `SELECT` statement into a field that takes an expression — not an application defect, so
+ * filing it as an error tracking issue only buries the real crashes.
+ */
+const HOGQL_VALIDATION_CODES: ReadonlySet<string> = new Set([
+    'hogql_error',
+    'hogql_syntax_error',
+    'hogql_query_error',
+    'table_access_denied',
+])
+
+/**
  * Whether a failed request is worth filing as an error tracking issue. A response the app asked
  * for and recovers from itself is not a defect, and reporting it buries the ones that are: every
  * `ApiError` is built in this file, so they all share one stack, and grouping ignores the message
@@ -52,6 +66,8 @@ const HANDLED_AUTH_GATE_CODES: ReadonlySet<string> = new Set([
  *   offers re-impersonation instead), before the user has loaded, and within 10s of its last check.
  * - 403 `permission_denied` — the sceneLogic gates render the AccessDenied scene.
  * - 403 auth gates — `apiStatusLogic` opens 2FA setup, re-verification, or a re-auth prompt.
+ * - 400 with a HogQL validation code — a deterministic query or expression error the user must
+ *   fix in the input, surfaced where they typed it.
  * - 409 carrying a `change_request_id` — the approvals UI shows the change request it created.
  * - 502/503/504 — the gateway couldn't reach the backend, so application code is not at fault.
  *
@@ -79,6 +95,9 @@ export function shouldReportApiFailure(error: unknown): boolean {
         return false
     }
     if (status === 403 && failure.code != null && HANDLED_AUTH_GATE_CODES.has(failure.code)) {
+        return false
+    }
+    if (status === 400 && failure.code != null && HOGQL_VALIDATION_CODES.has(failure.code)) {
         return false
     }
     return !isApprovalRequiredError(failure)
