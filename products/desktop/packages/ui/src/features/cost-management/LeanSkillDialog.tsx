@@ -1,9 +1,9 @@
+// Dialog for installing and removing lean skills from the cost management page.
 import { ArrowSquareOut } from "@phosphor-icons/react";
 import {
   type LeanSkill,
   leanSkillRepoUrl,
 } from "@posthog/core/billing/leanSkills";
-// Dialog for installing and removing lean skills from the cost management page.
 import {
   Button,
   Dialog,
