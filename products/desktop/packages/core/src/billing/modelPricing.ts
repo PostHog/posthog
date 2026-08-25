@@ -5,10 +5,11 @@
  * (services/llm-gateway/src/llm_gateway/rate_limiting/model_cost_overrides.py).
  *
  * Sources, checked 2026-08-22:
- * - Anthropic: platform.claude.com/docs/en/about-claude/pricing
- * - OpenAI: developers.openai.com/api/docs/pricing (Sol is promotional
- *   pricing through at least 2026-11-21)
- * - Kimi K3, GLM, DeepSeek: gateway contract rates (pinned in the file above)
+ * - Anthropic (Opus, Sonnet, Haiku): platform.claude.com/docs/en/about-claude/pricing
+ * - GPT-5.5: developers.openai.com/api/docs/pricing
+ * - Fable, GPT-5.6, Kimi K3, GLM, DeepSeek: the gateway's billing rates, what
+ *   the user is actually charged (pinned in the file above). The drift test
+ *   binds these rows to it.
  */
 
 export interface ModelListPrice {
@@ -37,9 +38,9 @@ const LIST_PRICES: [family: string, price: ModelListPrice][] = [
   ["sonnet-4", { inputPerMtok: 3, outputPerMtok: 15 }],
   ["sonnet", { inputPerMtok: 2, outputPerMtok: 10 }],
   ["haiku", { inputPerMtok: 1, outputPerMtok: 5 }],
-  ["gpt-5.6-sol", { inputPerMtok: 4, outputPerMtok: 20 }],
-  ["gpt-5.6-terra", { inputPerMtok: 2, outputPerMtok: 12 }],
-  ["gpt-5.6-luna", { inputPerMtok: 0.2, outputPerMtok: 1.2 }],
+  ["gpt-5.6-sol", { inputPerMtok: 5, outputPerMtok: 30 }],
+  ["gpt-5.6-terra", { inputPerMtok: 2.5, outputPerMtok: 15 }],
+  ["gpt-5.6-luna", { inputPerMtok: 1, outputPerMtok: 6 }],
   ["gpt-5.5", { inputPerMtok: 5, outputPerMtok: 30 }],
   ["kimi", { inputPerMtok: 3, outputPerMtok: 15 }],
   ["glm", { inputPerMtok: 1.4, outputPerMtok: 4.4 }],
