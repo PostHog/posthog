@@ -1,5 +1,6 @@
 import json
 import time
+from typing import Any
 from urllib.parse import urlencode
 
 from posthog.test.base import APIBaseTest
@@ -129,7 +130,7 @@ class StripeProvisioningTestBase(APIBaseTest):
         cache.set(f"{AUTH_CODE_CACHE_PREFIX}{code}", value, timeout=300)
         return value
 
-    def _request_bearer_token(self, **auth_code_overrides):
+    def _request_bearer_token(self, **auth_code_overrides: Any):
         code = f"test_code_{id(self)}"
         self._seed_auth_code(code, **auth_code_overrides)
         body = urlencode({"grant_type": "authorization_code", "code": code}).encode()
@@ -142,5 +143,5 @@ class StripeProvisioningTestBase(APIBaseTest):
             headers={"stripe-signature": f"t={ts},v1={sig}", "api-version": "0.1d"},
         )
 
-    def _get_bearer_token(self, **auth_code_overrides) -> str:
+    def _get_bearer_token(self, **auth_code_overrides: Any) -> str:
         return self._request_bearer_token(**auth_code_overrides).json()["access_token"]
