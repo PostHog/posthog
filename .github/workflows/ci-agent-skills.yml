@@ -546,6 +546,7 @@ jobs:
                       gh release upload agent-skills-latest \
                           products/posthog_ai/dist/skills.zip --clobber
                       gh release edit agent-skills-latest \
+                          --title "Agent skills (Latest)" \
                           --notes "Latest build — same as $RELEASE_TAG"
                   else
                       gh release create agent-skills-latest \

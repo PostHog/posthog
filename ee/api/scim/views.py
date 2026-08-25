@@ -388,7 +388,7 @@ class SCIMUserDetailView(SCIMBaseView):
         user = User.objects.filter(
             Q(organization_membership__organization=config.organization)
             | Q(scim_provisions__identity_provider_config=config)
-            | Q(scim_provisions__organization_domain__identity_provider_config=config),
+            | Q(scim_provisions__organization_domain__in=config.organization_domains),
             id=user_id,
         ).first()
         if not user:

@@ -103,6 +103,28 @@ def _chart_signal(charts: Sequence[ReportChart]) -> SignalData | None:
     )
 
 
+def _suggested_prompts_signal(suggested_prompts: Sequence[str]) -> SignalData | None:
+    """Wrap the report's suggested prompts as one `SignalData` so the judge sees them too.
+
+    These carry further than a chart's text does: a reader clicks one and its wording is handed
+    straight to an agent run with the report as context, so an injected instruction here is executed
+    rather than merely read. Returns None when there are none, so a report without them produces a
+    judge prompt byte-identical to before.
+    """
+    if not suggested_prompts:
+        return None
+    return SignalData(
+        signal_id=str(uuid.uuid4()),
+        content="\n\n".join(suggested_prompts),
+        source_product=SOURCE_PRODUCT,
+        source_type=SOURCE_TYPE,
+        source_id="report_suggested_prompts",
+        weight=0.0,
+        timestamp=timezone.now(),
+        extra={},
+    )
+
+
 def _to_signal_data(signals: list[ScoutReportSignal]) -> list[SignalData]:
     """Adapt the authored-report signals into the `SignalData` shape the safety judge renders."""
     return [
@@ -128,19 +150,22 @@ async def judge_scout_report(
     signals: list[ScoutReportSignal],
     actionability: ActionabilityAssessment,
     charts: Sequence[ReportChart] = (),
+    suggested_prompts: Sequence[str] = (),
 ) -> ScoutReportJudgement:
     """Run the safety judge on the authored report and resolve the birth status.
 
-    The judge sees the authored `title`/`summary`, the backing observations, *and* any attached
-    charts — so prompt-injection in the report prose or in a chart's own text/query (not just the
+    The judge sees the authored `title`/`summary`, the backing observations, any attached charts,
+    *and* any suggested prompts — so prompt-injection anywhere the agent authored (not just the
     evidence) is caught before the report can surface or feed autostart. The safety judge is a plain
     LLM call (`judge_report_safety`) — no Temporal workflow, no sandbox — so this runs inline on
     whatever worker is authoring the report.
     """
     chart_signal = _chart_signal(charts)
+    prompts_signal = _suggested_prompts_signal(suggested_prompts)
     safety_input = [
         _report_content_signal(title, summary),
         *([chart_signal] if chart_signal is not None else []),
+        *([prompts_signal] if prompts_signal is not None else []),
         *_to_signal_data(signals),
     ]
     safety_response = await judge_report_safety(team_id=team_id, signals=safety_input)
