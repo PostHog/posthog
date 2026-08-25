@@ -25,7 +25,7 @@ async function mount(values: Record<string, string>): Promise<string> {
 }
 
 function secretMount(dir: string, opts: { now?: () => number } = {}): SecretMount {
-    return new SecretMount({ dir, ...(opts.now && { now: opts.now }) })
+    return new SecretMount({ dir, observeVersion: () => Promise.resolve(null), ...(opts.now && { now: opts.now }) })
 }
 
 async function load(values: Record<string, string>): Promise<MountedSecrets | null> {

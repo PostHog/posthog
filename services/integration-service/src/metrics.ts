@@ -36,6 +36,12 @@ export const previousVersionServedTotal = new Counter({
     registers: [register],
 })
 
+export const secretAgeSeconds = new Gauge({
+    name: 'integration_secret_age_seconds',
+    help: 'Time since the mounted secret last changed, for "not rotated in N days" alerting',
+    registers: [register],
+})
+
 // An unreadable mount keeps the secrets already held rather than failing every read, so
 // this gauge is the only sign of that degradation. Alert on it.
 export const servingStaleSeconds = new Gauge({

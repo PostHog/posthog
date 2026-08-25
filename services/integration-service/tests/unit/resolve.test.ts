@@ -1,11 +1,17 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 
 import { register, resolveTotal } from '@/metrics'
 import { resolveKeys } from '@/resolve'
 import type { CallerIdentity, MountedSecrets } from '@/types'
+import type { UsageRecorder } from '@/usage/recorder'
 
 function mounted(secrets: MountedSecrets['secrets']): MountedSecrets {
-    return { fetchedAt: '2026-08-06T00:00:00.000Z', versionId: 'v1', secrets }
+    return {
+        fetchedAt: '2026-08-06T00:00:00.000Z',
+        versionId: 'v1',
+        changedAt: '2026-01-01T00:00:00.000Z',
+        secrets,
+    }
 }
 
 const MOUNTED = mounted({
@@ -20,6 +26,10 @@ const MOUNTED = mounted({
     STRIPE_APP_SECRET_KEY: { state: 'steady', value: 'sk-live', versionId: 'v1', fetchedAt: 'now' },
 })
 
+function recorder(record = vi.fn()): UsageRecorder {
+    return { record } as unknown as UsageRecorder
+}
+
 function identity(requestedKeys: string[]): CallerIdentity {
     return { deployment: 'temporal-worker-data-warehouse', caller: 'warehouse-sources', requestedKeys }
 }
@@ -29,14 +39,22 @@ describe('resolve', () => {
     // on the mount. Containment is revoking that deployment's signing key, not a list
     // somebody has to keep current.
     it('serves anything on the mount to an authenticated deployment', async () => {
-        const response = resolveKeys(identity(['GOOGLE_ADS_APP_CLIENT_ID', 'STRIPE_APP_SECRET_KEY']), MOUNTED)
+        const response = resolveKeys(
+            identity(['GOOGLE_ADS_APP_CLIENT_ID', 'STRIPE_APP_SECRET_KEY']),
+            MOUNTED,
+            recorder()
+        )
 
         expect(Object.keys(response.secrets).sort()).toEqual(['GOOGLE_ADS_APP_CLIENT_ID', 'STRIPE_APP_SECRET_KEY'])
         expect(response.missing).toEqual([])
     })
 
     it('serves the requested fields with their rotation state', async () => {
-        const response = resolveKeys(identity(['GOOGLE_ADS_APP_CLIENT_ID', 'GOOGLE_ADS_APP_CLIENT_SECRET']), MOUNTED)
+        const response = resolveKeys(
+            identity(['GOOGLE_ADS_APP_CLIENT_ID', 'GOOGLE_ADS_APP_CLIENT_SECRET']),
+            MOUNTED,
+            recorder()
+        )
 
         expect(response.secrets['GOOGLE_ADS_APP_CLIENT_ID']).toMatchObject({ state: 'steady', value: 'ga-id' })
         // `previous` is the wire name; it carries the staged (incoming) value. The mismatch is
@@ -52,7 +70,7 @@ describe('resolve', () => {
     // nothing else. The route-level half — a request body cannot widen it — is pinned in
     // app.test.ts, since this function never sees an HTTP request.
     it('serves nothing outside the token scope even though the caller may read it', async () => {
-        const response = resolveKeys(identity(['GOOGLE_ADS_APP_CLIENT_ID']), MOUNTED)
+        const response = resolveKeys(identity(['GOOGLE_ADS_APP_CLIENT_ID']), MOUNTED, recorder())
 
         expect(Object.keys(response.secrets)).toEqual(['GOOGLE_ADS_APP_CLIENT_ID'])
         expect(response.secrets).not.toHaveProperty('STRIPE_APP_SECRET_KEY')
@@ -64,7 +82,7 @@ describe('resolve', () => {
         // signing key gets the same answer as a token naming nonsense.
         ['a reserved entry a token asked for by name', '__CALLER_KEY_POSTHOG_DJANGO'],
     ])('reports %s as missing rather than failing the request', async (_label, key) => {
-        const response = resolveKeys(identity([key, 'GOOGLE_ADS_APP_CLIENT_ID']), MOUNTED)
+        const response = resolveKeys(identity([key, 'GOOGLE_ADS_APP_CLIENT_ID']), MOUNTED, recorder())
 
         expect(response.missing).toContain(key)
         expect(response.secrets).not.toHaveProperty(key)
@@ -74,7 +92,8 @@ describe('resolve', () => {
     it('serves a recovery field with no value so the caller fails fast', async () => {
         const response = resolveKeys(
             identity(['STRIPE_APP_SECRET_KEY']),
-            mounted({ STRIPE_APP_SECRET_KEY: { state: 'recovery', versionId: 'v1', fetchedAt: 'now' } })
+            mounted({ STRIPE_APP_SECRET_KEY: { state: 'recovery', versionId: 'v1', fetchedAt: 'now' } }),
+            recorder()
         )
 
         expect(response.secrets['STRIPE_APP_SECRET_KEY']).toMatchObject({ state: 'recovery' })
@@ -92,7 +111,8 @@ describe('resolve', () => {
 
         const response = resolveKeys(
             { deployment: 'posthog-django', caller: claimedCaller, requestedKeys: [invented] },
-            MOUNTED
+            MOUNTED,
+            recorder()
         )
 
         const labelValues = (await resolveTotal.get()).values.flatMap((v) => Object.values(v.labels).map(String))
@@ -100,5 +120,12 @@ describe('resolve', () => {
         expect(labelValues).not.toContain(claimedCaller)
         // The real name still reaches the caller, just not the metric.
         expect(response.missing).toContain(invented)
+    })
+
+    it('records only successfully served keys against the usage rollup', async () => {
+        const record = vi.fn()
+        resolveKeys(identity(['GOOGLE_ADS_APP_CLIENT_ID', 'NOT_A_REAL_KEY']), MOUNTED, recorder(record))
+
+        expect(record).toHaveBeenCalledWith('temporal-worker-data-warehouse', ['GOOGLE_ADS_APP_CLIENT_ID'])
     })
 })

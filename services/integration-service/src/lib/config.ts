@@ -7,14 +7,18 @@ export interface Config {
     /** Wait before draining, so Kubernetes has removed the pod from its endpoints first. */
     shutdownPrestopDelayMs: number
 
-    /** Logical environment (dev | prod-us | prod-eu). */
+    /** Logical environment (dev | prod-us | prod-eu). Recorded on the usage rollup. */
     env: string
 
     /** Directory the Kubernetes Secret is mounted at. */
     mountDir: string
+    /** From the chart's `psql:` harness. Unset disables usage recording (local dev). */
+    databaseUrl: string | undefined
 
     /** How often to re-read the mount. Kubelet updates it in roughly 60-90s. */
     reloadSeconds: number
+    usageFlushMs: number
+    retentionDays: number
 
     /** Serves /metrics on its own listener, kept off the ingress like every other service. */
     metricsPort: number
@@ -42,16 +46,30 @@ export function loadConfig(): Config {
         env: process.env.INTEGRATION_SERVICE_ENV ?? 'dev',
 
         mountDir: process.env.INTEGRATION_SERVICE_SECRETS_DIR ?? '/etc/integration-secrets',
+        databaseUrl: process.env.INTEGRATION_SERVICE_DATABASE_URL,
 
         // Shorter than kubelet's own sync so a rotation is visible within about a minute
         // of the mount changing.
         reloadSeconds: intFromEnv('INTEGRATION_SERVICE_RELOAD_SECONDS', 30, 1),
+        usageFlushMs: intFromEnv('INTEGRATION_SERVICE_USAGE_FLUSH_MS', 10000, 1),
+        retentionDays: intFromEnv('INTEGRATION_SERVICE_RETENTION_DAYS', 9, 1),
 
         metricsPort: intFromEnv('INTEGRATION_SERVICE_METRICS_PORT', 9090),
     }
 
-    if (process.env.NODE_ENV === 'production' && !process.env.INTEGRATION_SERVICE_ENV) {
-        throw new Error('missing required configuration: INTEGRATION_SERVICE_ENV')
+    if (process.env.NODE_ENV === 'production') {
+        const missing: string[] = []
+        if (!process.env.INTEGRATION_SERVICE_ENV) {
+            missing.push('INTEGRATION_SERVICE_ENV')
+        }
+        // Without it the usage rollup silently stops, and the rollup is what decides when
+        // an old credential is safe to retire.
+        if (!config.databaseUrl) {
+            missing.push('INTEGRATION_SERVICE_DATABASE_URL')
+        }
+        if (missing.length > 0) {
+            throw new Error(`missing required configuration: ${missing.join(', ')}`)
+        }
     }
 
     return config

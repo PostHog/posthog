@@ -22,11 +22,14 @@
         "@hono/node-server": "^2.0.2",
         "hono": "^4.12.18",
         "jose": "^6.0.10",
+        "pg": "^8.13.1",
         "pino": "^8.6.0",
         "prom-client": "^14.2.0"
     },
     "devDependencies": {
+        "@testcontainers/postgresql": "^12.1.0",
         "@types/node": "^22.17.2",
+        "@types/pg": "^8.11.10",
         "esbuild": "^0.25.11",
         "oxfmt": "catalog:",
         "oxlint": "^1.72.0",

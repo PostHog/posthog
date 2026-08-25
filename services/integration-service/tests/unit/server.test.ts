@@ -2,6 +2,7 @@ import { SignJWT } from 'jose'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { Pool } from 'pg'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { AUDIENCE } from '@/auth/types'
@@ -32,7 +33,10 @@ function config(mountDir: string, prestopDelayMs: number): Config {
         shutdownPrestopDelayMs: prestopDelayMs,
         env: 'test',
         mountDir,
+        databaseUrl: undefined,
         reloadSeconds: 3600,
+        usageFlushMs: 3_600_000,
+        retentionDays: 9,
         metricsPort: 0,
     }
 }
@@ -53,13 +57,27 @@ interface Started {
     exitCode: () => number | undefined
 }
 
-/** Start a real IntegrationServer with a fake listener and a captured exit. */
+/** Start a real IntegrationServer with a fake pool, a fake listener and a captured exit. */
 async function startServer(prestopDelayMs = 0): Promise<Started> {
     const events: string[] = []
     let exitCode: number | undefined
     let fetch!: Started['fetch']
 
+    const pool = {
+        query: (sql: string) => {
+            if (sql.includes('INSERT INTO integration_secret_usage')) {
+                events.push('flush')
+            }
+            return Promise.resolve({ rows: [] })
+        },
+        end: () => {
+            events.push('pool.end')
+            return Promise.resolve()
+        },
+    } as unknown as Pool
+
     const server = new IntegrationServer(config(await secretsDir(), prestopDelayMs), {
+        pool,
         serve: (options) => {
             fetch = options.fetch as Started['fetch']
             return {
@@ -78,9 +96,10 @@ async function startServer(prestopDelayMs = 0): Promise<Started> {
 }
 
 describe('integration server', () => {
-    it('marks itself draining and waits out the prestop delay before draining the server', async () => {
+    it('shuts down in order: mark draining, prestop delay, drain, flush, end pool', async () => {
         const { server, events, fetch } = await startServer(30)
 
+        // A served credential leaves a pending usage read, so the flush has work to order.
         const res = await fetch(
             new Request('http://svc/v1/secrets/resolve', {
                 method: 'POST',
@@ -92,8 +111,8 @@ describe('integration server', () => {
         const stoppedAt = Date.now()
         await server.stop('SIGTERM')
 
-        expect(events).toEqual(['drain draining=true'])
-        // Kubernetes has to see the pod leave its endpoints before the listener closes.
+        expect(events).toEqual(['drain draining=true', 'flush', 'pool.end'])
+        // The drain must not start before the prestop window has passed.
         expect(Date.now() - stoppedAt).toBeGreaterThanOrEqual(25)
     })
 
@@ -102,7 +121,7 @@ describe('integration server', () => {
 
         await server.stop('uncaughtException', new Error('boom'))
 
-        expect(events).toEqual(['drain draining=true'])
+        expect(events).toEqual(['drain draining=true', 'pool.end'])
         expect(exitCode()).toBe(1)
     })
 
@@ -115,7 +134,7 @@ describe('integration server', () => {
         await server.stop('SIGTERM')
 
         expect(process.listenerCount('SIGTERM')).toBe(before)
-        expect(events).toHaveLength(1)
+        expect(events.filter((e) => e === 'pool.end')).toHaveLength(1)
         expect(exitCode()).toBe(0)
     })
 })

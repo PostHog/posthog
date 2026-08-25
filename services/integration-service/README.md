@@ -89,8 +89,8 @@ label, because prom-client keeps every series in process memory for the pod's li
 
 **There is no per-deployment allowlist.** Every authenticated deployment may read any credential
 on the mount: a list bounds nothing the signing key does not already bound, and a compromised
-deployment is contained by revoking its key. What a deployment actually read is in the audit
-log.
+deployment is contained by revoking its key. What a deployment actually read is in the audit log
+and the usage rollup.
 
 So one thing bounds a request: the `keys` claim, which _is_ the request, for as long as the token
 has left to run — the verifier requires an `exp`.
@@ -169,24 +169,66 @@ this secret.
 `__` is the one thing the mount will not serve, whatever a token asks for. The caller signing keys
 carry that prefix, which is why they can share a secret with the credentials they protect.
 
+### Knowing when the old value is safe to delete
+
+Nothing is reported to this service by a caller: usage is measured here, so it does not depend on
+a client being well behaved, current, or honest. The rows answer one question during a rotation:
+has every deployment known to read this key read it since the secret last changed? Callers do not
+cache, so a read after activation necessarily returned the new value. The surface that renders
+that answer ships with the secrets UI follow-up; this layer records the data it needs.
+
+## Postgres
+
+Postgres carries the usage counters and the version-observation log, and holds no credential.
+Durability is the point: the counters decide whether an old credential is safe to retire, and
+losing a stale reader's row makes a rotation look quieter than it is. A store with an eviction
+policy cannot be trusted with an input to that decision.
+
+Writes are batched in memory and flushed on a timer; an upsert per read would put a write on the
+hot path for nothing. A crash loses at most one flush interval of counts — and only that much,
+because shutdown (including `unhandledRejection` and `uncaughtException`) drains the server, then
+flushes the recorder, then closes the pool.
+
+Three tables, applied as idempotent DDL at boot (retried once, since replicas booting together
+can race the `CREATE TABLE IF NOT EXISTS` statements):
+
+| Table                          | Holds                                    | Pruned?                        |
+| ------------------------------ | ---------------------------------------- | ------------------------------ |
+| `integration_secret_usage`     | read counts per key, deployment and hour | yes, past the retention window |
+| `integration_secret_last_seen` | when each deployment last read each key  | **never**                      |
+| `integration_secret_version`   | when each content hash was first seen    | no                             |
+
+`integration_secret_last_seen` is separate from the counts and never pruned on purpose: the
+retirement verdict has to consider every deployment known to read a key, not only those active
+inside the rolling window, or a consumer that reads rarely would drop out of the verdict.
+
+A mounted secret carries no AWS version, so `integration_secret_version` is what "the value
+changed at" means: the first time any replica saw this content hash, recorded centrally so
+replicas agree and the answer survives a restart.
+
+The DSN comes from the `psql:` harness in the `posthog-app` chart, so connections go through
+PgBouncer in transaction mode. Nothing here may rely on session state: no `LISTEN`/`NOTIFY`, no
+session-scoped settings, no server-side named prepared statements.
+
 ## Metrics
 
 No label value comes from a request. A key name becomes a label only once the mount is known to
 carry it; anything else collapses to a constant, and the `caller` claim is not a label at all.
 
-| Metric                                                                   | What it answers                                               |
-| ------------------------------------------------------------------------ | ------------------------------------------------------------- |
-| `integration_secret_resolve_total{deployment,key,result}`                | who read what, and whether it resolved                        |
-| `integration_secret_last_resolved_timestamp{key}`                        | which credentials nothing reads any more                      |
-| `integration_secret_previous_version_served_total{key}`                  | how much traffic is reading a key mid-rotation                |
-| `integration_secret_serving_stale_seconds`                               | how long this pod has served credentials it could not refresh |
-| `integration_secret_store_errors_total`                                  | mount reads that returned nothing                             |
-| `integration_service_signing_keys_last_loaded_timestamp`                 | staleness means a revocation has not landed on this pod       |
-| `integration_service_signing_key_reload_failures_total`                  | reloads that kept the previous key set                        |
-| `integration_service_auth_failures_total{reason}`                        | rejected tokens, by why                                       |
-| `integration_service_http_requests_total{method,route,status}`           | request volume, with an unmatched path collapsed to `other`   |
-| `integration_service_http_request_duration_seconds{method,route,status}` | request latency                                               |
-| `integration_service_shutting_down`                                      | 1 while draining                                              |
+| Metric                                                                   | What it answers                                                     |
+| ------------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| `integration_secret_resolve_total{deployment,key,result}`                | who read what, and whether it resolved                              |
+| `integration_secret_last_resolved_timestamp{key}`                        | which credentials nothing reads any more                            |
+| `integration_secret_previous_version_served_total{key}`                  | how much traffic is reading a key mid-rotation                      |
+| `integration_secret_age_seconds`                                         | time since the secret last changed — drives "not rotated in N days" |
+| `integration_secret_serving_stale_seconds`                               | how long this pod has served credentials it could not refresh       |
+| `integration_secret_store_errors_total`                                  | mount reads that returned nothing                                   |
+| `integration_service_signing_keys_last_loaded_timestamp`                 | staleness means a revocation has not landed on this pod             |
+| `integration_service_signing_key_reload_failures_total`                  | reloads that kept the previous key set                              |
+| `integration_service_auth_failures_total{reason}`                        | rejected tokens, by why                                             |
+| `integration_service_http_requests_total{method,route,status}`           | request volume, with an unmatched path collapsed to `other`         |
+| `integration_service_http_request_duration_seconds{method,route,status}` | request latency                                                     |
+| `integration_service_shutting_down`                                      | 1 while draining                                                    |
 
 Two of these exist because a fail-open needs to be visible: the signing-key reload keeps the
 previous keys when an edit is malformed, and an unreadable mount keeps what is already held. Alert
@@ -212,27 +254,33 @@ the npm-specific supply-chain path worth closing here.
 pnpm --filter @posthog/integration-service dev                # tsx watch, pretty logs
 pnpm --filter @posthog/integration-service typecheck
 pnpm --filter @posthog/integration-service test:unit
-pnpm --filter @posthog/integration-service test:integration   # boots a real server on a temp mount
+pnpm --filter @posthog/integration-service test:integration   # needs Docker (testcontainers)
 ```
 
-The integration suite boots a real `IntegrationServer` against a temp-dir mount and a real
-socket, so it covers the wiring the unit suite fakes. Neither suite needs a database or Docker.
+`pnpm vitest run` with no path runs both suites, so it needs Docker; without Docker, run
+`test:unit`. The integration suite starts a disposable Postgres with testcontainers and boots a
+real `IntegrationServer` against a temp-dir mount, so it covers the SQL and the HTTP wiring the
+unit suite fakes.
 
 Point `INTEGRATION_SERVICE_SECRETS_DIR` at a directory of files, one per key, to stand in for the
-mount.
+mount. With `INTEGRATION_SERVICE_DATABASE_URL` unset the service runs without usage recording,
+which costs the rollup and nothing else.
 
 ## Configuration
 
-| Variable                             | Default                    | Notes                                                   |
-| ------------------------------------ | -------------------------- | ------------------------------------------------------- |
-| `INTEGRATION_SERVICE_ENV`            | `dev`                      | Logical env, recorded on every startup log line         |
-| `INTEGRATION_SERVICE_SECRETS_DIR`    | `/etc/integration-secrets` | Where the Kubernetes Secret is mounted                  |
-| `INTEGRATION_SERVICE_RELOAD_SECONDS` | `30`                       | How often to re-read the mount                          |
-| `INTEGRATION_SERVICE_METRICS_PORT`   | `9090`                     | Dedicated `/metrics` listener, kept off the ingress     |
-| `INTEGRATION_SERVICE_LOG_LEVEL`      | by `NODE_ENV`              | `debug`, `info`, `warn` or `error`                      |
-| `PORT`                               | `8004`                     |                                                         |
-| `HOST`                               | `0.0.0.0`                  |                                                         |
-| `SHUTDOWN_PRESTOP_DELAY_MS`          | `5000`                     | Wait before draining, for the Kubernetes prestop window |
+| Variable                             | Default                    | Notes                                                    |
+| ------------------------------------ | -------------------------- | -------------------------------------------------------- |
+| `INTEGRATION_SERVICE_ENV`            | `dev`                      | Logical env; recorded on the usage rollup                |
+| `INTEGRATION_SERVICE_SECRETS_DIR`    | `/etc/integration-secrets` | Where the Kubernetes Secret is mounted                   |
+| `INTEGRATION_SERVICE_DATABASE_URL`   | —                          | From the chart's `psql:` harness. Required in production |
+| `INTEGRATION_SERVICE_RELOAD_SECONDS` | `30`                       | How often to re-read the mount                           |
+| `INTEGRATION_SERVICE_USAGE_FLUSH_MS` | `10000`                    | How often to flush batched usage counters                |
+| `INTEGRATION_SERVICE_RETENTION_DAYS` | `9`                        | How long usage buckets are kept                          |
+| `INTEGRATION_SERVICE_METRICS_PORT`   | `9090`                     | Dedicated `/metrics` listener, kept off the ingress      |
+| `INTEGRATION_SERVICE_LOG_LEVEL`      | by `NODE_ENV`              | `debug`, `info`, `warn` or `error`                       |
+| `PORT`                               | `8004`                     |                                                          |
+| `HOST`                               | `0.0.0.0`                  |                                                          |
+| `SHUTDOWN_PRESTOP_DELAY_MS`          | `5000`                     | Wait before draining, for the Kubernetes prestop window  |
 
 The service exits at boot rather than starting degraded: a missing production variable, or a
 numeric variable that does not parse. An empty secret mount does not exit; the pod fails its

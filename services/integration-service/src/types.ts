@@ -34,6 +34,11 @@ export interface MountedSecrets {
     fetchedAt: string
     /** Hash of the whole mounted key set, so unchanged content keeps one id. */
     versionId: string
+    /**
+     * When this content was first seen, from the version table so every replica agrees and a
+     * restart does not reset it. Reads since this moment necessarily returned the new value.
+     */
+    changedAt: string | null
     secrets: Record<string, Secret>
 }
 

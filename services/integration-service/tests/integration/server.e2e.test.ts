@@ -26,7 +26,10 @@ function config(mountDir: string): Config {
         shutdownPrestopDelayMs: 0,
         env: 'test',
         mountDir,
+        databaseUrl: undefined,
         reloadSeconds: 3600,
+        usageFlushMs: 3_600_000,
+        retentionDays: 9,
         metricsPort: 0,
     }
 }

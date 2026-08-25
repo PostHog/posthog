@@ -1,5 +1,5 @@
 import { SignJWT } from 'jose'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { JwtVerifier } from '@/auth/jwt'
 import type { SigningKeyLoader } from '@/auth/registry'
@@ -7,6 +7,7 @@ import { AUDIENCE, type SigningKeys } from '@/auth/types'
 import { createApp } from '@/http/app'
 import { httpRequestsTotal, register } from '@/metrics'
 import type { Lifecycle, MountedSecrets } from '@/types'
+import type { UsageRecorder } from '@/usage/recorder'
 
 const RESOLVE_PATH = '/v1/secrets/resolve'
 
@@ -18,6 +19,7 @@ const KEY = 'HUBSPOT_APP_CLIENT_SECRET'
 const MOUNTED: MountedSecrets = {
     fetchedAt: '2026-08-06T00:00:00.000Z',
     versionId: 'v1',
+    changedAt: '2026-08-01T00:00:00.000Z',
     secrets: { [KEY]: { state: 'steady', value: 'hunter2-zx9q', versionId: 'v1', fetchedAt: 'now' } },
 }
 
@@ -43,6 +45,7 @@ function build(
         verifier: new JwtVerifier({ entries: () => Object.entries(KEYS) } as SigningKeyLoader),
         lifecycle,
         secrets: overrides.secrets ?? ((): MountedSecrets | null => MOUNTED),
+        recorder: { record: vi.fn() } as unknown as UsageRecorder,
     })
     return { app, lifecycle }
 }

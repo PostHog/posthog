@@ -9,7 +9,7 @@ import { readFile, readdir, readlink } from 'node:fs/promises'
 import { join } from 'node:path'
 
 import { logger } from './lib/logging'
-import { mountErrorsTotal, servingStaleSeconds } from './metrics'
+import { mountErrorsTotal, secretAgeSeconds, servingStaleSeconds } from './metrics'
 import type { Secret, MountedSecrets } from './types'
 
 /**
@@ -75,6 +75,11 @@ export async function readMount(dir: string): Promise<Record<string, string> | n
 export interface SecretMountOptions {
     /** Directory the Kubernetes Secret is mounted at. */
     dir: string
+    /**
+     * Records when a content hash was first seen and returns that timestamp. Persisted, so
+     * every replica agrees and the answer survives a restart.
+     */
+    observeVersion: (contentHash: string) => Promise<string | null>
     now?: () => number
 }
 
@@ -100,10 +105,13 @@ export class SecretMount {
     async reload(): Promise<void> {
         const now = this.opts.now ?? Date.now
         const values = await readMount(this.opts.dir)
-        const next = values ? this.build(values) : null
+        const next = values ? await this.build(values) : null
         if (next) {
             this.held = next
             servingStaleSeconds.set(0)
+            if (next.changedAt) {
+                secretAgeSeconds.set((now() - Date.parse(next.changedAt)) / 1000)
+            }
         } else {
             mountErrorsTotal.inc()
             if (this.held) {
@@ -112,7 +120,7 @@ export class SecretMount {
         }
     }
 
-    private build(values: Record<string, string>): MountedSecrets | null {
+    private async build(values: Record<string, string>): Promise<MountedSecrets | null> {
         // Sorted so the same content always hashes to the same version id.
         const contentHash = createHash('sha256')
             .update(
@@ -156,6 +164,11 @@ export class SecretMount {
             return null
         }
 
-        return { fetchedAt, versionId: contentHash, secrets }
+        return {
+            fetchedAt,
+            versionId: contentHash,
+            changedAt: await this.opts.observeVersion(contentHash),
+            secrets,
+        }
     }
 }

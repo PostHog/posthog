@@ -28,7 +28,7 @@ describe('loadConfig integers', () => {
 })
 
 describe('loadConfig production guards', () => {
-    const PROD_VARS = ['NODE_ENV', 'INTEGRATION_SERVICE_ENV']
+    const PROD_VARS = ['NODE_ENV', 'INTEGRATION_SERVICE_ENV', 'INTEGRATION_SERVICE_DATABASE_URL']
 
     afterEach(() => {
         for (const key of PROD_VARS) {
@@ -36,14 +36,24 @@ describe('loadConfig production guards', () => {
         }
     })
 
-    it('refuses to boot in production without INTEGRATION_SERVICE_ENV', () => {
-        process.env.NODE_ENV = 'production'
-        expect(() => loadConfig()).toThrow('INTEGRATION_SERVICE_ENV')
-    })
-
-    it('boots in production once every required variable is set', () => {
+    function setProduction(): void {
         process.env.NODE_ENV = 'production'
         process.env.INTEGRATION_SERVICE_ENV = 'prod-us'
+        process.env.INTEGRATION_SERVICE_DATABASE_URL = 'postgres://usage:usage@localhost:5432/usage'
+    }
+
+    it.each([['INTEGRATION_SERVICE_ENV'], ['INTEGRATION_SERVICE_DATABASE_URL']])(
+        'refuses to boot in production without %s',
+        (missing) => {
+            setProduction()
+            delete process.env[missing]
+
+            expect(() => loadConfig()).toThrow(missing)
+        }
+    )
+
+    it('boots in production once every required variable is set', () => {
+        setProduction()
         expect(loadConfig().env).toBe('prod-us')
     })
 })
