@@ -28,7 +28,8 @@ from . import contracts
 
 if TYPE_CHECKING:
     from posthog.models import User
-    from posthog.rbac.user_access_control import UserAccessControl
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 MAX_NOTEBOOK_MIGRATION_BATCH_SIZE = markdown_migration.MAX_NOTEBOOK_MIGRATION_BATCH_SIZE
 
