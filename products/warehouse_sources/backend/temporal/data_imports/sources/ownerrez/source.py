@@ -9,7 +9,11 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    VersionDeprecation,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -24,6 +28,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
     OwnerrezSourceConfig,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.ownerrez.ownerrez import (
+    OWNERREZ_API_VERSION_V1,
+    OWNERREZ_API_VERSION_V2_0,
     OwnerRezResumeConfig,
     ownerrez_source,
     validate_credentials as validate_ownerrez_credentials,
@@ -39,9 +45,15 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class OwnerrezSource(ResumableSource[OwnerrezSourceConfig, OwnerRezResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
-    # OwnerRez's API is unversioned in practice: paths are pinned under /v2 with no dated
-    # version header, param, or named release to declare.
     api_docs_url = "https://api.ownerreservations.com/help/v2"
+
+    supported_versions = (OWNERREZ_API_VERSION_V1, OWNERREZ_API_VERSION_V2_0)
+    default_version = OWNERREZ_API_VERSION_V2_0
+    # OwnerRez has deprecated its v1.x API, but this client has only ever built /v2 paths, so the
+    # "v1" and "v2.0" pins are request-identical. No vendor sunset date is published, so this
+    # advisory deprecation just lights up the generic banner and repins pins to the label that
+    # matches the wire.
+    deprecated_versions = (VersionDeprecation(version=OWNERREZ_API_VERSION_V1, sunset_at=None),)
 
     @property
     def source_type(self) -> ExternalDataSourceType:
