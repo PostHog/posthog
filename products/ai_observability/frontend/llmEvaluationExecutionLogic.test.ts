@@ -7,9 +7,8 @@ import { initKeaTests } from '~/test/init'
 
 import { llmEvaluationExecutionLogic } from './llmEvaluationExecutionLogic'
 
-// The loader handler in `initKea` builds its toast out of `detail` or `statusText`, so a reply
-// carrying neither leaves it with nothing to say. Each of these answers the request without ever
-// reaching the endpoint, and a guard keyed on the status alone would let all three pass silently.
+// A guard keyed on the status alone lets all three pass silently, because the shared handler has
+// no `detail` or `statusText` to render for them.
 const NOTHING_FOR_THE_SHARED_HANDLER: [string, () => Response][] = [
     [
         'a proxy answering in HTML',
@@ -42,8 +41,7 @@ describe('llmEvaluationExecutionLogic', () => {
         jest.restoreAllMocks()
     })
 
-    // The endpoint answers in DRF's shape, so the shared handler renders the reason. Toasting here
-    // as well would show the user the same sentence twice.
+    // A local toast here as well would show the user the same sentence twice.
     it('leaves a refused run to the shared handler', async () => {
         runResponse = [
             400,

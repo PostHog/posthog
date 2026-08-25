@@ -237,9 +237,7 @@ class TestEvaluationRunViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         body = response.json()
         assert target in body["detail"]
-        # Spelled out rather than compared against the constant, which would move with it. A caller
-        # keys off this string to tell the refusal apart from a malformed request, so changing it
-        # breaks them and should fail here.
+        # Spelled out rather than compared against the constant, which would move with it.
         assert body["code"] == "evaluation_target_mismatch"
 
     def test_create_evaluation_run_missing_params(self):
@@ -253,7 +251,6 @@ class TestEvaluationRunViewSet(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         body = response.json()
-        # The rejected field travels in `attr`, so a caller can point at the input that was wrong.
         assert body["attr"] == "target_event_id"
         assert body["type"] == "validation_error"
 

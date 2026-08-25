@@ -131,12 +131,9 @@ export const llmEvaluationExecutionLogic = kea<llmEvaluationExecutionLogicType>(
                         lemonToast.success('Evaluation started successfully')
                         return response
                     } catch (error) {
-                        // The endpoint answers in DRF's shape, so the loader handler in `initKea`
-                        // renders the reason and a second toast here would repeat it. That handler
-                        // builds its message out of `detail` or `statusText` though, so a reply
-                        // that carries neither leaves it with nothing to say: a proxy answering in
-                        // HTML, a gateway answering with an empty body, or a request that never
-                        // reached the backend at all. Those are only visible from here.
+                        // `initKea`'s loader handler renders `detail` or `statusText`, so toasting
+                        // here as well would repeat it. A reply carrying neither leaves that
+                        // handler silent, which is the case this covers.
                         if (!(error instanceof ApiError) || !(error.detail || error.statusText)) {
                             lemonToast.error('Failed to start evaluation')
                         }

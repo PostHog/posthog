@@ -31,8 +31,7 @@ from ..models.evaluations import Evaluation, EvaluationTarget
 
 logger = structlog.get_logger(__name__)
 
-# A stable code lets a caller tell this refusal apart from every other 400 this endpoint answers
-# with, which a message match cannot survive a rewording of the copy.
+# Callers match on this to tell the refusal from a malformed request, so renaming it breaks them.
 EVALUATION_TARGET_MISMATCH_CODE = "evaluation_target_mismatch"
 
 EVALUATION_WORKFLOW_PREFIXES = {
@@ -201,8 +200,8 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 target_event_id=target_event_id,
                 error=str(e),
             )
-            # The shared frontend handler prefixes this with the action, so a message that repeats
-            # "failed to start" reads back as "Run evaluation failed: Failed to start evaluation".
+            # The frontend prefixes this with the action name, so "Failed to start evaluation" here
+            # would read back as "Run evaluation failed: Failed to start evaluation".
             raise APIException("The evaluation service is unavailable. Try again in a moment.") from e
 
     def _fetch_event_for_evaluation(self, where_clauses: list[str], params: dict[str, object]) -> dict:
