@@ -80,55 +80,19 @@ jobs:
             # `-c /dev/null` skips the repo pytest.ini (its --reuse-db addopt needs
             # pytest-django, which we don't install here). `--noconftest` skips the
             # root conftest.py, whose autouse fixtures import the posthog package
-            # (and thus Django) — not installed in this lightweight job. The
-            # existence filter drops a file an unrebased PR predates, rather than
-            # failing on it.
+            # (and thus Django) — not installed in this lightweight job. The tools/
+            # files stay explicit: a tools glob would double-run the dagster and
+            # playwright selection tests (they run in ci-dagster and
+            # ci-e2e-playwright) and collect test_selection_verdict.py, which is
+            # the script under test, not a test.
             - name: Python script tests
               run: |
-                  set -euo pipefail
-                  files=(
-                      .github/scripts/test_schema_usage_scan.py
-                      .github/scripts/test_report_test_timings.py
-                      .github/scripts/test_report_workflow_run_traces.py
-                      .github/scripts/test_optimize_test_durations.py
-                      tools/test_snob_backend_test_selection_shadow.py
+                  python3 -m pytest -v -c /dev/null -p no:cacheprovider --noconftest \
+                      .github/scripts/test_*.py \
+                      tools/test_snob_backend_test_selection_shadow.py \
                       tools/test_test_selection_verdict.py
-                  )
-                  present=()
-                  for file in "${files[@]}"; do [ -e "$file" ] && present+=("$file"); done
-                  if [ "${#present[@]}" -eq 0 ]; then
-                      echo "None of the listed test files exist; skipping instead of letting pytest discover the whole repo"
-                      exit 0
-                  fi
-                  python3 -m pytest "${present[@]}" -v -c /dev/null -p no:cacheprovider --noconftest
 
             # schema-impact.test.js shells out to schema_usage_scan.py via the same
-            # preinstalled python3. The existence filter drops a file an unrebased
-            # PR predates, rather than failing on it.
+            # preinstalled python3.
             - name: Node script tests
-              run: |
-                  set -euo pipefail
-                  files=(
-                      .github/scripts/schema-impact.test.js
-                      .github/scripts/ci-alerts-devex.test.js
-                      .github/scripts/monitor-github-rate-limit.test.js
-                      .github/scripts/label-pr-from-title.test.js
-                      .github/scripts/assign-reviewers.test.js
-                      .github/scripts/post-ci-sections.test.mjs
-                      .github/scripts/weekly-flaky-report.test.mjs
-                      .github/scripts/weekly-slow-tests-report.test.mjs
-                      .github/scripts/patch-cli-npm-installer.test.mjs
-                      .github/scripts/turbo-discover-cascade.test.js
-                      .github/scripts/turbo-discover.test.js
-                      .github/scripts/turbo-discover-staleness.test.js
-                      .github/scripts/turbo-discover-sizing.test.js
-                      .github/scripts/selected-django-shards.test.js
-                      .github/scripts/trunk-impacted-targets.test.js
-                  )
-                  present=()
-                  for file in "${files[@]}"; do [ -e "$file" ] && present+=("$file"); done
-                  if [ "${#present[@]}" -eq 0 ]; then
-                      echo "None of the listed test files exist; skipping instead of letting node --test discover the whole repo"
-                      exit 0
-                  fi
-                  node --test "${present[@]}"
+              run: node --test .github/scripts/*.test.js .github/scripts/*.test.mjs
