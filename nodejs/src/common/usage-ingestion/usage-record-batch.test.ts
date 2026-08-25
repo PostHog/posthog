@@ -64,6 +64,31 @@ describe('UsageRecordBatch', () => {
         expect(client.ingest).toHaveBeenCalledTimes(1)
     })
 
+    it('waits for a record queued while it is already flushing', async () => {
+        const b = batch()
+        let acknowledgeFirst!: (info: object) => void
+        let acknowledgeSecond!: (info: object) => void
+        const first = new Promise<object>((resolve) => (acknowledgeFirst = resolve))
+        const second = new Promise<object>((resolve) => (acknowledgeSecond = resolve))
+
+        b.addAfterAcknowledgements([first], 1, 'events', 'uuid-1')
+        const flush = b.flush()
+        // A Kafka write acknowledged after the flush started still belongs to this batch:
+        // nothing flushes it later, because the batch is discarded once this flush returns.
+        b.addAfterAcknowledgements([second], 1, 'events', 'uuid-2')
+        acknowledgeFirst({})
+        await new Promise((resolve) => setImmediate(resolve))
+        acknowledgeSecond({})
+        await flush
+
+        expect(
+            ingested
+                .flat()
+                .map((record) => record.recordId)
+                .sort()
+        ).toEqual(['uuid-1', 'uuid-2'])
+    })
+
     it('sends nothing when no client is configured', async () => {
         const b = new UsageRecordBatch(null, { unit: 'events', isTeamEnabled: () => true })
         b.add(1, 'events', 'uuid-1')
