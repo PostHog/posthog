@@ -69,6 +69,11 @@
                                             "description": "ID of the Slack integration whose bot posts this scout's findings and reports.",
                                             "minimum": 1,
                                             "type": "number"
+                                        },
+                                        "thread_reports": {
+                                            "default": false,
+                                            "description": "When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post.",
+                                            "type": "boolean"
                                         }
                                     },
                                     "required": ["integration_id"],
@@ -79,6 +84,24 @@
                                 }
                             ],
                             "description": "Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery."
+                        },
+                        "webhook": {
+                            "anyOf": [
+                                {
+                                    "properties": {
+                                        "hog_function_id": {
+                                            "description": "Id of the CDP destination delivering this scout's reports. Set by the product that provisioned it, so it can find that destination again to update or remove it.",
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": ["hog_function_id"],
+                                    "type": "object"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle."
                         }
                     },
                     "type": "object"

@@ -1,5 +1,5 @@
-// sync with ee/hogai/tools/read_billing_tool/tool.py
-// Values are sent to the `billing` repo as `usage_types`; keep in sync with accepted types in `billing/types/usage.py`.
+// Labels mirror ee/billing/billing_types.py::USAGE_TYPE_OPTIONS.
+// Values are sent to the `billing` repo as `usage_types`; keep in sync with `billing/billing/types/usage.py::SupportedUsageType`.
 export const SPEND_TYPES = [
     { label: 'Events', value: 'event_count_in_period' },
     { label: 'Identified events', value: 'enhanced_persons_event_count_in_period' },
@@ -20,17 +20,16 @@ export const SPEND_TYPES = [
     { label: 'PostHog Desktop credits', value: 'posthog_code_credits_used_in_period' },
     { label: 'Replay vision credits', value: 'replay_vision_credits_used_in_period' },
     { label: 'Workflow emails', value: 'workflow_emails_sent_in_period' },
-    { label: 'Workflow push notifications', value: 'workflow_push_sent_in_period' },
     { label: 'Workflow destinations', value: 'workflow_billable_invocations_in_period' },
     { label: 'Logs ingested (MB)', value: 'logs_mb_in_period' },
     { label: 'Logs 30-day retention (MB)', value: 'logs_retention_30d_mb_in_period' },
 ] as const
 
 export const USAGE_ONLY_TYPES = [
-    { label: 'PostHog Desktop token credits', value: 'posthog_code_token_credits_used_in_period' },
-    { label: 'Sandbox compute credits', value: 'sandbox_compute_credits_used_in_period' },
-    { label: 'Sandbox compute CPU millicore-seconds', value: 'sandbox_compute_cpu_millicore_seconds_in_period' },
-    { label: 'Sandbox compute memory MiB-seconds', value: 'sandbox_compute_memory_mib_seconds_in_period' },
+    { label: 'PostHog Desktop token spend (USD)', value: 'posthog_code_token_credits_used_in_period' },
+    { label: 'Cloud compute spend (USD)', value: 'sandbox_compute_credits_used_in_period' },
+    { label: 'Cloud compute CPU (core-seconds)', value: 'sandbox_compute_cpu_millicore_seconds_in_period' },
+    { label: 'Cloud compute memory (GiB-seconds)', value: 'sandbox_compute_memory_mib_seconds_in_period' },
 ] as const
 
 export const USAGE_TYPES = [...SPEND_TYPES, ...USAGE_ONLY_TYPES] as const

@@ -9,7 +9,7 @@ import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 
-import { validateMetricDescription, validateMetricName } from '../common'
+import { METRIC_FIELD_COPY, validateMetricDescription, validateMetricName } from '../common'
 import { metricsLogic, NewMetricDefinitionType } from '../metricsLogic'
 
 const DEFINITION_TYPE_OPTIONS: { value: NewMetricDefinitionType; label: string }[] = [
@@ -43,44 +43,50 @@ export function NewMetricModal(): JSX.Element {
             <LemonModal.Content>
                 <div className="flex flex-col gap-4">
                     <LemonField.Pure
-                        label="Name"
+                        label={METRIC_FIELD_COPY.name.label}
                         error={newMetricForm.name.trim() ? nameError : undefined}
                         info="A unique identifier for the metric, like monthly_active_users."
                     >
                         <LemonInput
                             value={newMetricForm.name}
                             onChange={(name) => setNewMetricForm({ name })}
-                            placeholder="monthly_active_users"
+                            placeholder={METRIC_FIELD_COPY.name.placeholder}
                             autoFocus
                         />
                     </LemonField.Pure>
 
-                    <LemonField.Pure label="Display name" info="A human-friendly name shown in the catalog.">
+                    <LemonField.Pure
+                        label={METRIC_FIELD_COPY.displayName.label}
+                        info="A human-friendly name shown in the catalog."
+                    >
                         <LemonInput
                             value={newMetricForm.display_name}
                             onChange={(display_name) => setNewMetricForm({ display_name })}
-                            placeholder="Monthly active users"
+                            placeholder={METRIC_FIELD_COPY.displayName.placeholder}
                         />
                     </LemonField.Pure>
 
                     <LemonField.Pure
-                        label="Description"
+                        label={METRIC_FIELD_COPY.description.label}
                         error={descriptionError}
                         info="1-3 sentences: what the metric means and what it serves."
                     >
                         <LemonTextArea
                             value={newMetricForm.description}
                             onChange={(description) => setNewMetricForm({ description })}
-                            placeholder="What this metric measures and how to read it"
+                            placeholder={METRIC_FIELD_COPY.description.placeholder}
                             minRows={2}
                         />
                     </LemonField.Pure>
 
-                    <LemonField.Pure label="Unit" info="How the result is measured, like users, dollars, or percent.">
+                    <LemonField.Pure
+                        label={METRIC_FIELD_COPY.unit.label}
+                        info="How the result is measured, like users, dollars, or percent."
+                    >
                         <LemonInput
                             value={newMetricForm.unit}
                             onChange={(unit) => setNewMetricForm({ unit })}
-                            placeholder="users"
+                            placeholder={METRIC_FIELD_COPY.unit.placeholder}
                         />
                     </LemonField.Pure>
 
@@ -93,13 +99,13 @@ export function NewMetricModal(): JSX.Element {
                     </LemonField.Pure>
 
                     {newMetricForm.definitionType === 'markdown' && (
-                        <LemonBanner type="info">
+                        <LemonBanner type="info" hideIcon>
                             You'll write the definition on the metric page after creating it.
                         </LemonBanner>
                     )}
 
                     {newMetricForm.definitionType === 'sql' && (
-                        <LemonBanner type="info">
+                        <LemonBanner type="info" hideIcon>
                             <div className="flex flex-col items-start gap-2">
                                 <span>Write the query in the SQL editor, then use Save as metric to define it.</span>
                                 <LemonButton

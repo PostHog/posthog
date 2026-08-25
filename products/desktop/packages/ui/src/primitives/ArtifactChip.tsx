@@ -53,6 +53,7 @@ export function ArtifactChip({
         // the download half out of reach.
         className="min-w-0 shrink"
         variant="outline"
+        size="sm"
       >
         {typeof name === "string" && <FileIcon filename={name} size={12} />}
         <span className="min-w-0 truncate">{label}</span>
@@ -61,7 +62,7 @@ export function ArtifactChip({
       {onDownload && (
         <Tooltip content={downloading ? "Downloading…" : "Download"}>
           <Button
-            size="icon"
+            size="icon-sm"
             variant="outline"
             onClick={onDownload}
             disabled={downloading}

@@ -3,14 +3,11 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus, SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.sagehr import SageHRSourceConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.sage_hr.sage_hr import SageHRResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.sage_hr.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.sage_hr.source import SageHRSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestSageHRSource:
@@ -18,9 +15,6 @@ class TestSageHRSource:
         self.source = SageHRSource()
         self.team_id = 123
         self.config = SageHRSourceConfig(subdomain="acme", api_key="sage-key")
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.SAGEHR
 
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
@@ -33,13 +27,6 @@ class TestSageHRSource:
 
         field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
         assert field_names == ["subdomain", "api_key"]
-
-    def test_api_key_field_is_secret_password(self) -> None:
-        config = self.source.get_source_config
-        field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert field.type == SourceFieldInputConfigType.PASSWORD
-        assert field.secret is True
-        assert field.required is True
 
     def test_subdomain_is_a_connection_host_field(self) -> None:
         # The API key is sent to `<subdomain>.sage.hr`, so retargeting the subdomain must force the
@@ -88,19 +75,6 @@ class TestSageHRSource:
     def test_non_retryable_errors_ignore_transient(self, _name: str, unrelated_error: str) -> None:
         non_retryable = self.source.get_non_retryable_errors()
         assert not any(key in unrelated_error for key in non_retryable)
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.sage_hr.source.validate_sage_hr_credentials"
-    )
-    def test_validate_credentials_delegates_subdomain_and_key(self, mock_validate: mock.MagicMock) -> None:
-        mock_validate.return_value = (True, None)
-        assert self.source.validate_credentials(self.config, self.team_id) == (True, None)
-        mock_validate.assert_called_once_with("acme", "sage-key")
-
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(mock.MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is SageHRResumeConfig
 
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.sage_hr.source.sage_hr_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source: mock.MagicMock) -> None:

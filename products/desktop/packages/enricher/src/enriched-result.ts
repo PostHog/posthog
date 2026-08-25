@@ -171,15 +171,27 @@ export class EnrichedResult {
     );
   }
 
-  toInlineComments(): string {
+  toInlineComments(
+    options: {
+      includeEventDescriptions?: boolean;
+      includeExperimentNames?: boolean;
+    } = {},
+  ): string {
+    const includeEventDescriptions = options.includeEventDescriptions ?? true;
+    const includeExperimentNames = options.includeExperimentNames ?? true;
     const flagLookup = new Map<string, EnrichedFlag>();
-    for (const f of this.flags) {
-      flagLookup.set(f.flagKey, f);
+    for (const flag of this.flags) {
+      const experiment = includeExperimentNames ? flag.experiment : undefined;
+      flagLookup.set(flag.flagKey, { ...flag, experiment });
     }
 
     const eventLookup = new Map<string, EnrichedEvent>();
-    for (const e of this.events) {
-      eventLookup.set(e.eventName, e);
+    for (const event of this.events) {
+      const definition =
+        includeEventDescriptions || !event.definition
+          ? event.definition
+          : { ...event.definition, description: null };
+      eventLookup.set(event.eventName, { ...event, definition });
     }
 
     return formatInlineComments(

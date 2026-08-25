@@ -47,6 +47,7 @@ from posthog.models import User
 from posthog.models.instance_setting import get_instance_setting
 from posthog.oauth2_urls import urlpatterns as oauth2_urls
 from posthog.temporal.codec_server import decode_payloads
+from posthog.web_bot_auth import http_message_signatures_directory
 
 from products.ai_observability.backend.api.personal_spend import PersonalSpendEUProxyViewSet
 from products.canvas.backend.artifacts import canvas_artifact
@@ -150,6 +151,14 @@ def _dispatch_installation_event(
     return handle_installation_event(payload)
 
 
+def _dispatch_installation_repositories_event(
+    request: HttpRequest, event_type: str, payload: dict[str, Any], delivery_id: str
+) -> HttpResponse:
+    from posthog.api.github_callback.installation_events import handle_installation_repositories_event
+
+    return handle_installation_repositories_event(payload)
+
+
 def _dispatch_loop_triggers(request: HttpRequest, event_type: str, payload: dict[str, Any], delivery_id: str) -> None:
     from products.tasks.backend.facade.webhooks import handle_github_event_for_loops
 
@@ -179,6 +188,9 @@ GITHUB_WEBHOOK_HANDLERS: dict[str, list[tuple[str, GithubWebhookHandler]]] = {
     ],
     "installation": [
         ("installation_lifecycle", _dispatch_installation_event),
+    ],
+    "installation_repositories": [
+        ("installation_repositories", _dispatch_installation_repositories_event),
     ],
     "push": [
         ("loops", _dispatch_loop_triggers),
@@ -672,6 +684,7 @@ urlpatterns = [
     opt_slash_path("report", report.get_csp_event),  # CSP violation reports
     opt_slash_path("robots.txt", robots_txt),
     opt_slash_path(".well-known/security.txt", security_txt),
+    opt_slash_path(".well-known/http-message-signatures-directory", http_message_signatures_directory),
     # auth
     opt_slash_path("logout", authentication.logout, name="logout"),
     path(

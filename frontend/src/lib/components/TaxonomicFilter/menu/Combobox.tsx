@@ -111,7 +111,7 @@ export const SEARCH_QUERY_DEBOUNCE_MS = 500
  *  matched another is the bug class this file guards against), so they share
  *  this single derivation rather than repeating it. */
 function entryValue(entry: MenuFilterEntry): string {
-    return String(entry.group.getValue?.(entry.item) ?? entry.name)
+    return String(entry.canonicalValue ?? entry.group.getValue?.(entry.item) ?? entry.name)
 }
 
 /** Identity for an entry's underlying definition — source group + value.

@@ -125,6 +125,11 @@ def classify_task_needs_repo(
         r"\bserializer\b",
         r"\bviewset\b",
         r"\bmigration\b",
+        # A failing test is code work, but it is named after the feature it covers, so the
+        # product terms above would answer no-repo first. Keep these narrow: they match the
+        # whole thread, and a bare "ci" would also catch confidence intervals.
+        r"\bflak(?:y|e|es|iness)\b",
+        r"\bmerge queue\b",
     )
 
     if any(term in normalized for term in product_debug_terms) and not any(
@@ -150,7 +155,12 @@ def classify_task_needs_repo(
         "the team's code → no_repo. Important exception: 'wrong data', 'missing events', or "
         "'numbers look off' in PostHog usually means the team's tracking code is broken (wrong "
         "event names, identification logic, SDK setup) — that's a code fix in their repo → "
-        "needs_repo. When in doubt, lean needs_repo=false — code-focused tasks usually carry "
+        "needs_repo.\n\n"
+        "A failing, broken, or flaky CI run, test suite, or build is work in the team's own "
+        "repository → needs_repo, including when the test is named after a PostHog feature "
+        "('the experiment insight test is flaky'): the subject is their test, not our "
+        "product.\n\n"
+        "When in doubt, lean needs_repo=false — code-focused tasks usually carry "
         "explicit signals (file extensions, 'PR', 'commit', framework names, function or class "
         "names). Analytics, data, and configuration asks are the common case and should not send "
         "us hunting for a repository on a guess.\n\n"
@@ -518,17 +528,23 @@ def classify_slack_app_model_override(
 @activity.defn
 @close_db_connections
 def classify_slack_app_model_override_activity(input: SlackAppModelOverrideInput) -> SlackAppModelOverride | None:
-    """Resolve the model the mention asked for, or ``None`` to use saved preferences.
+    """Resolve the model a message asked for, or ``None`` to use saved preferences.
 
-    Runs as its own activity rather than inside task creation so the choice is
-    recorded in workflow history once: task creation retries, and re-running a
-    classifier there could hand the second attempt a different model.
+    Runs as its own activity rather than inside the activity that consumes it so the
+    choice is recorded in workflow history once: both task creation and follow-up
+    forwarding retry, and re-running a classifier there could hand the second attempt a
+    different model than the first one announced. The workflow calls it once, above the
+    point where the mention and follow-up paths diverge.
 
-    Every mention behind the flag reaches the classifier. A keyword pre-filter would
+    Every message behind the flag reaches the classifier. A keyword pre-filter would
     save the Haiku call on the majority that name no model, but it also decides — on
     a substring match — which phrasings can ever steer a run, and that judgement
-    belongs to the model reading the sentence, not to a word list.
+    belongs to the model reading the sentence, not to a word list. Blank text is not
+    that judgement: there is no sentence to read.
     """
+    if not input.event_text.strip():
+        return None
+
     integration = Integration.objects.select_related("team").get(
         id=input.integration_id,
         kind="slack",
@@ -541,7 +557,7 @@ def classify_slack_app_model_override_activity(input: SlackAppModelOverrideInput
     if not choices:
         # The gateway is the source of truth for what can run; with no catalogue we
         # cannot validate a request, and guessing is worse than doing nothing.
-        logger.info("slack_app_model_override_empty_catalogue", integration_id=input.integration_id)
+        logger.info("slack_app_model_override_empty_catalogue", integration_id=integration.id)
         return None
 
     override = classify_slack_app_model_override(input.event_text, choices)
@@ -550,7 +566,7 @@ def classify_slack_app_model_override_activity(input: SlackAppModelOverrideInput
 
     logger.info(
         "slack_app_model_override_classified",
-        integration_id=input.integration_id,
+        integration_id=integration.id,
         model=override.model,
         reasoning_effort=override.reasoning_effort,
     )

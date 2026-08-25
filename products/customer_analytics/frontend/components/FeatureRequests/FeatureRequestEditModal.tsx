@@ -20,7 +20,7 @@ export function FeatureRequestEditModal(): JSX.Element {
         editRequestOpen,
         editTitle,
         editDescription,
-        editAccountId,
+        editAccountIds,
         editProductAreaIds,
         editStatus,
         editPriority,
@@ -37,7 +37,7 @@ export function FeatureRequestEditModal(): JSX.Element {
         closeEditRequest,
         setEditTitle,
         setEditDescription,
-        setEditAccountId,
+        setEditAccountIds,
         setAccountSearch,
         setEditProductAreaIds,
         setEditStatus,
@@ -109,14 +109,14 @@ export function FeatureRequestEditModal(): JSX.Element {
                     <LemonTextArea value={editDescription} onChange={setEditDescription} minRows={5} />
                 </div>
                 <div className="flex flex-col gap-1">
-                    <LemonLabel>Account</LemonLabel>
+                    <LemonLabel>Accounts</LemonLabel>
                     <LemonInputSelect
-                        mode="single"
-                        value={editAccountId ? [editAccountId] : []}
-                        onChange={(values) => setEditAccountId(values[0] ?? null)}
+                        mode="multiple"
+                        value={editAccountIds}
+                        onChange={setEditAccountIds}
                         onInputChange={setAccountSearch}
                         options={accountOptions}
-                        placeholder="Search for an account"
+                        placeholder="Search for accounts"
                         loading={accountsLoading}
                         fullWidth
                     />

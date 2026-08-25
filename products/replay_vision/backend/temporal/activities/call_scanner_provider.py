@@ -366,6 +366,7 @@ async def _run_mission(
             "ai_product": "replay_vision",
             "feature": "scanner",
             "scanner_type": snapshot.scanner_type.value,
+            "team_id": team_id,
         },
     )
     cache_client = GoogleGenAIClient(api_key=api_key)

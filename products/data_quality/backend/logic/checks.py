@@ -169,8 +169,13 @@ def soft_delete_check(check: DataQualityCheck) -> None:
     check.save(update_fields=["deleted", "deleted_at", "enabled", "updated_at"])
 
 
-def checks_for_subject(team_id: int, subject_type: str, subject_uuid: str | UUID) -> QuerySet[DataQualityCheck]:
-    return DataQualityCheck.objects.for_team(team_id).filter(deleted=False, **_subject_fk(subject_type, subject_uuid))
+def checks_for_subject(
+    team_id: int, subject_type: str, subject_uuid: str | UUID, include_deleted: bool = False
+) -> QuerySet[DataQualityCheck]:
+    queryset = DataQualityCheck.objects.for_team(team_id).filter(**_subject_fk(subject_type, subject_uuid))
+    # A soft-deleted check's past runs still sit in the aggregate counts of suites it ran in, so
+    # authorization over a *historical* suite has to see it too, even though it no longer runs.
+    return queryset if include_deleted else queryset.filter(deleted=False)
 
 
 def subject_health(team_id: int, subject_type: str, subject_uuid: str | UUID) -> SubjectHealth:

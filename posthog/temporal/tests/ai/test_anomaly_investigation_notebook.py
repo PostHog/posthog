@@ -4,7 +4,7 @@ from posthog.temporal.ai.anomaly_investigation.notebook import NotebookRenderCon
 from posthog.temporal.ai.anomaly_investigation.report import InvestigationHypothesis, InvestigationReport
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestAnomalyInvestigationNotebook(BaseTest):

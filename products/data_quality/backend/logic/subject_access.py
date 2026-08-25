@@ -12,12 +12,14 @@ from typing import TYPE_CHECKING, Any, Optional
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.schema.information_schema import _references_denied_table
 
-from .registry import get_spec
+from .registry import all_specs, get_spec
+from .spec import CheckTypeSpec
 from .subjects import resolve_subject
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
-    from posthog.rbac.user_access_control import UserAccessControl
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 def denied_subject_names(
@@ -34,6 +36,44 @@ def denied_subject_names(
 def is_subject_denied(subject_name: str, denied: set[str]) -> bool:
     """Whether a check's subject is in the caller's denied set, matched the same way the loaders match."""
     return _references_denied_table([subject_name], denied)
+
+
+# A check type reads beyond its declared subject only if it overrides one of these hooks: a
+# ``relationships`` check names a target subject, a ``custom_sql`` query selects arbitrary tables.
+# Derived from the specs rather than hard-coded so a new referencing type can't silently slip the net.
+_REFERENCING_CHECK_TYPES: frozenset[str] = frozenset(
+    str(spec.type_name)
+    for spec in all_specs()
+    if type(spec).related_subject_ref is not CheckTypeSpec.related_subject_ref
+    or type(spec).referenced_table_names is not CheckTypeSpec.referenced_table_names
+)
+
+
+def check_type_reads_beyond_subject(check_type: str) -> bool:
+    """Whether this check type can read warehouse objects other than its declared subject.
+
+    Used to fail closed when a run's definition was hard-deleted: without the config we can no longer
+    enumerate the referenced subjects, so a ``relationships`` or ``custom_sql`` run must be treated as
+    if it could touch a denied one."""
+    return check_type in _REFERENCING_CHECK_TYPES
+
+
+def referencing_check_types() -> frozenset[str]:
+    """The check types that read beyond their declared subject (``relationships``, ``custom_sql``).
+
+    A cheap pre-filter so a denied-reference scan only parses the config of checks that can carry one,
+    rather than every check on the team."""
+    return _REFERENCING_CHECK_TYPES
+
+
+def check_reads_denied_subject(team_id: int, check_type: str, config: dict[str, Any], denied: set[str]) -> bool:
+    """Whether a check reads any subject *besides its declared one* that the caller is denied.
+
+    The single test the health rollup and suite-summary guards share, so the REST endpoint and the
+    ``information_schema`` tables stay in lock-step about which referencing checks a member may see."""
+    if not denied:
+        return False
+    return any(is_subject_denied(name, denied) for name in referenced_subject_names(team_id, check_type, config))
 
 
 def referenced_subject_names(team_id: int, check_type: str, config: dict[str, Any]) -> list[str]:

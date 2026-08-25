@@ -11,11 +11,11 @@ from asgiref.sync import async_to_sync
 from temporalio.common import WorkflowIDReusePolicy
 
 from posthog.models import Team, User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.storage import object_storage
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.exports.backend.models.exported_asset import (
     DATASET_EXPORT_KIND as DATASET_EXPORT_KIND,
     ExportedAsset,
@@ -27,7 +27,7 @@ from products.exports.backend.tasks.failure_handler import (
     InvalidExportContext as InvalidExportContext,
     RetryableExportError as RetryableExportError,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 logger = structlog.get_logger(__name__)
 

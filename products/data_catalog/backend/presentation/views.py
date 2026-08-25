@@ -30,6 +30,9 @@ from ..facade.models import Metric, RelationshipProposal, TableCertification
 from .serializers import (
     CertificationCreateSerializer,
     CertificationSerializer,
+    MetricBulkApproveResponseSerializer,
+    MetricBulkDeleteResponseSerializer,
+    MetricBulkNamesRequestSerializer,
     MetricRunQuerySerializer,
     MetricRunRequestSerializer,
     MetricRunResponseSerializer,
@@ -41,6 +44,21 @@ from .serializers import (
 # Kinds that execute a ClickHouse query through the trends/funnels pipeline (node kinds run as a
 # wrapped single-series trends query).
 _STRUCTURED_QUERY_KINDS = {*INSIGHT_DEFINITION_KINDS, *NODE_DEFINITION_KINDS}
+
+
+def _resolve_bulk_metrics(
+    queryset: QuerySet[Metric], names: list[str]
+) -> tuple[list[Metric], list[api.MetricBulkSkip]]:
+    """Resolve names against a team-scoped queryset, deduped, in request order.
+
+    Shared by both bulk metric actions, so a name that resolves for one resolves for the other.
+    """
+    requested = list(dict.fromkeys(names))
+    by_name = {metric.name: metric for metric in queryset.filter(name__in=requested)}
+    return (
+        [by_name[name] for name in requested if name in by_name],
+        [api.MetricBulkSkip(name=name, reason=api.BULK_SKIP_NOT_FOUND) for name in requested if name not in by_name],
+    )
 
 
 class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -143,6 +161,45 @@ class MetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         """Bless a metric as canonical. Returns 409 while the metric is drifted from its insight."""
         metric = api.approve_metric(self.get_object(), cast(User, request.user), request=request)
         return Response(self.get_serializer(metric).data)
+
+    # DRF routes detail=False actions before the {name} detail route, so these paths can't be
+    # shadowed by a metric literally named bulk_approve.
+    @action(
+        detail=False,
+        methods=["POST"],
+        required_scopes=["data_catalog_approval:write", "data_catalog:read"],
+        request=MetricBulkNamesRequestSerializer,
+        responses={200: MetricBulkApproveResponseSerializer},
+    )
+    @validated_request(request_serializer=MetricBulkNamesRequestSerializer)
+    def bulk_approve(self, request: ValidatedRequest, **kwargs) -> Response:
+        """Approve many metrics as canonical. Unknown, already-approved, and drifted metrics are skipped."""
+        metrics, unresolved = _resolve_bulk_metrics(self.get_queryset(), request.validated_data["names"])
+        approved, skipped = api.bulk_approve_metrics(metrics, cast(User, request.user), request=request)
+        # Approval is gated on a drift check over the same locked rows, so every metric in
+        # `approved` is in lockstep with its insight; recomputing would be a second bulk query.
+        context = {**self.get_serializer_context(), "drift_map": {metric.id: False for metric in approved}}
+        payload = MetricBulkApproveResponseSerializer(
+            {"approved": approved, "skipped": [*unresolved, *skipped]}, context=context
+        )
+        return Response(payload.data)
+
+    @action(
+        detail=False,
+        methods=["POST"],
+        required_scopes=["data_catalog:write"],
+        request=MetricBulkNamesRequestSerializer,
+        responses={200: MetricBulkDeleteResponseSerializer},
+    )
+    @validated_request(request_serializer=MetricBulkNamesRequestSerializer)
+    def bulk_delete(self, request: ValidatedRequest, **kwargs) -> Response:
+        """Delete many metrics, freeing their names for reuse. Unknown metrics are skipped."""
+        metrics, unresolved = _resolve_bulk_metrics(self.get_queryset(), request.validated_data["names"])
+        deleted, skipped = api.bulk_soft_delete_metrics(metrics, cast(User, request.user), request=request)
+        payload = MetricBulkDeleteResponseSerializer(
+            {"deleted": [metric.name for metric in deleted], "skipped": [*unresolved, *skipped]}
+        )
+        return Response(payload.data)
 
     @action(
         detail=True,

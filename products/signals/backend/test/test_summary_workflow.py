@@ -16,6 +16,7 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.models import Organization, Team
 from posthog.sync import database_sync_to_async
 
+from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.models import SignalReport
 from products.signals.backend.quota import SelfDrivingQuotaGate
 from products.signals.backend.report_generation.research import ActionabilityChoice
@@ -82,6 +83,29 @@ async def test_check_activity_returns_enforced(ateam, enforced):
             CheckReportQuotaGateInput(team_id=ateam.id, report_id=str(uuid.uuid4()), stage="summary_entry")
         )
     assert result is enforced
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_check_activity_pauses_on_daily_limit_with_billing_clear(ateam):
+    # The daily report limit must pause the run on its own: it has no enforcement flag, so
+    # `limited` alone blocks even while the billing quota gate stays clear.
+    with (
+        patch(
+            f"{SUMMARY_MODULE_PATH}.daily_report_limit_gate",
+            return_value=DailyReportLimitGate(limited=True, limit=3, reports_today=3),
+        ),
+        patch("products.signals.backend.daily_limit.posthoganalytics.capture") as capture,
+    ):
+        result = await check_report_quota_gate_activity(
+            CheckReportQuotaGateInput(team_id=ateam.id, report_id=str(uuid.uuid4()), stage="pre_research")
+        )
+    assert result is True
+    assert capture.call_args.kwargs["event"] == "signal_report_daily_limit_paused"
+    properties = capture.call_args.kwargs["properties"]
+    assert properties["stage"] == "pre_research"
+    assert properties["limit"] == 3
+    assert properties["reports_today"] == 3
 
 
 @pytest.mark.asyncio

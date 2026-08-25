@@ -1,6 +1,6 @@
 import api from 'lib/api'
 
-import { ExportedAssetType } from '~/types'
+import { ExportedAssetType, InsightShortId } from '~/types'
 
 export function downloadBlob(content: Blob, filename: string): void {
     const anchor = document.createElement('a')
@@ -42,4 +42,9 @@ export function downloadExportedAsset(asset: ExportedAssetType): void {
     }, 0)
 }
 
-export type TriggerExportProps = Pick<ExportedAssetType, 'export_format' | 'dashboard' | 'insight' | 'export_context'>
+export type TriggerExportProps = Pick<
+    ExportedAssetType,
+    'export_format' | 'dashboard' | 'insight' | 'export_context'
+> & {
+    insightShortId?: InsightShortId
+}

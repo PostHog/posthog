@@ -11,7 +11,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.schema_migrations import LATEST_VERSIONS, _discover_migrations
 from posthog.schema_migrations.upgrade import upgrade
 
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 LOGGER = get_logger(__name__)
 

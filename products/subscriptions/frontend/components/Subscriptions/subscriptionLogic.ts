@@ -10,6 +10,7 @@ import { dayjs } from 'lib/dayjs'
 import { recordRecentSlackChannel, slackChannelId } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { isEmail } from 'lib/utils/url'
 import { getInsightId } from 'scenes/insights/utils'
@@ -28,14 +29,15 @@ import type { SubscriptionResourceType, UserBasicType, WeekdayType } from '../..
 import type { OrganizationType, UserType } from '../../../../../frontend/src/types'
 import type { AIPromptConfigApi } from '../../generated/api.schemas'
 import { runSubscriptionTestDelivery } from './runSubscriptionTestDelivery'
+import { SUBSCRIPTION_PREFILL_PARAMS } from './subscriptionNudge'
 import { subscriptionsLogic } from './subscriptionsLogic'
-import {
-    ALL_DAYS,
-    AI_PROMPT_MAX_LENGTH,
-    SUBSCRIPTION_PREFILL_PARAMS,
-    SubscriptionBaseProps,
-    urlForSubscription,
-} from './utils'
+import { ALL_DAYS, AI_PROMPT_MAX_LENGTH, SubscriptionBaseProps, urlForSubscription } from './utils'
+
+// Spelled out rather than interpolated, so the event a metric is configured against is greppable.
+const EXPORT_NUDGE_CLICKED_EVENTS = {
+    dashboard: 'dashboard export nudge clicked',
+    insight: 'insight export nudge clicked',
+} as const
 
 function validatePrompt(
     resource_type: SubscriptionType['resource_type'],
@@ -837,11 +839,16 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             if (searchParams.resource_type === SubscriptionResourceTypes.AiPrompt) {
                 actions.setSubscriptionValue('resource_type', SubscriptionResourceTypes.AiPrompt)
             }
-            // ?prefill=nudge is set by the subscribe-nudge notification / toast, possibly opened in a
-            // fresh session days later — the prefill is built here from URL + context, not kea state.
+            const nudgeSubject = props.dashboardId ? 'dashboard' : props.insightShortId ? 'insight' : null
+            // The route pattern matches any subject's page, so without this a logic keyed to another
+            // insight or dashboard prefills and reports the click for someone else's nudge.
+            const isOwnSubject =
+                removeProjectIdIfPresent(router.values.location.pathname) ===
+                urlForSubscription('new', { dashboardId: props.dashboardId, insightShortId: props.insightShortId })
             if (
                 searchParams[SUBSCRIPTION_PREFILL_PARAMS.param] === SUBSCRIPTION_PREFILL_PARAMS.nudge &&
-                props.dashboardId
+                nudgeSubject &&
+                isOwnSubject
             ) {
                 // Consume the params before applying: the replace synchronously re-enters this
                 // handler (resetting the form to plain defaults), and it also makes a later refresh
@@ -853,7 +860,12 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 } = router.values.searchParams
                 router.actions.replace(router.values.location.pathname, restSearchParams, router.values.hashParams)
                 const prefill: Partial<SubscriptionType> = {
-                    title: `${props.dashboardName || 'Dashboard'} weekly digest`,
+                    // Only dashboards reach this route with a name in hand, so an insight's
+                    // subscription is named for the schedule rather than for the insight.
+                    title:
+                        nudgeSubject === 'dashboard'
+                            ? `${props.dashboardName || 'Dashboard'} weekly digest`
+                            : 'Weekly digest',
                     ...(values.user?.email ? { target_value: values.user.email } : {}),
                 }
                 // Goes through setSubscriptionValues (not the loaded baseline) so the form is marked
@@ -861,15 +873,20 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                 // default, so "Create subscription" doesn't require an extra no-op edit to enable.
                 actions.setSubscriptionValues(prefill)
                 cache.prefillBaseline = { ...NEW_SUBSCRIPTION, ...prefill }
-                // Both toast and notification links enter the nudge flow through this route.
-                posthog.capture('dashboard subscribe nudge clicked', {
-                    dashboard_id: props.dashboardId,
-                    prefilled: !!values.user?.email,
-                    via:
-                        searchParams[SUBSCRIPTION_PREFILL_PARAMS.viaParam] === SUBSCRIPTION_PREFILL_PARAMS.viaToast
-                            ? SUBSCRIPTION_PREFILL_PARAMS.viaToast
-                            : SUBSCRIPTION_PREFILL_PARAMS.viaNotification,
-                })
+                const via = searchParams[SUBSCRIPTION_PREFILL_PARAMS.viaParam]
+                posthog.capture(
+                    via === SUBSCRIPTION_PREFILL_PARAMS.viaExport
+                        ? EXPORT_NUDGE_CLICKED_EVENTS[nudgeSubject]
+                        : 'dashboard subscribe nudge clicked',
+                    {
+                        kind: nudgeSubject,
+                        ...(nudgeSubject === 'dashboard'
+                            ? { dashboard_id: props.dashboardId }
+                            : { insight_short_id: props.insightShortId }),
+                        prefilled: !!values.user?.email,
+                        via: via ?? SUBSCRIPTION_PREFILL_PARAMS.viaNotification,
+                    }
+                )
             }
             if (searchParams.target_type) {
                 actions.setSubscriptionValue('target_type', searchParams.target_type)

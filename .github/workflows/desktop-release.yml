@@ -42,7 +42,7 @@ jobs:
                     echo "Release desktop-v$APP_VERSION already exists — reusing it"
                   else
                     gh release create "desktop-v$APP_VERSION" --repo "$GITHUB_REPOSITORY" --draft \
-                      --title "v$APP_VERSION" --notes "Release v$APP_VERSION (build in progress)"
+                      --title "desktop-v$APP_VERSION" --notes "Release v$APP_VERSION (build in progress)"
                   fi
 
     publish-macos:
@@ -736,7 +736,8 @@ jobs:
                   CURRENT_TAG="desktop-v$APP_VERSION"
                   node .github/scripts/desktop/generate-release-notes.mjs "$CURRENT_TAG" > /tmp/release-notes.md
                   node products/desktop/apps/code/scripts/generate-release-download-tables.mjs /tmp/checksums >> /tmp/release-notes.md
-                  gh release edit "desktop-v$APP_VERSION" --repo "$GITHUB_REPOSITORY" --draft=false --notes-file /tmp/release-notes.md
+                  gh release edit "desktop-v$APP_VERSION" --repo "$GITHUB_REPOSITORY" --draft=false \
+                    --title "desktop-v$APP_VERSION" --notes-file /tmp/release-notes.md
 
             - name: Download windows manifest
               uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
@@ -803,17 +804,17 @@ jobs:
                     echo "| Artifact | URL |"
                     echo "| --- | --- |"
                     for f in \
-                      "PostHog-Code-$V-arm64-mac.dmg" \
-                      "PostHog-Code-$V-arm64-mac.zip" \
-                      "PostHog-Code-$V-x64-mac.dmg" \
-                      "PostHog-Code-$V-x64-mac.zip" \
-                      "PostHog-Code-$V-x64-win.exe" \
-                      "PostHog-Code-$V-arm64-linux.AppImage" \
-                      "PostHog-Code-$V-arm64-linux.deb" \
-                      "PostHog-Code-$V-arm64-linux.rpm" \
-                      "PostHog-Code-$V-x64-linux.AppImage" \
-                      "PostHog-Code-$V-x64-linux.deb" \
-                      "PostHog-Code-$V-x64-linux.rpm" \
+                      "PostHog-Desktop-$V-arm64-mac.dmg" \
+                      "PostHog-Desktop-$V-arm64-mac.zip" \
+                      "PostHog-Desktop-$V-x64-mac.dmg" \
+                      "PostHog-Desktop-$V-x64-mac.zip" \
+                      "PostHog-Desktop-$V-x64-win.exe" \
+                      "PostHog-Desktop-$V-arm64-linux.AppImage" \
+                      "PostHog-Desktop-$V-arm64-linux.deb" \
+                      "PostHog-Desktop-$V-arm64-linux.rpm" \
+                      "PostHog-Desktop-$V-x64-linux.AppImage" \
+                      "PostHog-Desktop-$V-x64-linux.deb" \
+                      "PostHog-Desktop-$V-x64-linux.rpm" \
                       "latest-mac.yml" \
                       "latest.yml" \
                       "releases.json"; do
@@ -835,7 +836,7 @@ jobs:
 
                   DESCRIPTION=$(python3 -c "content = open('/tmp/release-notes.md', encoding='utf-8').read(); print(content[:4000], end='')")
                   jq -n \
-                    --arg title "PostHog Code v$APP_VERSION" \
+                    --arg title "PostHog Desktop v$APP_VERSION" \
                     --arg url "https://github.com/$GITHUB_REPOSITORY/releases/tag/desktop-v$APP_VERSION" \
                     --arg description "$DESCRIPTION" \
                     '{embeds: [{title: $title, url: $url, description: $description, color: 2105893}]}' \

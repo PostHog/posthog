@@ -5,7 +5,6 @@ import {
   ActivityIndicator,
   FlatList,
   Pressable,
-  ScrollView,
   TextInput,
   View,
 } from "react-native";
@@ -18,14 +17,6 @@ import Animated, {
 import { useThemeColors } from "@/lib/theme";
 import type { RepositoryOption } from "../types";
 
-// Tuning for the nested (ScrollView) path's progressive mount. The first
-// chunk needs to cover the rows the user can actually see (~5 with the
-// 240px height cap) plus a small buffer so a quick flick scroll doesn't
-// hit empty space. Subsequent chunks fill in over the next few frames.
-const NESTED_INITIAL_RENDER = 30;
-const NESTED_RENDER_CHUNK = 100;
-const NESTED_RENDER_INTERVAL_MS = 16;
-
 interface RepositoryPickerInlineProps {
   open: boolean;
   repositoryOptions: RepositoryOption[];
@@ -36,12 +27,6 @@ interface RepositoryPickerInlineProps {
   /** True when we're rendering cached data while a background refetch runs.
    *  Surfaces as a small spinner badge instead of a blocking state. */
   isRefreshing?: boolean;
-  /** Set when this picker lives inside a parent `ScrollView`/`FlatList` of
-   *  the same orientation (e.g. the automation form). Disables the
-   *  internal `FlatList` and uses a plain `ScrollView` instead, since
-   *  React Native warns about nested VirtualizedLists. Default `false`
-   *  keeps `FlatList`'s windowing so opening with many repos is instant. */
-  nested?: boolean;
   onChange: (option: RepositoryOption) => void;
   onClose: () => void;
 }
@@ -59,7 +44,6 @@ export function RepositoryPickerInline({
   selected,
   loading,
   isRefreshing,
-  nested = false,
   onChange,
   onClose,
 }: RepositoryPickerInlineProps) {
@@ -116,39 +100,6 @@ export function RepositoryPickerInline({
     return () => clearTimeout(t);
   }, [open]);
 
-  // Progressive row mount for the nested (ScrollView) path. Without this,
-  // opening the picker on a screen with hundreds of repos would block the
-  // entrance animation while every row materializes synchronously. We
-  // mount a small first batch (enough to fill the visible area), then
-  // grow the slice every frame until the list is complete. The FlatList
-  // path doesn't need this because `initialNumToRender` already windows
-  // its initial mount.
-  const [nestedRenderedCount, setNestedRenderedCount] = useState(
-    NESTED_INITIAL_RENDER,
-  );
-  // Reset whenever the picker reopens or the filtered set changes (e.g.
-  // the user typed a query, or new data arrived from a background
-  // refetch). Reusing a stale `renderedCount` across filter changes would
-  // either show too few rows (after broadening the filter) or be wasted.
-  useEffect(() => {
-    if (!nested) return;
-    if (!open) return;
-    setNestedRenderedCount(NESTED_INITIAL_RENDER);
-  }, [nested, open]);
-  useEffect(() => {
-    if (!nested) return;
-    if (!open) return;
-    if (nestedRenderedCount >= filtered.length) return;
-    const t = setTimeout(() => {
-      setNestedRenderedCount((current) =>
-        Math.min(current + NESTED_RENDER_CHUNK, filtered.length),
-      );
-    }, NESTED_RENDER_INTERVAL_MS);
-    return () => clearTimeout(t);
-  }, [nested, open, nestedRenderedCount, filtered.length]);
-
-  // Hoisted row renderer so both the ScrollView and FlatList paths share
-  // identical row markup without duplicating the closure.
   const renderRow = (item: RepositoryOption) => {
     const isSelected =
       item.integrationId === selected?.integrationId &&
@@ -247,26 +198,9 @@ export function RepositoryPickerInline({
               : "No repositories available"}
           </Text>
         </View>
-      ) : nested ? (
-        // ScrollView path — used when the picker lives inside a parent
-        // ScrollView (e.g. the automation form). Plain `.map()` because
-        // RN warns about nested VirtualizedLists. Rows are mounted
-        // progressively via `nestedRenderedCount` so opening with many
-        // repos doesn't block the entrance animation.
-        <ScrollView
-          style={{ maxHeight: 240 }}
-          contentContainerStyle={{ paddingVertical: 4 }}
-          keyboardShouldPersistTaps="handled"
-          nestedScrollEnabled
-        >
-          {filtered
-            .slice(0, nestedRenderedCount)
-            .map((item) => renderRow(item))}
-        </ScrollView>
       ) : (
-        // FlatList path — default. Windowing keeps the open animation
-        // snappy even when the user has hundreds of repos, by only
-        // mounting the visible rows up front.
+        // Windowing keeps the open animation snappy even when the user has
+        // hundreds of repos, by only mounting the visible rows up front.
         <FlatList
           data={filtered}
           keyExtractor={(item) => `${item.integrationId}:${item.repository}`}

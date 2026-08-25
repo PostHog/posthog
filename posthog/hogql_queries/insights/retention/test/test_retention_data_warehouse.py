@@ -13,6 +13,7 @@ from posthog.test.base import (
 )
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.insights.retention.retention_query_runner import RetentionQueryRunner
@@ -252,6 +253,50 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
             "targetEntity": entity("signed_up"),
             "returningEntity": entity("renewed"),
         }
+
+    def _activity_table_with_timestamp_type(self, column_type: str, occurred_at: list[object]) -> str:
+        person_ids = self._create_people()
+        suffix = "".join(c for c in column_type.lower() if c.isalnum())
+        return self._create_data_warehouse_table(
+            filename=f"warehouse_activity_ts_{suffix}.csv",
+            table_name=f"warehouse_activity_ts_{suffix}",
+            header=["id", "person_id", "activity_type", "occurred_at"],
+            rows=[
+                [1, person_ids["user-1"], "signed_up", occurred_at[0]],
+                [2, person_ids["user-2"], "signed_up", occurred_at[1]],
+                [3, person_ids["user-1"], "renewed", occurred_at[2]],
+                [4, person_ids["user-2"], "renewed", occurred_at[3]],
+            ],
+            table_columns={
+                "id": "Int64",
+                "person_id": "UUID",
+                "activity_type": "String",
+                "occurred_at": column_type,
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("integer", "Int64", [1735722000, 1735725600, 1735815600, 1735905600]),
+            (
+                "string",
+                "String",
+                ["2025-01-01 09:00:00", "2025-01-01 10:00:00", "2025-01-02 12:00:00", "2025-01-03 12:00:00"],
+            ),
+        ]
+    )
+    def test_non_datetime_timestamp_field_is_rejected(self, _name: str, column_type: str, occurred_at: list[object]):
+        # Both types reach toStartOfInterval and fail inside ClickHouse without this check, quoting
+        # generated SQL rather than naming the column the user picked.
+        table = self._activity_table_with_timestamp_type(column_type, occurred_at)
+
+        with self.assertRaisesMessage(ValidationError, "isn't a date or datetime column"):
+            self.run_query(
+                query={
+                    "dateRange": {"date_from": "2025-01-01T00:00:00Z", "date_to": "2025-01-05T00:00:00Z"},
+                    "retentionFilter": self._activity_retention_filter(table),
+                }
+            )
 
     @snapshot_clickhouse_queries
     def test_retention_data_warehouse_breakdown_by_warehouse_column(self):
@@ -936,12 +981,15 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(result[0]["values"][1]["count"], 2)
         self.assertEqual(result[0]["values"][1]["aggregation_value"], expected_aggregation_values[1])
 
+    # A warehouse actor column typed anything other than UUID has no common type with events.person_id,
+    # so the arms' actor_id must be coerced before the UNION ALL is grouped.
+    @parameterized.expand([("UUID",), ("String",)])
     @snapshot_clickhouse_queries
-    def test_retention_data_warehouse_and_events(self):
+    def test_retention_data_warehouse_and_events(self, actor_column_type: str):
         person_ids = self._create_people()
         signups_table_name = self._create_data_warehouse_table(
-            filename="warehouse_event_mix_signups.csv",
-            table_name="warehouse_event_mix_signups",
+            filename=f"warehouse_event_mix_signups_{actor_column_type}.csv",
+            table_name=f"warehouse_event_mix_signups_{actor_column_type.lower()}",
             header=["id", "person_id", "signed_up_at"],
             rows=[
                 [1, person_ids["user-1"], "2025-01-01 09:00:00"],
@@ -951,7 +999,7 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
             ],
             table_columns={
                 "id": "Int64",
-                "person_id": "UUID",
+                "person_id": actor_column_type,
                 "signed_up_at": "DateTime64(3, 'UTC')",
             },
         )
@@ -986,6 +1034,75 @@ class TestRetentionDataWarehouse(ClickhouseTestMixin, APIBaseTest):
                         "name": "paid",
                         "type": "events",
                     },
+                },
+            }
+        )
+
+        self.assertEqual(
+            pluck(result, "values", "count"),
+            pad(
+                [
+                    [2, 1, 1, 0],
+                    [2, 1, 0],
+                    [0, 0],
+                    [0],
+                    [0],
+                ]
+            ),
+        )
+
+    def test_retention_data_warehouse_aggregation_target_resolves_through_join(self):
+        # A warehouse table keyed by distinct_id reaches events only through a persons join, so the
+        # aggregation target has to be a HogQL expression (`person.id`) rather than a column name.
+        self._create_people()
+        signups_table_name = self._create_data_warehouse_table(
+            filename="warehouse_joined_signups.csv",
+            table_name="warehouse_joined_signups",
+            header=["id", "distinct_id", "signed_up_at"],
+            rows=[
+                [1, "user-1", "2025-01-01 09:00:00"],
+                [2, "user-2", "2025-01-01 10:00:00"],
+                [3, "user-3", "2025-01-02 09:00:00"],
+                [4, "user-4", "2025-01-02 10:00:00"],
+            ],
+            table_columns={
+                "id": "Int64",
+                "distinct_id": "String",
+                "signed_up_at": "DateTime64(3, 'UTC')",
+            },
+        )
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name=signups_table_name,
+            source_table_key="distinct_id",
+            joining_table_name="persons",
+            joining_table_key="pdi.distinct_id",
+            field_name="person",
+        )
+
+        for distinct_id, timestamp in [
+            ("user-1", "2025-01-02T12:00:00Z"),
+            ("user-2", "2025-01-03T12:00:00Z"),
+            ("user-3", "2025-01-03T13:00:00Z"),
+        ]:
+            _create_event(team=self.team, event="paid", distinct_id=distinct_id, timestamp=timestamp)
+        flush_persons_and_events()
+
+        result = self.run_query(
+            query={
+                "dateRange": {"date_from": "2025-01-01T00:00:00Z", "date_to": "2025-01-05T00:00:00Z"},
+                "retentionFilter": {
+                    "period": "Day",
+                    "totalIntervals": 4,
+                    "targetEntity": {
+                        "id": signups_table_name,
+                        "name": signups_table_name,
+                        "type": "data_warehouse",
+                        "table_name": signups_table_name,
+                        "aggregation_target_field": "person.id",
+                        "timestamp_field": "signed_up_at",
+                    },
+                    "returningEntity": {"id": "paid", "name": "paid", "type": "events"},
                 },
             }
         )

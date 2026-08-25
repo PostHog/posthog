@@ -66,9 +66,11 @@ S3_DELETE_TIME_BUFFER = 600
 
 # A zombie compaction+vacuum pass (a heartbeat-timed-out activity attempt still running) can keep
 # deleting source files for as long as its own rewrite takes - documented up to ~45s for a
-# fragmented table in core/delta/maintenance.py - which can outlive a single retry. Bound the retries
-# with backoff instead, mirroring _purge_s3_prefix's approach to the same class of race.
-_COPY_FILES_MAX_ATTEMPTS = 4
+# fragmented table in core/delta/maintenance.py, before vacuum even starts - which can outlive a
+# single retry. Bound the retries with backoff instead, mirroring _purge_s3_prefix's approach to
+# the same class of race. 6 attempts gives ~62s of cumulative backoff (2+4+8+16+32s), comfortably
+# past that documented worst case; 4 attempts (~14s) wasn't.
+_COPY_FILES_MAX_ATTEMPTS = 6
 
 
 def is_posthog_team(team_id: int) -> bool:

@@ -34,12 +34,12 @@ export function RealtimeCheckIndicator({
     }, [installationComplete])
 
     return (
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0">
             {installationComplete ? (
-                <div className="flex flex-row gap-2">
-                    <div className="flex items-center gap-2 px-2 py-1 font-medium">
+                <div className="flex flex-row items-center gap-2 min-w-0">
+                    <div className="flex items-center gap-2 px-2 py-1 font-medium shrink-0">
                         <IconCheck className="text-success" />
-                        <span className="text-success text-sm">Installation complete</span>
+                        <span className="text-success text-sm whitespace-nowrap">Installation complete</span>
                     </div>
                     <OnboardingLiveEvents />
                 </div>

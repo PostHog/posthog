@@ -680,6 +680,7 @@ Return only a JSON object matching this schema. Do not include markdown fences o
                 context=context,
                 step_name=label,
                 origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
+                ai_stage=STEP_CUSTOM_AGENT,
                 internal=True,
             )
             self._session = session

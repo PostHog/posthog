@@ -594,7 +594,7 @@ def _run_synthesis(team: Team, action: VisionAction, lines: list[str]) -> str:
     # is_team_over_ai_credit_budget gates on above.
     client = OpenAI(posthog_client=posthoganalytics.setup(), base_url=settings.OPENAI_BASE_URL, max_retries=3)
     distinct_id = replay_vision_distinct_id(team.id)
-    response = client.chat.completions.create(  # type: ignore[call-overload]
+    response = client.chat.completions.create(
         model=SYNTHESIS_MODEL,
         temperature=0.3,
         timeout=120,

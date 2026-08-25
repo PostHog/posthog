@@ -12,6 +12,9 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { metricNamePickerLogic } from './components/metricNamePickerLogic'
+import { MetricsFundamentals } from './components/MetricsFundamentals'
+import { MetricsOverview } from './components/MetricsOverview'
 import { MetricsSetupPrompt } from './components/MetricsSetupPrompt'
 import { MetricsSqlEditor } from './components/MetricsSqlEditor'
 import { metricsUsageTrackingLogic } from './components/metricsUsageTrackingLogic'
@@ -23,8 +26,10 @@ import { MetricsSceneActiveTab, metricsSceneLogic } from './metricsSceneLogic'
 export const METRICS_LOGIC_KEY = 'metrics'
 
 const TABS: { key: MetricsSceneActiveTab; label: string; 'data-attr': string }[] = [
+    { key: 'overview', label: 'Overview', 'data-attr': 'metrics-scene-tab-overview' },
     { key: 'viewer', label: 'Viewer', 'data-attr': 'metrics-scene-tab-viewer' },
     { key: 'sql', label: 'SQL', 'data-attr': 'metrics-scene-tab-sql' },
+    { key: 'fundamentals', label: 'Fundamentals', 'data-attr': 'metrics-scene-tab-fundamentals' },
 ]
 
 export const scene: SceneExport = {
@@ -56,12 +61,17 @@ const MetricsSceneContent = (): JSX.Element => {
         AccessControlLevel.Viewer
     )
     const tabDisabledReasons: Record<MetricsSceneActiveTab, string | null> = {
+        overview: metricsViewerDisabledReason,
         viewer: metricsViewerDisabledReason,
         sql: metricsSqlDisabledReason,
+        fundamentals: metricsViewerDisabledReason,
     }
     // Scene-level so tab switches in both directions are captured; keeps the viewer
     // and samples logics (its connect targets) mounted across tab flips as a side effect.
     useMountedLogic(metricsUsageTrackingLogic)
+    // Prime the metric-name list here rather than inside MetricsViewer, so the fetch
+    // races the has_metrics check instead of waiting on the setup prompt to resolve.
+    useMountedLogic(metricNamePickerLogic)
 
     return (
         <>
@@ -100,8 +110,10 @@ const MetricsSceneContent = (): JSX.Element => {
             />
             <MetricsSetupPrompt>
                 <div className="flex flex-col gap-2 py-2 flex-1 min-h-0">
+                    {activeTab === 'overview' && <MetricsOverview />}
                     {activeTab === 'viewer' && <MetricsViewer />}
                     {activeTab === 'sql' && <MetricsSqlEditor />}
+                    {activeTab === 'fundamentals' && <MetricsFundamentals />}
                 </div>
             </MetricsSetupPrompt>
         </>

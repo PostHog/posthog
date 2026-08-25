@@ -7,8 +7,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common imp
 
 
 def test_empty_config():
-    """Test `config.to_config` with an empty class."""
-
     @config.config
     class TestConfig(config.Config):
         pass
@@ -18,8 +16,6 @@ def test_empty_config():
 
 
 def test_basic_to_config():
-    """Test `config.to_config` with a basic class."""
-
     @config.config
     class TestConfig(config.Config):
         a: str
@@ -39,8 +35,6 @@ def test_basic_to_config():
 
 
 def test_basic_to_config_converters():
-    """Test `config.to_config` can convert using converters."""
-
     @config.config
     class TestConfig(config.Config):
         a: int = config.value(converter=int)
@@ -427,8 +421,6 @@ def test_to_config_override_alias_fallback():
 
 
 def test_to_config_union_nested_configs():
-    """Test `config.to_config` with a union of nested configs."""
-
     @config.config
     class A:
         a: str
@@ -464,8 +456,6 @@ def test_to_config_union_nested_configs():
 
 
 def test_to_config_union_nested_configs_with_alias():
-    """Test `config.to_config` with a union of nested configs using alias."""
-
     @config.config
     class A:
         a: str

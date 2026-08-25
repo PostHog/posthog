@@ -46,7 +46,8 @@ from posthog.models.data_deletion_request import (
     RequestType,
     auto_approve_pending_requests,
 )
-from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_SOURCE_EVENT
+from posthog.models.deletion_targets import DeletionTarget, UnreachableTargetError, is_present
+from posthog.models.flag_evaluations.sql import FLAG_EVALUATIONS_DATA_TABLE, FLAG_EVALUATIONS_SOURCE_EVENT
 from posthog.test.persons import create_person
 
 TEAM_ID = 99999
@@ -1985,6 +1986,56 @@ def test_delete_person_events_op_runs_lightweight_delete_per_shard(cluster: Clic
 
 
 @pytest.mark.django_db
+def test_is_present_refuses_a_target_this_handle_cannot_sweep(cluster: ClickhouseCluster):
+    # Mutations dispatch over the shards of the one cluster this handle enumerates, so a storage
+    # table rolled out on another one is on no host it can reach. Reporting it simply absent drops
+    # it from resolve_targets and every sweep then completes without touching it, which is the
+    # failure this guard exists to stop. Standing in for that: a storage table no host carries,
+    # behind a proxy that still reads rows.
+    target = DeletionTarget(
+        data_table="sharded_events_on_another_cluster",
+        read_table="events",
+        optional=True,
+        cluster_setting="CLICKHOUSE_EVENTS_CLUSTER",
+    )
+
+    cluster.any_host(_truncate_writable_events).result()
+    assert is_present(cluster, target) is False
+
+    cluster.any_host(partial(_insert_events, [(TEAM_ID, "$pageview", str(uuid4()), datetime.now())])).result()
+    with pytest.raises(UnreachableTargetError):
+        is_present(cluster, target)
+
+
+@pytest.mark.django_db
+def test_delete_person_events_op_fails_when_the_persons_rows_outlive_the_sweep(cluster: ClickhouseCluster):
+    # The mutation lands on a table the person's rows are not on, so `events` still returns them
+    # once every shard reports complete. That is what an unreachable shard or an off-cluster storage
+    # table looks like from here, and the request must fail rather than reach COMPLETED.
+    person_uuid = str(uuid4())
+    cluster.any_host(_truncate_writable_events).result()
+    cluster.any_host(_truncate_flag_evaluations).result()
+    cluster.any_host(
+        partial(_insert_events_with_person, [(TEAM_ID, "$pageview", str(uuid4()), datetime.now(), person_uuid)])
+    ).result()
+
+    stranded = DeletionTarget(data_table=FLAG_EVALUATIONS_DATA_TABLE, read_table="events")
+    ctx = PersonRemovalContext(
+        request_id=str(uuid4()),
+        team_id=TEAM_ID,
+        person_uuids=[person_uuid],
+        person_distinct_ids=[],
+        drop_profiles=False,
+        drop_events=True,
+        drop_recordings=False,
+    )
+
+    with patch("posthog.dags.data_deletion_requests.resolve_targets", return_value=[stranded]):
+        with pytest.raises(dagster.Failure, match="still readable"):
+            delete_person_events_op(build_op_context(), cluster, ctx)
+
+
+@pytest.mark.django_db
 def test_delete_person_events_op_noop_when_disabled(cluster: ClickhouseCluster):
     ctx = PersonRemovalContext(
         request_id=str(uuid4()),
@@ -2054,9 +2105,10 @@ def test_deferred_event_removal_queues_flag_evaluations_and_blocks_promotion(clu
 
 @pytest.mark.django_db
 def test_get_property_removal_shards_refuses_when_flag_evaluations_holds_matching_rows(cluster: ClickhouseCluster):
-    # Property removal cannot rewrite flag_evaluations: its typed columns are MATERIALIZED, so
-    # ClickHouse rejects both an assignment to them and an update of properties itself. Completing
-    # the request anyway would report the property erased while a copy of it survived.
+    # Property removal cannot rewrite flag_evaluations: the rewrite machinery is scoped to the
+    # events tables, and flag_key sits in the sort key where no mutation can reset it, so even
+    # that machinery could not fully honor a request naming $feature_flag. Completing the
+    # request anyway would report the property erased while a copy of it survived.
     request = DataDeletionRequest.objects.create(
         team_id=PROP_TEAM_ID,
         request_type=RequestType.PROPERTY_REMOVAL,

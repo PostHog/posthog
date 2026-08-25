@@ -423,6 +423,18 @@ describe('API helper', () => {
             expect(error).toBeInstanceOf(NetworkError)
         })
 
+        it('classifies a cross-realm fetch failure that fails instanceof TypeError', async () => {
+            // A TypeError thrown in another realm (an iframe) or a `fetch` swapped by a browser
+            // extension fails `instanceof TypeError`, so matching only on the class would drop it
+            // to an unclassified per-endpoint ApiError. Match the name and known message instead.
+            const crossRealmError = { name: 'TypeError', message: 'Failed to fetch' }
+            fakeFetch.mockRejectedValue(crossRealmError)
+
+            const error = await api.get('api/environments/2/insights').catch((e) => e)
+
+            expect(error).toBeInstanceOf(NetworkError)
+        })
+
         it('leaves a throw that is not a fetch failure as an unclassified ApiError', async () => {
             // A real fault in the request path must not be relabelled as connectivity, or
             // `dropUnactionableNetworkExceptions` would filter it out of error tracking.

@@ -149,6 +149,34 @@ class TestPrepareS3FilesForQuerying:
         assert cp_file.await_count == util_module._COPY_FILES_MAX_ATTEMPTS
         assert refresh_file_uris.await_count == util_module._COPY_FILES_MAX_ATTEMPTS - 1
 
+    async def test_retry_backoff_outlasts_documented_worst_case_compaction_time(self):
+        # A zombie compact+vacuum pass can keep deleting source files for as long as its own
+        # rewrite takes - documented up to ~45s for a pathological table in
+        # core/delta/maintenance.py. Regression for the retry budget silently falling back under
+        # that documented worst case (it did: 4 attempts only covered ~14s of backoff).
+        cp_file = AsyncMock(side_effect=FileNotFoundError("s3://bucket/job/my_table/part-0.parquet"))
+        s3 = _fake_s3(_cp_file=cp_file)
+        refresh_file_uris = AsyncMock(return_value=["s3://bucket/job/my_table/part-0.parquet"])
+        sleeps: list[float] = []
+
+        async def _record_sleep(seconds: float) -> None:
+            sleeps.append(seconds)
+
+        with (
+            patch.object(util_module, "aget_s3_client", return_value=_FakeS3CM(s3)),
+            patch("asyncio.sleep", side_effect=_record_sleep),
+        ):
+            with pytest.raises(FileNotFoundError):
+                await prepare_s3_files_for_querying(
+                    folder_path="job",
+                    table_name="my_table",
+                    file_uris=["s3://bucket/job/my_table/part-0.parquet"],
+                    delete_existing=False,
+                    refresh_file_uris=refresh_file_uris,
+                )
+
+        assert sum(sleeps) > 45
+
     async def test_propagates_vanished_source_file_without_refresh_callback(self):
         # Callers that don't pass refresh_file_uris keep today's behavior: the race still
         # surfaces as an error instead of being retried blindly.

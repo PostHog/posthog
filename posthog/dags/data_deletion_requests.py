@@ -41,9 +41,12 @@ from posthog.models.data_deletion_request import (
     verify_queued_request,
 )
 from posthog.models.deletion_targets import (
+    COVERAGE_DOC,
     DeletionTarget,
     UnsweepableRowsError,
+    UnsweptRowsError,
     assert_no_unsweepable_rows,
+    assert_sweep_complete,
     resolve_targets,
 )
 from posthog.models.event.deletion import cluster_has_events_json_table
@@ -429,13 +432,11 @@ def load_deletion_request(
     )
 
 
-_COVERAGE_DOC = "docs/internal/clickhouse-deletion-coverage.md"
-
 _HOGQL_UNSWEEPABLE_REASON = (
     "the request carries a HogQL predicate, which only compiles against the events schema "
     "(this table has no HogQL table definition, so the compiled fragment names columns it lacks). "
     "To proceed, re-file the request without the predicate, or narrow its events to ones this "
-    f"table never stores. See {_COVERAGE_DOC}."
+    f"table never stores. See {COVERAGE_DOC}."
 )
 
 
@@ -459,6 +460,24 @@ def _refuse_unsweepable(
             reason=reason,
         )
     except UnsweepableRowsError as exc:
+        raise dagster.Failure(description=f"Deletion request {deletion_request.request_id}: {exc}") from exc
+
+
+def _verify_swept(
+    cluster: ClickhouseCluster,
+    targets: list[DeletionTarget],
+    deletion_request: DeletionRequestContext,
+    predicate_for: Callable[[DeletionTarget], tuple[str, dict]],
+) -> None:
+    """Raise a dagster.Failure when rows this request named are still readable after the sweep."""
+    try:
+        assert_sweep_complete(
+            cluster,
+            targets,
+            predicate_for,
+            events=[] if deletion_request.delete_all_events else deletion_request.events,
+        )
+    except UnsweptRowsError as exc:
         raise dagster.Failure(description=f"Deletion request {deletion_request.request_id}: {exc}") from exc
 
 
@@ -516,6 +535,17 @@ def _run_immediate_event_deletion(
 
             elapsed = time.monotonic() - shard_start
             context.log.info(f"{target.data_table} shard {shard_num} complete in {elapsed:.1f}s")
+
+    _verify_swept(
+        cluster,
+        targets,
+        deletion_request,
+        lambda target: (
+            event_removal_where(deletion_request, use_new_events_schema=target.uses_new_events_schema)
+            if target.accepts_hogql_predicate
+            else portable_event_removal_where(deletion_request)
+        ),
+    )
 
     context.add_output_metadata(
         {
@@ -596,11 +626,12 @@ def execute_event_deletion(
 
 
 _PROPERTY_REWRITE_UNSWEEPABLE_REASON = (
-    "its typed columns are MATERIALIZED from properties, so ClickHouse rejects both an assignment "
-    "to them and an update of properties itself; rewriting these rows needs a re-insert instead of "
-    "the staging-table mutation this job runs. There is no way to complete this request today: "
+    "the property-rewrite machinery is scoped to the events tables and does not reach it; a "
+    "request naming $feature_flag additionally cannot "
+    "be honored by mutation at all, because flag_key sits in the table's sort key where no UPDATE "
+    "can reset it. There is no way to complete this request today: "
     "either narrow its events to ones this table never stores, or wait out the table's TTL. "
-    f"See {_COVERAGE_DOC}."
+    f"See {COVERAGE_DOC}."
 )
 
 
@@ -1276,6 +1307,11 @@ def delete_person_events_op(
             _host, waiter = next(iter(shard_result.items()))
             cluster.map_all_hosts_in_shard(shard_num, waiter.wait).result()
             context.log.info(f"{target.data_table} shard {shard_num} complete in {time.monotonic() - shard_start:.1f}s")
+
+    try:
+        assert_sweep_complete(cluster, targets, lambda _target: (predicate, params), events=[])
+    except UnsweptRowsError as exc:
+        raise dagster.Failure(description=f"Deletion request {person_removal.request_id}: {exc}") from exc
 
     context.add_output_metadata(
         {
