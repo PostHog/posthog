@@ -3,6 +3,7 @@ import { OrganizationAvailableFeature, ProjectId, Team } from '~/types'
 
 import { PostgresRouter, PostgresUse } from './db/postgres'
 import { LazyLoader, LoaderRetryOptions } from './lazy-loader'
+import { logger } from './logger'
 import { captureTeamEvent } from './posthog'
 
 type RawTeam = Omit<Team, 'available_features'> & {
@@ -60,10 +61,9 @@ export class TeamManager {
 
     public async setTeamIngestedEvent(team: Team, properties: Properties): Promise<void> {
         if (!team.ingested_event) {
-            // The cached team can be stale: during backfills many workers see ingested_event=false
-            // long after the first write, and an unguarded UPDATE rewrites the same hot posthog_team
-            // row (exclusive row lock + dead tuple) thousands of times. The WHERE guard makes the
-            // repeat writes match zero rows, which takes no row lock and writes nothing.
+            // The cached team can be stale long after the first write, so this fires repeatedly for
+            // a team that is already flagged. The guard makes those repeats match zero rows, which
+            // writes nothing and leaves no dead tuple behind on a hot row.
             const updateResult = await this.postgres.query(
                 PostgresUse.COMMON_WRITE,
                 `UPDATE posthog_team SET ingested_event = $1 WHERE id = $2 AND NOT ingested_event`,
@@ -71,34 +71,41 @@ export class TeamManager {
                 'setTeamIngestedEvent'
             )
 
-            // Invalidate the cache for this team
-            this.lazyLoader.markForRefresh(String(team.id))
+            // Both keys, because a team is cached under its id and its token but ingestion only ever
+            // looks it up by token - refreshing the id alone leaves the entry this worker reads stale.
+            this.lazyLoader.markForRefresh([String(team.id), team.api_token])
 
-            if (!updateResult.rowCount) {
+            if ((updateResult.rowCount ?? 0) === 0) {
                 // Another worker (or an earlier event seen through a stale cache) already flipped
                 // the flag - skip the first-event side effects so they fire exactly once per team.
                 return
             }
 
-            const organizationMembers = await this.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                'SELECT distinct_id FROM posthog_user JOIN posthog_organizationmembership ON posthog_user.id = posthog_organizationmembership.user_id WHERE organization_id = $1',
-                [team.organization_id],
-                'posthog_organizationmembership'
-            )
-
-            const distinctIds: { distinct_id: string }[] = organizationMembers.rows
-            for (const { distinct_id } of distinctIds) {
-                captureTeamEvent(
-                    team,
-                    'first team event ingested',
-                    {
-                        sdk: properties.$lib,
-                        realm: properties.realm,
-                        host: properties.$host,
-                    },
-                    distinct_id
+            // The flag is already committed and no later event retries these, so a throw here loses
+            // the team's first-event capture for good. Swallow it and leave a trail instead.
+            try {
+                const organizationMembers = await this.postgres.query(
+                    PostgresUse.COMMON_WRITE,
+                    'SELECT distinct_id FROM posthog_user JOIN posthog_organizationmembership ON posthog_user.id = posthog_organizationmembership.user_id WHERE organization_id = $1',
+                    [team.organization_id],
+                    'posthog_organizationmembership'
                 )
+
+                const distinctIds: { distinct_id: string }[] = organizationMembers.rows
+                for (const { distinct_id } of distinctIds) {
+                    captureTeamEvent(
+                        team,
+                        'first team event ingested',
+                        {
+                            sdk: properties.$lib,
+                            realm: properties.realm,
+                            host: properties.$host,
+                        },
+                        distinct_id
+                    )
+                }
+            } catch (error) {
+                logger.error('⚠️', 'Failed to capture first team event ingested', { teamId: team.id, error })
             }
         }
     }
