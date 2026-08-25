@@ -8,6 +8,7 @@ from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, Resoluti
 
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
 
+from products.exports.backend.temporal.subscriptions.ai_subscription.prompts import AI_SUBSCRIPTION_SYNTHESIS_PROMPT
 from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipeline import (
     _MAX_CONCURRENT_STEPS,
     QUERY_FAILED_PREFIX,
@@ -15,6 +16,7 @@ from products.exports.backend.temporal.subscriptions.ai_subscription.report_pipe
     QueryStepDiagnostic,
     _all_queries_failed_notice,
     _arequest_hogql_fix,
+    _compose_synthesis_human_message,
     _plan_to_freeze,
     _run_steps,
     generate_ai_report,
@@ -76,6 +78,24 @@ def _spec_with_window_placeholder() -> EnrichedPromptSpec:
         ),
         relevant_events=["export created"],
     )
+
+
+def test_synthesis_preserves_prompt_instructions_with_embedded_hogql() -> None:
+    prompt = """Report weekly changes in this format:\n- WoW: <value>\n\n```hogql\nSELECT 1\n```"""
+    spec = EnrichedPromptSpec(
+        cleaned_prompt=prompt,
+        context_blob="context",
+        plan=QueryPlan(
+            overall_intent="Run the supplied query.",
+            steps=[QueryPlanStep(description="User-supplied HogQL", hogql="SELECT 1")],
+        ),
+    )
+
+    message = _compose_synthesis_human_message(spec, ["### User-supplied HogQL\n\n1"])
+
+    assert prompt in message
+    assert "- WoW: <value>" in message
+    assert "Follow report scope and presentation requests in <user_prompt>" in AI_SUBSCRIPTION_SYNTHESIS_PROMPT
 
 
 def _slo_completed(capture_mock: MagicMock) -> dict:
