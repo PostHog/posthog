@@ -178,20 +178,27 @@ def validate_aws_role_arn(aws_role_arn: str, our_aws_role_arn: str, external_id:
     )
     external_sts = external_session.client("sts", config=config)
 
+    # These two tests are required to test both that an external id is
+    # required and that it's not set to wildcard.
     try:
-        # These two calls are required to test both that an external id is
-        # required and that it's not set to wildcard.
-        _ = sts.assume_role(
+        _ = external_sts.assume_role(
             RoleArn=aws_role_arn,
             RoleSessionName="PostHog-validate-aws-role-arn",
-            ExternalId=secrets.token_hex(67),
+            ExternalId=f"posthog-{secrets.token_hex(67)}",
         )
-        _ = sts.assume_role(
+    except Exception:
+        pass
+    else:
+        raise common.IntegrationError(
+            f"The provided role '{aws_role_arn}' allows access without a required external id condition. Update the role's policy with a condition to match '{external_id}' as a external id."
+        )
+
+    try:
+        _ = external_sts.assume_role(
             RoleArn=aws_role_arn,
             RoleSessionName="PostHog-validate-aws-role-arn",
         )
     except Exception:
-        # We expect this to fail if external id is configured correctly
         pass
     else:
         raise common.IntegrationError(
