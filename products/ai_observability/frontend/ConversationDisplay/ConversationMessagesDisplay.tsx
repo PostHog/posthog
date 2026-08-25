@@ -413,9 +413,11 @@ function renderContentItem(
         )
     }
 
+    // File and audio parts carry a filename or transcript alongside the payload, so those kinds are
+    // replaced inside their own branch to keep that content. An image part is only the image.
     const redacted = redactedMediaKind(item)
-    if (redacted) {
-        return <RedactedMediaPlaceholder kind={redacted} />
+    if (redacted === 'image') {
+        return <RedactedMediaPlaceholder kind="image" />
     }
 
     if (!item || typeof item !== 'object' || !('type' in item)) {
@@ -486,6 +488,9 @@ function renderContentItem(
     }
 
     if (isOpenAIFileMessage(item)) {
+        if (redacted === 'file') {
+            return <RedactedMediaPlaceholder kind="file" filename={item.file.filename} />
+        }
         const resolved = resolveAiBlobUrl(item.file.file_data, currentTeamId)
         if (resolved === item.file.file_data && !item.file.file_data.startsWith('data:')) {
             return <span className="text-muted">{item.file.filename}</span>
@@ -499,6 +504,9 @@ function renderContentItem(
     }
 
     if (isAnthropicDocumentMessage(item)) {
+        if (redacted === 'file') {
+            return <RedactedMediaPlaceholder kind="file" />
+        }
         const href = resolveDataUri(item.source.data, item.source.media_type, currentTeamId)
         const fileName = `document.${item.source.media_type.split('/')[1] || 'bin'}`
         return (
@@ -510,6 +518,9 @@ function renderContentItem(
     }
 
     if (isGeminiDocumentMessage(item)) {
+        if (redacted === 'file') {
+            return <RedactedMediaPlaceholder kind="file" />
+        }
         const inlineData = getGeminiInlineData(item)
         if (!inlineData) {
             return null
@@ -531,7 +542,11 @@ function renderContentItem(
 
         return (
             <div className="space-y-2">
-                <audio controls className="w-[500px]" src={src} {...aiBlobRenderHandlers(src, 'audio')} />
+                {redacted === 'audio' ? (
+                    <RedactedMediaPlaceholder kind="audio" />
+                ) : (
+                    <audio controls className="w-[500px]" src={src} {...aiBlobRenderHandlers(src, 'audio')} />
+                )}
                 {transcript && typeof transcript === 'string' && (
                     <div className="text-xs text-muted p-2 bg-bg-light rounded border">
                         <div className="font-semibold mb-1">Transcript:</div>

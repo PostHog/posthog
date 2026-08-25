@@ -13,9 +13,10 @@ const KIND_LABELS: Record<RedactedMediaKind, string> = {
 
 export interface RedactedMediaPlaceholderProps {
     kind: RedactedMediaKind
+    filename?: string
 }
 
-export function RedactedMediaPlaceholder({ kind }: RedactedMediaPlaceholderProps): JSX.Element {
+export function RedactedMediaPlaceholder({ kind, filename }: RedactedMediaPlaceholderProps): JSX.Element {
     return (
         <div
             className="flex items-start gap-2 p-2 text-xs text-muted bg-bg-light rounded border"
@@ -30,6 +31,7 @@ export function RedactedMediaPlaceholder({ kind }: RedactedMediaPlaceholderProps
                         Learn more about large events
                     </Link>
                 </div>
+                {filename && <div className="mt-1 font-mono">{filename}</div>}
             </div>
         </div>
     )

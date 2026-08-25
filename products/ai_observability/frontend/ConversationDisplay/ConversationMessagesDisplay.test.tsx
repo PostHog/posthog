@@ -151,6 +151,45 @@ describe('LLMMessageDisplay', () => {
         expect(container.querySelector('[data-attr="ai-message-redacted-media"]')).not.toBeNull()
     })
 
+    it('keeps the transcript when redacted audio replaces the player', () => {
+        const message: CompatMessage = {
+            role: 'user',
+            content: [
+                {
+                    type: 'audio',
+                    data: '[base64 audio redacted]',
+                    transcript: 'a spoken sentence',
+                    id: 'aud_1',
+                    expires_at: 0,
+                },
+            ],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('audio')).toBeNull()
+        expect(container.querySelector('[data-attr="ai-message-redacted-media"]')).not.toBeNull()
+        expect(screen.getByText('a spoken sentence')).toBeInTheDocument()
+    })
+
+    it('keeps the filename when a redacted file replaces the download link', () => {
+        const message: CompatMessage = {
+            role: 'user',
+            content: [{ type: 'file', file: { file_data: '[base64 file redacted]', filename: 'doc.pdf' } }],
+        }
+        const { container } = render(
+            <Provider>
+                <LLMMessageDisplay message={message} show />
+            </Provider>
+        )
+
+        expect(container.querySelector('[data-attr="ai-message-redacted-media"]')).not.toBeNull()
+        expect(screen.getByText('doc.pdf')).toBeInTheDocument()
+    })
+
     it('renders OpenAI Responses input_text/input_image content parts as text and an image', () => {
         const dataUri = 'data:image/jpeg;base64,/9j/4AAQSkZ'
         const message: CompatMessage = {
@@ -468,10 +507,44 @@ describe('ImageMessageDisplay', () => {
         expect(image).toHaveAttribute('data-attr', 'ai-message-image')
     })
 
+    const REDACTED = '[base64 image redacted]'
     const redactedParts: [string, MultiModalContentItem, string][] = [
-        ['python image sentinel', { type: 'image_url', image_url: { url: '[base64 image redacted]' } }, 'Image'],
+        ['python image sentinel', { type: 'image_url', image_url: { url: REDACTED } }, 'Image'],
         ['node image sentinel', { type: 'image_url', image_url: { url: '[base64 image/png redacted]' } }, 'Image'],
+        ['data-uri-wrapped sentinel', { type: 'image_url', image_url: { url: `data:;base64,${REDACTED}` } }, 'Image'],
+        ['vercel image sentinel', { type: 'image', image: REDACTED }, 'Image'],
+        ['input_image sentinel', { type: 'input_image', image_url: REDACTED }, 'Image'],
+        [
+            'anthropic image sentinel',
+            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: REDACTED } },
+            'Image',
+        ],
+        [
+            'gemini snake_case image sentinel',
+            { type: 'image', inline_data: { mime_type: 'image/png', data: REDACTED } },
+            'Image',
+        ],
+        [
+            'gemini camelCase image sentinel',
+            { type: 'image', inlineData: { mimeType: 'image/png', data: REDACTED } },
+            'Image',
+        ],
         ['file sentinel', { type: 'file', file: { file_data: '[base64 file redacted]', filename: 'doc.pdf' } }, 'File'],
+        [
+            'anthropic document sentinel',
+            { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: REDACTED } },
+            'File',
+        ],
+        [
+            'gemini document sentinel',
+            { type: 'document', inline_data: { mime_type: 'application/pdf', data: REDACTED } },
+            'File',
+        ],
+        [
+            'audio sentinel',
+            { type: 'audio', data: '[base64 audio redacted]', transcript: '', id: 'aud_1', expires_at: 0 },
+            'Audio',
+        ],
     ]
 
     it.each(redactedParts)('replaces %s with a placeholder instead of a broken media element', (_name, part, label) => {

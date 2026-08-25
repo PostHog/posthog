@@ -16,7 +16,9 @@ export type RedactedMediaKind = 'image' | 'file' | 'audio'
 // Without enable_full_ai_capture the SDKs drop the payload and leave a marker in its place. The
 // wording varies per SDK and per media type, so match the shape rather than a fixed set of strings.
 const SENTINEL_RE = /^\s*\[base64\b[^\]]*\bredacted\]\s*$/i
-const BASE64_DATA_URI_PREFIX = /^data:[\w.+-]+\/[\w.+-]+;base64,/
+// Deliberately loose: recipes build this prefix by template, so the mime can be absent or carry
+// extra parameters. A stricter pattern would let a wrapped sentinel through as a renderable source.
+const BASE64_DATA_URI_PREFIX = /^data:[^,]*;base64,/i
 
 export function isRedactedMediaSentinel(value: string): boolean {
     return SENTINEL_RE.test(value.replace(BASE64_DATA_URI_PREFIX, ''))

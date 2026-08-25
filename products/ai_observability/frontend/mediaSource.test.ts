@@ -49,6 +49,11 @@ describe('mediaSource', () => {
                 { type: 'image', source: { type: 'base64', media_type: 'image/png', data: BASE64 } },
             ],
             ['gemini raw base64', { type: 'image', inline_data: { mime_type: 'image/png', data: BASE64 } }],
+            [
+                'anthropic offloaded pointer',
+                { type: 'image', source: { type: 'base64', media_type: 'image/png', data: POINTER } },
+            ],
+            ['gemini offloaded pointer', { type: 'image', inline_data: { mime_type: 'image/png', data: POINTER } }],
             ['audio raw base64', { type: 'audio', mime_type: 'audio/wav', data: BASE64 }],
             ['file as data uri', { type: 'file', file: { file_data: DATA_URI, filename: 'doc.pdf' } }],
             ['file as raw base64', { type: 'file', file: { file_data: BASE64, filename: 'doc.pdf' } }],
@@ -67,6 +72,9 @@ describe('mediaSource', () => {
             '[base64 audio/mpeg redacted]',
             '[base64 redacted]',
             'data:image/png;base64,[base64 image redacted]',
+            'data:;base64,[base64 image redacted]',
+            'data:image/png;charset=utf-8;base64,[base64 image redacted]',
+            'DATA:IMAGE/PNG;BASE64,[base64 image redacted]',
         ])('matches %s', (value) => {
             expect(isRedactedMediaSentinel(value)).toBe(true)
         })
@@ -81,11 +89,17 @@ describe('mediaSource', () => {
             expect(isRenderableMediaSource(value)).toBe(true)
         })
 
-        it.each(['[base64 image redacted]', 'data:image/png;base64,[base64 image redacted]', BASE64, 'nonsense', ''])(
-            'rejects %s',
-            (value) => {
-                expect(isRenderableMediaSource(value)).toBe(false)
-            }
-        )
+        it.each([
+            '[base64 image redacted]',
+            'data:image/png;base64,[base64 image redacted]',
+            'data:;base64,[base64 image redacted]',
+            'data:image/png;charset=utf-8;base64,[base64 image redacted]',
+            'DATA:IMAGE/PNG;BASE64,[base64 image redacted]',
+            BASE64,
+            'nonsense',
+            '',
+        ])('rejects %s', (value) => {
+            expect(isRenderableMediaSource(value)).toBe(false)
+        })
     })
 })
