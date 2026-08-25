@@ -28,8 +28,8 @@ from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.permissions import AccessControlPermission, get_authenticator_scopes
 from posthog.rate_limit import BurstRateThrottle, PersonalApiKeyOrUserRateThrottle, SustainedRateThrottle
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.ai_observability.backend.api.metrics import llma_track_latency
 
 from ..marketplace.adapters import MARKETPLACE_NAME, PLUGIN_NAME, load_skill_export
@@ -104,6 +104,7 @@ from .skill_services import (
     resolve_skill_owners_for_names,
     resolve_versions_page,
     set_skill_owners,
+    skill_names_owned_by,
 )
 
 logger = structlog.get_logger(__name__)
@@ -361,6 +362,12 @@ class LLMSkillViewSet(
         created_by_id = params.get("created_by_id")
         if created_by_id:
             queryset = queryset.filter(created_by_id=created_by_id)
+
+        # Owners are keyed on the logical skill name, not on a version row, so the filter matches by
+        # name across every version the queryset could surface.
+        owner_id = params.get("owner_id")
+        if owner_id:
+            queryset = queryset.filter(name__in=skill_names_owned_by(self.team, owner_id))
 
         # Presence of the param — even as an empty string — is a filter: `?category=` returns only
         # uncategorized skills, `?category=scout` only scouts. Omitting it returns every category.

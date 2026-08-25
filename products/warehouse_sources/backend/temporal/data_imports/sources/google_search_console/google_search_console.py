@@ -340,17 +340,18 @@ def _query_search_analytics(
         _throttle(site_url)
         try:
             response = session.post(url, json=body)
-        except requests.ConnectionError:
-            # A dropped connection (RemoteDisconnected / connection reset) is raised before any
-            # response, so the quota/5xx handling below never sees it, and the tracked adapter's
-            # retry skips it because searchAnalytics.query is a POST. It's transient, so retry
-            # inline like a 5xx; once the inline budget is spent, let it bubble so Temporal
-            # retries the activity (resuming from the last saved date).
+        except (requests.ConnectionError, requests.Timeout):
+            # A dropped connection (RemoteDisconnected / connection reset) or a read timeout is
+            # raised before any response, so the quota/5xx handling below never sees it, and the
+            # tracked adapter's retry skips it because searchAnalytics.query is a POST. `Timeout`
+            # covers `ReadTimeout`, which isn't a `ConnectionError` subclass. Both are transient,
+            # so retry inline like a 5xx; once the inline budget is spent, let it bubble so
+            # Temporal retries the activity (resuming from the last saved date).
             if attempt == QUOTA_MAX_RETRIES:
                 raise
             wait = QUOTA_BACKOFF_BASE_SECONDS * (2**attempt)
             logger.warning(
-                "GSC request connection error, backing off",
+                "GSC request connection/timeout error, backing off",
                 site_url=site_url,
                 attempt=attempt,
                 wait_seconds=wait,
