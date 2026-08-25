@@ -22,8 +22,8 @@ from posthog.event_usage import report_user_action
 from posthog.models.scoping.manager import resolve_effective_team_id
 from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.logs.backend.models import (
     MAX_ENABLED_METRIC_RULES,
     MAX_METRIC_RULE_GROUP_BY_KEYS,
