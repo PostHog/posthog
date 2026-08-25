@@ -145,7 +145,9 @@ class AnnotationsViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.Mo
     """
 
     scope_object = "annotation"
-    queryset = Annotation.objects.select_related("dashboard_item").select_related("created_by")
+    queryset = (
+        Annotation.objects.select_related("dashboard_item").select_related("dashboard").select_related("created_by")
+    )
     serializer_class = AnnotationSerializer
     filter_backends = [filters.SearchFilter]
     pagination_class = AnnotationsLimitOffsetPagination

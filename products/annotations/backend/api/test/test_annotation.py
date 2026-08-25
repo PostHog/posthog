@@ -65,6 +65,24 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
             response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
             assert len(response["results"]) == 2
 
+        # Annotations that point at a dashboard must not add a query each: the serializer reads
+        # `dashboard_name` through the `dashboard` relation, so the queryset has to select it.
+        dashboard = Dashboard.objects.create(team=self.team, name="A dashboard")
+        for index in range(2):
+            Annotation.objects.create(
+                organization=self.organization,
+                team=self.team,
+                created_at="2020-01-04T12:00:00Z",
+                created_by=User.objects.create_and_join(self.organization, f"dash-{index}", ""),
+                content=now().isoformat(),
+                dashboard=dashboard,
+                scope=Annotation.Scope.PROJECT,
+            )
+
+        with self.assertNumQueries(FuzzyInt(9, 10)), snapshot_postgres_queries_context(self):
+            response = self.client.get(f"/api/projects/{self.team.id}/annotations/").json()
+            assert len(response["results"]) == 4
+
     def test_org_scoped_annotations_are_returned_between_projects(self) -> None:
         second_team = Team.objects.create(organization=self.organization, name="Second team")
         Annotation.objects.create(
