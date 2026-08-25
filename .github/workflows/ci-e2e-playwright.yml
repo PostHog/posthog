@@ -549,6 +549,13 @@ jobs:
                       exit 1
                   }
 
+            # Runs before any container starts, so the reading describes the bare machine.
+            # Pairs the hardware with this run's own step timings, which is what separates
+            # "the machine was slower" from "the job did more work".
+            - name: Probe runner CPU
+              uses: ./.github/actions/runner-cpu-probe
+              continue-on-error: true
+
             - name: Clean up data directories with container permissions
               run: |
                   # Use docker to clean up files created by containers

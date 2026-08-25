@@ -1,0 +1,77 @@
+name: Runner CPU probe
+description: >
+    Records the runner's CPU identity and a fixed-work benchmark, so a job's wall
+    clock can be attributed to the machine it landed on rather than to the code.
+    Emits one PROBE_RESULT JSON line for log scraping. Never fails the caller.
+
+inputs:
+    seconds:
+        description: Seconds per openssl speed pass. Two passes run (1 thread, then nproc).
+        required: false
+        default: '2'
+    small_files:
+        description: How many small files the disk probe writes and hashes.
+        required: false
+        default: '3000'
+
+runs:
+    using: composite
+    steps:
+        - name: Probe runner CPU and disk
+          id: probe
+          shell: bash
+          env:
+              PROBE_SECONDS: ${{ inputs.seconds }}
+              PROBE_SMALL_FILES: ${{ inputs.small_files }}
+          run: |
+              # Diagnostics only. Every failure path must still exit 0 — this runs inside
+              # the Playwright job, where a broken probe would red every PR.
+              probe() {
+                  lscpu || true
+
+                  local model vendor family stepping hypervisor mhz bogomips cores mem_gb
+                  model=$(lscpu | sed -n 's/^Model name: *//p' | head -1)
+                  vendor=$(lscpu | sed -n 's/^Vendor ID: *//p' | head -1)
+                  family=$(lscpu | sed -n 's/^CPU family: *//p' | head -1)
+                  stepping=$(lscpu | sed -n 's/^Stepping: *//p' | head -1)
+                  hypervisor=$(lscpu | sed -n 's/^Hypervisor vendor: *//p' | head -1)
+                  mhz=$(lscpu | sed -n 's/^CPU max MHz: *//p' | head -1)
+                  bogomips=$(lscpu | sed -n 's/^BogoMIPS: *//p' | head -1)
+                  cores=$(nproc)
+                  mem_gb=$(awk '/MemTotal/ {printf "%.1f", $2/1048576}' /proc/meminfo)
+
+                  # openssl speed does fixed-time work and reports throughput, so a slower
+                  # core reads as a lower number rather than a longer step. The last column
+                  # is the 16384-byte block rate.
+                  local k1 kn
+                  k1=$(openssl speed -seconds "$PROBE_SECONDS" -evp sha256 2>/dev/null \
+                       | tail -1 | awk '{gsub(/k/,"",$NF); print $NF}')
+                  kn=$(openssl speed -seconds "$PROBE_SECONDS" -multi "$cores" -evp sha256 2>/dev/null \
+                       | tail -1 | awk '{gsub(/k/,"",$NF); print $NF}')
+
+                  # Sequential write to separate disk throughput from CPU. direct IO is not
+                  # available on every runner filesystem, so fall back to a flushed write.
+                  local dd_out dd_mbps
+                  dd_out=$(dd if=/dev/zero of=probe.bin bs=1M count=1024 oflag=direct 2>&1 | tail -1) \
+                      || dd_out=$(dd if=/dev/zero of=probe.bin bs=1M count=1024 conv=fdatasync 2>&1 | tail -1)
+                  dd_mbps=$(grep -oE '[0-9.]+ (MB|GB)/s' <<<"$dd_out" | head -1)
+                  rm -f probe.bin
+
+                  # Mirrors what collectstatic does: write many small files, then hash each.
+                  # Pure CPU and disk, no network.
+                  local small_secs
+                  small_secs=$(python3 "$GITHUB_ACTION_PATH/small_files.py")
+
+                  local payload
+                  payload=$(RUNNER_MODEL="$model" RUNNER_VENDOR="$vendor" RUNNER_FAMILY="$family" \
+                            RUNNER_STEPPING="$stepping" RUNNER_HYPERVISOR="$hypervisor" \
+                            RUNNER_MHZ="$mhz" RUNNER_BOGOMIPS="$bogomips" RUNNER_CORES="$cores" \
+                            RUNNER_MEM_GB="$mem_gb" SHA256_1T="$k1" SHA256_NT="$kn" \
+                            DD_WRITE="$dd_mbps" SMALL_SECS="$small_secs" \
+                            python3 "$GITHUB_ACTION_PATH/emit.py")
+
+                  echo "PROBE_RESULT $payload"
+              }
+
+              probe || echo "runner-cpu-probe: probe failed, continuing"
+              exit 0

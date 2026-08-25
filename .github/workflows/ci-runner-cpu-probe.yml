@@ -1,0 +1,75 @@
+#
+# Samples the CPU behind a Depot runner label.
+#
+# Playwright E2E jobs split into two duration modes on one label, and the split
+# tracks neither the code nor our own CI load. This fans out N throwaway jobs so
+# each lands on a fresh VM, and records what hardware answered plus a fixed-work
+# benchmark. If the label is homogeneous the scores cluster; if it is not, they
+# separate by CPU model.
+#
+# Dispatch only — it must never spend a PR workflow-run dispatch.
+#
+name: Runner CPU probe
+
+on:
+    workflow_dispatch:
+        inputs:
+            samples:
+                description: How many runners to sample (1-30).
+                required: false
+                type: string
+                default: '12'
+            runner_label:
+                description: Runner label to sample.
+                required: false
+                type: choice
+                default: depot-ubuntu-24.04-8
+                options:
+                    - depot-ubuntu-24.04-8
+                    - depot-ubuntu-24.04-4
+                    - depot-ubuntu-24.04
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+jobs:
+    plan:
+        name: Build sample matrix
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        outputs:
+            samples: ${{ steps.build.outputs.samples }}
+        steps:
+            - name: Build sample list
+              id: build
+              env:
+                  SAMPLES: ${{ inputs.samples }}
+              run: |
+                  n=${SAMPLES:-12}
+                  if ! [[ "$n" =~ ^[0-9]+$ ]] || [ "$n" -lt 1 ] || [ "$n" -gt 30 ]; then
+                      echo "::error::samples must be an integer between 1 and 30 (got '$SAMPLES')"
+                      exit 1
+                  fi
+                  echo "samples=$(jq -nc --argjson n "$n" '[range(1; $n + 1)]')" >> "$GITHUB_OUTPUT"
+
+    probe:
+        name: Probe runner ${{ matrix.sample }}
+        needs: plan
+        runs-on: ${{ inputs.runner_label }}
+        timeout-minutes: 10
+        strategy:
+            fail-fast: false
+            matrix:
+                sample: ${{ fromJSON(needs.plan.outputs.samples) }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/actions/runner-cpu-probe
+                  sparse-checkout-cone-mode: false
+            - uses: ./.github/actions/runner-cpu-probe
+              with:
+                  seconds: '3'

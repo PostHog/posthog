@@ -385,6 +385,9 @@ select = [
 # are necessarily lazy / post-path-insert (PLC0415, E402); the planner's small CLI
 # prints its report (T201).
 "rust/deltalite/python/**" = ["PLC0415", "E402", "T201"]
+# The runner probe's helpers are invoked by a shell step that reads their stdout, so
+# printing is the interface (T201).
+".github/actions/runner-cpu-probe/*.py" = ["T201"]
 # Django settings aggregator: star imports are how settings modules merge into one namespace.
 # Not portable to explicit re-exports without losing the settings-loading semantics.
 "posthog/settings/**" = ["F403", "F405"]
