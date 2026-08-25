@@ -989,6 +989,44 @@ async def test_postgres_binary_columns(team, postgres_config, postgres_connectio
 
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
+async def test_postgres_binary_primary_key_synced_as_hex(team, postgres_config, postgres_connection):
+    await postgres_connection.execute(
+        "CREATE TABLE IF NOT EXISTS {schema}.binary_pk_test (pk_col bytea PRIMARY KEY, name text)".format(
+            schema=postgres_config["schema"]
+        )
+    )
+    # Non-UTF8 bytes on purpose: a binary key's bytes usually aren't valid text
+    await postgres_connection.execute(
+        "INSERT INTO {schema}.binary_pk_test (pk_col, name) VALUES ('\\x8080fefe', 'row-1')".format(
+            schema=postgres_config["schema"]
+        )
+    )
+    await postgres_connection.commit()
+
+    await _run(
+        team=team,
+        schema_name="binary_pk_test",
+        table_name="postgres_binary_pk_test",
+        source_type="Postgres",
+        job_inputs={
+            "host": postgres_config["host"],
+            "port": postgres_config["port"],
+            "database": postgres_config["database"],
+            "user": postgres_config["user"],
+            "password": postgres_config["password"],
+            "schema": postgres_config["schema"],
+            "ssh_tunnel_enabled": "False",
+        },
+        mock_data_response=[],
+    )
+
+    res = await sync_to_async(execute_hogql_query)(f"SELECT pk_col, name FROM postgres_binary_pk_test", team)
+
+    assert res.results == [("8080fefe", "row-1")]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
 async def test_delta_wrapper_files(team, stripe_balance_transaction, mock_stripe_client, minio_client):
     datetime_now = datetime.now(tz=ZoneInfo("UTC"))
     with freeze_time(datetime_now):
@@ -4141,6 +4179,7 @@ async def test_cdp_producer_push_to_kafka(team, stripe_customer, mock_stripe_cli
     assert {key: value for key, value in data.items() if key != "event_id"} == {
         "team_id": team.id,
         "table_name": "stripe.customer",
+        "table_type": "source",
         "properties": expected_properties,
     }
 
@@ -4520,9 +4559,11 @@ async def _mysql_setup(mysql_connection, statements: list[tuple[str, tuple | Non
     await sync_to_async(_run)()
 
 
+# test_mysql_source_full_refresh covers the non-DLT path against real MySQL.
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_mysql_full_refresh(team, mysql_config, mysql_connection):
+@pytest.mark.parametrize("pipeline_mode", ["v3"], indirect=True)
+async def test_mysql_full_refresh(team, mysql_config, mysql_connection, pipeline_mode):
     """Full-refresh sync of a simple table with a mix of common MySQL types."""
     await _mysql_setup(
         mysql_connection,
@@ -4563,9 +4604,11 @@ async def test_mysql_full_refresh(team, mysql_config, mysql_connection):
     assert row[2] == 30
 
 
+# test_mysql_source_incremental covers the non-DLT path against real MySQL.
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.asyncio
-async def test_mysql_incremental_integer_cursor(team, mysql_config, mysql_connection):
+@pytest.mark.parametrize("pipeline_mode", ["v3"], indirect=True)
+async def test_mysql_incremental_integer_cursor(team, mysql_config, mysql_connection, pipeline_mode):
     """Incremental sync with an INT cursor field — second run should pick up only new rows."""
     await _mysql_setup(
         mysql_connection,

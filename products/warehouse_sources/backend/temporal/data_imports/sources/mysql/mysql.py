@@ -33,6 +33,8 @@ from pymysql.constants import FIELD_TYPE
 from pymysql.cursors import Cursor, SSCursor
 from structlog.types import FilteringBoundLogger
 
+from posthog.dataclasses import frozen
+
 # Module-level error-capture seam. This module's best-effort probes (get_rows_to_sync,
 # explain_query, fetch_average_row_size) deliberately do NOT report handled failures here;
 # their guard tests patch `mysql.capture_exception` to enforce that.
@@ -41,6 +43,7 @@ from posthog.exceptions_capture import capture_exception  # noqa: F401
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DEFAULT_NUMERIC_PRECISION,
     DEFAULT_NUMERIC_SCALE,
+    BinaryColumnReporter,
     build_pyarrow_decimal_type,
     restrict_schema_to_columns,
     table_from_iterator,
@@ -842,6 +845,22 @@ class MySQLColumn(Column):
         return pa.field(self.name, arrow_type, nullable=self.nullable)
 
 
+@frozen
+class _DiscoveredMetadata:
+    """Result of `MySQLImplementation.build_pipeline`'s metadata-discovery block.
+
+    A named result instead of a bare tuple so `primary_keys_are_declared` (added alongside keyset
+    eligibility) can't be silently swapped with another same-typed field at the call site.
+    """
+
+    primary_keys: list[str] | None
+    primary_keys_are_declared: bool
+    arrow_schema: pa.Schema
+    chunk_size: int
+    partition_settings: PartitionSettings | None
+    rows_to_sync: int
+
+
 class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Connection, Cursor]):
     """MySQL driver implementation paired with `MySQLSource`.
 
@@ -1450,7 +1469,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         enabled_columns = inputs.enabled_columns
         row_filters = inputs.row_filters
 
-        def _discover_metadata() -> tuple[list[str] | None, bool, pa.Schema, int, PartitionSettings | None, int]:
+        def _discover_metadata() -> _DiscoveredMetadata:
             with self.connect(config) as connection:
                 with connection.cursor() as cursor:
                     primary_keys = self.get_primary_keys_for_table(cursor, schema, table_name)
@@ -1489,15 +1508,27 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         if should_use_incremental_field
                         else None
                     )
-            return primary_keys, primary_keys_are_declared, arrow_schema, chunk_size, partition_settings, rows_to_sync
+            return _DiscoveredMetadata(
+                primary_keys=primary_keys,
+                primary_keys_are_declared=primary_keys_are_declared,
+                arrow_schema=arrow_schema,
+                chunk_size=chunk_size,
+                partition_settings=partition_settings,
+                rows_to_sync=rows_to_sync,
+            )
 
         # A PlanetScale/Vitess tablet can be momentarily unavailable even once the vtgate
         # handshake succeeds, so retry the whole metadata-discovery block (reopening the
         # connection) on a transient `code = Unavailable` rather than failing setup on the
         # first blip — see `_retry_on_transient_tablet_unavailable`.
-        primary_keys, primary_keys_are_declared, arrow_schema, chunk_size, partition_settings, rows_to_sync = (
-            _retry_on_transient_tablet_unavailable(_discover_metadata, logger)
-        )
+        discovered = _retry_on_transient_tablet_unavailable(_discover_metadata, logger)
+        primary_keys = discovered.primary_keys
+        primary_keys_are_declared = discovered.primary_keys_are_declared
+        arrow_schema = discovered.arrow_schema
+        chunk_size = discovered.chunk_size
+        partition_settings = discovered.partition_settings
+        rows_to_sync = discovered.rows_to_sync
+        binary_reporter = BinaryColumnReporter(logger)
 
         # A full load over a single orderable primary key can page with keyset (seek) pagination
         # instead of one long streaming cursor, which makes it resumable across pods. Incremental syncs
@@ -1657,7 +1688,12 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         if not batch:
                             break
 
-                        yield table_from_iterator((dict(zip(column_names, row)) for row in batch), read_schema)
+                        yield table_from_iterator(
+                            (dict(zip(column_names, row)) for row in batch),
+                            read_schema,
+                            primary_keys=primary_keys,
+                            binary_reporter=binary_reporter,
+                        )
                 finally:
                     # Tear the streaming cursor down without draining the rest of
                     # the unbuffered result set — see `_release_streaming_cursor`.

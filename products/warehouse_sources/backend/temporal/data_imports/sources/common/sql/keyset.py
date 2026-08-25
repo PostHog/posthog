@@ -26,6 +26,8 @@ from typing import Any
 
 import pyarrow as pa
 
+from posthog.dataclasses import frozen
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import ValidatedRowFilter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.query_builder import (
     SafeSQL,
@@ -33,7 +35,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 )
 
 
-@dataclasses.dataclass
+@frozen
 class KeysetResumeState:
     """Checkpoint persisted between batches: the largest key value durably written so far.
 

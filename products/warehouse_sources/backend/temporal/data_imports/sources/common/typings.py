@@ -43,7 +43,7 @@ class _Dataclass(Protocol):
 ResumableData = TypeVar("ResumableData", bound=_Dataclass)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass  # nosemgrep: prefer-frozen-dataclasses -- grandfathered; freezing is a separate migration
 class SourceResponse:
     name: str
     items: Callable[[], Iterable[Any] | AsyncIterable[Any]]
