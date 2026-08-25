@@ -1,3 +1,4 @@
+// Serial: changes shared ClickHouse merge state and writes shared Kafka topics.
 import { KafkaProducerObserver } from '~/tests/helpers/mocks/producer.spy'
 
 import { DateTime } from 'luxon'

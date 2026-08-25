@@ -14,6 +14,7 @@ import { Hub, Team } from '../../../types'
 import { RecipientsManagerService } from '../managers/recipients-manager.service'
 import { TeamWorkflowsConfigService } from '../managers/team-workflows-config.service'
 import { RateLimiterService } from '../rate-limiter/rate-limiter.service'
+import { selectEmailSenderIntegrationId } from './email-sender-selection'
 import { EmailSuppressionService, emailSuppressionConfigFromEnv } from './email-suppression.service'
 import { EmailService, parseAddressList, sanitizeEmailSubject } from './email.service'
 import { MailDevAPI } from './helpers/maildev'
@@ -273,7 +274,13 @@ describe('EmailService', () => {
                         provider: 'ses',
                     },
                 })
-                invocation.id = 'invocation-0'
+                invocation.id = Array.from({ length: 10 }, (_, index) => `invocation-${index}`).find(
+                    (id) =>
+                        selectEmailSenderIntegrationId(id, {
+                            integrationId: getIntegrationId(1),
+                            integrationIds: [getIntegrationId(1), getIntegrationId(4)],
+                        }) === getIntegrationId(4)
+                )!
                 invocation.queueParameters = createEmailParams({
                     from: { integrationId: 1, integrationIds: [1, 4] },
                 })

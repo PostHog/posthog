@@ -1,3 +1,4 @@
+// Serial: tight Kafka broker rebalance timing assertions are invalid under concurrent broker load.
 import {
     AdminClient,
     HighLevelProducer,

@@ -1,3 +1,4 @@
+// Serial: resets the shared test database.
 // Pins the full flag-evaluations shadow-write path — config → fork step → output
 // registration → Kafka topic → ClickHouse Kafka engine → MV → flag_evaluations
 // table — which no unit test can: a topic-key typo, a row column ClickHouse can't

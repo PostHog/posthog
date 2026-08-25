@@ -1,3 +1,4 @@
+// Serial: resets shared Postgres and ClickHouse state and consumes shared Kafka output.
 import { Message } from 'node-rdkafka'
 
 import { CookielessManagerComponent } from '~/ingestion/common/cookieless/cookieless-manager'

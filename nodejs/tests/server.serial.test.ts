@@ -1,3 +1,4 @@
+// Serial: resets the shared test database and starts a server with shared Kafka/ClickHouse dependencies.
 import { PluginServer } from '../src/server'
 import { PluginServerMode } from '../src/types'
 import { resetTestDatabase } from './helpers/sql'

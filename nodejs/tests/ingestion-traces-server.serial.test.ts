@@ -1,3 +1,4 @@
+// Serial: resets the shared test database and starts a server with shared Kafka/ClickHouse dependencies.
 import { PluginServerMode } from '../src/common/config'
 import { IngestionTracesServer } from '../src/servers/ingestion-traces-server'
 import { resetTestDatabase } from './helpers/sql'

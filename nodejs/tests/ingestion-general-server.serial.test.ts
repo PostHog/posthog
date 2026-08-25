@@ -1,3 +1,4 @@
+// Serial: resets the shared test database and starts a server with shared Kafka/ClickHouse dependencies.
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CLICKHOUSE_HEATMAP_EVENTS,

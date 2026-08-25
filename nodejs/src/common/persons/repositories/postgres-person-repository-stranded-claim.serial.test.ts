@@ -1,3 +1,4 @@
+// Serial: drops and recreates a shared PostgreSQL index.
 import { DateTime } from 'luxon'
 
 import { PERSONS_OUTPUT, PERSON_DISTINCT_IDS_OUTPUT } from '~/common/outputs/persons'
