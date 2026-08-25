@@ -11,6 +11,7 @@ from posthog.egress.google_workspace.transport import GoogleWorkspaceEgressBudge
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.conversations.backend.models import (
     EmailThread,
     EmailThreadAccountLink,
@@ -20,8 +21,6 @@ from products.conversations.backend.models import (
 from products.conversations.backend.services import gmail_sync
 from products.customer_analytics.backend.facade.email_matching import recalculate_email_thread_links
 from products.customer_analytics.backend.models import Account
-
-from ee.models.rbac.access_control import AccessControl
 
 
 def _response(payload: dict, status_code: int = 200) -> MagicMock:
