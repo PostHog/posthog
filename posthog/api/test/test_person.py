@@ -90,8 +90,25 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.json()["results"]), 1)
 
-    @parameterized.expand([("?search=another@gm", True), ("", False)])
-    def test_person_list_emits_slo_event(self, query: str, expected_has_search: bool) -> None:
+    @staticmethod
+    def _persons_list_slo_events(capture: mock.MagicMock) -> list[dict]:
+        return [
+            call.kwargs["properties"]
+            for call in capture.call_args_list
+            if call.kwargs["event"] == "slo_operation_completed"
+            and call.kwargs["properties"]["operation"] == "persons_list"
+        ]
+
+    @parameterized.expand(
+        [
+            ("?search=another@gm", True, False),
+            ("", False, False),
+            ("?search=another@gm&client_query_id=abc-123", True, True),
+        ]
+    )
+    def test_person_list_emits_slo_event(
+        self, query: str, expected_has_search: bool, expected_has_client_query_id: bool
+    ) -> None:
         _create_person(
             team=self.team,
             distinct_ids=["distinct_id"],
@@ -103,18 +120,32 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             response = self.client.get(f"/api/person/{query}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-        completed = [
-            call.kwargs["properties"]
-            for call in capture.call_args_list
-            if call.kwargs["event"] == "slo_operation_completed"
-            and call.kwargs["properties"]["operation"] == "persons_list"
-        ]
+        completed = self._persons_list_slo_events(capture)
         self.assertEqual(len(completed), 1)
         self.assertEqual(completed[0]["has_search"], expected_has_search)
+        self.assertEqual(completed[0]["has_client_query_id"], expected_has_client_query_id)
         self.assertEqual(completed[0]["actor_type"], "person")
         self.assertEqual(completed[0]["outcome"], "success")
         self.assertEqual(completed[0]["result_count"], 1)
         self.assertGreater(completed[0]["duration_ms"], 0)
+
+    def test_cancelled_search_is_marked_on_the_slo_event(self) -> None:
+        with (
+            mock.patch(
+                "posthog.hogql_queries.actors_query_runner.ActorsQueryRunner.calculate",
+                side_effect=ServerException("Query was cancelled", code=394),
+            ),
+            mock.patch("posthog.slo.events.posthoganalytics.capture") as capture,
+        ):
+            response = self.client.get("/api/person/?search=someone&client_query_id=abc-123")
+        self.assertEqual(response.status_code, 499)
+
+        completed = self._persons_list_slo_events(capture)
+        self.assertEqual(len(completed), 1)
+        self.assertTrue(completed[0]["cancelled"])
+        # Returning is not an error, so the operation still reports success. `cancelled` is what
+        # keeps an abandoned search from reading as a fast one in the latency percentiles.
+        self.assertEqual(completed[0]["outcome"], "success")
 
     @parameterized.expand(
         [

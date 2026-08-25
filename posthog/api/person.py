@@ -578,7 +578,8 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         tag_queries(product=ProductKey.PERSONS, feature=Feature.QUERY)
-        tag_client_query_id(request.GET.get("client_query_id"))
+        client_query_id = request.GET.get("client_query_id")
+        tag_client_query_id(client_query_id)
         team = self.team
         filter = Filter(request=request, team=self.team)
 
@@ -639,6 +640,9 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "has_search": bool(filter.search),
             "has_properties": bool(person_properties),
             "has_distinct_id": bool(filter.distinct_id),
+            # Only a caller that can cancel sends an id, which is what separates the command
+            # palette's searches from the persons page's on the dashboard.
+            "has_client_query_id": bool(client_query_id),
             "include_total": include_total,
             "is_csv": is_csv_request,
             "limit": filter.limit,
@@ -694,8 +698,14 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             except Exception as err:
                 if classify_query_error(err) is not QueryErrorCategory.CANCELLED:
                     raise
-                # The caller killed this search, so there is no body to return and nothing went wrong.
-                # Raising would report a server error for every cancelled search.
+                # The caller killed this search, so there is no body to return and nothing went
+                # wrong. Raising would report a server error for every cancelled search.
+                #
+                # Returning also leaves the SLO block without an exception, so it records a
+                # success with however long the kill took. A cancel is not a failure, so the
+                # outcome stays as it is and this tag is what keeps an abandoned search from
+                # reading as a fast one in the latency percentiles.
+                slo.tag(cancelled=True)
                 return Response(status=HTTP_CLIENT_CLOSED_REQUEST)
 
             slo.tag(result_count=len(actor_ids))
