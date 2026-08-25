@@ -21,6 +21,7 @@ import {
   PINNED_SECTION_KEY,
   sortChannelItems,
 } from "@posthog/core/canvas/channelItems";
+import { getCanvasCellId } from "@posthog/core/command-center/grid";
 import {
   Button,
   cn,
@@ -56,7 +57,10 @@ import { useChannelTasksRunState } from "@posthog/ui/features/canvas/hooks/useCh
 import { useLocalDayStart } from "@posthog/ui/features/canvas/hooks/useLocalDayStart";
 import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
-import { placeTaskInCommandCenter } from "@posthog/ui/features/command-center/placeTaskInCommandCenter";
+import {
+  placeCanvasInCommandCenter,
+  placeTaskInCommandCenter,
+} from "@posthog/ui/features/command-center/placeTaskInCommandCenter";
 import { useFeatureFlag } from "@posthog/ui/features/feature-flags/useFeatureFlag";
 import { EditListItemAppearanceDialog } from "@posthog/ui/features/sidebar/components/EditListItemAppearanceDialog";
 import { SidebarKbdHint } from "@posthog/ui/features/sidebar/components/items/SidebarKbdHint";
@@ -87,16 +91,41 @@ import {
 const RECENTS_CAP = 30;
 const log = logger.scope("channel-sidebar");
 
+function commandCenterAssigner(item: ChannelItemModel): () => void {
+  return () => {
+    if (item.kind === "canvas") {
+      placeCanvasInCommandCenter(item.id, item.title);
+    } else {
+      placeTaskInCommandCenter(item.id, item.title);
+    }
+  };
+}
+
+function isInCommandCenter(
+  item: ChannelItemModel,
+  commandCenterCells: readonly (string | null)[],
+): boolean {
+  return commandCenterCells.some((cell) =>
+    item.kind === "canvas"
+      ? getCanvasCellId(cell) === item.id
+      : cell === item.id,
+  );
+}
+
 /** The list holds two kinds of thing, and shows one of them at a time. */
 type ChannelTab = ChannelItemModel["kind"];
 
-const CHANNEL_TABS: readonly { value: ChannelTab; label: string }[] = [
+const CHANNEL_TABS: readonly {
+  value: ChannelTab;
+  label: string;
+}[] = [
   { value: "task", label: "Sessions" },
   { value: "canvas", label: "Canvases" },
 ];
 
 function RecentSectionHeader({
   tab,
+  tabs,
   onTabChange,
   searchOpen,
   onToggleSearch,
@@ -116,6 +145,7 @@ function RecentSectionHeader({
   filtersActive,
 }: {
   tab: ChannelTab;
+  tabs: readonly { value: ChannelTab; label: string }[];
   onTabChange: (tab: ChannelTab) => void;
   searchOpen: boolean;
   onToggleSearch: () => void;
@@ -141,12 +171,14 @@ function RecentSectionHeader({
 }) {
   return (
     <>
-      <div className="flex items-center gap-0.5">
-        {/* The tabs name the list, so it has no label of its own. */}
+      <div className="flex flex-wrap items-center gap-0.5">
+        {/* The tabs name the list, so it has no label of its own. Controls
+            wrap under the tabs when the sidebar is narrow, so tab labels are
+            never cut off. */}
         <Tabs
           value={tab}
           onValueChange={(value: string) => onTabChange(value as ChannelTab)}
-          className="min-w-0 flex-1"
+          className="shrink-0"
         >
           {/* text-[13px] is the sidebar's own scale: quill's default tab is
               sized for a page header, which reads as a heading over this list. */}
@@ -156,41 +188,43 @@ function RecentSectionHeader({
             variant="line"
             className="quill-tabs-fill h-auto gap-0.5 border-b-0"
           >
-            {CHANNEL_TABS.map(({ value, label }) => (
+            {tabs.map(({ value, label }) => (
               <TabsTrigger
                 key={value}
                 value={value}
-                className="rounded-sm px-1 py-0.5 text-[13px]"
+                className="shrink-0 rounded-sm px-1 py-0.5 text-[13px]"
               >
-                {label}
+                <span className="whitespace-nowrap">{label}</span>
               </TabsTrigger>
             ))}
           </TabsList>
         </Tabs>
-        <Button
-          variant="default"
-          size="icon-xs"
-          aria-label="Search"
-          aria-pressed={searchOpen}
-          onClick={onToggleSearch}
-          className={cnHeaderButton(searchOpen)}
-        >
-          <MagnifyingGlass size={12} />
-        </Button>
-        <ChannelFilterMenu
-          filters={filters}
-          onFilterChange={onFilterChange}
-          onClearFilters={onClearFilters}
-          sort={sort}
-          onSortChange={onSortChange}
-          grouping={grouping}
-          onGroupingChange={onGroupingChange}
-          onEditAppearance={onEditAppearance}
-          sources={sources}
-          showCreatedBy={showCreatedBy}
-          showRunFilters={showRunFilters}
-          active={filtersActive}
-        />
+        <>
+          <Button
+            variant="default"
+            size="icon-xs"
+            aria-label="Search"
+            aria-pressed={searchOpen}
+            onClick={onToggleSearch}
+            className={cnHeaderButton(searchOpen)}
+          >
+            <MagnifyingGlass size={12} />
+          </Button>
+          <ChannelFilterMenu
+            filters={filters}
+            onFilterChange={onFilterChange}
+            onClearFilters={onClearFilters}
+            sort={sort}
+            onSortChange={onSortChange}
+            grouping={grouping}
+            onGroupingChange={onGroupingChange}
+            onEditAppearance={onEditAppearance}
+            sources={sources}
+            showCreatedBy={showCreatedBy}
+            showRunFilters={showRunFilters}
+            active={filtersActive}
+          />
+        </>
       </div>
       {searchOpen && (
         <div className="px-1 pb-1">
@@ -350,8 +384,9 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   const { channels } = useChannels();
   // By type, not by name: the list relabels the personal channel on the way in,
   // so its name is no longer the backend's.
-  const isPersonalChannel =
-    channels.find((c) => c.id === channelId)?.channelType === "personal";
+  const channel = channels.find((c) => c.id === channelId);
+  const isPersonalChannel = channel?.channelType === "personal";
+  const visibleTabs = CHANNEL_TABS;
   // The tab is the list, so everything below it — the filters, the empty state,
   // the sections — is about one kind of thing at a time.
   const tabItems = useMemo(
@@ -392,7 +427,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   }, [isPersonalChannel, rawFilters, sources, tab]);
   const filtersActive = hasActiveChannelItemFilters(filters);
 
-  const base = `/website/${channelId}`;
+  const base = `/spaces/${channelId}`;
   // Activeness is a key comparison rather than a flag baked into each item, so
   // navigating doesn't rebuild the list.
   const activeKey = useMemo(() => {
@@ -524,9 +559,6 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
     actions.open(item);
   };
 
-  const commandCenterAssigner = (taskId: string, taskTitle: string) => () =>
-    placeTaskInCommandCenter(taskId, taskTitle);
-
   const rowTransition = prefersReducedMotion
     ? { duration: 0 }
     : {
@@ -622,12 +654,11 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
           onRename={
             item.kind === "task" ? () => setEditingTaskId(item.id) : undefined
           }
-          // Undefined disables the menu item: a full command centre has nowhere to
-          // put the task, and an action that silently does nothing is worse than a
-          // greyed-out one.
+          // Undefined disables the menu item when this item is already present;
+          // duplicating the same task or canvas would make the grid ambiguous.
           onAddToCommandCenter={
-            item.kind === "task" && !commandCenterCells.includes(item.id)
-              ? commandCenterAssigner(item.id, item.title)
+            !isInCommandCenter(item, commandCenterCells)
+              ? commandCenterAssigner(item)
               : undefined
           }
           onEditSubmit={
@@ -688,7 +719,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
           isActive={pathname === `${base}/new`}
           onClick={() =>
             void navigate({
-              to: "/website/$channelId/new",
+              to: "/spaces/$channelId/new",
               params: { channelId },
             })
           }
@@ -700,14 +731,14 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
           "home",
           base,
           () =>
-            void navigate({ to: "/website/$channelId", params: { channelId } }),
+            void navigate({ to: "/spaces/$channelId", params: { channelId } }),
         )}
         {sectionRow(
           "context",
           `${base}/context`,
           () =>
             void navigate({
-              to: "/website/$channelId/context",
+              to: "/spaces/$channelId/context",
               params: { channelId },
             }),
         )}
@@ -717,7 +748,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
             `${base}/loops`,
             () =>
               void navigate({
-                to: "/website/$channelId/loops",
+                to: "/spaces/$channelId/loops",
                 params: { channelId },
               }),
           )}
@@ -735,6 +766,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
           <div className="border-border border-b px-2">
             <RecentSectionHeader
               tab={tab}
+              tabs={visibleTabs}
               onTabChange={setTab}
               searchOpen={searchOpen}
               onToggleSearch={() => {
@@ -765,63 +797,65 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
         )}
         {/* Pin and unpin stay reachable from the row's menu and its context
             menu, so the drag adds no keyboard-only path. */}
-        {/* biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop container */}
-        <div
-          aria-busy={isLoading}
-          className="scroll-mask-4 min-h-0 flex-1 overflow-y-auto px-2 pt-1 pb-2"
-          onDragOver={pinDrag.listProps.onDragOver}
-          onDrop={pinDrag.listProps.onDrop}
-        >
-          {listState === "loading" && <ChannelItemsSkeleton />}
+        <>
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop container */}
+          <div
+            aria-busy={isLoading}
+            className="scroll-mask-4 min-h-0 flex-1 overflow-y-auto px-2 pt-1 pb-2"
+            onDragOver={pinDrag.listProps.onDragOver}
+            onDrop={pinDrag.listProps.onDrop}
+          >
+            {listState === "loading" && <ChannelItemsSkeleton />}
 
-          {listState === "unavailable" && (
-            <Empty className="border-0 py-6">
-              <EmptyHeader>
-                <EmptyMedia variant="icon">
-                  <PackageIcon size={18} />
-                </EmptyMedia>
-                <EmptyTitle>Space unavailable</EmptyTitle>
-                <EmptyDescription>
-                  It may have been deleted, or belong to another project.
-                </EmptyDescription>
-              </EmptyHeader>
-            </Empty>
-          )}
+            {listState === "unavailable" && (
+              <Empty className="border-0 py-6">
+                <EmptyHeader>
+                  <EmptyMedia variant="icon">
+                    <PackageIcon size={18} />
+                  </EmptyMedia>
+                  <EmptyTitle>Space unavailable</EmptyTitle>
+                  <EmptyDescription>
+                    It may have been deleted, or belong to another project.
+                  </EmptyDescription>
+                </EmptyHeader>
+              </Empty>
+            )}
 
-          {showHeader &&
-            (listState === "empty" ? (
-              <TabEmptyState tab={tab} />
-            ) : sections.length > 0 ? (
-              <div className="flex flex-col gap-px">
-                {/* Always mounted, empty or not. Inserting the run on
+            {showHeader &&
+              (listState === "empty" ? (
+                <TabEmptyState tab={tab} />
+              ) : sections.length > 0 ? (
+                <div className="flex flex-col gap-px">
+                  {/* Always mounted, empty or not. Inserting the run on
                     dragstart restructures the list under the dragged row, and
                     Chromium ends the drag on the spot: dragstart, then dragend,
                     before the pointer moves. Growing one already there is
                     fine. */}
-                {pinnedRun()}
-                {datedSections.map((section) => (
-                  <Fragment key={section.key}>
-                    {section.label && <MenuLabel>{section.label}</MenuLabel>}
-                    {section.items.map((item) => taskRow(item, true))}
-                  </Fragment>
-                ))}
-              </div>
-            ) : (
-              <Empty className="border-0 py-6">
-                <EmptyHeader>
-                  <EmptyMedia variant="icon">
-                    <MagnifyingGlass size={18} />
-                  </EmptyMedia>
-                  <EmptyTitle>No matches</EmptyTitle>
-                  <EmptyDescription>
-                    Try a different search or clear the filters.
-                  </EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-            ))}
-        </div>
-        <ChannelsFab channelId={channelId} />
-        <MarqueeOverlay rect={marquee} />
+                  {pinnedRun()}
+                  {datedSections.map((section) => (
+                    <Fragment key={section.key}>
+                      {section.label && <MenuLabel>{section.label}</MenuLabel>}
+                      {section.items.map((item) => taskRow(item, true))}
+                    </Fragment>
+                  ))}
+                </div>
+              ) : (
+                <Empty className="border-0 py-6">
+                  <EmptyHeader>
+                    <EmptyMedia variant="icon">
+                      <MagnifyingGlass size={18} />
+                    </EmptyMedia>
+                    <EmptyTitle>No matches</EmptyTitle>
+                    <EmptyDescription>
+                      Try a different search or clear the filters.
+                    </EmptyDescription>
+                  </EmptyHeader>
+                </Empty>
+              ))}
+          </div>
+          <ChannelsFab channelId={channelId} />
+          <MarqueeOverlay rect={marquee} />
+        </>
       </div>
 
       {/* Below the list rather than floating over it: the bottom rows are where

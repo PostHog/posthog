@@ -7,10 +7,28 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+export interface LegacyDesktopAccessResponseApi {
+    /** Whether the user has legacy PostHog Desktop access. */
+    has_access: boolean
+    /** Whether the independent Loops feature is enabled. */
+    has_loops_access: boolean
+}
+
 export interface CodeInviteRedeemRequestApi {
     /** @maxLength 50 */
     code: string
 }
+
+/**
+ * * `startup_plan` - startup_plan
+ * * `prepaid_credits` - prepaid_credits
+ */
+export type DesktopAccessReasonEnumApi = (typeof DesktopAccessReasonEnumApi)[keyof typeof DesktopAccessReasonEnumApi]
+
+export const DesktopAccessReasonEnumApi = {
+    StartupPlan: 'startup_plan',
+    PrepaidCredits: 'prepaid_credits',
+} as const
 
 /**
  * * `burst` - burst
@@ -32,6 +50,11 @@ export interface TaskRunErrorResponseApi {
     type?: string
     /** Machine-readable error code */
     code?: string
+    /** Why PostHog Desktop access was denied, when applicable.
+     *
+     * * `startup_plan` - startup_plan
+     * * `prepaid_credits` - prepaid_credits */
+    reason?: DesktopAccessReasonEnumApi
     /** Request field associated with the error */
     attr?: string
     /** Artifact ids that could not be resolved for the run */
@@ -68,6 +91,21 @@ export interface SandboxComputePricingApi {
     current: ComputeRateCardApi | null
     /** Expired sandbox compute rate cards, newest first. */
     history: ComputeRateCardApi[]
+}
+
+export interface DesktopBetaTermsAcceptanceDTOApi {
+    /** Whether the organization has accepted the PostHog Desktop beta terms. */
+    readonly is_desktop_beta_terms_accepted: boolean
+}
+
+export interface DesktopAccessResponseApi {
+    /** Whether the selected project can use PostHog Desktop. */
+    allowed: boolean
+    /** Why Desktop access is blocked, or null when access is allowed.
+     *
+     * * `startup_plan` - startup_plan
+     * * `prepaid_credits` - prepaid_credits */
+    reason: DesktopAccessReasonEnumApi | null
 }
 
 export interface LoopRepositoryEntryDTOApi {
@@ -956,15 +994,6 @@ export const ActivityKindEnumApi = {
 } as const
 
 /**
- * * `desktop_canvas` - desktop_canvas
- */
-export type TargetScopeEnumApi = (typeof TargetScopeEnumApi)[keyof typeof TargetScopeEnumApi]
-
-export const TargetScopeEnumApi = {
-    DesktopCanvas: 'desktop_canvas',
-} as const
-
-/**
  * Response shape for one task in the requester's activity feed (one row per task).
  */
 export interface TaskActivityDTOApi {
@@ -998,15 +1027,6 @@ export interface TaskActivityDTOApi {
     latest_comment_scope?: string | null
     /** @nullable */
     latest_comment_item_id?: string | null
-    /** The non-task surface this activity opens, when the task backs another shared artifact.
-     *
-     * * `desktop_canvas` - desktop_canvas */
-    target_scope?: TargetScopeEnumApi | null
-    /**
-     * Identifier of the activity target. Present together with target_scope.
-     * @nullable
-     */
-    target_id?: string | null
     /** Whether the requester has yet to see this activity. Activity they caused themselves is never unread. */
     is_unread: boolean
 }
@@ -1257,6 +1277,14 @@ export interface PaginatedChannelInstructionsDTOListApi {
  */
 export interface ChannelStarWriteApi {
     starred: boolean
+}
+
+/**
+ * The first-run session that was started for the requester.
+ */
+export interface OnboardingSessionApi {
+    /** The agent session opened in the team's #general space. */
+    task_id: string
 }
 
 /**
@@ -3104,6 +3132,11 @@ export interface TaskAnalysisWastedEffortApi {
      * @minimum 1
      */
     tokens?: number
+    /**
+     * Sum of tool-output sizes across the wasted span.
+     * @minimum 1
+     */
+    output_bytes?: number
 }
 
 /**

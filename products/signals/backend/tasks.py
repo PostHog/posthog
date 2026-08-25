@@ -83,24 +83,6 @@ def close_dismissed_report_pr(report_id: str, team_id: int, reason: PrCloseReaso
     close_implementation_pr_for_report(team_id, report_id, reason=reason)
 
 
-@shared_task(
-    name="products.signals.backend.tasks.refresh_report_canvases_for_task",
-    ignore_result=True,
-    max_retries=0,
-)
-@skip_team_scope_audit  # SignalReport still uses RootTeamManager; this lookup intentionally spans teams.
-def refresh_report_canvases_for_task(task_id: str) -> None:
-    from asgiref.sync import async_to_sync  # noqa: PLC0415 — keeps Temporal off Celery task discovery
-
-    from products.signals.backend.temporal.report_canvas import (  # noqa: PLC0415 — keeps Temporal off Celery task discovery
-        start_report_canvas_workflow,
-    )
-
-    reports = SignalReport.objects.filter(SignalReport.reports_for_task_filter(task_id)).values_list("team_id", "id")
-    for team_id, report_id in reports:
-        async_to_sync(start_report_canvas_workflow)(team_id=team_id, report_id=str(report_id))
-
-
 def _slack_retry_after_seconds(exc: Exception) -> int | None:
     if not isinstance(exc, SlackApiError) or not exc.response:
         return None

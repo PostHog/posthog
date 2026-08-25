@@ -64,7 +64,7 @@ export function TaskFeedPane({
     useTaskFeedResults(feed?.query);
   const archivedTaskIds = useArchivedTaskIds();
   const { pinnedTaskIds, togglePin, setPinnedMany } = usePinnedTasks();
-  const { archiveTask } = useArchiveTask({ navigateSpace: "website" });
+  const { archiveTask } = useArchiveTask();
   const sessionFacts = useChannelSessionFacts();
   const commandCenterCells = useCommandCenterStore((state) => state.cells);
   const [editOpen, setEditOpen] = useState(false);
@@ -104,6 +104,7 @@ export function TaskFeedPane({
         void archiveTask({ taskId: item.id });
       },
       remove: () => undefined,
+      fileCanvas: () => undefined,
     }),
     [feedId, select, togglePin, setPinnedMany, archiveTask],
   );
@@ -143,7 +144,7 @@ export function TaskFeedPane({
       feed_id: feed.id,
     });
     toast.success("Saved search deleted");
-    void navigate({ to: "/website" });
+    void navigate({ to: "/spaces" });
   };
 
   return (

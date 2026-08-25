@@ -151,6 +151,7 @@ class ErrorTrackingQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     "name": issue_basics.name,
                     "description": issue_basics.description,
                     "status": issue_basics.status,
+                    "severity": issue_basics.severity,
                 }
             )
             payload["impact"] = {}

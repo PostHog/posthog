@@ -44,14 +44,14 @@ export function DismissedReportDetail({
   // returns there. Arriving directly (deep link, Archive-tab click, refresh)
   // falls back to "Back to archive".
   const back = useInboxBackTarget({
-    to: "/code/inbox/dismissed",
+    to: "/inbox/dismissed",
     label: "Back to archive",
   });
   return (
     <InboxReportDetailGate
       reportId={reportId}
       cachedReport={cachedReport}
-      backTo="/code/inbox/dismissed"
+      backTo="/inbox/dismissed"
       backLabel="Back to archive"
       backLinkTo={back.to}
       backLinkLabel={back.label}
@@ -110,10 +110,10 @@ function RestoreReportButton({ report }: { report: SignalReport }) {
       size="sm"
       disabled={restore.isPending}
       className="gap-1"
-      title="Restore this report to the inbox"
+      title="Restore this report to Self-driving"
       onClick={() =>
         restore.mutate(report.id, {
-          onSuccess: () => navigate({ to: "/code/inbox/dismissed" }),
+          onSuccess: () => navigate({ to: "/inbox/dismissed" }),
         })
       }
     >

@@ -83,8 +83,24 @@ enum SubBatchStatus {
   SUB_BATCH_STATUS_FAILED = 2;
 }
 
-// IngestStreamResponse acks one sub-batch.
+// IngestStreamResponse is one frame on the worker-to-consumer stream.
 message IngestStreamResponse {
+  oneof msg {
+    // First frame on every stream, sent as soon as the worker accepts it and
+    // before any sub-batch completes: flushes response headers so the
+    // consumer's stream-open resolves (some HTTP/2 server stacks defer
+    // headers until the first response message).
+    StreamReady ready = 1;
+    SubBatchAck ack = 2;
+  }
+}
+
+// StreamReady carries no data yet; it is the slot where the worker could
+// later advertise limits or echo the hello.
+message StreamReady {}
+
+// SubBatchAck acks one sub-batch.
+message SubBatchAck {
   // The `SubBatch.seq` this ack resolves.
   uint64 seq = 1;
   SubBatchStatus status = 2;

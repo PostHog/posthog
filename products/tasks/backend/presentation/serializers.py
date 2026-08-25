@@ -26,6 +26,7 @@ from products.tasks.backend.facade.contracts import (
     ChannelDTO,
     ChannelFeedMessageDTO,
     ChannelInstructionsDTO,
+    DesktopAccessReason,
     SandboxCustomImageDTO,
     SandboxEnvironmentDTO,
     SlackThreadReferenceDTO,
@@ -908,11 +909,33 @@ class TaskRunSetOutputRequestSerializer(serializers.Serializer):
     )
 
 
+DESKTOP_ACCESS_REASON_CHOICES = [reason.value for reason in DesktopAccessReason]
+
+
+class DesktopAccessResponseSerializer(serializers.Serializer):
+    allowed = serializers.BooleanField(help_text="Whether the selected project can use PostHog Desktop.")
+    reason = serializers.ChoiceField(
+        choices=DESKTOP_ACCESS_REASON_CHOICES,
+        allow_null=True,
+        help_text="Why Desktop access is blocked, or null when access is allowed.",
+    )
+
+
+class LegacyDesktopAccessResponseSerializer(serializers.Serializer):
+    has_access = serializers.BooleanField(help_text="Whether the user has legacy PostHog Desktop access.")
+    has_loops_access = serializers.BooleanField(help_text="Whether the independent Loops feature is enabled.")
+
+
 class TaskRunErrorResponseSerializer(serializers.Serializer):
     detail = serializers.CharField(required=False, help_text="Human-readable validation error")
     error = serializers.CharField(required=False, help_text="Human-readable error message")
     type = serializers.CharField(required=False, help_text="Machine-readable error type")
     code = serializers.CharField(required=False, help_text="Machine-readable error code")
+    reason = serializers.ChoiceField(
+        choices=DESKTOP_ACCESS_REASON_CHOICES,
+        required=False,
+        help_text="Why PostHog Desktop access was denied, when applicable.",
+    )
     attr = serializers.CharField(required=False, help_text="Request field associated with the error")
     missing_artifact_ids = serializers.ListField(
         child=serializers.CharField(),
@@ -1637,6 +1660,9 @@ class TaskAnalysisWastedEffortSerializer(serializers.Serializer):
         min_value=1, required=False, help_text="Wall-clock seconds across the wasted span."
     )
     tokens = serializers.IntegerField(min_value=1, required=False, help_text="Token delta across the wasted span.")
+    output_bytes = serializers.IntegerField(
+        min_value=1, required=False, help_text="Sum of tool-output sizes across the wasted span."
+    )
 
 
 class TaskAnalysisSuggestedFixSerializer(serializers.Serializer):
@@ -1953,6 +1979,12 @@ class ChannelSerializer(DataclassSerializer):
         ]
 
 
+class OnboardingSessionSerializer(serializers.Serializer):
+    """The first-run session that was started for the requester."""
+
+    task_id = serializers.UUIDField(help_text="The agent session opened in the team's #general space.")
+
+
 class ProvisionedChannelsSerializer(serializers.Serializer):
     """The requester's default channels, plus whether this call is what created them."""
 
@@ -2265,17 +2297,6 @@ class TaskActivitySerializer(DataclassSerializer):
     is_unread = serializers.BooleanField(
         help_text="Whether the requester has yet to see this activity. Activity they caused themselves is never unread."
     )
-    target_scope = serializers.ChoiceField(
-        choices=["desktop_canvas"],
-        allow_null=True,
-        required=False,
-        help_text="The non-task surface this activity opens, when the task backs another shared artifact.",
-    )
-    target_id = serializers.CharField(
-        allow_null=True,
-        required=False,
-        help_text="Identifier of the activity target. Present together with target_scope.",
-    )
 
     class Meta:
         dataclass = TaskActivityDTO
@@ -2293,8 +2314,6 @@ class TaskActivitySerializer(DataclassSerializer):
             "latest_comment_id",
             "latest_comment_scope",
             "latest_comment_item_id",
-            "target_scope",
-            "target_id",
             "is_unread",
         ]
 

@@ -16,11 +16,20 @@ their data results.
 """
 
 from datetime import datetime
+from enum import StrEnum
 from typing import Literal
 from uuid import UUID
 
 from pydantic import Field
 from pydantic.dataclasses import dataclass
+
+
+class DesktopAccessReason(StrEnum):
+    STARTUP_PLAN = "startup_plan"
+    PREPAID_CREDITS = "prepaid_credits"
+
+
+DESKTOP_ACCESS_REASON_SCHEMA_VALUES = [*(reason.value for reason in DesktopAccessReason), None]
 
 
 @dataclass(frozen=True)
@@ -295,8 +304,6 @@ class TaskActivityDTO:
     latest_comment_id: UUID | None = None
     latest_comment_scope: str | None = None
     latest_comment_item_id: str | None = None
-    target_scope: str | None = None
-    target_id: str | None = None
     is_unread: bool = True
 
 
@@ -659,6 +666,11 @@ class CodeInviteRedeemResult:
     """
 
     outcome: str
+
+
+@dataclass(frozen=True)
+class DesktopBetaTermsAcceptanceDTO:
+    is_desktop_beta_terms_accepted: bool
 
 
 @dataclass(frozen=True)
