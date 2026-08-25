@@ -13,7 +13,6 @@ Operations include:
 import random
 import statistics
 from collections.abc import Callable
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
@@ -26,6 +25,7 @@ import structlog
 from posthoganalytics import capture_exception
 from prometheus_client import Counter, Gauge
 
+from posthog.dataclasses import frozen
 from posthog.metrics import pushed_metrics_registry
 from posthog.models.team.team import Team
 from posthog.redis import get_client
@@ -171,7 +171,7 @@ class UpdateFn(Protocol):
     def __call__(self, team: Team | int, ttl: int | None = None) -> bool: ...
 
 
-@dataclass
+@frozen
 class HyperCacheManagementConfig:
     """
     Configuration for batch HyperCache management operations.
@@ -224,6 +224,14 @@ class HyperCacheManagementConfig:
     # lags. Applied by the verifier's direct db_data write and the self-heal drain; a
     # veto is neither a fix nor a failure. `update_fn` paths already guard internally.
     should_skip_write: Callable[[Any, dict], bool] | None = None
+
+    # Optional attribution of a team's primary cache writer, used to label verifier
+    # fixes. During a dual-writer migration (Python Celery builder vs Rust Kafka
+    # builder) the verifier is the parity oracle: a fix on a team owned by one writer
+    # signals that writer diverged, which an unattributed fix counter blends into the
+    # other writer's baseline repair noise. Takes a team id, returns a short static
+    # label value (e.g. "python", "rust", "unknown"). None labels every fix "python".
+    get_primary_writer_fn: Callable[[int], str] | None = None
 
     # Derived properties (computed from required properties using conventions)
     @property

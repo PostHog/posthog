@@ -17,6 +17,7 @@ from products.tasks.backend.facade.workflow_tasks import (
     WorkflowTaskLimitExceeded,
     WorkflowTaskOriginKeyConflict,
     WorkflowTaskOwnerIneligible,
+    WorkflowTaskSlackContext,
     create_workflow_task,
 )
 from products.workflows.backend.models import HogFlow
@@ -40,8 +41,46 @@ class WorkflowTasksJWTAuthentication(ScopedServiceJWTAuthentication):
         return user, hog_flow_id
 
 
+class WorkflowTaskSlackContextSerializer(serializers.Serializer):
+    integration_id = serializers.IntegerField(
+        help_text="PostHog Slack integration that received the triggering message."
+    )
+    channel = serializers.CharField(max_length=64, help_text="Slack channel ID of the triggering message.")
+    thread_ts = serializers.CharField(max_length=64, help_text="Slack thread timestamp the task replies under.")
+    message_ts = serializers.CharField(
+        max_length=64,
+        required=False,
+        allow_blank=True,
+        help_text="Timestamp of the triggering message itself. Differs from thread_ts when a reply started the run.",
+    )
+    slack_user_id = serializers.CharField(
+        max_length=64,
+        required=False,
+        allow_blank=True,
+        help_text="Slack user who posted the triggering message. Empty when a bot posted it.",
+    )
+    slack_team_id = serializers.CharField(
+        max_length=64,
+        required=False,
+        allow_blank=True,
+        help_text="Slack workspace ID, the fallback for resolving the integration when the stamped ID is stale.",
+    )
+    is_ext_shared_channel = serializers.BooleanField(
+        required=False,
+        help_text="Whether the channel is shared with another Slack workspace. Such a channel needs an approval on file before the task replies in it.",
+    )
+
+
 class WorkflowTaskCreateSerializer(serializers.Serializer):
     prompt = serializers.CharField(help_text="Instructions for the agent.")
+    event = serializers.DictField(
+        required=False,
+        help_text="The event that triggered the workflow run. Rendered into the agent's prompt as data.",
+    )
+    slack_context = WorkflowTaskSlackContextSerializer(
+        required=False,
+        help_text="Slack thread that triggered the workflow. The task posts its updates there.",
+    )
     title = serializers.CharField(
         max_length=255, required=False, allow_blank=True, help_text="Task title. Derived from the prompt when omitted."
     )
@@ -144,6 +183,10 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
                 posthog_mcp_scopes=data["posthog_mcp_scopes"],
                 max_parallel_tasks=data["max_parallel_tasks"],
                 origin_key=data.get("idempotency_key"),
+                event=data.get("event"),
+                slack_context=(
+                    WorkflowTaskSlackContext(**data["slack_context"]) if data.get("slack_context") else None
+                ),
             )
         except WorkflowTaskConnectorsInvalid as error:
             raise serializers.ValidationError(
