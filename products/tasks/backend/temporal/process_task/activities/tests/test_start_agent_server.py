@@ -11,6 +11,8 @@ from products.tasks.backend.temporal.process_task.activities.start_agent_server 
     _agentsh_domains_for,
     _ensure_repository_on_disk,
     _include_personal_mcp_for_task,
+    _is_agent_shadow_enabled,
+    _launch_agent_shadow,
     _LaunchParams,
     _network_enforcement_observation,
     _prepare_launch,
@@ -433,6 +435,65 @@ def test_ensure_repository_on_disk_skips_repo_less_runs(mocker) -> None:
 
     _ensure_repository_on_disk(_context(repository=None), sandbox)
 
+    sandbox.execute.assert_not_called()
+
+
+def test_agent_shadow_flag_uses_server_side_organization_targeting(mocker) -> None:
+    feature_enabled = mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.posthoganalytics.feature_enabled",
+        return_value=True,
+    )
+
+    assert _is_agent_shadow_enabled(_context()) is True
+    feature_enabled.assert_called_once_with(
+        "agent-server-shadow-observer",
+        distinct_id="distinct-id",
+        groups={"organization": "organization-id"},
+        group_properties={"organization": {"id": "organization-id"}},
+        only_evaluate_locally=False,
+        send_feature_flag_events=False,
+    )
+
+
+def test_agent_shadow_flag_fails_closed(mocker) -> None:
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server.posthoganalytics.feature_enabled",
+        side_effect=RuntimeError("unavailable"),
+    )
+
+    assert _is_agent_shadow_enabled(_context()) is False
+
+
+def test_agent_shadow_launches_without_credentials(mocker) -> None:
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._is_agent_shadow_enabled",
+        return_value=True,
+    )
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.config.snapshot_restored = False
+    sandbox.agent_server_health_url.return_value = "http://127.0.0.1:8080/health"
+    sandbox.execute.return_value = ExecutionResult(stdout="", stderr="", exit_code=0)
+
+    assert _launch_agent_shadow(_context(), sandbox) is True
+    command = sandbox.execute.call_args.args[0]
+    assert "/usr/local/bin/agent-shadow" in command
+    assert "[a]gent-shadow --boot-id run-id" in command
+    assert "/usr/bin/env -i /usr/local/bin/agent-shadow" in command
+    assert "--boot-id run-id" in command
+    assert "--timeout 6m" in command
+    assert "POSTHOG" not in command
+
+
+def test_agent_shadow_skips_filesystem_snapshot(mocker) -> None:
+    mocker.patch(
+        "products.tasks.backend.temporal.process_task.activities.start_agent_server._is_agent_shadow_enabled",
+        return_value=True,
+    )
+    sandbox = mocker.Mock(id="sandbox-id")
+    sandbox.config.snapshot_restored = True
+    sandbox.config.snapshot_kind = "filesystem"
+
+    assert _launch_agent_shadow(_context(), sandbox) is False
     sandbox.execute.assert_not_called()
 
 
