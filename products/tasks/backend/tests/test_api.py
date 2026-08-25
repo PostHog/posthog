@@ -10520,6 +10520,42 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
         self.assertEqual(response.json()["error"], "Failed to queue user message for task run")
 
+    @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
+    def test_command_returns_409_when_user_message_workflow_has_ended(self, mock_signal_followup):
+        from temporalio.service import RPCError, RPCStatusCode
+
+        mock_signal_followup.side_effect = RPCError("workflow missing", RPCStatusCode.NOT_FOUND, b"")
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_409_CONFLICT)
+        self.assertEqual(response.json()["error"], "Task run workflow has ended")
+
+    @patch("products.tasks.backend.temporal.client.signal_task_followup_message")
+    def test_command_returns_502_while_warm_workflow_is_registering(self, mock_signal_followup):
+        from temporalio.service import RPCError, RPCStatusCode
+
+        mock_signal_followup.side_effect = RPCError("workflow missing", RPCStatusCode.NOT_FOUND, b"")
+        task = self.create_task()
+        run = self._create_run_with_sandbox(task)
+        run.state = {**run.state, "await_user_message": True}
+        run.save(update_fields=["state", "updated_at"])
+
+        response = self.client.post(
+            self._command_url(task, run),
+            self._make_user_message(),
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(response.json()["error"], "Failed to queue user message for task run")
+
     @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
     @patch("products.tasks.backend.presentation.views.api.http_requests.post")
     def test_command_rejects_unknown_artifact_ids(self, mock_post):
