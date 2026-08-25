@@ -21,7 +21,22 @@ import { revenueAnalyticsSettingsLogic } from 'products/revenue_analytics/fronte
 import { ApplyTestAccountFilterToExistingInsights } from './ApplyTestAccountFilterToExistingInsights'
 import { filterTestAccountsDefaultsLogic } from './filterTestAccountDefaultsLogic'
 
-function createTestAccountFilterWarningLabels(
+// A row without a value is still being edited, so it must not trigger the warning yet.
+function isFilterComplete(filter: AnyPropertyFilter): boolean {
+    if (!('operator' in filter) || !filter.operator || !filter.key) {
+        return false
+    }
+    if (filter.operator === PropertyOperator.IsSet || filter.operator === PropertyOperator.IsNotSet) {
+        return true
+    }
+    const value = filter.value
+    if (Array.isArray(value)) {
+        return value.length > 0
+    }
+    return value !== undefined && value !== null && value !== ''
+}
+
+export function createTestAccountFilterWarningLabels(
     currentTeam: TeamPublicType | TeamType | null,
     cohortsById: Partial<Record<number | string, CohortType>>
 ): string[] | null {
@@ -37,7 +52,12 @@ function createTestAccountFilterWarningLabels(
     ]
     const positiveFilters = []
     for (const filter of currentTeam.test_account_filters || []) {
-        if ('operator' in filter && !!filter.operator && positiveFilterOperators.includes(filter.operator)) {
+        if (
+            isFilterComplete(filter) &&
+            'operator' in filter &&
+            !!filter.operator &&
+            positiveFilterOperators.includes(filter.operator)
+        ) {
             positiveFilters.push(filter)
         }
     }
@@ -84,21 +104,26 @@ function TestAccountFiltersConfig(): JSX.Element {
         <div className="mb-4 flex flex-col gap-2">
             <div className="mb-4 flex flex-col gap-2">
                 <LemonBanner type="info">
-                    When filtering out internal users, inline person property filters (e.g., "email does not contain
-                    your-domain.com") work everywhere, including real-time CDP destinations. Alternatively, you can
-                    create a cohort and add it with a "not in" operator - this works well for analytics queries
-                    (insights, dashboards) and also works in CDP destinations if the cohort contains{' '}
-                    <strong>exclusively person property filters</strong>. Cohorts with behavioral filters or no
-                    properties defined will cause CDP destinations to error.
+                    <p>
+                        Each row below is a condition. An event is kept only if it matches <strong>every</strong> row.
+                        To exclude internal or test users, use a negative operator like <i>does not contain</i>.
+                    </p>
+                    <p>
+                        Inline person property filters (e.g., "email does not contain your-domain.com") work everywhere,
+                        including real-time CDP destinations. Alternatively, you can create a cohort and add it with a
+                        "not in" operator - this works well for analytics queries (insights, dashboards) and also works
+                        in CDP destinations if the cohort contains <strong>exclusively person property filters</strong>.
+                        Cohorts with behavioral filters or no properties defined will cause CDP destinations to error.
+                    </p>
                 </LemonBanner>
                 {!!testAccountFilterWarningLabels && testAccountFilterWarningLabels.length > 0 && (
                     <LemonBanner type="warning" className="m-2">
                         <p>
-                            You've added an <strong>inclusive</strong> filter, which means only matching events will be
-                            included. Filters are normally <strong>exclusive</strong>, such as <i>does not contain</i>,
-                            to filter out unwanted results.
+                            Some rows use a positive operator like <i>equals</i> or <i>contains</i>, so they keep only
+                            events that match. This is correct when you want to keep matching traffic. To exclude
+                            internal or test users instead, use a negative operator like <i>does not contain</i>.
                         </p>
-                        <p>Inclusive filters are currently set for the following properties: </p>
+                        <p>These rows use a positive operator: </p>
                         <ul className="list-disc">
                             {testAccountFilterWarningLabels.map((l, i) => (
                                 <li key={i} className="ml-4">

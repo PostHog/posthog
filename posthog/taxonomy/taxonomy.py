@@ -1651,7 +1651,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "examples": ["203.0.113.0"],
         },
         "$ip_address": {
-            "label": "IP address",
+            "label": "IP address (server-side)",
             "description": "The IP address of the client that sent this event. Used by server-side SDKs.",
             "examples": ["203.0.113.0"],
         },

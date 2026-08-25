@@ -1973,7 +1973,7 @@
             "examples": [
                 "203.0.113.0"
             ],
-            "label": "IP address"
+            "label": "IP address (server-side)"
         },
         "$is_emulator": {
             "description": "Indicates whether the app is running on an emulator or a physical device",
@@ -6892,7 +6892,7 @@
             "examples": [
                 "203.0.113.0"
             ],
-            "label": "IP address"
+            "label": "IP address (server-side)"
         },
         "$is_emulator": {
             "description": "Indicates whether the app is running on an emulator or a physical device",
