@@ -2,6 +2,7 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { MessageRejected, SendingPausedException, TooManyRequestsException } from '@aws-sdk/client-sesv2'
 
+import { FixtureHogFlowBuilder } from '~/cdp/_tests/builders/hogflow.builder'
 import { createExampleInvocation, insertIntegration } from '~/cdp/_tests/fixtures'
 import { CyclotronInvocationQueueParametersEmailType } from '~/cdp/schema/cyclotron'
 import { CyclotronJobInvocationHogFunction } from '~/cdp/types'
@@ -1192,6 +1193,37 @@ describe('EmailService', () => {
                     $email_subject: 'Test Subject',
                     $email_tracking_enabled: true,
                 },
+            })
+        })
+
+        it('should capture the workflow and action names when the invocation carries a hog flow', async () => {
+            jest.spyOn((service as any).teamWorkflowsConfigService, 'shouldCaptureEngagementEvents').mockResolvedValue(
+                true
+            )
+            const hogFlow = new FixtureHogFlowBuilder()
+                .withTeamId(team.id)
+                .withName('Welcome series')
+                .withWorkflow({
+                    actions: {
+                        'action-1': { type: 'trigger', config: { filters: {} } as any, name: 'Trigger' },
+                        'action-2': { type: 'function_email', config: {} as any, name: 'Send welcome email' },
+                    },
+                    edges: [],
+                })
+                .build()
+            const flowInvocation = {
+                ...invocation,
+                hogFlow,
+                state: { ...invocation.state, actionId: 'action-2' },
+            } as unknown as CyclotronJobInvocationHogFunction
+
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            const result = await service.executeSendEmail(flowInvocation)
+            expect(result.error).toBeUndefined()
+            expect(result.capturedPostHogEvents[0].properties).toMatchObject({
+                $workflow_name: 'Welcome series',
+                $workflow_action_id: 'action-2',
+                $workflow_action_name: 'Send welcome email',
             })
         })
 

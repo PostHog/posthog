@@ -1485,6 +1485,21 @@
             ],
             "label": "Element text"
         },
+        "$email_subject": {
+            "description": "The subject line of the workflow email.",
+            "label": "Email subject",
+            "type": "String"
+        },
+        "$email_to": {
+            "description": "The recipient address of the workflow email.",
+            "label": "Email recipient",
+            "type": "String"
+        },
+        "$email_tracking_enabled": {
+            "description": "Whether open and click tracking was enabled for the workflow email.",
+            "label": "Email tracking enabled",
+            "type": "Boolean"
+        },
         "$enabled_feature_flags": {
             "description": "Keys and multivariate values of the feature flags that were active while this event was sent.",
             "examples": [
@@ -3520,6 +3535,40 @@
             "label": "Window ID",
             "system": true
         },
+        "$workflow_action_id": {
+            "description": "The ID of the workflow action (step) that emitted the email event.",
+            "label": "Workflow action ID",
+            "type": "String"
+        },
+        "$workflow_action_name": {
+            "description": "The name of the workflow action (step) that emitted the email event.",
+            "examples": [
+                "Send welcome email"
+            ],
+            "label": "Workflow action name",
+            "type": "String"
+        },
+        "$workflow_id": {
+            "description": "The ID of the workflow that emitted the email event.",
+            "examples": [
+                "0193b7e2-1c3a-7f9a-8b2d-9e4f5a6c7d8e"
+            ],
+            "label": "Workflow ID",
+            "type": "String"
+        },
+        "$workflow_name": {
+            "description": "The name of the workflow that emitted the email event.",
+            "examples": [
+                "Welcome series"
+            ],
+            "label": "Workflow name",
+            "type": "String"
+        },
+        "$workflow_version": {
+            "description": "The version of the workflow that sent the email.",
+            "label": "Workflow version",
+            "type": "Numeric"
+        },
         "_kx": {
             "description": "Klaviyo Tracking ID",
             "label": "_kx"
@@ -4096,6 +4145,10 @@
             "ignored_in_assistant": true,
             "label": "Set person properties"
         },
+        "$slack_message_received": {
+            "description": "Fires when a message is posted in a Slack channel PostHog is connected to.",
+            "label": "Slack message received"
+        },
         "$snapshot": {
             "description": "Carries session replay data to the backend. These events do not contribute to event counts.",
             "ignored_in_assistant": true,
@@ -4104,6 +4157,49 @@
         "$web_vitals": {
             "description": "Automatically captured web vitals data.",
             "label": "Web vitals"
+        },
+        "$workflows_email_blocked": {
+            "description": "Fires when a workflow email is blocked before sending.",
+            "label": "Workflow email blocked",
+            "primary_property": "$workflow_name"
+        },
+        "$workflows_email_bounced": {
+            "description": "Fires when a workflow email bounces.",
+            "label": "Workflow email bounced",
+            "primary_property": "$workflow_name"
+        },
+        "$workflows_email_delivered": {
+            "description": "Fires when a workflow email is delivered to the recipient's mail server.",
+            "label": "Workflow email delivered",
+            "primary_property": "$workflow_name"
+        },
+        "$workflows_email_failed": {
+            "description": "Fires when a workflow email fails to send.",
+            "label": "Workflow email failed",
+            "primary_property": "$workflow_name"
+        },
+        "$workflows_email_link_clicked": {
+            "description": "Fires when a recipient clicks a link in a workflow email.",
+            "label": "Workflow email link clicked",
+            "primary_property": "$workflow_name"
+        },
+        "$workflows_email_opened": {
+            "description": "Fires when a recipient opens a workflow email.",
+            "label": "Workflow email opened",
+            "primary_property": "$workflow_name"
+        },
+        "$workflows_email_sent": {
+            "description": "Fires when a workflow sends an email to a recipient.",
+            "label": "Workflow email sent",
+            "primary_property": "$workflow_name"
+        },
+        "$workflows_email_tracking_consent_updated": {
+            "description": "Fires when a recipient changes their open and click tracking consent.",
+            "label": "Workflow email tracking consent updated"
+        },
+        "$workflows_email_unsubscribed": {
+            "description": "Fires when a recipient unsubscribes from a workflow email.",
+            "label": "Workflow email unsubscribed"
         },
         "All events": {
             "description": "This is a wildcard that matches all events.",
@@ -5991,6 +6087,21 @@
                 "Click here!"
             ],
             "label": "Element text"
+        },
+        "$email_subject": {
+            "description": "The subject line of the workflow email.",
+            "label": "Email subject",
+            "type": "String"
+        },
+        "$email_to": {
+            "description": "The recipient address of the workflow email.",
+            "label": "Email recipient",
+            "type": "String"
+        },
+        "$email_tracking_enabled": {
+            "description": "Whether open and click tracking was enabled for the workflow email.",
+            "label": "Email tracking enabled",
+            "type": "Boolean"
         },
         "$enabled_feature_flags": {
             "description": "Keys and multivariate values of the feature flags that were active while this event was sent.",
@@ -8428,6 +8539,40 @@
             "description": "Unique window ID for session recording disambiguation",
             "label": "Window ID",
             "system": true
+        },
+        "$workflow_action_id": {
+            "description": "The ID of the workflow action (step) that emitted the email event.",
+            "label": "Workflow action ID",
+            "type": "String"
+        },
+        "$workflow_action_name": {
+            "description": "The name of the workflow action (step) that emitted the email event.",
+            "examples": [
+                "Send welcome email"
+            ],
+            "label": "Workflow action name",
+            "type": "String"
+        },
+        "$workflow_id": {
+            "description": "The ID of the workflow that emitted the email event.",
+            "examples": [
+                "0193b7e2-1c3a-7f9a-8b2d-9e4f5a6c7d8e"
+            ],
+            "label": "Workflow ID",
+            "type": "String"
+        },
+        "$workflow_name": {
+            "description": "The name of the workflow that emitted the email event.",
+            "examples": [
+                "Welcome series"
+            ],
+            "label": "Workflow name",
+            "type": "String"
+        },
+        "$workflow_version": {
+            "description": "The version of the workflow that sent the email.",
+            "label": "Workflow version",
+            "type": "Numeric"
         },
         "_kx": {
             "description": "Klaviyo Tracking ID Data from the last time this user was seen.",

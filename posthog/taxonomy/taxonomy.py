@@ -488,6 +488,49 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Slack message received",
             "description": "Fires when a message is posted in a Slack channel PostHog is connected to.",
         },
+        "$workflows_email_sent": {
+            "label": "Workflow email sent",
+            "description": "Fires when a workflow sends an email to a recipient.",
+            "primary_property": "$workflow_name",
+        },
+        "$workflows_email_failed": {
+            "label": "Workflow email failed",
+            "description": "Fires when a workflow email fails to send.",
+            "primary_property": "$workflow_name",
+        },
+        "$workflows_email_delivered": {
+            "label": "Workflow email delivered",
+            "description": "Fires when a workflow email is delivered to the recipient's mail server.",
+            "primary_property": "$workflow_name",
+        },
+        "$workflows_email_opened": {
+            "label": "Workflow email opened",
+            "description": "Fires when a recipient opens a workflow email.",
+            "primary_property": "$workflow_name",
+        },
+        "$workflows_email_link_clicked": {
+            "label": "Workflow email link clicked",
+            "description": "Fires when a recipient clicks a link in a workflow email.",
+            "primary_property": "$workflow_name",
+        },
+        "$workflows_email_bounced": {
+            "label": "Workflow email bounced",
+            "description": "Fires when a workflow email bounces.",
+            "primary_property": "$workflow_name",
+        },
+        "$workflows_email_blocked": {
+            "label": "Workflow email blocked",
+            "description": "Fires when a workflow email is blocked before sending.",
+            "primary_property": "$workflow_name",
+        },
+        "$workflows_email_unsubscribed": {
+            "label": "Workflow email unsubscribed",
+            "description": "Fires when a recipient unsubscribes from a workflow email.",
+        },
+        "$workflows_email_tracking_consent_updated": {
+            "label": "Workflow email tracking consent updated",
+            "description": "Fires when a recipient changes their open and click tracking consent.",
+        },
     },
     "elements": {
         "tag_name": {
@@ -3440,6 +3483,49 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "When set, ingestion ignores the event's `sent_at` and skips clock-skew correction of the timestamp.",
             "type": "Boolean",
             "ignored_in_assistant": True,
+        },
+        "$workflow_id": {
+            "label": "Workflow ID",
+            "description": "The ID of the workflow that emitted the email event.",
+            "type": "String",
+            "examples": ["0193b7e2-1c3a-7f9a-8b2d-9e4f5a6c7d8e"],
+        },
+        "$workflow_name": {
+            "label": "Workflow name",
+            "description": "The name of the workflow that emitted the email event.",
+            "type": "String",
+            "examples": ["Welcome series"],
+        },
+        "$workflow_action_id": {
+            "label": "Workflow action ID",
+            "description": "The ID of the workflow action (step) that emitted the email event.",
+            "type": "String",
+        },
+        "$workflow_action_name": {
+            "label": "Workflow action name",
+            "description": "The name of the workflow action (step) that emitted the email event.",
+            "type": "String",
+            "examples": ["Send welcome email"],
+        },
+        "$workflow_version": {
+            "label": "Workflow version",
+            "description": "The version of the workflow that sent the email.",
+            "type": "Numeric",
+        },
+        "$email_to": {
+            "label": "Email recipient",
+            "description": "The recipient address of the workflow email.",
+            "type": "String",
+        },
+        "$email_subject": {
+            "label": "Email subject",
+            "description": "The subject line of the workflow email.",
+            "type": "String",
+        },
+        "$email_tracking_enabled": {
+            "label": "Email tracking enabled",
+            "description": "Whether open and click tracking was enabled for the workflow email.",
+            "type": "Boolean",
         },
     },
     "numerical_event_properties": {},
