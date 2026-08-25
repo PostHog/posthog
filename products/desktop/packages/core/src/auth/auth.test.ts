@@ -1269,6 +1269,49 @@ describe("AuthService", () => {
       expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(2);
     });
 
+    it("pauses only the token that failed", async () => {
+      seedStoredSession();
+      oauthFlow.refreshToken.mockResolvedValue({
+        success: false,
+        error: "Something weird",
+        errorCode: "unknown_error",
+      });
+      await service.initialize();
+      expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
+
+      // A different stored token is a different credential, so the pause must
+      // not widen to it.
+      seedStoredSession({ refreshToken: "another-refresh-token" });
+      await expect(service.getValidAccessToken()).rejects.toThrow();
+      expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(2);
+    });
+
+    it("pauses the token when retries are exhausted", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-08-24T00:00:00.000Z"));
+      try {
+        seedStoredSession();
+        oauthFlow.refreshToken.mockResolvedValue({
+          success: false,
+          error: "Boom",
+          errorCode: "server_error",
+        });
+
+        const restoring = service.initialize();
+        await vi.advanceTimersByTimeAsync(10_000);
+        await restoring;
+        const spent = oauthFlow.refreshToken.mock.calls.length;
+        expect(spent).toBeGreaterThan(1);
+
+        // A 5xx token endpoint, or a captive portal whose reply will not parse,
+        // exhausts the budget here rather than in the unclassified arm.
+        await expect(service.getValidAccessToken()).rejects.toThrow();
+        expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(spent);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
     it("keeps restoring after a non-retryable unknown_error", async () => {
       seedStoredSession();
       oauthFlow.refreshToken.mockResolvedValue({

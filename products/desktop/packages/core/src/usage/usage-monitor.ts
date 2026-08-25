@@ -45,7 +45,7 @@ export class UsageMonitorService extends TypedEventEmitter<UsageMonitorEvents> {
     @inject(ROOT_LOGGER)
     logger: RootLogger,
     @inject(AUTH_SERVICE)
-    authService: AuthService,
+    private readonly authService: AuthService,
   ) {
     super();
     this.log = logger.scope("usage-monitor");
@@ -54,13 +54,12 @@ export class UsageMonitorService extends TypedEventEmitter<UsageMonitorEvents> {
     // never be served the previous account's spend.
     let orgId = authService.getState().currentOrgId;
     authService.on(AuthServiceEvent.StateChanged, (state) => {
-      // Level-triggered, so a re-login that republishes the same status still
-      // releases it. Only the terminal stop is cleared here: the timed window
-      // must survive the refresh that a failing fetch performs on its way out.
-      if (state.status === "authenticated") this.reauthRequired = false;
       if (state.currentOrgId === orgId) return;
       orgId = state.currentOrgId;
       this.latestUsage = null;
+      // The snapshot was just dropped, so the refetch below has to be allowed
+      // through whatever window a previous failure left behind.
+      this.resetBackoff();
       if (state.currentOrgId !== null) this.requestRefresh();
     });
   }
@@ -118,13 +117,15 @@ export class UsageMonitorService extends TypedEventEmitter<UsageMonitorEvents> {
     force?: boolean;
   } = {}): Promise<UsageOutput | null> {
     if (this.isFetching) return null;
-    // force skips the timed window, never the terminal stop.
-    if (
-      this.reauthRequired ||
-      (!force && Date.now() < this.nextAllowedFetchAt)
-    ) {
-      return null;
+    // Re-derived, never trusted: the error that sets it can arrive after the
+    // last authenticated emission, and auth raises the same class for a refresh
+    // that was merely superseded.
+    if (this.reauthRequired) {
+      if (this.authService.getState().status !== "authenticated") return null;
+      this.reauthRequired = false;
     }
+    // force skips the timed window, never the terminal stop.
+    if (!force && Date.now() < this.nextAllowedFetchAt) return null;
     this.isFetching = true;
     this.lastFetchStartedAt = Date.now();
     if (this.coalesceTimeoutId) {

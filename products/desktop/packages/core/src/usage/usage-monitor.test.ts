@@ -73,13 +73,15 @@ let emitAuthState: (currentOrgId: string | null, status?: AuthStatus) => void =
 
 function makeAuthService(): AuthService {
   const listeners = new Set<(state: EmittedAuthState) => void>();
+  let currentStatus: AuthStatus = "authenticated";
   emitAuthState = (currentOrgId, status = "authenticated") => {
+    currentStatus = status;
     for (const listener of [...listeners]) {
       listener({ currentOrgId, status });
     }
   };
   return {
-    getState: () => ({ currentOrgId: "org-1", status: "authenticated" }),
+    getState: () => ({ currentOrgId: "org-1", status: currentStatus }),
     on: (_event: string, listener: (state: EmittedAuthState) => void) =>
       listeners.add(listener),
   } as unknown as AuthService;
@@ -311,16 +313,76 @@ describe("UsageMonitorService", () => {
     const fetchUsage = vi.fn().mockRejectedValue(new NotAuthenticatedError());
     const gateway = { fetchUsage } as unknown as GatewaySlice;
     service = makeService(gateway, makeActivityMonitor());
+    emitAuthState("org-1", "anonymous");
 
     await service.fetchOnce();
+    // No window expiry releases this one, and a signed-out session must not.
     vi.advanceTimersByTime(6 * 60 * 60_000);
     await service.fetchOnce();
     expect(fetchUsage).toHaveBeenCalledTimes(1);
 
-    // A re-login republishes "authenticated" without changing it, which is
-    // what the in-app re-auth prompt produces, so that has to release it.
     emitAuthState("org-1", "authenticated");
     await service.fetchOnce();
+    expect(fetchUsage).toHaveBeenCalledTimes(2);
+  });
+
+  it("resets the window after a success", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const fetchUsage = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("HTTP 500"))
+      .mockRejectedValueOnce(new Error("HTTP 500"))
+      .mockResolvedValueOnce(makeUsage({ burstPercent: 10 }))
+      .mockRejectedValue(new Error("HTTP 500"));
+    const gateway = { fetchUsage } as unknown as GatewaySlice;
+    service = makeService(gateway, makeActivityMonitor());
+
+    await service.fetchOnce();
+    vi.advanceTimersByTime(2_500);
+    await service.fetchOnce();
+    vi.advanceTimersByTime(5_000);
+    await service.fetchOnce();
+    expect(fetchUsage).toHaveBeenCalledTimes(3);
+
+    // The next failure starts from the base again, not from the escalated
+    // window two failures had reached.
+    await service.fetchOnce();
+    vi.advanceTimersByTime(2_500);
+    await service.fetchOnce();
+    expect(fetchUsage).toHaveBeenCalledTimes(5);
+  });
+
+  it("lets an org switch refetch through an open backoff window", async () => {
+    vi.spyOn(Math, "random").mockReturnValue(0);
+    const fetchUsage = vi.fn().mockRejectedValue(new Error("HTTP 500"));
+    const gateway = { fetchUsage } as unknown as GatewaySlice;
+    service = makeService(gateway, makeActivityMonitor());
+
+    // Three failures put the window at 10s, wider than the coalesce delay the
+    // switch's refetch waits out, so the window is still open when it fires.
+    await service.fetchOnce();
+    vi.advanceTimersByTime(2_500);
+    await service.fetchOnce();
+    vi.advanceTimersByTime(5_000);
+    await service.fetchOnce();
+    expect(fetchUsage).toHaveBeenCalledTimes(3);
+
+    // The switch drops the snapshot, so its refetch must not be swallowed.
+    emitAuthState("org-2");
+    await vi.advanceTimersByTimeAsync(5_001);
+    expect(fetchUsage).toHaveBeenCalledTimes(4);
+  });
+
+  it("lets a forced refresh skip the timed window", async () => {
+    const fetchUsage = vi.fn().mockRejectedValue(new Error("HTTP 500"));
+    const gateway = { fetchUsage } as unknown as GatewaySlice;
+    service = makeService(gateway, makeActivityMonitor());
+
+    await service.fetchOnce();
+    await service.fetchOnce();
+    expect(fetchUsage).toHaveBeenCalledTimes(1);
+
+    await service.refreshNow();
     expect(fetchUsage).toHaveBeenCalledTimes(2);
   });
 
@@ -328,6 +390,7 @@ describe("UsageMonitorService", () => {
     const fetchUsage = vi.fn().mockRejectedValue(new NotAuthenticatedError());
     const gateway = { fetchUsage } as unknown as GatewaySlice;
     service = makeService(gateway, makeActivityMonitor());
+    emitAuthState("org-1", "anonymous");
 
     await service.fetchOnce();
     // refreshNow is reachable from a settings-pane mount and the cloud-task

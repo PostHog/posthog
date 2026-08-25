@@ -42,10 +42,11 @@ import {
   type ValidAccessTokenOutput,
 } from "./schemas";
 
-// A refresh failure the classifier could not identify is not evidence the token
-// is dead: `unknown_error` absorbs 429s and any 400 whose body will not parse.
-// Pause that token instead of retiring it.
-const UNCLASSIFIED_REFRESH_COOLDOWN_MS = 60_000;
+// A refresh failure that is not a rejection is no evidence the token is dead, so
+// pause it instead of retiring it. Must stay well inside TOKEN_EXPIRY_SKEW_MS:
+// refresh fires that far ahead of expiry, so a longer pause would guarantee the
+// retry lands after the access token has already died.
+const FAILED_REFRESH_COOLDOWN_MS = 15_000;
 const TOKEN_EXPIRY_SKEW_MS = 60_000;
 const AUTH_FETCH_TIMEOUT_MS = 30_000;
 const AUTH_BOOTSTRAP_DEADLINE_MS = 20_000;
@@ -511,6 +512,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     this.authSession.clearCurrent();
     this.clearImpersonationExpiryTimer();
     this.session = null;
+    this.refusedRefresh = null;
     this.setAnonymousState({ cloudRegion, currentProjectId });
     return this.getState();
   }
@@ -712,6 +714,15 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
 
     return storedSession;
   }
+  private pauseRefresh(token: string, errorCode: string | undefined): void {
+    this.refusedRefresh = {
+      token,
+      generation: this.sessionGeneration,
+      until: Date.now() + FAILED_REFRESH_COOLDOWN_MS,
+    };
+    this.logger.warn("Refresh failed, pausing this token", { errorCode });
+  }
+
   private async refreshSession(
     input: StoredSessionInput,
   ): Promise<InMemorySession> {
@@ -759,17 +770,19 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       if (result.errorCode === "auth_error") {
         this.logger.warn("Refresh token rejected by server, forcing logout");
         this.sessionGeneration += 1;
-        this.refusedRefresh = {
-          token: input.refreshToken,
-          generation: this.sessionGeneration,
-          until: null,
-        };
         this.authSession.clearCurrent();
         this.session = null;
         this.setAnonymousState({
           cloudRegion: input.cloudRegion,
           currentProjectId: input.selectedProjectId,
         });
+        // Last, so a throwing teardown cannot leave a refusal standing over a
+        // session the rest of the app still believes in.
+        this.refusedRefresh = {
+          token: input.refreshToken,
+          generation: this.sessionGeneration,
+          until: null,
+        };
         throw new Error(lastError);
       }
 
@@ -780,14 +793,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       if (!isRetryable) {
         // This arm keeps the session and the stored token, so nothing else
         // stops the caller re-presenting the same token on the next trigger.
-        this.refusedRefresh = {
-          token: input.refreshToken,
-          generation: this.sessionGeneration,
-          until: Date.now() + UNCLASSIFIED_REFRESH_COOLDOWN_MS,
-        };
-        this.logger.warn("Refresh failed unclassified, pausing this token", {
-          errorCode: result.errorCode,
-        });
+        this.pauseRefresh(input.refreshToken, result.errorCode);
         throw new Error(lastError);
       }
 
@@ -800,6 +806,11 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       });
       await sleepWithBackoff(attempt, AuthService.REFRESH_BACKOFF);
     }
+
+    // Retries exhausted. A 5xx token endpoint, or a captive portal whose reply
+    // will not parse, arrives here rather than in the arm above, and without a
+    // pause each later trigger spends the whole retry budget again.
+    this.pauseRefresh(input.refreshToken, "retries_exhausted");
 
     throw new Error(lastError);
   }
@@ -1407,6 +1418,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     this.sessionGeneration += 1;
     this.clearImpersonationExpiryTimer();
     this.session = null;
+    this.refusedRefresh = null;
     this.setAnonymousState({
       cloudRegion: session.cloudRegion,
       currentProjectId: session.currentProjectId,
