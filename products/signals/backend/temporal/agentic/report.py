@@ -62,7 +62,7 @@ class RunAgenticReportInput:
     repo_selection: RepoSelectionResult
 
 
-@dataclass
+@frozen
 class RunAgenticReportOutput:
     title: str
     summary: str
