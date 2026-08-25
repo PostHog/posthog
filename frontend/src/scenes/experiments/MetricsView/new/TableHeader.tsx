@@ -78,8 +78,8 @@ export function TableHeader({
                         )
                     ) : (
                         <span className="inline-flex items-center gap-1">
-                            Chance to win
-                            <Tooltip title="The probability that this variant outperforms the baseline.">
+                            Win %
+                            <Tooltip title="Chance to win: the probability that this variant beats the baseline, not the size of the lift.">
                                 <IconInfo className="text-secondary text-base" />
                             </Tooltip>
                         </span>
