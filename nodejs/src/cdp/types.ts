@@ -367,6 +367,10 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
     person?: CyclotronPerson
     groups?: HogFunctionInvocationGlobals['groups']
     filterGlobals: HogFunctionFilterGlobals
+    // Re-reads the person uncached and rebuilds filterGlobals from it. The worker supplies this; a
+    // wait step calls it before its first evaluation, where a stale person parks the run for good.
+    // It returns the values rather than mutating, so it stays correct on a cloned invocation.
+    refreshPerson?: () => Promise<{ person?: CyclotronPerson; filterGlobals: HogFunctionFilterGlobals }>
 }
 
 export type HogFlowInvocationContext = {
