@@ -208,6 +208,39 @@ describe('CdpCohortMembershipConsumer', () => {
             expect(result.rows[0].in_cohort).toBe(false)
         })
 
+        it.each([
+            ['seed' as const, new UUIDT().toString()],
+            ['reconcile' as const, new UUIDT().toString()],
+        ])('should carry origin=%s and run_id through parsing', (origin, runId) => {
+            const message = createKafkaMessage(
+                createCohortMembershipEvent({
+                    person_id: personId1,
+                    cohort_id: 456,
+                    team_id: 1,
+                    origin,
+                    run_id: runId,
+                }),
+                { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: 0 }
+            )
+
+            const [change] = consumer['_parseAndValidateBatch']([message])
+
+            expect(change.origin).toBe(origin)
+            expect(change.run_id).toBe(runId)
+        })
+
+        it('should leave origin and run_id undefined on a live transition', () => {
+            const message = createKafkaMessage(
+                createCohortMembershipEvent({ person_id: personId1, cohort_id: 456, team_id: 1 }),
+                { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: 0 }
+            )
+
+            const [change] = consumer['_parseAndValidateBatch']([message])
+
+            expect(change.origin).toBeUndefined()
+            expect(change.run_id).toBeUndefined()
+        })
+
         it('should reject entire batch when invalid messages are present', async () => {
             const validEvent = {
                 person_id: personId1,

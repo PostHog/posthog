@@ -20,8 +20,9 @@ from confluent_kafka import OFFSET_END, Consumer, KafkaError, TopicPartition
 from posthog.kafka_client.profiles import KafkaClusterProfile
 from posthog.kafka_client.routing import get_profile_settings
 
-DEFAULT_SHADOW_TOPIC = "cohort_membership_changed_shadow"
-# Reconcile completion markers ride their own topic, on the same cluster as the shadow topic.
+# The new pipeline's live membership topic, which the parity tool folds and compares against legacy.
+DEFAULT_SHADOW_TOPIC = "cohort_membership_changed"
+# Reconcile completion markers ride their own topic, on the same cluster as the membership topic.
 DEFAULT_MARKER_TOPIC = "cohort_reconcile_markers"
 
 

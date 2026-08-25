@@ -11,13 +11,26 @@ import { logger } from '~/common/utils/logger'
 import { HealthCheckResult } from '../../types'
 import { CdpConsumerBase, CdpConsumerBaseConfig, CdpConsumerBaseDeps } from './cdp-base.consumer'
 
-// Zod schema for validation
+// The processor stamps `origin` and `run_id` on backfill changes and omits both on live
+// transitions. `z.object` drops unknown keys, so any field the consumer must read has to be
+// declared here.
+//
+// Origin handling:
+// - absent: a live membership transition. Upsert the row.
+// - `seed`: the initial snapshot of a backfill run. Upsert the row.
+// - `reconcile`: a replay from a backfill run that reconciles drift. Upsert the row.
+//
+// All three origins upsert the same way today. `run_id` identifies the backfill run and is
+// carried for the mark-and-sweep deletion work, which uses it to delete rows a completed run
+// did not re-assert.
 const CohortMembershipChangeSchema = z.object({
     person_id: z.guid(),
     cohort_id: z.number(),
     team_id: z.number(),
     status: z.enum(['entered', 'left']),
     last_updated: z.string().optional(),
+    origin: z.enum(['seed', 'reconcile']).optional(),
+    run_id: z.guid().optional(),
 })
 
 export type CohortMembershipChange = z.infer<typeof CohortMembershipChangeSchema>

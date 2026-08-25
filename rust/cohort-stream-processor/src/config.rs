@@ -306,8 +306,9 @@ pub struct Config {
     #[envconfig(from = "HOSTNAME")]
     pub pod_hostname: Option<String>,
 
-    /// The shadow output topic for membership changes.
-    #[envconfig(default = "cohort_membership_changed_shadow")]
+    /// The output topic for membership changes. Live data, not a shadow: the CDP consumer reads
+    /// this topic and a produce failure here means data loss.
+    #[envconfig(default = "cohort_membership_changed")]
     pub cohort_membership_changed_topic: String,
 
     /// Reconcile completion markers ride their own topic: the membership topic's consumers reject
@@ -1109,7 +1110,7 @@ mod tests {
             kafka_session_timeout_ms: 60000,
             pod_name: None,
             pod_hostname: None,
-            cohort_membership_changed_topic: "cohort_membership_changed_shadow".to_string(),
+            cohort_membership_changed_topic: "cohort_membership_changed".to_string(),
             cohort_reconcile_markers_topic: "cohort_reconcile_markers".to_string(),
             reconcile_marker_message_timeout_ms: 1000,
             kafka_producer_partitioner: "murmur2_random".to_string(),
