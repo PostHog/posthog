@@ -6,19 +6,20 @@ The product is mostly a backend, and the UI is deliberately thin — it reads st
 
 ## What lives here
 
-| File                            | Scene / role                                                                                                            |
-| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `AutoresearchScene.tsx`         | `/autoresearch` — the pipeline list, with row actions (archive, pause, resume, delete) and the "New model" entry point. |
-| `AutoresearchNewScene.tsx`      | `/autoresearch/new` — the create form.                                                                                  |
-| `AutoresearchPipelineScene.tsx` | `/autoresearch/:id` — one pipeline: overview with champion drivers, training runs, predictions, online performance.     |
-| `autoresearchLogic.ts`          | List logic — loads pipelines, lifecycle actions, and setup-status detection for the empty-state gate.                   |
-| `autoresearchNewLogic.ts`       | Create form — a `kea-forms` form that validates the target, then calls the generated `autoresearchCreate`.              |
-| `autoresearchPipelineLogic.ts`  | Detail logic.                                                                                                           |
-| `PipelineStatusTag.tsx`         | Status tag + tooltip shared by the list and detail scenes.                                                              |
-| `ProbabilityHistogram.tsx`      | Decile histogram of the latest scoring run's probabilities.                                                             |
-| `DailyVolumeChart.tsx`          | Bar-per-day chart of scoring volume.                                                                                    |
-| `emptyState/`                   | `ProductEmptyState` config + example-data preview for the first-run gate.                                               |
-| `generated/`                    | **Generated. Never hand-edit.** Change the serializer in `../backend/api/serializers.py` and run `hogli build:openapi`. |
+| File                            | Scene / role                                                                                                                           |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `AutoresearchScene.tsx`         | `/autoresearch` — the pipeline list, with row actions (archive, pause, resume, delete) and the "New model" entry point.                |
+| `AutoresearchNewScene.tsx`      | `/autoresearch/new` — the create form.                                                                                                 |
+| `AutoresearchPipelineScene.tsx` | `/autoresearch/:id` — the detail shell: title bar actions and the tab strip. Each tab lives in `pipeline/`.                            |
+| `autoresearchLogic.ts`          | List logic — loads pipelines, lifecycle actions, and setup-status detection for the empty-state gate.                                  |
+| `autoresearchNewLogic.ts`       | Create form — a `kea-forms` form that validates the target, then calls the generated `autoresearchCreate`.                             |
+| `autoresearchPipelineLogic.ts`  | Detail logic.                                                                                                                          |
+| `PipelineStatusTag.tsx`         | Status tag + tooltip shared by the list and detail scenes.                                                                             |
+| `ProbabilityHistogram.tsx`      | Decile histogram of the latest scoring run's probabilities.                                                                            |
+| `DailyVolumeChart.tsx`          | Bar-per-day chart of scoring volume.                                                                                                   |
+| `pipeline/`                     | One file per detail-scene tab (Overview, Training, Predictions, Online performance, Suggestions) and their components.                 |
+| `emptyState/`                   | `ProductEmptyState` config + example-data preview for the first-run gate.                                                              |
+| `generated/`                    | **Generated. Never hand-edit.** Change the serializer in `../backend/presentation/views/serializers.py` and run `hogli build:openapi`. |
 
 Scene registration, routes, and urls live in `../manifest.tsx`.
 `frontend/src/products.tsx` is generated from the manifests — hand-editing it there gets wiped by `pnpm build:products`. Only the `Scene` enum entries belong in `sceneTypes.ts`.

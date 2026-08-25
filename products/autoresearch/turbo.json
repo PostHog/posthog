@@ -1,7 +1,5 @@
 {
-    "extends": [
-        "//"
-    ],
+    "extends": ["//"],
     "tasks": {
         "backend:contract-check": {
             "inputs": [
