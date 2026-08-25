@@ -80,13 +80,6 @@ export function ScoutConfigForm({
 
     return (
         <div className="flex flex-col gap-2">
-            <ScoutRunSettingsToggles
-                enabled={config.enabled}
-                emit={config.emit}
-                onEnabledChange={(enabled) => onUpdate(config.id, { enabled })}
-                onEmitChange={(emit) => onUpdate(config.id, { emit })}
-                disabledReason={updating ? 'Saving scout settings' : undefined}
-            />
             <div className="flex items-center justify-between gap-4">
                 <div className="flex flex-col min-w-0">
                     <span className="text-xs text-default">Schedule</span>
@@ -146,6 +139,13 @@ export function ScoutConfigForm({
                     />
                 </div>
             ) : null}
+            <ScoutRunSettingsToggles
+                enabled={config.enabled}
+                emit={config.emit}
+                onEnabledChange={(enabled) => onUpdate(config.id, { enabled })}
+                onEmitChange={(emit) => onUpdate(config.id, { emit })}
+                disabledReason={updating ? 'Saving scout settings' : undefined}
+            />
             <div className="flex items-center justify-between gap-4">
                 <div className="flex flex-col min-w-0">
                     <span className="text-xs text-default">Network access</span>
