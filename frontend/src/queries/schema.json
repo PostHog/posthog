@@ -52288,6 +52288,10 @@
                 "response": {
                     "$ref": "#/definitions/TraceSpansAttributeBreakdownQueryResponse"
                 },
+                "rootSpans": {
+                    "description": "Count only root spans, so the breakdown covers the same population the trace list selects (one row per trace, matched on its root span). Omitted or false counts every matching span, root and child, which is the unit the span list shows.",
+                    "type": "boolean"
+                },
                 "serviceNames": {
                     "items": {
                         "type": "string"

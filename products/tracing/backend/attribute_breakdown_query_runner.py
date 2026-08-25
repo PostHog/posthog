@@ -105,6 +105,11 @@ class TraceSpansAttributeBreakdownQueryRunner(
         order_column = _ORDER_COLUMNS[self.query.orderBy or TraceSpanBreakdownOrderBy.COUNT]
 
         where: ast.Expr = self._where_without_date_range()
+        if self.query.rootSpans is True:
+            # Opt-in, so every existing caller keeps the span-level count. The trace list selects
+            # traces by root-span match, so a facet feeding it has to count roots too — otherwise a
+            # value carried only by child spans shows a count that the list then can't match.
+            where = ast.And(exprs=[where, parse_expr("is_root_span = 1")])
         facet_search = (self.query.facetSearch or "").strip()
         if facet_search:
             # Type-ahead over the facet's own values — filter pre-group so the top-N limit applies
@@ -175,6 +180,7 @@ def run_attribute_breakdown_query(
     service_names: list[str] | None = None,
     exclude_breakdown_filter: bool = False,
     facet_search: str | None = None,
+    root_spans: bool | None = None,
 ) -> TraceSpansAttributeBreakdownQueryResponse | CachedTraceSpansAttributeBreakdownQueryResponse:
     """Facade-friendly entry point for running an attribute breakdown query."""
     query = TraceSpansAttributeBreakdownQuery(
@@ -187,6 +193,7 @@ def run_attribute_breakdown_query(
         serviceNames=service_names,
         excludeBreakdownFilter=exclude_breakdown_filter,
         facetSearch=facet_search,
+        rootSpans=root_spans,
     )
     runner = TraceSpansAttributeBreakdownQueryRunner(query, team)
     response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)

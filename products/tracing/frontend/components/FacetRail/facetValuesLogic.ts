@@ -6,7 +6,11 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { UniversalFiltersGroup } from '~/types'
 
-import { tracingFiltersLogic, TracingFiltersLogicProps } from 'products/tracing/frontend/tracingFiltersLogic'
+import {
+    tracingFiltersLogic,
+    TracingFiltersLogicProps,
+    TracingViewMode,
+} from 'products/tracing/frontend/tracingFiltersLogic'
 
 import { tracingSpansAttributeBreakdownCreate } from '../../generated/api'
 import {
@@ -34,6 +38,7 @@ export interface facetValuesLogicValues {
         date_from: string | null | undefined
         date_to: string | null | undefined
     } // tracingFiltersLogic
+    viewMode: TracingViewMode // tracingFiltersLogic
     collapsed: boolean
     facetSearch: string
     facetValues: _TracingAttributeBreakdownRowApi[]
@@ -88,6 +93,7 @@ export interface facetValuesLogicMeta {
             serviceNames: string[],
             queryFilterGroup: UniversalFiltersGroup,
             currentTeamId: number | null,
+            viewMode: TracingViewMode,
             arg: any
         ) => string
         fetchSignature: (scopeSignature: string, facetSearch: string) => string
@@ -121,7 +127,7 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
     connect((props: FacetValuesLogicProps) => ({
         values: [
             tracingFiltersLogic({ id: props.id } as TracingFiltersLogicProps),
-            ['serviceNames', 'utcDateRange', 'queryFilterGroup'],
+            ['serviceNames', 'utcDateRange', 'queryFilterGroup', 'viewMode'],
             teamLogic,
             ['currentTeamId'],
             facetRailLogic({ id: props.id }),
@@ -205,6 +211,12 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
                             serviceNames: values.serviceNames ?? [],
                             facetSearch: values.facetSearch || undefined,
                             filterGroup,
+                            // Count the population the results list actually shows: traces (matched
+                            // on their root span) or every matching span. Same expression the
+                            // sparkline, duration histogram and latency heatmap use. Without it the
+                            // counts are span-level always, so in Traces view a value carried only by
+                            // child spans reads as a non-zero count that selecting it can't match.
+                            rootSpans: values.viewMode === 'traces',
                         },
                     })
                     // Bail out right after the round-trip: the rail (and this logic) unmounts when
@@ -224,7 +236,7 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
         ],
         // Everything that can change this facet's values, minus its own selection.
         scopeSignature: [
-            (s) => [s.utcDateRange, s.serviceNames, s.queryFilterGroup, s.currentTeamId, (_, p) => p.facet],
+            (s) => [s.utcDateRange, s.serviceNames, s.queryFilterGroup, s.currentTeamId, s.viewMode, (_, p) => p.facet],
             (
                 utcDateRange: {
                     date_from: string | null | undefined
@@ -233,8 +245,16 @@ export const facetValuesLogic = kea<facetValuesLogicType>([
                 serviceNames: string[],
                 queryFilterGroup: UniversalFiltersGroup,
                 currentTeamId: number | null,
+                viewMode: TracingViewMode,
                 facet: FacetConfig
-            ): string => facetScopeSignature(facet, { currentTeamId, utcDateRange, serviceNames, queryFilterGroup }),
+            ): string =>
+                facetScopeSignature(facet, {
+                    currentTeamId,
+                    utcDateRange,
+                    serviceNames,
+                    queryFilterGroup,
+                    viewMode,
+                }),
         ],
         // One trigger for the one in-flight request: a scope change and a keystroke in this facet's
         // search box supersede each other rather than racing.

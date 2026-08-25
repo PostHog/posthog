@@ -4557,6 +4557,12 @@ export interface TraceSpansAttributeBreakdownQuery extends DataNode<TraceSpansAt
     filterGroup?: PropertyGroupFilter
     serviceNames?: string[]
     /**
+     * Count only root spans, so the breakdown covers the same population the trace list selects
+     * (one row per trace, matched on its root span). Omitted or false counts every matching span,
+     * root and child, which is the unit the span list shows.
+     */
+    rootSpans?: boolean
+    /**
      * Drop filters targeting the breakdown key itself (including `serviceNames` for a `service_name`
      * breakdown) so a facet's value list stays complete while one of its values is selected.
      */

@@ -112,6 +112,26 @@ describe('facetValuesLogic', () => {
         )
     })
 
+    it('counts the population the chosen view mode lists, refetching when it changes', async () => {
+        // Traces view lists one row per trace, matched on its root span, so the counts have to be
+        // root-scoped or a value carried only by child spans reads as selectable when it isn't.
+        const logic = mountFacet(STATUS)
+        await expectLogic(logic).toDispatchActions(['loadFacetValuesSuccess'])
+        expect(mockBreakdown).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({ query: expect.objectContaining({ rootSpans: true }) })
+        )
+        mockBreakdown.mockClear()
+
+        filtersLogic.actions.setViewMode('spans')
+        await expectLogic(logic).toDispatchActions(['loadFacetValues', 'loadFacetValuesSuccess'])
+
+        expect(mockBreakdown).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({ query: expect.objectContaining({ rootSpans: false }) })
+        )
+    })
+
     it('a failed breakdown shows in place and clears on the next fetch', async () => {
         // One broken breakdown must show on its own facet, not blank the rail.
         mockBreakdown.mockRejectedValueOnce(new Error('breakdown failed'))

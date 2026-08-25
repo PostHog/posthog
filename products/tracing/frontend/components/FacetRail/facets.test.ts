@@ -242,6 +242,7 @@ describe('facets', () => {
             utcDateRange: { date_from: '-1h', date_to: null },
             serviceNames: [],
             queryFilterGroup: groupWith([]),
+            viewMode: 'traces',
         }
         const signature = (facet: FacetConfig, scope: Partial<FacetScope> = {}): string =>
             facetScopeSignature(facet, { ...BASE, ...scope })

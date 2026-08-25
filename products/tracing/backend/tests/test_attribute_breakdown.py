@@ -290,3 +290,82 @@ class TestTraceSpansAttributeBreakdown(_TraceSpansTestBase):
     def test_facet_search_filters_values(self, _name, breakdown_type, breakdown_key, search, expected_values):
         rows = self._breakdown(breakdownKey=breakdown_key, breakdownType=breakdown_type, facetSearch=search)
         self.assertEqual({row["value"] for row in rows}, expected_values)
+
+
+class TestTraceSpansAttributeBreakdownRootScope(_TraceSpansTestBase):
+    # The shape OTel produces on a failed request: the root server span stays Unset while the failing
+    # child (a DB call, an outbound HTTP call) carries the error. The spans fixture above can't show
+    # this — every one of its rows is a root — so root-vs-child divergence needs its own dataset.
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        cls._recreate_trace_spans_tables()
+
+        base = dt.datetime(2026, 6, 2, 8, 0, 0)
+        ts_str = base.strftime("%Y-%m-%d %H:%M:%S.%f")
+        root_span_id = _b64((1).to_bytes(8, "big"))
+        rows = [
+            # (uuid suffix, span_id, parent_span_id, name, status_code)
+            (0, root_span_id, "", "GET /checkout", 0),
+            (1, _b64((2).to_bytes(8, "big")), root_span_id, "postgres.query", 2),
+        ]
+        values = [
+            f"('019e8759-0000-0000-0000-{i:012d}', {cls.team.id}, '{_b64((7).to_bytes(16, 'big'))}', "
+            f"'{span_id}', '{parent_span_id}', '{name}', 3, '{ts_str}', '{ts_str}', '{ts_str}', "
+            f"{status_code}, 'web')"
+            for i, span_id, parent_span_id, name, status_code in rows
+        ]
+        sync_execute(
+            "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
+            "timestamp, end_time, observed_timestamp, status_code, service_name) VALUES " + ",".join(values)
+        )
+
+    def _status_breakdown(self, **query_fields) -> dict[str, int]:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/tracing/spans/attribute-breakdown/",
+            {
+                "query": {
+                    "dateRange": {"date_from": DATE_FROM, "date_to": DATE_TO},
+                    "breakdownKey": "status_code",
+                    "breakdownType": "span",
+                    **query_fields,
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        return {row["value"]: row["count"] for row in response.json()["results"]}
+
+    @parameterized.expand(
+        [
+            # The traces list matches traces on their root span, so a root-scoped facet reports no
+            # errors here — selecting Error in Traces view genuinely returns nothing.
+            ("root_scoped_sees_only_the_root", {"rootSpans": True}, {"0": 1}),
+            # Spans view lists every matching span, so the child's error counts there.
+            ("span_scoped_sees_the_child_error", {"rootSpans": False}, {"0": 1, "2": 1}),
+            # Omitted keeps the span-level default, for callers predating the parameter.
+            ("omitted_defaults_to_span_scoped", {}, {"0": 1, "2": 1}),
+        ]
+    )
+    def test_root_scope_picks_the_counted_population(self, _name, query_fields, expected):
+        self.assertEqual(self._status_breakdown(**query_fields), expected)
+
+    def test_root_scoped_count_agrees_with_the_traces_list(self):
+        # The bug this guards: a non-zero Error count next to a list that returns nothing. The facet
+        # and the list have to answer the same question, so assert them together.
+        error_filter = [{"key": "status_code", "operator": "exact", "type": "span", "value": "Error"}]
+        counts = self._status_breakdown(rootSpans=True, filterGroup=error_filter, excludeBreakdownFilter=True)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/tracing/spans/query/",
+            {
+                "query": {
+                    "dateRange": {"date_from": DATE_FROM, "date_to": DATE_TO},
+                    "limit": 100,
+                    "filterGroup": error_filter,
+                }
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(counts.get("2", 0), 0)
+        self.assertEqual(response.json()["results"], [])
