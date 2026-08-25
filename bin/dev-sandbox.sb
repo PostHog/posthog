@@ -172,12 +172,17 @@
     ;; The rest of the Homebrew prefix: developer-owned like the gitconfig above, and
     ;; on PATH ahead of the system dirs — no git indirection needed, a planted
     ;; git/node/rg here just runs on the developer's next shell command.
+    ;; lib/ is covered because Seatbelt matches resolved paths: bin/npm is a symlink
+    ;; chain into Cellar and out again to ../lib/node_modules/npm/bin/npm-cli.js,
+    ;; so the Cellar deny alone never matches the file npm actually executes.
     (subpath "/opt/homebrew/bin")
     (subpath "/opt/homebrew/sbin")
     (subpath "/opt/homebrew/Cellar")
+    (subpath "/opt/homebrew/lib")
     (subpath "/usr/local/bin")
     (subpath "/usr/local/sbin")
     (subpath "/usr/local/Cellar")
+    (subpath "/usr/local/lib")
     (subpath (string-append (param "HOME") "/.cargo/bin")))       ; binaries on PATH
 
 ;; husky's installer writes .husky/_/ (a gitignored husky.sh plus a .gitignore) on
