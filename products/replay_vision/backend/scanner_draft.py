@@ -350,6 +350,7 @@ def _generate(
     distinct_id: str,
     system_prompt: str = _SYSTEM_PROMPT,
     response_model: type[_LlmDraft] = _LlmDraft,
+    feature: str = "draft_scanner_from_goal",
 ) -> _LlmDraft:
     api_key = settings.REPLAY_VISION_GEMINI_API_KEY or settings.GEMINI_API_KEY
     # Runs inline on the interactive request path, so a hung provider call must time out.
@@ -380,7 +381,9 @@ def _generate(
             posthog_trace_id=str(uuid.uuid4()),
             posthog_properties={
                 "ai_product": "replay_vision",
-                "feature": "draft_scanner_from_goal",
+                # Distinct per flow, so the goal-based flow's model spend is separable from the
+                # legacy AI box's in LLM analytics — the rollout compares exactly those two.
+                "feature": feature,
                 "team_id": team_id,
             },
             posthog_groups={"project": str(team_id)},
@@ -850,6 +853,7 @@ def draft_scanner_from_goal_v2(
         distinct_id=str(user.uuid),
         system_prompt=_SYSTEM_PROMPT_V2,
         response_model=_LlmDraftV2,  # type: ignore[arg-type]
+        feature="draft_scanner_from_goal_v2",
     )
     draft = _finalize_v2(cast(_LlmDraftV2, parsed), allowed_pages=[p.pathname for p in pages], team_id=team.id)
 
