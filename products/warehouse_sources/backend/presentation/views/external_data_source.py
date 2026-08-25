@@ -483,6 +483,9 @@ _CDC_EXPOSED_JOB_INPUT_KEYS = {
     "cdc_lag_warning_threshold_mb",
     "cdc_lag_critical_threshold_mb",
     "cdc_consistent_point",
+    # Set by migrate_cdc_source_to_buffered, never by the API. Losing it on an unrelated PATCH
+    # would resume legacy delivery from an advanced slot and strand the unread buffer.
+    "cdc_ingest_mode",
 }
 
 
