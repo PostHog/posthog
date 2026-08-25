@@ -162,17 +162,19 @@ export class FetchRunner implements FetchPass {
             this.options.maxInFlightRequests
         )
         const attempts: FetchAttempt[] = []
-        const workers = Array.from({ length: Math.min(this.options.maxInFlightRequests, queue.originCount) }, () =>
-            this.runQueueWorker(
-                queue,
-                stored,
-                configurationItems,
-                configurationPolicy,
-                deadlineMs,
-                attempts,
-                activeRepublishBatch,
-                passState
-            )
+        const workers = Array.from(
+            { length: Math.min(this.options.maxInFlightRequests, queue.schedulableSlotsAtStart) },
+            () =>
+                this.runQueueWorker(
+                    queue,
+                    stored,
+                    configurationItems,
+                    configurationPolicy,
+                    deadlineMs,
+                    attempts,
+                    activeRepublishBatch,
+                    passState
+                )
         )
         const settledWorkers = await Promise.allSettled(workers)
         if (passState.failure) {

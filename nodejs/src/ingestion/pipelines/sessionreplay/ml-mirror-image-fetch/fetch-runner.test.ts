@@ -183,7 +183,7 @@ describe('FetchRunner', () => {
         expect(harness.fetch).toHaveBeenCalledTimes(2)
     })
 
-    it('does not let one origin occupy every registrable-domain worker', async () => {
+    it('lets one origin fill the registrable-domain worker limit', async () => {
         const harness = build({}, {}, 'queued', { ...OPTIONS, maxConcurrentPerRegistrableDomain: 2 })
         let releaseFirst: (() => void) | undefined
         let releaseSecond: (() => void) | undefined
@@ -212,7 +212,7 @@ describe('FetchRunner', () => {
         await Promise.resolve()
         await Promise.resolve()
 
-        expect(harness.fetch.mock.calls.map(([url]) => url)).toEqual([candidate().currentUrl, siblingOrigin.currentUrl])
+        expect(harness.fetch.mock.calls.map(([url]) => url)).toEqual([candidate().currentUrl, sameOrigin.currentUrl])
         releaseFirst?.()
         releaseSecond?.()
         await run
@@ -233,9 +233,7 @@ describe('FetchRunner', () => {
             ...Array.from({ length: 2 }, (_, index) =>
                 candidate({
                     originalRef: `imageurl:${String(index + 1).repeat(22)}`,
-                    currentUrl: `https://sibling-${index}.example.com/image.png`,
-                    host: `sibling-${index}.example.com`,
-                    origin: `https://sibling-${index}.example.com`,
+                    currentUrl: `https://cdn.example.com/image-${index}.png`,
                 })
             ),
             ...Array.from({ length: 2 }, (_, index) =>

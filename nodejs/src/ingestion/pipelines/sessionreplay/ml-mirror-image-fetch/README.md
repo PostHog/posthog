@@ -227,7 +227,7 @@ key at `https://us.posthog.com/.well-known/http-message-signatures-directory`, a
 
 **5.2** Requests in flight to one registrable domain never exceed the registrable-domain limit during steady-state ownership. A bounded exception applies during the Kafka rebalance window described below.
 
-**5.3** Requests to one registrable domain never exceed the rate its token bucket allows during steady-state ownership. The same bounded rebalance exception applies.
+**5.3** A positive configured request rate enables a token bucket for each registrable domain. The default zero value disables this rate limit and uses only the active-request limit. The same bounded rebalance exception applies when the token bucket is enabled.
 
 **5.4** A redirect is not a way around any limit. Each image request counts against the registrable-domain budget of its target and the crawl delay of its target origin. The lane follows a configuration redirect only when its target has the same registrable domain. Each followed configuration request counts against that shared registrable-domain budget.
 
@@ -235,7 +235,7 @@ key at `https://us.posthog.com/.well-known/http-message-signatures-directory`, a
 
 **5.6** There is no global handling of concurrent request limits. The Kafka topic is partitioned by registrable domain, using both the ICANN and private sections of the Public Suffix List. All origins under one registrable domain therefore go to one partition. One pod normally holds the shared registrable-domain request budget and the separate policy and crawl-delay state for each origin.
 
-**5.7** On partition revocation, the consumer stops starting work for the revoked partitions and drains their active batch before it unassigns them. If the drain exceeds Kafka's rebalance timeout, Kafka can assign the partition to a new pod while the old pod finishes its active requests. During this exceptional window, one old owner and one new owner can each apply the registrable-domain limit and token bucket. The pod limit still applies independently to each pod. The lane does not use a distributed lease to close this window.
+**5.7** On partition revocation, the consumer stops starting work for the revoked partitions and drains their active batch before it unassigns them. If the drain exceeds Kafka's rebalance timeout, Kafka can assign the partition to a new pod while the old pod finishes its active requests. During this exceptional window, one old owner and one new owner can each apply the registrable-domain limit and an enabled token bucket. The pod limit still applies independently to each pod. The lane does not use a distributed lease to close this window.
 
 **5.8** In-flight concurrency limits apply to all external URL fetches (e.g. `robots.txt` files), not just images. It does not apply to internal services like DynamoDB or Kafka.
 
@@ -247,7 +247,7 @@ key at `https://us.posthog.com/.well-known/http-message-signatures-directory`, a
 | ------------------------------------------ | ------------------------------------------------- | ---------- |
 | Requests in flight                         | pod                                               | 300        |
 | Requests in flight per registrable domain  | registrable domain                                | 6          |
-| Requests per second per registrable domain | registrable domain                                | 1, burst 5 |
+| Requests per second per registrable domain | registrable domain                                | disabled   |
 | Hop budget                                 | one original URL, across every message it becomes | 10         |
 | Redirects followed without republishing    | one fetch                                         | 3          |
 | Response bytes, compressed                 | one response                                      | 20 MiB     |
@@ -262,14 +262,14 @@ key at `https://us.posthog.com/.well-known/http-message-signatures-directory`, a
 
 | State                                                                    | Key                  | Location                                                     |
 | ------------------------------------------------------------------------ | -------------------- | ------------------------------------------------------------ |
-| Active requests, token bucket, back-off, and circuit breaker             | Registrable domain   | Memory on the pod that owns the Kafka partition              |
+| Active requests, optional token bucket, back-off, and circuit breaker    | Registrable domain   | Memory on the pod that owns the Kafka partition              |
 | Crawl delay and scheduled request count                                  | Origin               | Memory on the pod that owns the registrable-domain partition |
 | Configuration request coalescing lock                                    | Origin and file type | Memory on the pod that owns the registrable-domain partition |
 | robots.txt and tdmrep.json results                                       | Origin and file type | DynamoDB, with an optional hot cache in pod memory           |
 | URL crawl history and HTTP cache metadata                                | Global canonical URL | DynamoDB                                                     |
 | Original ref, current URL, remaining image hops, and earliest retry time | One URL job          | Kafka record                                                 |
 
-**5.12** Request rate, burst, active-request count, transient back-off, `Retry-After`, and circuit-breaker state use the registrable domain as their key. Configuration policy and `Crawl-delay` use the origin as their key. No request-control state uses the provider domain as its key.
+**5.12** A configured request rate, burst, active-request count, transient back-off, `Retry-After`, and circuit-breaker state use the registrable domain as their key. Configuration policy and `Crawl-delay` use the origin as their key. No request-control state uses the provider domain as its key.
 
 **5.13** The pod limits both its registrable-domain runtime map and its origin runtime map to 20,000 entries because both key sets are unbounded.
 
@@ -277,7 +277,7 @@ key at `https://us.posthog.com/.well-known/http-message-signatures-directory`, a
 
 - The registrable domain has no active request or pending request grant.
 - The registrable domain has no active back-off or breaker.
-- The registrable domain's token bucket is full.
+- The registrable domain's token bucket is disabled or full.
 
 The pod can evict an origin entry only when all these conditions apply:
 
@@ -291,7 +291,7 @@ Removing an eligible entry cannot permit an earlier request.
 
 **5.16** Before scheduling a pass, the lane deduplicates jobs by global canonical URL ref. It keeps the most conservative hop, retry, and timing state for each ref.
 
-**5.17** The pass queue groups jobs first by registrable domain and then by origin. At most one job from an origin can be active in this queue. The registrable-domain and pod request limits still apply.
+**5.17** The pass queue groups jobs first by registrable domain and then by origin. One origin can use all active-request slots for its registrable domain. The registrable-domain and pod request limits still apply.
 
 **5.18** When capacity is available, the queue selects the available origin with the most waiting canonical URL jobs. If two origins have the same count, it selects the origin that entered the pass first.
 
@@ -331,7 +331,7 @@ This rule lets later Kafka records add origin diversity before one origin consum
 
 **7.9** The lane respects every `Crawl-delay` field line in the selected robots.txt group for `PostHogImageFetcherBot`. It accepts a non-negative decimal number of seconds, ignores invalid values, and uses the greatest valid value.
 
-**7.10** `Crawl-delay` is the minimum interval between the start times of two image requests to the same origin. The 1-request-per-second interval applies across the registrable domain. A request must satisfy both limits.
+**7.10** `Crawl-delay` is the minimum interval between the start times of two image requests to the same origin. An origin without this field has no start-time interval. A positive configured request rate can also apply across the registrable domain. A request must satisfy every enabled limit.
 
 **7.11** Back-off, `Retry-After`, and an open circuit breaker apply to every image URL queued for the registrable domain. `Crawl-delay` applies only to image URLs queued for the origin that published it. The lane uses the latest applicable not-before time.
 

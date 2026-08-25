@@ -21,6 +21,8 @@ interface OriginQueue {
     candidates: FetchCandidate[]
     head: number
     sequence: number
+    active: number
+    available: boolean
 }
 
 interface RegistrableDomainQueue {
@@ -186,6 +188,8 @@ export class FetchCandidateQueue {
                     candidates: [],
                     head: 0,
                     sequence: sequence++,
+                    active: 0,
+                    available: false,
                 }
                 domain.origins.set(candidate.origin, originQueue)
                 this.remainingOrigins += 1
@@ -197,13 +201,15 @@ export class FetchCandidateQueue {
             }
         }
         for (const domain of this.domains.values()) {
+            let domainCandidateCount = 0
+            for (const origin of domain.origins.values()) {
+                domainCandidateCount += originCandidateCount(origin)
+                this.refreshOriginSelection(domain, origin)
+            }
             this.initialSchedulableSlots += Math.min(
-                domain.origins.size,
+                domainCandidateCount,
                 this.options.maxConcurrentPerRegistrableDomain
             )
-            for (const origin of domain.origins.values()) {
-                domain.availableOrigins.add(origin)
-            }
             this.refreshDomainSelection(domain)
         }
     }
@@ -248,6 +254,8 @@ export class FetchCandidateQueue {
             this.lowOriginDiversityStarted = true
         }
         const candidate = selected.origin.candidates[selected.origin.head++]!
+        this.refreshOriginSelection(selected.domain, selected.origin)
+        this.refreshDomainSelection(selected.domain)
         const candidateCanReceiveDiversityDeferral = candidate.lowOriginDiversityDeferred !== true
         const action: FetchCandidateQueueAction =
             lowOriginDiversity && this.lowOriginDiversityProgressRemaining <= 0 && candidateCanReceiveDiversityDeferral
@@ -272,11 +280,12 @@ export class FetchCandidateQueue {
                 }
                 released = true
                 selected.domain.active = Math.max(0, selected.domain.active - 1)
-                if (originCandidateCount(selected.origin) === 0) {
+                selected.origin.active = Math.max(0, selected.origin.active - 1)
+                if (originCandidateCount(selected.origin) === 0 && selected.origin.active === 0) {
                     selected.domain.origins.delete(selected.origin.origin)
                     this.remainingOrigins -= 1
                 } else {
-                    selected.domain.availableOrigins.add(selected.origin)
+                    this.refreshOriginSelection(selected.domain, selected.origin)
                 }
                 if (selected.domain.origins.size === 0) {
                     this.availableDomains.remove(selected.domain)
@@ -301,10 +310,23 @@ export class FetchCandidateQueue {
             if (!origin) {
                 continue
             }
+            origin.available = false
             domain.active += 1
-            this.refreshDomainSelection(domain)
+            origin.active += 1
             return { domain, origin }
         }
+    }
+
+    private refreshOriginSelection(domain: RegistrableDomainQueue, origin: OriginQueue): void {
+        if (
+            origin.available ||
+            originCandidateCount(origin) === 0 ||
+            origin.active >= this.options.maxConcurrentPerRegistrableDomain
+        ) {
+            return
+        }
+        origin.available = true
+        domain.availableOrigins.add(origin)
     }
 
     private refreshDomainSelection(domain: RegistrableDomainQueue): void {

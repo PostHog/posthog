@@ -12,7 +12,7 @@ The mirror emits versioned frontier jobs. Each job carries the original ref, cur
 
 The mirror can read crawl history after its local URL cache and before Kafka. It suppresses URLs whose next fetch time is still in the future. A timeout or store error publishes every candidate. The fetch consumer repeats the read because a completion can race with the mirror.
 
-Kafka uses the registrable domain as the frontier key. Rate, burst, active-request, transient back-off, and circuit-breaker state use that registrable domain. Policy caches and crawl delay use the full origin.
+Kafka uses the registrable domain as the frontier key. Token-bucket rate and burst settings use that key when enabled. Active-request, transient back-off, and circuit-breaker state also use that key. Policy caches and crawl delay use the full origin.
 
 ### Policy and network boundary
 
@@ -28,11 +28,11 @@ Web Bot Auth uses the shared PostHog key directory. The directory response has a
 
 ### Scheduling and retries
 
-Each registrable domain has one token bucket, active-request limit, transient-failure count, and circuit breaker. Each origin has its own crawl delay and configuration-request state. Each runtime map contains at most 20,000 entries.
+Each registrable domain has an optional token bucket, an active-request limit, a transient-failure count, and a circuit breaker. Each origin has its own crawl delay and configuration-request state. Each runtime map contains at most 20,000 entries. The default disables the token bucket. The default allows 6 active requests. An explicit robots.txt crawl delay still spaces requests to its origin.
 
 A registrable domain remains in memory while it is active, blocked, or has a pending request grant. An origin remains in memory while it has an active or scheduled request, a reserved image-request start, or an unelapsed crawl delay. A full map defers untracked work without network access.
 
-The fetch pass deduplicates jobs by global canonical ref. It groups the remaining jobs by registrable domain and origin. Two priority-queue levels select the largest available origin in logarithmic time, with stable ordering for equal counts. Only one job from an origin is active at one time.
+The fetch pass deduplicates jobs by global canonical ref. It groups the remaining jobs by registrable domain and origin. Two priority-queue levels select the largest available origin in logarithmic time, with stable ordering for equal counts. One origin can fill the configured active-request slots for its registrable domain. The default has 6 slots.
 
 When fewer than 8 origins and more than 50 waiting URL jobs have not received a diversity deferral, the pass processes 8 more jobs. It then republishes each eligible tail job to the frontier. The mode stays active for the rest of the pass. A durable optional marker limits this fast deferral to once per job. Previously deferred jobs proceed normally until the pass deadline, which guarantees progress for both a persistent dominant origin and one long run from one origin.
 
@@ -142,7 +142,7 @@ The implementation has four product-behavior or interface deltas from the origin
 | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Accept any number of supported content-coding layers.                         | Accept at most four layers.                                                            | This bound limits decompression work. A response with more than four layers is refused. Requirements 14.1 and 17.6 now state this bound.                                                                                                      |
 | Export top-N registrable and provider domains and exact HTTP response values. | Export no registrable-domain or provider-domain labels and group HTTP status by class. | The metrics system does not support high-cardinality labels. Fixed categories keep the number of time series bounded. Per-registrable-domain request share is not available in metrics. Requirements 11.2 and 11.6 now state this rule.       |
-| Apply one crawl delay across a registrable domain.                            | Apply each crawl delay only to the origin that published it.                           | robots.txt answers for one origin. Sibling origins still share rate, burst, active-request, transient back-off, and circuit-breaker controls. Requirements 5.11, 5.12, 7.10, and 7.11 state the split.                                        |
+| Apply one crawl delay across a registrable domain.                            | Apply each crawl delay only to the origin that published it.                           | robots.txt answers for one origin. Sibling origins still share any enabled rate and burst, plus active-request, transient back-off, and circuit-breaker controls. Requirements 5.11, 5.12, 7.10, and 7.11 state the split.                            |
 | Follow a configuration redirect to any authority without Kafka republishing.  | Follow it only inside the source registrable domain.                                   | Cross-registrable-domain redirects could create a second pod-local budget outside the target Kafka owner. The lane treats the source configuration as unreachable and does not request the target. Requirements 3.5 and 5.4 state this bound. |
 
 The implementation also has these rollout and repository-state deltas. They do not change steady-state fetch behavior.

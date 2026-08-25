@@ -55,8 +55,13 @@ export class HostBudget {
 
     constructor(private readonly options: HostBudgetOptions) {
         for (const [name, value] of Object.entries(options)) {
-            if (name !== 'random' && (!Number.isFinite(value) || (value as number) <= 0)) {
-                throw new Error(`the image fetch request budget needs a positive ${name}, got ${value}`)
+            if (name === 'random') {
+                continue
+            }
+            const number = value as number
+            const invalid = !Number.isFinite(number) || (name === 'requestsPerSecond' ? number < 0 : number <= 0)
+            if (invalid) {
+                throw new Error(`the image fetch request budget has an invalid ${name}, got ${value}`)
             }
         }
         this.random = options.random ?? Math.random
@@ -95,7 +100,7 @@ export class HostBudget {
         }
         this.refill(registrableDomainState, nowMs)
         const tokenWaitMs =
-            registrableDomainState.tokens >= 1
+            this.options.requestsPerSecond === 0 || registrableDomainState.tokens >= 1
                 ? 0
                 : Math.ceil(((1 - registrableDomainState.tokens) / this.options.requestsPerSecond) * 1000)
         const previousStartMs = originState.lastRequestStartedAtMs ?? Number.NEGATIVE_INFINITY
@@ -118,7 +123,9 @@ export class HostBudget {
         if (halfOpenProbe) {
             registrableDomainState.halfOpenProbeInFlight = true
         }
-        registrableDomainState.tokens -= 1
+        if (this.options.requestsPerSecond > 0) {
+            registrableDomainState.tokens -= 1
+        }
         registrableDomainState.pendingGrants += 1
         const reservedStartAtMs = ignoreImageDelay ? null : nowMs
         if (reservedStartAtMs !== null) {
@@ -172,8 +179,10 @@ export class HostBudget {
             return
         }
         registrableDomainState.pendingGrants = Math.max(0, registrableDomainState.pendingGrants - 1)
-        this.refill(registrableDomainState, nowMs)
-        registrableDomainState.tokens = Math.min(this.options.burst, registrableDomainState.tokens + 1)
+        if (this.options.requestsPerSecond > 0) {
+            this.refill(registrableDomainState, nowMs)
+            registrableDomainState.tokens = Math.min(this.options.burst, registrableDomainState.tokens + 1)
+        }
         if (halfOpenProbe && registrableDomainState.breakerOpen) {
             registrableDomainState.halfOpenProbeInFlight = false
         }
@@ -222,7 +231,7 @@ export class HostBudget {
         if (!state) {
             return false
         }
-        state.crawlDelayMs = Math.max(1_000, crawlDelayMs)
+        state.crawlDelayMs = Math.max(0, crawlDelayMs)
         return true
     }
 
@@ -326,7 +335,7 @@ export class HostBudget {
             pendingRequests: 0,
             lastRequestStartedAtMs: null,
             reservedStartTimesMs: [],
-            crawlDelayMs: 1_000,
+            crawlDelayMs: 0,
         }
         this.origins.set(origin, state)
         return state

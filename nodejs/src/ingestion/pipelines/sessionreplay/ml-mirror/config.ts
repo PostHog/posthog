@@ -91,11 +91,11 @@ export type MlMirrorConfig = {
     /** TTL on each DynamoDB crawl-history entry, which sets the recrawl interval. */
     AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS: number
 
-    /** Requests one registrable domain receives from one pod each second. */
+    /** Optional steady request rate for one registrable domain. Zero uses the concurrency limit only. */
     SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_REQUESTS_PER_SECOND: number
-    /** Tokens one idle registrable domain can retain. */
+    /** Tokens one idle registrable domain can retain when the steady request rate is enabled. */
     SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BURST: number
-    /** Also the worker count for one registrable domain. */
+    /** Also the worker count for one registrable domain or origin. */
     SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN: number
     /**
      * Requests this pod holds open across every registrable domain at once.
@@ -235,8 +235,8 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TABLE: '',
         AI_RESEARCH_IMAGE_FETCH_DYNAMODB_TIMEOUT_MS: 5_000,
         AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS: 30 * 24 * 60 * 60,
-        SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_REQUESTS_PER_SECOND: 1,
-        SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BURST: 5,
+        SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_REQUESTS_PER_SECOND: 0,
+        SESSION_RECORDING_ML_IMAGE_FETCH_REGISTRABLE_DOMAIN_BURST: 6,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN: 6,
         SESSION_RECORDING_ML_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS: 300,
         SESSION_RECORDING_ML_IMAGE_FETCH_MINIMUM_ACTIVE_ORIGINS: 8,
