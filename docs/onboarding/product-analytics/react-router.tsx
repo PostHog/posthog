@@ -3,10 +3,8 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 import { StepDefinition } from '../steps'
 import { SDK_DEFAULTS_DATE } from './_snippets/sdkDefaults'
 
-export const getReactRouterSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { CodeBlock, Markdown, dedent, snippets } = ctx
-
-    const JSEventCapture = snippets?.JSEventCapture
+export const getReactRouterInstallSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, dedent } = ctx
 
     return [
         {
@@ -118,12 +116,24 @@ export const getReactRouterSteps = (ctx: OnboardingComponentsContext): StepDefin
                 </>
             ),
         },
-        {
-            title: 'Send events',
-            badge: undefined,
-            content: <>{JSEventCapture && <JSEventCapture />}</>,
-        },
     ]
 }
+
+export const getReactRouterEventStep = (ctx: OnboardingComponentsContext): StepDefinition => {
+    const { snippets } = ctx
+
+    const JSEventCapture = snippets?.JSEventCapture
+
+    return {
+        title: 'Send events',
+        badge: undefined,
+        content: <>{JSEventCapture && <JSEventCapture />}</>,
+    }
+}
+
+export const getReactRouterSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getReactRouterInstallSteps(ctx),
+    getReactRouterEventStep(ctx),
+]
 
 export const ReactRouterInstallation = createInstallation(getReactRouterSteps)

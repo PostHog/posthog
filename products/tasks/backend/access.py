@@ -47,19 +47,32 @@ class DesktopAccessDecision(StrEnum):
         return None
 
 
+# Either flag grants the same access. `tasks` is the Desktop waitlist. `phai-sandbox-mode` is the
+# PostHog AI composer, which reaches the same cloud runs through a different entry point, and rolls
+# out to organizations that are not on the Desktop waitlist.
+TASKS_ACCESS_FEATURE_FLAGS = ("tasks", "phai-sandbox-mode")
+
+
 def has_tasks_access(user: User) -> bool:
+    """
+    User has access to PostHog Desktop if one of the `TASKS_ACCESS_FEATURE_FLAGS` is enabled for
+    them OR they have redeemed an invite code.
+    """
     if not user or not user.is_authenticated or not user.distinct_id:
         return False
 
     organization = getattr(user, "organization", None)
     organization_id = str(organization.id) if organization is not None else None
-    if feature_enabled_or_false(
-        "tasks",
-        str(user.distinct_id),
-        groups={"organization": organization_id} if organization_id is not None else None,
-        group_properties={"organization": {"id": organization_id}} if organization_id is not None else None,
-        only_evaluate_locally=False,
-        send_feature_flag_events=False,
+    if any(
+        feature_enabled_or_false(
+            flag_key,
+            str(user.distinct_id),
+            groups={"organization": organization_id} if organization_id is not None else None,
+            group_properties={"organization": {"id": organization_id}} if organization_id is not None else None,
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+        for flag_key in TASKS_ACCESS_FEATURE_FLAGS
     ):
         return True
     return CodeInviteRedemption.objects.filter(user=user).exists()
