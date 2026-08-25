@@ -4,6 +4,8 @@ import { createContext, useContext, useState } from 'react'
 import { IconGraph } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { isLaunched } from 'scenes/experiments/experimentStatus'
+
 import {
     EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS,
     EXPERIMENT_MIN_METRIC_VALUE_FOR_RESULTS,
@@ -29,7 +31,6 @@ import {
     LegacyVariantTooltip,
     legacyGenerateViolinPath,
 } from 'products/experiments/frontend/legacy'
-import { isLaunched } from 'products/experiments/frontend/scenes/experimentsLogic'
 
 // Chart configuration types
 type ChartDimensions = {
