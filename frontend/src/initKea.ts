@@ -8,7 +8,7 @@ import { waitForPlugin } from 'kea-waitfor'
 import { windowValuesPlugin } from 'kea-window-values'
 import posthog from 'posthog-js'
 
-import { isAccessDeniedError, shouldReportApiFailure } from 'lib/api-error'
+import { ApiError, isAccessDeniedError, shouldReportApiFailure } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     addProjectIdIfMissing,
@@ -70,6 +70,24 @@ Write actions whose own logic toasts the duplicate-key 400 (code `unique` on att
 generic toast would be a second one. Owned by featureFlagLogic's saveFeatureFlagFailure listener.
 */
 const DUPLICATE_KEY_SELF_HANDLED = new Set(['saveFeatureFlag'])
+
+/**
+ * Whether a failed loader action is worth filing as an error tracking issue. This adds the
+ * action context that `shouldReportApiFailure` cannot see. A 404 on an action in
+ * `ERROR_FILTER_ALLOW_LIST` is an expected miss that the owning UI already shows (for example a
+ * deleted or expired recording renders "Recording not found"), so reporting it only buries real
+ * failures. Genuine 5xx and network failures on the same action stay reportable, because only a
+ * 404 is excused.
+ */
+export function shouldReportLoaderFailure(error: unknown, actionKey: string): boolean {
+    if (!shouldReportApiFailure(error)) {
+        return false
+    }
+    if (error instanceof ApiError && error.status === 404 && ERROR_FILTER_ALLOW_LIST.includes(actionKey)) {
+        return false
+    }
+    return true
+}
 
 interface InitKeaProps {
     state?: Record<string, any>
@@ -204,7 +222,7 @@ export function initKea({
                 if (!errorsSilenced) {
                     console.error({ error, reducerKey, actionKey })
                 }
-                if (shouldReportApiFailure(error)) {
+                if (shouldReportLoaderFailure(error, actionKey)) {
                     posthog.captureException(error)
                 }
             },
