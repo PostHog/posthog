@@ -6,7 +6,6 @@ import { PostgresUse } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
-import { resetBehavioralCohortsDatabase } from '../../../tests/helpers/sql'
 import { Hub } from '../../types'
 import { createCohortMembershipEvent, createCohortMembershipEvents, createKafkaMessage } from '../_tests/fixtures'
 import { CdpCohortMembershipConsumer } from './cdp-cohort-membership.consumer'
@@ -14,11 +13,18 @@ import { CdpCohortMembershipConsumer } from './cdp-cohort-membership.consumer'
 describe('CdpCohortMembershipConsumer', () => {
     let hub: Hub
     let consumer: CdpCohortMembershipConsumer
+    let teamId: number
+    let personId1: string
+    let personId2: string
+    let personId3: string
 
     beforeEach(async () => {
         hub = await createHub()
         consumer = new CdpCohortMembershipConsumer(hub, createCdpConsumerDeps(hub))
-        await resetBehavioralCohortsDatabase(hub.postgres)
+        teamId = Number.parseInt(new UUIDT().toString().replaceAll('-', '').slice(-7), 16)
+        personId1 = new UUIDT().toString()
+        personId2 = new UUIDT().toString()
+        personId3 = new UUIDT().toString()
     })
 
     afterEach(async () => {
@@ -26,28 +32,24 @@ describe('CdpCohortMembershipConsumer', () => {
     })
 
     describe('end-to-end cohort membership processing', () => {
-        const personId1 = new UUIDT().toString()
-        const personId2 = new UUIDT().toString()
-        const personId3 = new UUIDT().toString()
-
         it('should process entered and left events and write to PostgreSQL correctly', async () => {
             const testEvents = createCohortMembershipEvents([
                 {
                     person_id: personId1,
                     cohort_id: 456,
-                    team_id: 1,
+                    team_id: teamId,
                     status: 'entered',
                 },
                 {
                     person_id: personId2,
                     cohort_id: 456,
-                    team_id: 1,
+                    team_id: teamId,
                     status: 'entered',
                 },
                 {
                     person_id: personId3,
                     cohort_id: 457,
-                    team_id: 1,
+                    team_id: teamId,
                     status: 'left',
                 },
             ])
@@ -62,28 +64,28 @@ describe('CdpCohortMembershipConsumer', () => {
             const result = await hub.postgres.query(
                 PostgresUse.BEHAVIORAL_COHORTS_RW,
                 'SELECT * FROM cohort_membership WHERE team_id = $1 ORDER BY person_id, cohort_id',
-                [1],
+                [teamId],
                 'testQuery'
             )
 
             expect(result.rows).toHaveLength(3)
 
             expect(result.rows[0]).toMatchObject({
-                team_id: '1',
+                team_id: teamId.toString(),
                 cohort_id: '456',
                 person_id: personId1,
                 in_cohort: true,
             })
 
             expect(result.rows[1]).toMatchObject({
-                team_id: '1',
+                team_id: teamId.toString(),
                 cohort_id: '456',
                 person_id: personId2,
                 in_cohort: true,
             })
 
             expect(result.rows[2]).toMatchObject({
-                team_id: '1',
+                team_id: teamId.toString(),
                 cohort_id: '457',
                 person_id: personId3,
                 in_cohort: false,
@@ -95,7 +97,7 @@ describe('CdpCohortMembershipConsumer', () => {
             const enterEvent = createCohortMembershipEvent({
                 person_id: personId1,
                 cohort_id: 456,
-                team_id: 1,
+                team_id: teamId,
                 status: 'entered',
             })
 
@@ -108,7 +110,7 @@ describe('CdpCohortMembershipConsumer', () => {
             let result = await hub.postgres.query(
                 PostgresUse.BEHAVIORAL_COHORTS_RW,
                 'SELECT * FROM cohort_membership WHERE team_id = $1 AND person_id = $2 AND cohort_id = $3',
-                [1, personId1, 456],
+                [teamId, personId1, 456],
                 'testQuery'
             )
 
@@ -121,7 +123,7 @@ describe('CdpCohortMembershipConsumer', () => {
             const leaveEvent = createCohortMembershipEvent({
                 person_id: personId1,
                 cohort_id: 456,
-                team_id: 1,
+                team_id: teamId,
                 status: 'left',
             })
 
@@ -134,7 +136,7 @@ describe('CdpCohortMembershipConsumer', () => {
             result = await hub.postgres.query(
                 PostgresUse.BEHAVIORAL_COHORTS_RW,
                 'SELECT * FROM cohort_membership WHERE team_id = $1 AND person_id = $2 AND cohort_id = $3',
-                [1, personId1, 456],
+                [teamId, personId1, 456],
                 'testQuery'
             )
 
@@ -149,7 +151,7 @@ describe('CdpCohortMembershipConsumer', () => {
             const reEnterEvent = createCohortMembershipEvent({
                 person_id: personId1,
                 cohort_id: 456,
-                team_id: 1,
+                team_id: teamId,
                 status: 'entered',
             })
 
@@ -162,7 +164,7 @@ describe('CdpCohortMembershipConsumer', () => {
             result = await hub.postgres.query(
                 PostgresUse.BEHAVIORAL_COHORTS_RW,
                 'SELECT * FROM cohort_membership WHERE team_id = $1 AND person_id = $2 AND cohort_id = $3',
-                [1, personId1, 456],
+                [teamId, personId1, 456],
                 'testQuery'
             )
 
@@ -177,13 +179,13 @@ describe('CdpCohortMembershipConsumer', () => {
                 {
                     person_id: personId1,
                     cohort_id: 456,
-                    team_id: 1,
+                    team_id: teamId,
                     status: 'entered',
                 },
                 {
                     person_id: personId1,
                     cohort_id: 456,
-                    team_id: 1,
+                    team_id: teamId,
                     status: 'left',
                 },
             ])
@@ -198,7 +200,7 @@ describe('CdpCohortMembershipConsumer', () => {
             const result = await hub.postgres.query(
                 PostgresUse.BEHAVIORAL_COHORTS_RW,
                 'SELECT * FROM cohort_membership WHERE team_id = $1 AND person_id = $2 AND cohort_id = $3',
-                [1, personId1, 456],
+                [teamId, personId1, 456],
                 'testQuery'
             )
 
@@ -210,7 +212,7 @@ describe('CdpCohortMembershipConsumer', () => {
             const validEvent = {
                 person_id: personId1,
                 cohort_id: 456,
-                team_id: 1,
+                team_id: teamId,
                 status: 'entered',
             }
 
@@ -242,7 +244,7 @@ describe('CdpCohortMembershipConsumer', () => {
             const result = await hub.postgres.query(
                 PostgresUse.BEHAVIORAL_COHORTS_RW,
                 'SELECT * FROM cohort_membership WHERE team_id = $1',
-                [1],
+                [teamId],
                 'testQuery'
             )
 
@@ -254,13 +256,13 @@ describe('CdpCohortMembershipConsumer', () => {
                 {
                     person_id: personId1,
                     cohort_id: 456,
-                    team_id: 1,
+                    team_id: teamId,
                     status: 'entered',
                 },
                 {
                     person_id: personId2,
                     cohort_id: 456,
-                    team_id: 1,
+                    team_id: teamId,
                     status: 'entered',
                 },
             ])
@@ -283,7 +285,7 @@ describe('CdpCohortMembershipConsumer', () => {
             const result = await hub.postgres.query(
                 PostgresUse.BEHAVIORAL_COHORTS_RW,
                 'SELECT * FROM cohort_membership WHERE team_id = $1',
-                [1],
+                [teamId],
                 'testQuery'
             )
             expect(result.rows).toHaveLength(0)
