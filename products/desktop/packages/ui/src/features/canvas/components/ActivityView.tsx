@@ -160,7 +160,7 @@ export function ActivityRow({
             </span>
             {item.isUnread && !compact && <Badge variant="info">New</Badge>}
           </span>
-          <span className="block truncate text-muted-foreground text-xs">
+          <span className="block truncate text-muted-foreground text-xxs">
             {activityMetadata(item, currentUser?.email)}
           </span>
           {item.snippet && !compact && (
@@ -178,7 +178,7 @@ export function ActivityRow({
           size="icon-xs"
           aria-label="Mark as read"
           title="Mark as read"
-          className={`absolute opacity-0 transition-opacity group-hover:opacity-100 ${compact ? "right-2 bottom-1" : `top-2 ${channelId ? "right-9" : "right-2"}`}`}
+          className={`absolute opacity-0 transition-opacity group-hover:opacity-100 ${compact ? "top-2 right-2" : `top-2 ${channelId ? "right-9" : "right-2"}`}`}
           onClick={() => onMarkRead(item)}
         >
           <CheckIcon size={14} />
