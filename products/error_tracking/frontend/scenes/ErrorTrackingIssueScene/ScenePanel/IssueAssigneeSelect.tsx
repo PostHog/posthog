@@ -1,5 +1,4 @@
-import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
-import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
+import { Button, SelectTriggerIcon } from 'lib/ui/quill'
 
 import { ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
 
@@ -16,18 +15,14 @@ export const IssueAssigneeSelect = ({
     onChange: (assignee: ErrorTrackingIssueAssignee | null) => void
 }): JSX.Element => {
     return (
-        <div>
-            <AssigneeSelect assignee={assignee} onChange={onChange}>
-                {(anyAssignee, isOpen) => (
-                    <ButtonPrimitive disabled={disabled} data-state={isOpen ? 'open' : 'closed'}>
-                        <div className="flex items-center">
-                            <AssigneeIconDisplay assignee={anyAssignee} size="small" />
-                            <AssigneeLabelDisplay assignee={anyAssignee} className="ml-1" size="small" />
-                        </div>
-                        {!disabled && <MenuOpenIndicator className="ml-auto" />}
-                    </ButtonPrimitive>
-                )}
-            </AssigneeSelect>
-        </div>
+        <AssigneeSelect assignee={assignee} onChange={onChange}>
+            {(anyAssignee) => (
+                <Button variant="outline" disabled={disabled}>
+                    <AssigneeIconDisplay assignee={anyAssignee} size="xsmall" />
+                    <AssigneeLabelDisplay assignee={anyAssignee} className="text-xs text-secondary" size="xsmall" />
+                    {!disabled && <SelectTriggerIcon />}
+                </Button>
+            )}
+        </AssigneeSelect>
     )
 }
