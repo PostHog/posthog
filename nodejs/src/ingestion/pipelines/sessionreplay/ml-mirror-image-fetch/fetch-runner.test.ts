@@ -5,6 +5,7 @@ import { DELAY_TOO_LONG, FetchRunner, FetchRunnerOptions, HOPS_EXHAUSTED } from 
 import { FrontierPublisher, RepublishResult } from './frontier-publisher'
 import { HostBudget } from './host-budget'
 import { ImageFetchOptions, ImageFetchResult, ImageFetcher } from './image-fetcher'
+import { ImageFetchRequestMetrics } from './metrics'
 import { OriginRequestScheduler } from './origin-request-scheduler'
 
 const NOW_MS = 1_700_000_000_000
@@ -216,6 +217,41 @@ describe('FetchRunner', () => {
         releaseSecond?.()
         await run
         expect(harness.fetch).toHaveBeenCalledTimes(3)
+    })
+
+    it('records initial capacity after origin and registrable-domain limits', async () => {
+        const observeCapacity = jest
+            .spyOn(ImageFetchRequestMetrics, 'observeBatchSchedulableCapacity')
+            .mockImplementation()
+        const harness = build({}, {}, 'queued', {
+            ...OPTIONS,
+            maxConcurrentPerRegistrableDomain: 2,
+            maxInFlightRequests: 3,
+        })
+        const candidates = [
+            candidate(),
+            ...Array.from({ length: 2 }, (_, index) =>
+                candidate({
+                    originalRef: `imageurl:${String(index + 1).repeat(22)}`,
+                    currentUrl: `https://sibling-${index}.example.com/image.png`,
+                    host: `sibling-${index}.example.com`,
+                    origin: `https://sibling-${index}.example.com`,
+                })
+            ),
+            ...Array.from({ length: 2 }, (_, index) =>
+                candidate({
+                    originalRef: `imageurl:${String(index + 3).repeat(22)}`,
+                    currentUrl: `https://origin-${index}.other.net/image.png`,
+                    host: `origin-${index}.other.net`,
+                    origin: `https://origin-${index}.other.net`,
+                    registrableDomain: 'other.net',
+                })
+            ),
+        ]
+
+        await harness.runner.run(candidates, new Map())
+
+        expect(observeCapacity).toHaveBeenCalledWith(4, 3)
     })
 
     it('starts the origin with the largest canonical URL queue first', async () => {

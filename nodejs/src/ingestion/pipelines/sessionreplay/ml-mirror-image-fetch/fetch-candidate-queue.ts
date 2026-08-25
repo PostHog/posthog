@@ -157,6 +157,7 @@ export class FetchCandidateQueue {
     private remainingOrigins = 0
     private lowOriginDiversityStarted = false
     private lowOriginDiversityProgressRemaining: number
+    private initialSchedulableSlots = 0
     private aborted = false
 
     constructor(
@@ -196,6 +197,10 @@ export class FetchCandidateQueue {
             }
         }
         for (const domain of this.domains.values()) {
+            this.initialSchedulableSlots += Math.min(
+                domain.origins.size,
+                this.options.maxConcurrentPerRegistrableDomain
+            )
             for (const origin of domain.origins.values()) {
                 domain.availableOrigins.add(origin)
             }
@@ -213,6 +218,10 @@ export class FetchCandidateQueue {
 
     public get selectableRegistrableDomainCount(): number {
         return this.availableDomains.size
+    }
+
+    public get schedulableSlotsAtStart(): number {
+        return this.initialSchedulableSlots
     }
 
     public abort(): void {

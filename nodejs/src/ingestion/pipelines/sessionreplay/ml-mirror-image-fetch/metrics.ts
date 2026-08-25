@@ -22,7 +22,10 @@ export type SchedulerWaitScope = 'origin_crawl_delay' | 'registrable_domain_rate
 export type HttpRequestOutcome = '2xx' | '3xx' | '4xx' | '5xx' | 'other' | 'network_error'
 export type RepublishDestination = 'frontier' | 'delay'
 export type RepublishTopic = 'frontier' | 'retry_1m' | 'retry_10m' | 'retry_1h'
+type BatchDiversityScope = 'origin' | 'registrable_domain'
 type PolicyAndBudgetReason = FetchRefusalReason | RequestScheduleBlockReason | 'none'
+
+const BATCH_DIVERSITY_TOP_COUNTS = [1, 5, 10] as const
 
 export class ImageFetchConsumerMetrics {
     private static readonly fetchable = new Counter({
@@ -62,6 +65,18 @@ export class ImageFetchConsumerMetrics {
         name: 'ml_image_fetch_consumer_registrable_domains_per_batch',
         help: 'Distinct registrable domains in one poll batch',
         buckets: [0, 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16_384],
+    })
+    private static readonly batchTopShare = new Histogram({
+        name: 'ml_image_fetch_batch_top_share',
+        help: 'Share of deduplicated canonical URL jobs held by the largest fixed number of origins or registrable domains in one poll batch',
+        labelNames: ['scope', 'top_n'],
+        buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 1],
+    })
+    private static readonly batchEffectiveCount = new Histogram({
+        name: 'ml_image_fetch_batch_effective_count',
+        help: 'Inverse Simpson effective count of origins or registrable domains among deduplicated canonical URL jobs in one poll batch',
+        labelNames: ['scope'],
+        buckets: [1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16_384, 32_768, 65_536],
     })
     private static readonly urlsPerRecord = new Histogram({
         name: 'ml_image_fetch_consumer_urls_per_record',
@@ -131,6 +146,10 @@ export class ImageFetchConsumerMetrics {
         this.registrableDomainsPerBatch.observe(registrableDomains)
         this.batchDuration.observe(durationSeconds)
     }
+    public static observeBatchDiversity(originCounts: number[], registrableDomainCounts: number[]): void {
+        this.observeBatchDistribution('origin', originCounts)
+        this.observeBatchDistribution('registrable_domain', registrableDomainCounts)
+    }
     public static startBatch(nowMs = performance.now()): void {
         this.activeBatchStartedAtMs = nowMs
     }
@@ -143,6 +162,40 @@ export class ImageFetchConsumerMetrics {
     public static observeAge(ageSeconds: number): void {
         this.ageSeconds.observe(ageSeconds)
     }
+
+    private static observeBatchDistribution(scope: BatchDiversityScope, counts: number[]): void {
+        const summary = summarizeBatchDistribution(counts)
+        if (!summary) {
+            return
+        }
+        for (const topCount of BATCH_DIVERSITY_TOP_COUNTS) {
+            const topTotal = summary.largestCounts.slice(0, topCount).reduce((total, count) => total + count, 0)
+            this.batchTopShare.labels(scope, String(topCount)).observe(topTotal / summary.total)
+        }
+        this.batchEffectiveCount.labels(scope).observe((summary.total * summary.total) / summary.sumOfSquares)
+    }
+}
+
+function summarizeBatchDistribution(
+    counts: number[]
+): { total: number; sumOfSquares: number; largestCounts: number[] } | undefined {
+    let total = 0
+    let sumOfSquares = 0
+    const largestCounts: number[] = []
+    for (const count of counts) {
+        total += count
+        sumOfSquares += count * count
+        const insertionIndex = largestCounts.findIndex((existing) => count > existing)
+        if (insertionIndex >= 0) {
+            largestCounts.splice(insertionIndex, 0, count)
+        } else if (largestCounts.length < BATCH_DIVERSITY_TOP_COUNTS.at(-1)!) {
+            largestCounts.push(count)
+        }
+        if (largestCounts.length > BATCH_DIVERSITY_TOP_COUNTS.at(-1)!) {
+            largestCounts.pop()
+        }
+    }
+    return total > 0 ? { total, sumOfSquares, largestCounts } : undefined
 }
 
 /**
@@ -190,6 +243,16 @@ export class ImageFetchRequestMetrics {
         name: 'ml_image_fetch_low_origin_diversity_candidates',
         help: 'Canonical URL jobs remaining when a fetch pass started low-diversity republishing',
         buckets: [1, 8, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16_384, 32_768, 65_536],
+    })
+    private static readonly batchSchedulableSlots = new Histogram({
+        name: 'ml_image_fetch_batch_schedulable_slots',
+        help: 'Request slots that the initial fetch queue can use immediately after origin and registrable-domain concurrency limits',
+        buckets: [1, 2, 4, 8, 16, 32, 64, 128, 256, 300, 512, 1024],
+    })
+    private static readonly batchSchedulableCapacityRatio = new Histogram({
+        name: 'ml_image_fetch_batch_schedulable_capacity_ratio',
+        help: 'Share of the pod request limit that the initial fetch queue can use immediately',
+        buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 0.9, 0.95, 1],
     })
     /**
      * `ok` against the sum is the yield of the lane.
@@ -313,6 +376,11 @@ export class ImageFetchRequestMetrics {
         this.lowOriginDiversityPasses.inc()
         this.lowOriginDiversityOrigins.observe(origins)
         this.lowOriginDiversityCandidates.observe(candidates)
+    }
+    public static observeBatchSchedulableCapacity(slots: number, podRequestLimit: number): void {
+        const boundedSlots = Math.min(slots, podRequestLimit)
+        this.batchSchedulableSlots.observe(boundedSlots)
+        this.batchSchedulableCapacityRatio.observe(boundedSlots / podRequestLimit)
     }
     public static observeSchedulerWait(scope: SchedulerWaitScope, waitSeconds: number): void {
         this.schedulerWait.labels(scope).observe(waitSeconds)
