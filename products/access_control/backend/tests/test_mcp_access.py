@@ -4,6 +4,7 @@ from parameterized import parameterized
 
 from posthog.auth import MCP_USER_AGENT_MARKER
 from posthog.constants import AvailableFeature
+from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -15,9 +16,16 @@ class TestMCPReadOnlyEnforcement(APIBaseTest):
             {
                 "key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS,
                 "name": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS,
-            }
+            },
+            # So the multi-project plan gate passes and MCPAccessPermission is the denier
+            # on the root-create path, not PremiumMultiProjectPermission.
+            {"key": AvailableFeature.ORGANIZATIONS_PROJECTS, "name": AvailableFeature.ORGANIZATIONS_PROJECTS},
         ]
         self.organization.save()
+        # Owner, not the default member: the cap binds every level, so the membership
+        # permissions must pass for MCPAccessPermission to be the one that denies.
+        self.organization_membership.level = OrganizationMembership.Level.OWNER
+        self.organization_membership.save()
         self.key_value = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             label="mcp test",
