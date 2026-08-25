@@ -20,6 +20,12 @@ doesn't distort it):
 | `up-web`             | 2s       | create the web container                                                                         |
 | web `/_health`       | **117s** | Nginx Unit + workers import `posthog.wsgi`, then serve                                           |
 
+> Numbers predate temporal. `up-deps` now also starts `temporal` and `up-web`
+> also recreates `temporal-django-worker` (needed so the worker runs the PR's
+> code, not `:master`). Both are `up -d` calls that return immediately; the
+> worker's own Django import overlaps web's rather than serializing after it,
+> and nothing gates on the worker, so the phases above shouldn't shift much.
+
 ## Root cause: cold page-faulting through S3-backed chunkfs — not Django CPU
 
 The rootfs is xfs on `/dev/vda`, which is chunkfs/NBD-backed. On a restore the

@@ -4,12 +4,12 @@ PostHog uses semantic versioning with git tags. Patch versions are automatically
 
 The version in `apps/code/package.json` is set to `0.0.0-dev` - this is intentional. CI injects the real version at build time from git tags.
 
-## Version Format: `major.minor.patch`
+## Version format: `major.minor.patch`
 
-- **major.minor**: Controlled by git tags (e.g., `v0.15.0`, `v1.0.0`)
-- **patch**: Auto-calculated as number of commits since the minor tag
+- **major.minor**: Controlled by desktop base tags (e.g., `desktop-v0.15`, `desktop-v1.0`)
+- **patch**: Auto-calculated as the number of commits since the base tag that touched `products/desktop/`
 
-**Important:** Releases must use proper three-part semver versions (e.g., `v0.22.1`, not `v0.22`). The auto-updater requires valid semver for version comparison. Two-part versions will break auto-updates.
+**Important:** Released versions are always three-part semver (e.g., `0.22.1`). The auto-updater requires valid semver for version comparison, and CI derives the three-part version from the base tag plus the patch count.
 
 ## Auto-Update Mechanism
 
@@ -27,58 +27,46 @@ GitHub Releases in `PostHog/posthog` remain the human-facing changelog and downl
 
 Remote announcements can drive this flow: a `required-update` announcement blocks apps below a version and reuses the updater; where the updater is unavailable it degrades to a manual download link. See [ANNOUNCEMENTS.md](./ANNOUNCEMENTS.md).
 
-## How It Works
+## How it works
 
-1. A base tag like `v0.15.0` marks the start of a minor version
-2. Each push to `main` triggers a release with version `0.15.N` where N = commits since `v0.15.0`
-3. No manual `package.json` updates needed for patch releases
+1. A base tag like `desktop-v0.15` marks the start of a minor version.
+2. `.github/workflows/desktop-tag.yml` (monorepo root) runs on a twice-daily schedule. It computes `desktop-vX.Y.PATCH`, where PATCH is the number of commits since the base tag that touched `products/desktop/`, waits for a quiet period, then pushes the tag.
+3. The tag push triggers `desktop-release.yml`, which builds and publishes the release.
+4. No manual `package.json` updates are needed.
 
-## Releasing a Patch (Automatic)
+## Releasing a patch
 
-Just push to `main`. The workflow computes the version automatically:
+Merge to `master` and wait for the next scheduled `desktop-tag.yml` run. To release sooner:
 
-```
-v0.15.0 tag exists
-Push commit #1 → releases 0.15.1
-Push commit #2 → releases 0.15.2
-Push commit #3 → releases 0.15.3
-```
+- Add the `create desktop release` label to your PR before merging (the labeler must be a `team-posthog-code` member). The merge then tags immediately.
+- Or trigger `desktop-tag.yml` manually with `gh workflow run desktop-tag.yml`.
 
-## Releasing a Minor Version
+## Releasing a minor or major version
 
-Create a new base tag when you want to bump the minor version:
+Create a new base tag to bump the minor or major version:
 
 ```bash
-git tag v0.16.0
-git push origin v0.16.0
+git tag desktop-v0.16
+git push origin desktop-v0.16
 ```
 
-The next push to `main` will release `0.16.1`.
+The next `desktop-tag.yml` run releases `desktop-v0.16.N`.
 
-## Releasing a Major Version
-
-Same process, just increment the major:
-
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
-
-## Checking Current Version
+## Checking current version
 
 See what version would be released:
 
 ```bash
 # Find the current base tag
-git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.0$' | head -1
+git tag --list 'desktop-v[0-9]*.[0-9]*' --sort=-v:refname | grep -E '^desktop-v[0-9]+\.[0-9]+(\.0)?$' | head -1
 
-# Count commits since base tag (this is the patch number)
-git rev-list v0.15.0..HEAD --count
+# Count desktop commits since the base tag (this is the patch number)
+git rev-list desktop-v0.15..HEAD --count -- products/desktop/
 ```
 
-## Tag Naming Convention
+## Tag naming convention
 
-- **Base tags** (manual): `vX.Y.0` - e.g., `v0.15.0`, `v1.0.0`
-- **Release tags** (auto): `vX.Y.Z` - e.g., `v0.15.3`, created by CI
+- **Base tags** (manual): `desktop-vX.Y` or `desktop-vX.Y.0`
+- **Release tags** (auto): `desktop-vX.Y.Z`, created by CI
 
-Only base tags (`vX.Y.0`) are used for version calculation. Release tags (`vX.Y.Z`) are created for GitHub releases but ignored when computing the next version.
+Only base tags are used for version calculation. Release tags are created for GitHub releases but ignored when computing the next version.

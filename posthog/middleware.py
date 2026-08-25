@@ -44,6 +44,7 @@ from posthog.constants import AUTH_BACKEND_KEYS
 from posthog.event_usage import get_event_source, get_mcp_properties, sanitize_header_value
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import get_original_user_from_session
+from posthog.helpers.sso import sso_failure_redirect_url
 from posthog.helpers.user_devices import set_known_device_cookie
 from posthog.models import Team, User
 from posthog.models.activity_logging.utils import (
@@ -62,7 +63,7 @@ from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from .auth import PersonalAPIKeyAuthentication
 
@@ -1172,8 +1173,11 @@ class CSPMiddleware:
                 "report-to posthog",
             ]
 
+            # Browsers only deliver crash reports to the endpoint named `default`; the CSP
+            # `report-to posthog` directive keeps routing violations to `posthog`.
+            admin_report_endpoint = "https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&v=2"
             response.headers["Reporting-Endpoints"] = (
-                'posthog="https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&v=2"'
+                f'posthog="{admin_report_endpoint}", default="{admin_report_endpoint}"'
             )
             response.headers["Content-Security-Policy"] = "; ".join(csp_parts)
         else:
@@ -1204,9 +1208,16 @@ class CSPMiddleware:
                 "report-to posthog",
             ]
 
-            response.headers["Reporting-Endpoints"] = (
-                'posthog="https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&sample_rate=0.1&v=2"'
-            )
+            report_endpoint = "https://us.i.posthog.com/report/?token=sTMFPsFhdP1Ssg&sample_rate=0.1&v=2"
+            user = getattr(request, "user", None)
+            if user is not None and user.is_authenticated and getattr(user, "distinct_id", None):
+                # Crash reports arrive after the tab already died, so the report body is the
+                # only chance to attribute them; carrying the distinct_id in the endpoint URL
+                # ties the event to the person instead of a random per-report id.
+                report_endpoint += "&" + urlencode({"distinct_id": user.distinct_id})
+            # Browsers only deliver crash reports to the endpoint named `default`; the CSP
+            # `report-to posthog` directive keeps routing violations to `posthog`.
+            response.headers["Reporting-Endpoints"] = f'posthog="{report_endpoint}", default="{report_endpoint}"'
             response.headers["Content-Security-Policy-Report-Only"] = "; ".join(csp_parts)
 
         return response
@@ -1232,7 +1243,7 @@ class SocialAuthExceptionMiddleware:
 
         # Handle AuthCanceled (user cancelled OAuth flow)
         if isinstance(exception, AuthCanceled):
-            return redirect("/login?error_code=oauth_cancelled")
+            return redirect(sso_failure_redirect_url(request, "oauth_cancelled"))
 
         # Handle AuthFailed with specific error codes that have dedicated frontend messages
         if isinstance(exception, AuthFailed) and len(exception.args) >= 1:
@@ -1243,14 +1254,16 @@ class SocialAuthExceptionMiddleware:
                 "github_sso_enforced",
                 "gitlab_sso_enforced",
                 "sso_enforced",
+                "reauth_user_mismatch",
             ):
-                return redirect(f"/login?error_code={error}")
+                return redirect(sso_failure_redirect_url(request, error))
 
         # Handle any other social auth exception by passing the error detail to the frontend
         if isinstance(exception, AuthException):
             error_detail = self._get_error_detail(exception)
-            params = urlencode({"error_code": "social_login_failure", "error_detail": error_detail})
-            return redirect(f"/login?{params}")
+            url = sso_failure_redirect_url(request, "social_login_failure")
+            separator = "&" if "?" in url else "?"
+            return redirect(f"{url}{separator}{urlencode({'error_detail': error_detail})}")
 
         return None
 

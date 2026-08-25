@@ -5,14 +5,11 @@ from unittest import mock
 
 from posthog.schema import SourceFieldInputConfig
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.plausible import PlausibleResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.settings import (
     ENDPOINTS,
     PLAUSIBLE_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.plausible.source import PlausibleSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.plausible.source"
 
@@ -37,9 +34,6 @@ def _inputs(**overrides: Any) -> mock.MagicMock:
 
 
 class TestSourceConfig:
-    def test_source_type(self):
-        assert PlausibleSource().source_type == ExternalDataSourceType.PLAUSIBLE
-
     def test_get_source_config_fields(self):
         config = PlausibleSource().get_source_config
 
@@ -63,19 +57,27 @@ class TestSourceConfig:
         # The API key is sent to `host`, so retargeting it must re-require secrets.
         assert PlausibleSource().connection_host_fields == ["host"]
 
-    def test_non_retryable_errors_cover_auth(self):
+    @pytest.mark.parametrize(
+        "raised,expected_key",
+        [
+            # A 400 is a permanent rejection from Plausible for this site.
+            ("400 Client Error: Bad Request for url: https://plausible.io/api/v2/query", "400 Client Error"),
+            # A self-hosted Host that doesn't resolve via DNS is raised from source_for_pipeline's
+            # host validation; retrying replays the same check, so it must stop.
+            (
+                "Couldn't resolve the host 'stats.example.com'. Check that it's spelled correctly "
+                "and reachable from the public internet.",
+                "Couldn't resolve the host",
+            ),
+        ],
+    )
+    def test_permanent_errors_are_non_retryable(self, raised: str, expected_key: str):
+        # The import layer classifies an error as non-retryable when a key is a substring of
+        # str(error), so match against the real message shape each path produces.
         errors = PlausibleSource().get_non_retryable_errors()
-        assert "401 Client Error" in errors
-        assert "403 Client Error" in errors
-
-    def test_bad_request_is_non_retryable(self):
-        # A 400 is a permanent rejection. The import layer classifies an error as non-retryable when
-        # a key is a substring of str(error), so match against the real requests HTTPError message.
-        errors = PlausibleSource().get_non_retryable_errors()
-        raised = "400 Client Error: Bad Request for url: https://plausible.io/api/v2/query"
         matched = [key for key in errors if key in raised]
-        assert matched == ["400 Client Error"]
-        assert errors["400 Client Error"] is not None
+        assert matched == [expected_key]
+        assert errors[expected_key] is not None
 
 
 class TestGetSchemas:
@@ -118,11 +120,6 @@ class TestValidateCredentials:
 
 
 class TestResumableAndPipeline:
-    def test_get_resumable_source_manager_bound_to_data_class(self):
-        manager = PlausibleSource().get_resumable_source_manager(_inputs())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is PlausibleResumeConfig
-
     @mock.patch(f"{_MODULE}.plausible_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_plausible_source):
         source = PlausibleSource()
@@ -148,10 +145,11 @@ class TestResumableAndPipeline:
 
 
 class TestCanonicalDescriptions:
-    def test_descriptions_keyed_by_endpoint_names(self):
-        descriptions = PlausibleSource().get_canonical_descriptions()
-        # Every endpoint should have a curated description.
-        assert set(descriptions.keys()) == set(PLAUSIBLE_ENDPOINTS.keys())
-        for entry in descriptions.values():
-            assert entry.get("description")
-            assert "date" in entry.get("columns", {})
+    @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
+    def test_documented_columns_match_the_columns_the_endpoint_produces(self, endpoint):
+        # These descriptions are written per endpoint while the metric set is derived, so without
+        # this an endpoint can document metric columns its table never gets.
+        config = PLAUSIBLE_ENDPOINTS[endpoint]
+        columns = PlausibleSource().get_canonical_descriptions()[endpoint]["columns"]
+
+        assert set(columns) == {*config.column_names, *config.metrics}

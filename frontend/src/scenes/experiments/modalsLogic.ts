@@ -11,9 +11,11 @@ import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 export interface modalsLogicValues {
     currentProjectId: number | null // projectLogic
     currentTeamId: number | null // teamLogic
+    isCopyToProjectModalOpen: boolean
     isCupedModalOpen: boolean
     isDescriptionModalOpen: boolean
     isDistributionModalOpen: boolean
+    isDuplicateExperimentModalOpen: boolean
     isEditConclusionModalOpen: boolean
     isExperimentCollectionGoalModalOpen: boolean
     isExposureCriteriaModalOpen: boolean
@@ -22,6 +24,7 @@ export interface modalsLogicValues {
     isPrimaryMetricModalOpen: boolean
     isPrimaryMetricSourceModalOpen: boolean
     isPrimarySharedMetricModalOpen: boolean
+    isQuickSurveyModalOpen: boolean
     isReleaseConditionsModalOpen: boolean
     isResumeExperimentModalOpen: boolean
     isRunningTimeConfigModalOpen: boolean
@@ -37,6 +40,9 @@ export interface modalsLogicActions {
     updateFlag: (flag: FeatureFlagType) => {
         flag: FeatureFlagType
     } // featureFlagsLogic
+    closeCopyToProjectModal: () => {
+        value: true
+    }
     closeCupedModal: () => {
         value: true
     }
@@ -44,6 +50,9 @@ export interface modalsLogicActions {
         value: true
     }
     closeDistributionModal: () => {
+        value: true
+    }
+    closeDuplicateExperimentModal: () => {
         value: true
     }
     closeEditConclusionModal: () => {
@@ -70,6 +79,9 @@ export interface modalsLogicActions {
     closePrimarySharedMetricModal: () => {
         value: true
     }
+    closeQuickSurveyModal: () => {
+        value: true
+    }
     closeReleaseConditionsModal: () => {
         value: true
     }
@@ -94,6 +106,9 @@ export interface modalsLogicActions {
     closeVariantDeltaTimeseriesModal: () => {
         value: true
     }
+    openCopyToProjectModal: () => {
+        value: true
+    }
     openCupedModal: () => {
         value: true
     }
@@ -101,6 +116,9 @@ export interface modalsLogicActions {
         value: true
     }
     openDistributionModal: () => {
+        value: true
+    }
+    openDuplicateExperimentModal: () => {
         value: true
     }
     openEditConclusionModal: () => {
@@ -126,6 +144,9 @@ export interface modalsLogicActions {
     }
     openPrimarySharedMetricModal: (sharedMetricId: SharedMetric['id'] | null) => {
         sharedMetricId: number | null
+    }
+    openQuickSurveyModal: () => {
+        value: true
     }
     openReleaseConditionsModal: () => {
         value: true
@@ -200,6 +221,12 @@ export const modalsLogic = kea<modalsLogicType>([
         closeVariantDeltaTimeseriesModal: true,
         openRunningTimeConfigModal: true,
         closeRunningTimeConfigModal: true,
+        openDuplicateExperimentModal: true,
+        closeDuplicateExperimentModal: true,
+        openCopyToProjectModal: true,
+        closeCopyToProjectModal: true,
+        openQuickSurveyModal: true,
+        closeQuickSurveyModal: true,
     }),
     reducers({
         isExperimentCollectionGoalModalOpen: [
@@ -333,6 +360,27 @@ export const modalsLogic = kea<modalsLogicType>([
             {
                 openRunningTimeConfigModal: () => true,
                 closeRunningTimeConfigModal: () => false,
+            },
+        ],
+        isDuplicateExperimentModalOpen: [
+            false,
+            {
+                openDuplicateExperimentModal: () => true,
+                closeDuplicateExperimentModal: () => false,
+            },
+        ],
+        isCopyToProjectModalOpen: [
+            false,
+            {
+                openCopyToProjectModal: () => true,
+                closeCopyToProjectModal: () => false,
+            },
+        ],
+        isQuickSurveyModalOpen: [
+            false,
+            {
+                openQuickSurveyModal: () => true,
+                closeQuickSurveyModal: () => false,
             },
         ],
     }),

@@ -8,13 +8,22 @@ import type {
 } from "@posthog/shared/domain-types";
 import type { Schemas } from "./generated";
 
+export type TaskRunArtifactDTO = Omit<
+  Schemas.TaskRunArtifactResponse,
+  "metadata" | "storage_path"
+> & {
+  metadata?: unknown;
+  storage_path?: string;
+  uploaded_by?: "agent" | "user";
+  uploaded_by_user_id?: number;
+  dismissed_at?: string | null;
+};
+
 type TaskRunResponseDTO = Partial<
   Omit<Schemas.TaskRunDetail, "artifacts" | "status">
 > & {
   id: string;
-  artifacts?: Array<
-    Schemas.TaskRunArtifactResponse & { metadata?: unknown }
-  > | null;
+  artifacts?: Array<TaskRunArtifactDTO> | null;
   status?: Schemas.StatusA35Enum | "started" | null;
   team?: number | null;
 };
@@ -26,6 +35,7 @@ type TaskResponseDTO = Partial<
   channel?: string | null;
   created_by?: Schemas.UserBasic | null;
   github_user_integration?: string | null;
+  last_activity_at?: string | null;
   json_schema?: unknown | null;
   latest_run?: Record<string, unknown> | null;
   runtime?: unknown;
@@ -74,8 +84,24 @@ function normalizeArtifactType(type: string): ArtifactType {
 function normalizeArtifactMetadata(
   value: unknown,
 ): TaskRunArtifactMetadata | undefined {
+  if (!isRecord(value)) return undefined;
   if (
-    !isRecord(value) ||
+    value.reference_type === "posthog_object" &&
+    typeof value.object_kind === "string" &&
+    typeof value.object_id === "string" &&
+    Array.isArray(value.source_message_ids) &&
+    value.source_message_ids.every((entry) => typeof entry === "string") &&
+    typeof value.occurrence_count === "number"
+  ) {
+    return {
+      reference_type: "posthog_object",
+      object_kind: value.object_kind,
+      object_id: value.object_id,
+      source_message_ids: value.source_message_ids,
+      occurrence_count: value.occurrence_count,
+    };
+  }
+  if (
     typeof value.skill_name !== "string" ||
     (value.skill_source !== "user" &&
       value.skill_source !== "repo" &&
@@ -101,8 +127,8 @@ function normalizeArtifactMetadata(
   };
 }
 
-function normalizeTaskRunArtifact(
-  artifact: NonNullable<TaskRunResponseDTO["artifacts"]>[number],
+export function normalizeTaskRunArtifact(
+  artifact: TaskRunArtifactDTO,
 ): TaskRunArtifact {
   const metadata = normalizeArtifactMetadata(artifact.metadata);
 
@@ -112,7 +138,8 @@ function normalizeTaskRunArtifact(
     type: normalizeArtifactType(artifact.type),
     ...(artifact.source === "agent_output" ||
     artifact.source === "user_attachment" ||
-    artifact.source === "posthog_code_skill"
+    artifact.source === "posthog_code_skill" ||
+    artifact.source === "posthog_object"
       ? { source: artifact.source }
       : {}),
     ...(artifact.size === undefined ? {} : { size: artifact.size }),
@@ -126,6 +153,15 @@ function normalizeTaskRunArtifact(
     ...(artifact.uploaded_at === undefined
       ? {}
       : { uploaded_at: artifact.uploaded_at }),
+    ...(artifact.uploaded_by === undefined
+      ? {}
+      : { uploaded_by: artifact.uploaded_by }),
+    ...(artifact.uploaded_by_user_id === undefined
+      ? {}
+      : { uploaded_by_user_id: artifact.uploaded_by_user_id }),
+    ...(artifact.dismissed_at === undefined
+      ? {}
+      : { dismissed_at: artifact.dismissed_at }),
   };
 }
 
@@ -187,6 +223,7 @@ export function normalizeTaskResponse(
     description: dto.description ?? "",
     created_at: dto.created_at ?? "",
     updated_at: dto.updated_at ?? "",
+    last_activity_at: dto.last_activity_at ?? dto.updated_at ?? "",
     ...(dto.created_by === undefined ? {} : { created_by: dto.created_by }),
     origin_product: dto.origin_product ?? "",
     ...(dto.repository === undefined ? {} : { repository: dto.repository }),

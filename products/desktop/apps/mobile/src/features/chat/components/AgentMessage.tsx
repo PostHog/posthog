@@ -8,6 +8,7 @@ import { usePeriodicRerender } from "../hooks/usePeriodicRerender";
 import { CopyButton } from "./CopyButton";
 import { MarkdownText } from "./MarkdownText";
 import { ToolMessage } from "./ToolMessage";
+import { TurnFeedback } from "./TurnFeedback";
 
 interface AssistantToolCall {
   id: string;
@@ -24,6 +25,8 @@ interface AgentMessageProps {
   hasHumanMessageAfter?: boolean;
   onOpenTask?: (taskId: string) => void;
   timestamp?: number;
+  turnId?: string;
+  taskId?: string | null;
 }
 
 interface ReasoningBlockProps {
@@ -78,6 +81,8 @@ export function AgentMessage({
   hasHumanMessageAfter,
   onOpenTask,
   timestamp,
+  turnId,
+  taskId,
 }: AgentMessageProps) {
   usePeriodicRerender(isLoading ? THINKING_MESSAGE_INTERVAL_MS : 0);
 
@@ -124,6 +129,9 @@ export function AgentMessage({
       {!isLoading && (hasContent || timestamp) && (
         <View className="flex-row items-center gap-3 px-4 pt-1">
           {isComplete && <CopyButton text={content} label="Copy message" />}
+          {isComplete && turnId && (
+            <TurnFeedback turnId={turnId} taskId={taskId} />
+          )}
           {timestamp && (
             <Text className="font-mono text-[10px] text-gray-8">
               {formatRelativeTime(timestamp)}

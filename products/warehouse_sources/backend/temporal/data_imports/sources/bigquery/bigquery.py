@@ -25,7 +25,14 @@ from urllib.parse import urlparse
 
 import pyarrow as pa
 import structlog
-from google.api_core.exceptions import BadRequest, Forbidden, InternalServerError, NotFound, ServiceUnavailable
+from google.api_core.exceptions import (
+    BadRequest,
+    DeadlineExceeded,
+    Forbidden,
+    InternalServerError,
+    NotFound,
+    ServiceUnavailable,
+)
 from google.api_core.retry import Retry, if_exception_type
 from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import AuthorizedSession
@@ -188,6 +195,13 @@ BIGQUERY_VALIDATION_GENERIC_ERROR = (
 # the job in place — matched on its stable retry-recommendation wording, not the volatile job id/URL.
 _BIGQUERY_JOB_RETRY_RECOMMENDED = "Retrying the job may solve the problem"
 
+# BigQuery has a second wording for the same transient `jobInternalError` condition above, seen from
+# the same `jobs.getQueryResults` call: "The job encountered an internal error during execution and
+# was unable to complete successfully." — no "Retrying the job may solve the problem" suffix, so
+# `_BIGQUERY_JOB_RETRY_RECOMMENDED` doesn't catch it and it escapes `QueryJob.result()` the same way.
+# Matched on its own stable wording, not the volatile job id/URL.
+_BIGQUERY_JOB_INTERNAL_ERROR = "encountered an internal error during execution and was unable to complete successfully"
+
 
 def _is_transient_rate_quota_exceeded(exc: Exception) -> bool:
     """True for BigQuery's per-second rate quotas, which are transient and recover on their own.
@@ -229,8 +243,10 @@ def _query_should_retry(exc: Exception) -> bool:
     # Defer to the library's own default predicate for the reasons it already covers; importing it
     # directly (rather than reading the private `Retry._predicate`) means a library rename fails
     # loudly at import instead of silently dropping that default coverage.
+    message = str(exc)
     return (
-        _BIGQUERY_JOB_RETRY_RECOMMENDED in str(exc)
+        _BIGQUERY_JOB_RETRY_RECOMMENDED in message
+        or _BIGQUERY_JOB_INTERNAL_ERROR in message
         or _is_transient_rate_quota_exceeded(exc)
         or _is_transient_queued_jobs_quota_exceeded(exc)
         or _job_should_retry(exc)
@@ -256,6 +272,21 @@ BIGQUERY_READ_ROWS_RETRY = Retry(
     maximum=60.0,
     multiplier=1.3,
     deadline=86400.0,
+)
+
+
+# The same transient gRPC INTERNAL error can surface one call earlier, from `create_read_session`
+# itself, before any stream exists to reconnect. The client's default create_read_session retry
+# only covers DeadlineExceeded/ServiceUnavailable, so INTERNAL escapes as an unhandled
+# InternalServerError and fails the whole import activity. No stream has been read yet at this
+# point, so retrying just creates a fresh session. Parameters mirror the library's default
+# create_read_session retry, widened to also retry INTERNAL.
+BIGQUERY_CREATE_READ_SESSION_RETRY = Retry(
+    predicate=if_exception_type(DeadlineExceeded, ServiceUnavailable, InternalServerError),
+    initial=0.1,
+    maximum=60.0,
+    multiplier=1.3,
+    deadline=600.0,
 )
 
 
@@ -1573,6 +1604,7 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                         read_session=requested_session,
                         # TODO: Currently, single stream. Could multi-thread here for performance.
                         max_stream_count=1,
+                        retry=BIGQUERY_CREATE_READ_SESSION_RETRY,
                     )
 
                     if not read_session.streams:

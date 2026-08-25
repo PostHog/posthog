@@ -23,6 +23,7 @@ import {
     MlMirrorConfig,
     getDefaultMlMirrorConfig,
     resolveMlAnonymizeMaxConcurrency,
+    resolveMlMirrorRedisConnection,
 } from '~/ingestion/pipelines/sessionreplay/ml-mirror/config'
 import { MlBlockMetadataSink } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-block-metadata-sink'
 import { createMlMirrorReplayPipeline } from '~/ingestion/pipelines/sessionreplay/ml-mirror/ml-mirror-pipeline'
@@ -116,7 +117,8 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
         this.producerRegistry = await createProducerRegistry(this.config.KAFKA_CLIENT_RACK).build(this.config)
         const outputs = createOutputsRegistry().build(this.producerRegistry, this.config)
 
-        const pools = buildSessionReplayRedisPools(this.config)
+        // Another system writes the event restriction list, so every lane reads one copy of it.
+        const pools = buildSessionReplayRedisPools(this.config, resolveMlMirrorRedisConnection(this.config))
         this.redisPool = pools.redisPool
         this.restrictionRedisPool = pools.restrictionRedisPool
 
@@ -168,8 +170,26 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
                     this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED
                         ? {
                               outputs,
-                              pseudonymSecret,
                               producedRefCacheMax: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCED_REF_CACHE_MAX,
+                          }
+                        : undefined,
+                    {
+                        pseudonymSecret,
+                        // Producing the images is what makes collecting them useful, so the image
+                        // lane follows its producer flag. The URL lane collects on its own flag,
+                        // because collecting alone measures without sending anything anywhere.
+                        collectImages: this.config.SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED,
+                        collectUrls: this.config.SESSION_RECORDING_ML_URL_COLLECTION_ENABLED,
+                    },
+                    // Producing needs collection: without it the anonymizer returns no URLs, and
+                    // the step would have nothing to send.
+                    this.config.SESSION_RECORDING_ML_URL_COLLECTION_ENABLED &&
+                        this.config.SESSION_RECORDING_ML_URL_PRODUCER_ENABLED
+                        ? {
+                              outputs,
+                              producedRefCacheMax: this.config.SESSION_RECORDING_ML_URL_PRODUCED_REF_CACHE_MAX,
+                              producedRefCacheWindowMs:
+                                  (this.config.AI_RESEARCH_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS * 1000) / 2,
                           }
                         : undefined
                 ),

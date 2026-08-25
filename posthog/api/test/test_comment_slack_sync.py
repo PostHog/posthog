@@ -11,7 +11,7 @@ from rest_framework import status
 from slack_sdk.errors import SlackApiError
 
 from posthog.api.comments import _slack_thread_url
-from posthog.helpers.slack_thread_mirror import escape_slack_mrkdwn
+from posthog.helpers.slack_thread_mirror import _discussion_card_blocks, escape_slack_mrkdwn
 from posthog.models.comment import Comment, CommentSlackThread
 from posthog.models.integration import Integration
 from posthog.tasks.comment_slack_sync import (
@@ -21,6 +21,25 @@ from posthog.tasks.comment_slack_sync import (
     backfill_comment_slack_thread,
     mirror_comment_reply_to_slack,
 )
+
+
+class TestDiscussionCardBlocks(APIBaseTest):
+    def _card_text(self, body: str) -> str:
+        blocks = _discussion_card_blocks(
+            body_mrkdwn=body, author_name="Ann", item_url="https://app.posthog.com/i/1", item_label="Insight"
+        )
+        return blocks[0]["text"]["text"]
+
+    def test_every_line_of_a_multiline_body_stays_in_the_quote(self):
+        # mrkdwn's ">" quotes one line, so without a prefix per line the tail of a comment
+        # renders as the card's own text rather than as the quoted comment.
+        text = self._card_text("first line\nsecond line\n\nfourth line")
+
+        quoted = text.split("in PostHog:\n\n", 1)[1]
+        assert quoted == "> first line\n> second line\n> \n> fourth line"
+
+    def test_empty_body_still_renders_a_quoted_placeholder(self):
+        assert self._card_text("").endswith("> _(no text)_")
 
 
 class TestSendCommentToSlack(APIBaseTest):
@@ -298,6 +317,7 @@ class TestCommentReplySlackSignal(APIBaseTest):
             ("from_slack_reply_not_echoed", "parent", "Insight", {"from_slack": True}, False),
             ("emoji_reaction_not_mirrored", "parent", "Insight", {"is_emoji": True}, False),
             ("conversations_ticket_excluded", "parent", "conversations_ticket", None, False),
+            ("email_thread_excluded", "parent", "EmailThread", None, False),
             ("top_level_comment", None, "Insight", None, False),
         ]
     )
@@ -359,6 +379,30 @@ class TestReplyMirror(APIBaseTest):
     def test_noop_when_thread_has_no_mirror(self, mock_slack):
         reply = Comment.objects.create(
             team=self.team, scope="Insight", item_id="42", content="reply", source_comment=self.parent
+        )
+
+        mirror_comment_reply_to_slack.apply(kwargs={"comment_id": str(reply.id)})
+
+        mock_slack.assert_not_called()
+
+    @patch("posthog.tasks.comment_slack_sync.SlackIntegration")
+    def test_email_thread_reply_is_not_mirrored(self, mock_slack):
+        parent = Comment.objects.create(team=self.team, scope="EmailThread", item_id="thread-42", content="root")
+        CommentSlackThread.objects.for_team(self.team.id).create(
+            team=self.team,
+            scope="EmailThread",
+            item_id="thread-42",
+            source_comment=parent,
+            integration=self.integration,
+            slack_channel_id="C1",
+            slack_thread_ts="100.1",
+        )
+        reply = Comment.objects.create(
+            team=self.team,
+            scope="EmailThread",
+            item_id="thread-42",
+            content="reply",
+            source_comment=parent,
         )
 
         mirror_comment_reply_to_slack.apply(kwargs={"comment_id": str(reply.id)})

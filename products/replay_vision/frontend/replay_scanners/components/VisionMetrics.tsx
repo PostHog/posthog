@@ -14,11 +14,12 @@ import { QuotaExhaustedNote } from '../../components/QuotaExhaustedNote'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { creditsToUsd, formatCreditCount } from '../../utils/credits'
-import { QUOTA_STATUS_STYLES, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
+import { buildQuotaMeter, fleetContributions } from '../../utils/quotaContributions'
+import { QUOTA_STATUS_STYLES } from '../../utils/quotaProjection'
 import { STARTUP_CAP_EXPLANATION } from '../../utils/startupCap'
 import { replayScannersLogic } from '../replayScannersLogic'
 import { SCANNER_TYPE_OPTIONS } from '../types'
-import { QUOTA_METER_FREE_CLASS, QuotaMeterBar, QuotaMeterLegendItem, quotaMeterWidths } from './QuotaMeterBar'
+import { QuotaMeter } from './QuotaMeterBar'
 import { QuotaStatusLine } from './QuotaStatusLine'
 import { VisionInsightChart } from './VisionInsightChart'
 
@@ -40,11 +41,11 @@ export function VisionMetrics(): JSX.Element {
         showStartupCapLine,
     } = useValues(visionQuotaLogic)
 
-    const projection = projectQuota(quota)
-    const { resetsOn, status, percentLabel, usedPct, usedFreePct, projectedPct } = projection
-    const hasCap = hasCreditLimit(quota)
-    const [freeWidth, billedWidth, projectedWidth] = quotaMeterWidths(usedPct, usedFreePct, [projectedPct])
+    // Backfills are charged once, so they can't ride in the pro-rated projection; the model keeps them apart.
+    const model = buildQuotaMeter(quota, fleetContributions(quota))
+    const { projection, periodEndPct, hasCap, status } = model
     const styles = QUOTA_STATUS_STYLES[status]
+    const { resetsOn } = projection
 
     // Memoized so a re-render (e.g. stats/quota arriving) can't churn the query and abort an in-flight load.
     // `tags.productKey` is required for ClickHouse query tagging; without it the runner aborts.
@@ -119,10 +120,10 @@ export function VisionMetrics(): JSX.Element {
                 </div>
                 <div className="flex-1 bg-bg-light border rounded p-4 flex flex-col">
                     <div className="flex items-baseline justify-between gap-3 mb-2">
-                        <div className="text-muted text-xs font-medium uppercase">Spend this period</div>
+                        <div className="text-muted text-xs font-medium uppercase">Spend this billing period</div>
                         {hasCap && (
                             <span className={`text-xs tabular-nums ${styles.text}`}>
-                                {percentLabel}%{' '}
+                                {periodEndPct}%{' '}
                                 <span className="text-muted font-normal">
                                     by period end{resetsOn ? ` (${resetsOn})` : ''}
                                 </span>
@@ -152,7 +153,7 @@ export function VisionMetrics(): JSX.Element {
                                         title={
                                             <div className="text-xs space-y-0.5">
                                                 <div>
-                                                    Spent this period:{' '}
+                                                    Spent this billing period:{' '}
                                                     <strong>{formatCreditCount(quota.credits_used)}</strong>
                                                 </div>
                                                 <div>
@@ -177,32 +178,18 @@ export function VisionMetrics(): JSX.Element {
                                             </div>
                                         }
                                     >
-                                        <QuotaMeterBar
+                                        <QuotaMeter
+                                            model={model}
                                             className="mt-2"
-                                            usedPct={usedPct}
-                                            usedFreePct={usedFreePct}
-                                            projected={[{ pct: projectedPct, barClass: styles.bar, striped: true }]}
-                                            valueNow={percentLabel}
-                                            label={`Projected ${percentLabel}% of the monthly spend limit`}
+                                            label={`Projected ${periodEndPct}% of the monthly spend limit`}
                                         />
                                     </Tooltip>
-                                    <div className="flex flex-wrap items-center gap-3 text-xs text-muted mt-1.5">
-                                        <QuotaMeterLegendItem barClass={QUOTA_METER_FREE_CLASS} width={freeWidth}>
-                                            Free
-                                        </QuotaMeterLegendItem>
-                                        <QuotaMeterLegendItem width={billedWidth}>
-                                            {freeWidth > 0 ? 'Billed' : 'Spent'}
-                                        </QuotaMeterLegendItem>
-                                        <QuotaMeterLegendItem barClass={styles.bar} striped width={projectedWidth}>
-                                            Projected
-                                        </QuotaMeterLegendItem>
-                                        {/* The exhausted note below carries this status, so don't say it twice. */}
-                                        {!projection.exhausted && (
-                                            <span className="ml-auto">
-                                                <QuotaStatusLine projection={projection} onFreePlan={onFreePlan} />
-                                            </span>
-                                        )}
-                                    </div>
+                                    {/* The exhausted note below carries this status, so don't say it twice. */}
+                                    {!projection.exhausted && (
+                                        <div className="text-xs text-muted mt-1.5">
+                                            <QuotaStatusLine projection={projection} onFreePlan={onFreePlan} />
+                                        </div>
+                                    )}
                                     {projection.exhausted && (
                                         <div className="mt-1.5">
                                             <QuotaExhaustedNote onFreePlan={onFreePlan} />

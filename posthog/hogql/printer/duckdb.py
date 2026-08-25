@@ -48,6 +48,18 @@ class DuckDBPrinter(PostgresPrinter):
         }
         self._jsonpath_placeholders: dict[str, str] = {}
 
+    def _print_table_sql(self, table) -> str:
+        # Direct MotherDuck tables render as `db.schema.table`; everything else keeps the
+        # inherited Postgres-wire rendering (DuckDB shares its quoting rules).
+        if hasattr(table, "to_printed_duckdb"):
+            return table.to_printed_duckdb(self.context)
+        return super()._print_table_sql(table)
+
+    def _print_table(self, table) -> str:
+        if hasattr(table, "to_printed_duckdb"):
+            return table.to_printed_duckdb(self.context)
+        return super()._print_table(table)
+
     def _print_identifier(self, name: str) -> str:
         # DuckDB has no practical identifier length limit, so skip the Postgres
         # 63-character truncation (which introduces SHA-suffixed names that are

@@ -154,7 +154,6 @@ def build_query(table_name: str, *, pull_requests_table: str | None = None, star
             updated_at,
             created_at,
             run_attempt,
-            default_branch,
             merge_queue_pr_number > 0 AS is_merge_queue,
             -- A gate run's own association names the throwaway PR the queue opened; the branch names
             -- the PR being landed, which is the one every surface asks about.
@@ -179,8 +178,9 @@ def build_query(table_name: str, *, pull_requests_table: str | None = None, star
                 -- pushed the branch cannot set — that is what makes it usable as corroboration.
                 {_MERGE_QUEUE_PR_NUMBER} AS merge_queue_pr_number,
                 {_MESSAGE_PR_NUMBER} AS message_pr_number,
+                -- repository is GitHub's MINIMAL repository representation: identity and URLs, never a
+                -- default_branch (the PR snapshot's base.repo carries that; see query_default_branches).
                 splitByChar('/', ifNull(JSONExtractString(repository, 'full_name'), '')) AS repo_parts,
-                ifNull(JSONExtractString(repository, 'default_branch'), '') AS default_branch,
                 parseDateTimeBestEffort(run_started_at) AS run_started_at,
                 parseDateTimeBestEffort(updated_at) AS updated_at,
                 parseDateTimeBestEffort(created_at) AS created_at

@@ -26,6 +26,7 @@ import {
     describeExecCommand,
     describeValidationError,
     formatInputValidationError,
+    type ExecCommandMeta,
     type ExecInnerCallTracker,
 } from '@/tools/exec'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
@@ -54,6 +55,8 @@ interface ResolvedTool {
 
 interface ExecMetricState {
     innerToolName: string | undefined
+    /** What the agent asked for, merged onto the event whichever verb ran. */
+    commandMeta: ExecCommandMeta | undefined
 }
 
 export class ToolExecutor {
@@ -338,7 +341,7 @@ export class ToolExecutor {
         state: ResolvedState,
         intentMeta?: ToolCallIntentMeta
     ): Promise<unknown> {
-        const execMetrics: ExecMetricState = { innerToolName: undefined }
+        const execMetrics: ExecMetricState = { innerToolName: undefined, commandMeta: undefined }
         const resolved = this.resolveExecTool(state, execMetrics, intentMeta)
 
         const toolArgs = (params?.arguments ?? {}) as Record<string, unknown>
@@ -393,6 +396,7 @@ export class ToolExecutor {
                     ...execShape,
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
+                    ...execMetrics.commandMeta,
                 },
                 intentMeta,
                 this.servedToolDescription(execToolName(), state)
@@ -413,7 +417,7 @@ export class ToolExecutor {
                 Date.now() - startMs,
                 true,
                 state,
-                { ...execShape, ...errorAnalyticsProperties(classification, error) },
+                { ...execShape, ...errorAnalyticsProperties(classification, error), ...execMetrics.commandMeta },
                 intentMeta,
                 this.servedToolDescription(metricTool, state)
             )
@@ -514,6 +518,11 @@ export class ToolExecutor {
                 isInlineExecUiHost: state.clientProfile.isInlineExecUiHost(),
                 helpCatalog: this.instructionsBuilder.buildExecHelpCatalog(state),
                 ...(state.gatewayToolsEnabled ? { gatewayToolsProvider: () => this.gatewayToolsFor(state) } : {}),
+                // A verb-only report lands first; `search` then reports again with its query
+                // and counts. Merge so the richer report wins without losing the verb.
+                trackCommand: (meta) => {
+                    execMetrics.commandMeta = { ...execMetrics.commandMeta, ...meta }
+                },
             }
         )
 

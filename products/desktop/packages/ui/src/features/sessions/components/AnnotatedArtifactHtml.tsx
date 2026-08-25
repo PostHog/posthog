@@ -7,8 +7,13 @@ import type { UserBasic } from "@posthog/shared/domain-types";
 import type { EditorSelection } from "@posthog/ui/features/code-editor/components/CodeMirrorEditor";
 import { SelectionCommentOverlay } from "@posthog/ui/features/code-editor/components/SelectionCommentOverlay";
 import { openExternalUrl } from "@posthog/ui/shell/openExternal";
+import { useThemeStore } from "@posthog/ui/shell/themeStore";
 import { parseHttpsUrl } from "@posthog/ui/utils/posthogLinks";
 import { useCallback, useMemo, useRef, useState } from "react";
+import {
+  selectionAnchor,
+  withSelectionPosition,
+} from "./artifactHtmlCommentPosition";
 import { ArtifactHtmlFrame } from "./artifactHtmlFrame";
 import {
   ARTIFACT_HTML_BRIDGE_MARKER,
@@ -23,6 +28,7 @@ import {
   type HighlightResolution,
   readCommentContext,
 } from "./commentViewTypes";
+import type { CommentSurfaceTheme } from "./selectionCommentAction";
 
 function isFrameRect(value: unknown): value is ArtifactHtmlFrameRect {
   if (!value || typeof value !== "object") return false;
@@ -35,7 +41,6 @@ function isFrameRect(value: unknown): value is ArtifactHtmlFrameRect {
 export function AnnotatedArtifactHtml({
   html,
   name,
-  commentsEnabled,
   comments,
   activeThreadId,
   locateRequest,
@@ -46,7 +51,6 @@ export function AnnotatedArtifactHtml({
 }: {
   html: string;
   name: string;
-  commentsEnabled: boolean;
   comments: ResourceComment[];
   activeThreadId: string | null;
   locateRequest: CommentLocateRequest | null;
@@ -60,27 +64,26 @@ export function AnnotatedArtifactHtml({
   onResolutionsChange: (resolutions: Map<string, HighlightResolution>) => void;
 }) {
   const channelRef = useRef(`artifact-comments-${crypto.randomUUID()}`);
+  const theme = useThemeStore(
+    (s): CommentSurfaceTheme => (s.isDarkMode ? "dark" : "light"),
+  );
+  // Baked into the document at mount; live theme changes ride the `theme`
+  // message below so a flip doesn't tear down and reload the running preview.
+  const initialTheme = useRef(theme).current;
   const [pendingAnchor, setPendingAnchor] = useState<TextCommentAnchor | null>(
     null,
   );
   const [selection, setSelection] = useState<EditorSelection | null>(null);
   const previewDocument = useMemo(
-    () =>
-      scriptedArtifactHtmlDocument(
-        html,
-        commentsEnabled ? channelRef.current : undefined,
-      ),
-    [commentsEnabled, html],
+    () => scriptedArtifactHtmlDocument(html, channelRef.current, initialTheme),
+    [html, initialTheme],
   );
   const fallbackDocument = useMemo(
-    () =>
-      artifactHtmlDocument(
-        html,
-        commentsEnabled ? channelRef.current : undefined,
-      ),
-    [commentsEnabled, html],
+    () => artifactHtmlDocument(html, channelRef.current, initialTheme),
+    [html, initialTheme],
   );
 
+  const selectionOpen = selection !== null;
   const bridgeItems = useMemo(
     () =>
       comments.flatMap((comment) => {
@@ -100,8 +103,13 @@ export function AnnotatedArtifactHtml({
   );
 
   const messages = useMemo(() => {
-    if (!commentsEnabled) return [];
     const next: Record<string, unknown>[] = [
+      {
+        marker: ARTIFACT_HTML_BRIDGE_MARKER,
+        channel: channelRef.current,
+        type: "theme",
+        theme,
+      },
       {
         marker: ARTIFACT_HTML_BRIDGE_MARKER,
         channel: channelRef.current,
@@ -109,16 +117,24 @@ export function AnnotatedArtifactHtml({
         items: bridgeItems,
       },
     ];
+    if (!selectionOpen) {
+      next.push({
+        marker: ARTIFACT_HTML_BRIDGE_MARKER,
+        channel: channelRef.current,
+        type: "selection-dismissed",
+      });
+    }
     if (locateRequest) {
       next.push({
         marker: ARTIFACT_HTML_BRIDGE_MARKER,
         channel: channelRef.current,
         type: "locate",
         id: locateRequest.id,
+        nonce: locateRequest.nonce,
       });
     }
     return next;
-  }, [bridgeItems, commentsEnabled, locateRequest]);
+  }, [bridgeItems, locateRequest, selectionOpen, theme]);
 
   const receive = useCallback(
     (value: unknown, frameBox: ArtifactHtmlFrameRect) => {
@@ -151,7 +167,14 @@ export function AnnotatedArtifactHtml({
         onResolutionsChange(resolutions);
         return;
       }
-      if (data.type !== "selection" || !isFrameRect(data.triggerRect)) return;
+      if (data.type === "selection-position" && isFrameRect(data.rect)) {
+        const rect = data.rect;
+        setSelection((current) =>
+          withSelectionPosition(current, frameBox, rect),
+        );
+        return;
+      }
+      if (data.type !== "selection" || !isFrameRect(data.rect)) return;
       const parsed = commentAnchorSchema.safeParse(data.anchor);
       if (!parsed.success || parsed.data.kind !== "text") return;
       setPendingAnchor(parsed.data);
@@ -159,13 +182,7 @@ export function AnnotatedArtifactHtml({
         text: parsed.data.quote,
         fromLine: parsed.data.start + 1,
         toLine: parsed.data.end + 1,
-        anchor: {
-          top: frameBox.top + data.triggerRect.bottom,
-          left: Math.min(
-            frameBox.left + data.triggerRect.right + 6,
-            window.innerWidth - 440,
-          ),
-        },
+        anchor: selectionAnchor(frameBox, data.rect),
       });
     },
     [onActivateThread, onResolutionsChange],

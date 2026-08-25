@@ -1,4 +1,15 @@
 export * from "./adapter";
+export {
+  type AgentAction,
+  agentActionSchema,
+  buildActionUrl,
+  labelSchema,
+  openAgentActionInput,
+  type ShowAction,
+  type ShowActionButton,
+  showActionSchema,
+  splitShowAction,
+} from "./agent-actions";
 export type {
   AgentAudioContent,
   AgentBlobResource,
@@ -38,20 +49,20 @@ export {
   isBinaryFile,
 } from "./binary";
 export {
-  activeTabIsBlank,
   type CloseTabResult,
   closeTab,
   closeTabs,
   decideTabNavigation,
-  newBlankTab,
   type OpenTabResult,
-  openOrFocusTab,
+  openTab,
   POSITION_GAP,
   primaryWindow,
-  primaryWindowHasNoTabs,
+  resetTabs,
   setTabOrder,
   setTabTarget,
   setWindowActiveTab,
+  type TabIdentity,
+  type TabLocation,
   type TabNavDecision,
   type TabTarget,
 } from "./browser-tabs";
@@ -60,8 +71,12 @@ export {
   type BrowserWindow,
   browserTabSchema,
   browserWindowSchema,
+  type RailVisit,
+  railVisitSchema,
   type TabsSnapshot,
+  type TabViewState,
   tabsSnapshotSchema,
+  tabViewStateSchema,
   type WindowBounds,
   windowBoundsSchema,
 } from "./browser-tabs-schemas";
@@ -95,6 +110,7 @@ export {
   isCloudflareModel,
   isCloudflareModelId,
   isDeepseekModelId,
+  isGlm53ModelId,
   isGlmModelId,
   isModalModel,
   isModalModelId,
@@ -132,7 +148,9 @@ export {
   type CloudTaskSnapshotUpdate,
   type CloudTaskStatusUpdate,
   type CloudTaskUpdatePayload,
+  isSkillBundleArtifactMetadata,
   isTerminalStatus,
+  type PostHogObjectArtifactMetadata,
   type SignalReportPriority,
   type Task,
   type TaskRun,
@@ -209,6 +227,7 @@ export type {
 export {
   EXTERNAL_INBOX_SOURCE_BY_PRODUCT,
   EXTERNAL_INBOX_SOURCES,
+  filterInboxSourceOptions,
   sourceNeedsFullRefresh,
 } from "./inbox-types";
 export { EXTERNAL_LINKS } from "./links";
@@ -281,6 +300,7 @@ export {
   supports1MContext,
   supportsFastMode,
 } from "./reasoning-effort";
+export { REFUND_REASON_OPTIONS } from "./refund-reasons";
 export {
   type CloudRegion,
   formatRegionBadge,
@@ -289,6 +309,7 @@ export {
 } from "./regions";
 export { normalizeRepoKey } from "./repo";
 export { getTaskRepository, parseRepository } from "./repository";
+export { rewriteSavedLocation } from "./route-migrations";
 export { Saga, type SagaLogger, type SagaResult, type SagaStep } from "./saga";
 export { scoutSkillNameFromSlug, scoutSkillSlug } from "./scout-naming";
 export {
@@ -321,6 +342,8 @@ export {
   type SessionStatus,
   sendableQueuePrefixLength,
   sessionSupportsNativeSteer,
+  sessionSupportsSideQuestion,
+  TRANSCRIPT_TAIL_WINDOW,
 } from "./sessions";
 export type {
   SignalReportOrderingField,
@@ -336,32 +359,26 @@ export type {
 } from "./skills";
 export {
   DISABLE_MODEL_INVOCATION_METADATA_KEY,
+  isIgnoredSkillEntry,
+  isIgnoredSkillPath,
   SKILL_EXISTS_MARKER,
   serializeSkillMarkdown,
   stripFrontmatter,
 } from "./skills";
+export { leadingSlashCommand } from "./slash-commands";
 export type { PostHogAPIConfig } from "./task";
-export {
-  type CreateTaskAutomationOptions,
-  createTaskAutomationSchema,
-  type TaskAutomation,
-  type TaskAutomationList,
-  type TaskAutomationValidationErrorDetails,
-  taskAutomationListSchema,
-  taskAutomationSchema,
-  taskAutomationValidationErrorSchema,
-  type UpdateTaskAutomationOptions,
-  updateTaskAutomationSchema,
-} from "./task-automation";
 export type {
   TaskCreationInput,
   TaskCreationOutput,
 } from "./task-creation-domain";
 export {
+  formatAbsoluteDateTime,
   formatClockTime,
   formatDaySeparatorLabel,
+  formatRelativeAge,
   formatRelativeTimeLong,
   formatRelativeTimeShort,
+  formatShortDayLabel,
   getLocalDayDiff,
   getLocalDayKey,
   getRelativeDateGroup,

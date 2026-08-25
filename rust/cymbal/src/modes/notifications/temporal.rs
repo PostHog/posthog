@@ -48,6 +48,7 @@ impl IssueLifecycleWorkflowStarters {
             server_root_ca_cert: None,
             payload_encryption_key: config.temporal_secret_key.clone(),
             identity: "cymbal-notifications".to_string(),
+            insecure: config.temporal_insecure,
         })
         .await
         .map_err(|error| UnhandledError::Other(error.to_string()))?;
@@ -58,7 +59,12 @@ impl IssueLifecycleWorkflowStarters {
         })
     }
 
-    pub async fn start_created(&self, notification: &IssueCreated) -> Result<(), UnhandledError> {
+    /// Returns the outcome, because the caller charged a rate-limit token for
+    /// this start and gives it back when the workflow was already running.
+    pub async fn start_created(
+        &self,
+        notification: &IssueCreated,
+    ) -> Result<StartWorkflowOutcome, UnhandledError> {
         self.start(
             notification.meta.notification_id,
             &IssueCreatedWorkflowInput::from(notification),
@@ -74,6 +80,7 @@ impl IssueLifecycleWorkflowStarters {
             ISSUE_REOPENED_WORKFLOW,
         )
         .await
+        .map(|_outcome| ())
     }
 
     pub async fn start_spiking(&self, notification: &IssueSpiking) -> Result<(), UnhandledError> {
@@ -83,6 +90,7 @@ impl IssueLifecycleWorkflowStarters {
             ISSUE_SPIKING_WORKFLOW,
         )
         .await
+        .map(|_outcome| ())
     }
 
     async fn start<T: Serialize>(
@@ -90,17 +98,17 @@ impl IssueLifecycleWorkflowStarters {
         notification_id: Uuid,
         input: &T,
         workflow: WorkflowDefinition,
-    ) -> Result<(), UnhandledError> {
+    ) -> Result<StartWorkflowOutcome, UnhandledError> {
         let options = start_options(notification_id, &self.task_queue, workflow);
         match self.client.start_workflow(input, &options).await {
-            Ok(StartWorkflowOutcome::Started { .. }) => {
+            Ok(outcome @ StartWorkflowOutcome::Started { .. }) => {
                 metrics::counter!(workflow.starts_metric, "outcome" => "started").increment(1);
-                Ok(())
+                Ok(outcome)
             }
-            Ok(StartWorkflowOutcome::Existing { .. }) => {
+            Ok(outcome @ StartWorkflowOutcome::Existing { .. }) => {
                 metrics::counter!(workflow.starts_metric, "outcome" => "already_started")
                     .increment(1);
-                Ok(())
+                Ok(outcome)
             }
             Err(error) => {
                 metrics::counter!(workflow.starts_metric, "outcome" => "error").increment(1);
@@ -243,6 +251,7 @@ mod tests {
                 name: Some("TypeError".to_string()),
                 description: Some("boom".to_string()),
                 status: "active".to_string(),
+                severity: Some("high".to_string()),
                 created_at: Utc::now(),
             },
             event_properties: serde_json::from_value::<ProcessedExceptionProperties>(
@@ -315,6 +324,7 @@ mod tests {
         for value in values {
             assert_eq!(value["team_id"], 42);
             assert_eq!(value["fingerprint"], "fingerprint");
+            assert_eq!(value["issue"]["severity"], "high");
             assert!(value.get("event_properties").is_none());
         }
     }

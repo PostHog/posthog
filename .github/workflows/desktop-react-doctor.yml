@@ -2,7 +2,7 @@ name: Desktop React Doctor
 
 # Advisory only: posts a sticky PR comment with findings for changed desktop
 # files and never fails the PR. The source repo's --blocking enforcement step
-# is deliberately not ported (see products/desktop/MIGRATION.md).
+# is deliberately not ported.
 
 on:
     pull_request:

@@ -24,8 +24,9 @@ import { useFileSearchStore } from "../../command/fileSearchStore";
 import { SHORTCUTS } from "../../command/keyboard-shortcuts";
 import { useRepoFileWatcher } from "../../file-watcher/useRepoFileWatcher";
 import { clearGitReviewQueries } from "../../git-interaction/gitCacheKeys";
+import { useRightPanelStore } from "../../navigation/rightPanelStore";
+import { useReviewInRightPanel } from "../../navigation/useReviewInRightPanel";
 import { PanelLayout } from "../../panels/components/PanelLayout";
-import { PiSessionView } from "../../pi-sessions/PiSessionView";
 import { MIN_CHAT_WIDTH } from "../../sessions/constants";
 import { useArchivingTasksStore } from "../../sidebar/archivingTasksStore";
 import { ArchiveRunningTaskDialog } from "../../sidebar/components/ArchiveRunningTaskDialog";
@@ -37,7 +38,7 @@ import { useWorkspaceEvents } from "../../workspace/useWorkspaceEvents";
 import { HeaderTitleEditor } from "../HeaderTitleEditor";
 import { useTaskData } from "../hooks/useTaskData";
 import { CustomImageBadge } from "./CustomImageBadge";
-import { WorkspaceModeBadge } from "./WorkspaceModeBadge";
+import { TaskHeaderMark, TaskHeaderMarks } from "./TaskHeaderStatus";
 
 const MIN_REVIEW_WIDTH = 300;
 const log = logger.scope("task-detail");
@@ -70,7 +71,6 @@ export function TaskDetail({
     (state) => state.sessions[taskId]?.status?.isStreaming ?? false,
   );
   const runtime = task.runtime === "pi" ? "pi" : "acp";
-  const selectedTaskRunId = task.latest_run?.id;
 
   const effectiveRepoPath = useCwd(taskId);
 
@@ -78,7 +78,7 @@ export function TaskDetail({
 
   const { enableScope, disableScope } = useHotkeysContext();
   const { archiveTask } = useArchiveTask({
-    navigateSpace: channelId ? "website" : "code",
+    navigateUnscoped: !channelId,
   });
   const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
 
@@ -119,7 +119,11 @@ export function TaskDetail({
       }
       void runArchive().catch(() => undefined);
     },
-    { scopes: ["taskDetail"] },
+    {
+      scopes: ["taskDetail"],
+      enableOnContentEditable: true,
+      enableOnFormTags: true,
+    },
     [task, taskId, taskSession, runtime, isPiGenerating, runArchive],
   );
 
@@ -200,7 +204,8 @@ export function TaskDetail({
           channelId={channelId}
           leafIcon={
             <span className="flex items-center gap-1.5">
-              <WorkspaceModeBadge
+              <TaskHeaderMark
+                task={task}
                 mode={workspaceMode}
                 checkoutPath={effectiveRepoPath}
               />
@@ -210,7 +215,12 @@ export function TaskDetail({
           leafLabel={task.title}
           editScopeKey={taskId}
           onRename={handleTitleEditSubmit}
-          trailing={trailing}
+          leafTrailing={
+            <span className="flex shrink-0 items-center gap-0">
+              <TaskHeaderMarks task={task} />
+              {trailing}
+            </span>
+          }
         />
       ) : (
         <Flex align="center" justify="between" gap="2" width="100%">
@@ -222,7 +232,8 @@ export function TaskDetail({
             />
           ) : (
             <Flex align="center" gap="2" minWidth="0">
-              <WorkspaceModeBadge
+              <TaskHeaderMark
+                task={task}
                 mode={workspaceMode}
                 checkoutPath={effectiveRepoPath}
               />
@@ -236,6 +247,7 @@ export function TaskDetail({
                   {task.title}
                 </Text>
               </Tooltip>
+              <TaskHeaderMarks task={task} />
             </Flex>
           )}
           {trailing}
@@ -263,13 +275,22 @@ export function TaskDetail({
   const isCloud =
     workspace?.mode === "cloud" || task.latest_run?.environment === "cloud";
 
-  const isReviewOpen = reviewMode !== "closed";
-  const isExpanded = reviewMode === "expanded";
+  // Where the shared right panel draws the review, the in-task pane stands
+  // down rather than drawing it a second time.
+  const inRightPanel = useReviewInRightPanel();
+  const isReviewOpen = !inRightPanel && reviewMode !== "closed";
+  const isExpanded = !inRightPanel && reviewMode === "expanded";
 
+  // Keyed off the review mode rather than this pane, so a review open in the
+  // right panel keeps the diff queries it is drawing from. A drag on that
+  // panel's handle passes through "closed" and back within one gesture, so the
+  // clear waits for the drag to end rather than emptying the cache under a
+  // review that is still on screen.
+  const isDraggingRightPanel = useRightPanelStore((s) => s.isResizing);
   useEffect(() => {
-    if (isReviewOpen) return;
+    if (reviewMode !== "closed" || isDraggingRightPanel) return;
     clearGitReviewQueries();
-  }, [isReviewOpen]);
+  }, [reviewMode, isDraggingRightPanel]);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const [reviewWidth, setReviewWidth] = useState<number | null>(null);
@@ -321,15 +342,7 @@ export function TaskDetail({
     <Box data-task-detail-id={taskId} height="100%" ref={containerRef}>
       <Flex height="100%">
         <Box className={`min-w-0 flex-1 ${isExpanded ? "hidden" : ""}`}>
-          {runtime === "pi" && (
-            <PiSessionView
-              key={taskId}
-              taskId={taskId}
-              taskRunId={selectedTaskRunId}
-              isCloud={isCloud}
-            />
-          )}
-          {runtime === "acp" && <PanelLayout taskId={taskId} task={task} />}
+          <PanelLayout taskId={taskId} task={task} />
         </Box>
 
         {isReviewOpen && !isExpanded && (

@@ -9,7 +9,6 @@ from products.review_hog.backend.reviewer.constants import (
     DEDUP_RUNTIME_ADAPTER,
     DEFAULT_REVIEW_ARM,
     REVIEW_EXPERIMENT_ARMS,
-    REVIEW_INITIAL_PERMISSION_MODE,
     REVIEW_MODEL,
     REVIEW_REASONING_EFFORT,
     REVIEW_RUNTIME_ADAPTER,
@@ -35,7 +34,7 @@ def test_review_runtime_is_a_registry_supported_combo() -> None:
     # that doesn't support the pinned effort — or flipping the adapter — would make the agent server
     # reject/misroute the run, surfacing only at e2e. Lock the combo to the Tasks registry that gates it.
     assert get_reasoning_effort_error(REVIEW_RUNTIME_ADAPTER, REVIEW_MODEL, REVIEW_REASONING_EFFORT) is None
-    assert get_provider_for_runtime_adapter(REVIEW_RUNTIME_ADAPTER) == LLMProvider.ANTHROPIC
+    assert get_provider_for_runtime_adapter(REVIEW_RUNTIME_ADAPTER) == LLMProvider.OPENAI
 
 
 def test_validation_runtime_is_a_registry_supported_combo_when_pinned() -> None:
@@ -64,12 +63,6 @@ def test_sandbox_fallback_runtime_is_a_registry_supported_combo(
     assert get_provider_for_runtime_adapter(adapter) == LLMProvider.ANTHROPIC
 
 
-def test_review_permission_mode_defaults_to_sandbox_bypass() -> None:
-    # Claude sandboxes bypass permissions by default, so the review needs no explicit approval mode.
-    # Pinning a mode here would only be needed for Codex, whose default "auto" stalls on MCP calls.
-    assert REVIEW_INITIAL_PERMISSION_MODE is None
-
-
 @pytest.mark.parametrize("arm", [pytest.param(arm, id=arm.model) for _, arm in REVIEW_EXPERIMENT_ARMS])
 def test_experiment_arm_is_a_registry_supported_combo(arm: ReviewArm) -> None:
     # Same lock as the pinned combos, per experiment arm: a bad combo is drawn onto half the fleet's
@@ -91,7 +84,15 @@ def test_draw_review_arm_draws_from_the_arm_list() -> None:
     assert draw_review_arm() in {arm for _, arm in REVIEW_EXPERIMENT_ARMS}
 
 
-_SOL_ARM = next(arm for _, arm in REVIEW_EXPERIMENT_ARMS if arm.runtime_adapter == RuntimeAdapter.CODEX)
+# A registry-valid arm that differs from the default pins on every field, so honored-verbatim
+# assertions cannot pass by falling back to the default. This is also the live prod scenario:
+# reports that drew the Claude arm while it was in the experiment keep it for life.
+_SONNET_ARM = ReviewArm(
+    runtime_adapter=RuntimeAdapter.CLAUDE,
+    model="claude-sonnet-5",
+    reasoning_effort=ReasoningEffort.XHIGH,
+    initial_permission_mode=None,
+)
 
 
 @pytest.mark.parametrize(
@@ -99,8 +100,8 @@ _SOL_ARM = next(arm for _, arm in REVIEW_EXPERIMENT_ARMS if arm.runtime_adapter 
     [
         # Pre-experiment rows carry NULLs and must run the default pins.
         pytest.param((None, None, None, None), DEFAULT_REVIEW_ARM, id="null-bundle"),
-        # A persisted assignment is honored verbatim.
-        pytest.param(("codex", "gpt-5.6-sol", "xhigh", "full-access"), _SOL_ARM, id="persisted-codex-arm"),
+        # A persisted assignment that differs from the default pins is honored verbatim.
+        pytest.param(("claude", "claude-sonnet-5", "xhigh", None), _SONNET_ARM, id="persisted-claude-arm"),
         # A model that outlived its registration must degrade to the default reviewer, not send an
         # unroutable pin into a paid sandbox turn. Pinned at "high" deliberately: the Codex effort
         # registry accepts any unknown model at <=high, so only the membership check catches this.

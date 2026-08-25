@@ -18,8 +18,8 @@ export function reportFeatureFlagDisableDialogOptionSelected(
 
 /**
  * Opens the disable confirmation dialog for a feature flag. The test variant of the
- * disable-and-archive experiment gets "Disable and archive" as the primary CTA alongside a
- * "Disable only" option; control keeps each caller's pre-existing dialog, with this dialog's own
+ * disable-and-archive experiment gets "Disable only" as the primary CTA alongside a destructive
+ * "Disable and archive" option; control keeps each caller's pre-existing dialog, with this dialog's own
  * option-selected telemetry wrapped around the caller's confirm/cancel. The experiment flag is
  * read here rather than at render so the exposure lines up with the dialog actually opening.
  */
@@ -64,16 +64,17 @@ export function openFeatureFlagDisableDialog({
         description:
             'This flag will be immediately rolled back from the users matching the release conditions. Done with it for good? Archive it too: archived flags are hidden from the flag list, but linked experiments and surveys keep their data.',
         primaryButton: {
-            children: 'Disable and archive',
+            children: 'Disable only',
             type: 'primary',
             size: 'small',
-            onClick: selectDisableAndArchive,
+            onClick: selectDisable,
         },
         secondaryButton: {
-            children: 'Disable only',
+            children: 'Disable and archive',
             type: 'secondary',
+            status: 'danger',
             size: 'small',
-            onClick: selectDisable,
+            onClick: selectDisableAndArchive,
         },
         tertiaryButton: {
             children: 'Cancel',

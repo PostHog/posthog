@@ -25,6 +25,7 @@ import { SidePanelTab } from '~/types'
 import { SidePanelSupportIcon } from 'products/conversations/frontend/components/SidePanel/SidePanelSupportIcon'
 
 import { SidePanelAccessControl } from './panels/access_control/SidePanelAccessControl'
+import { SidePanelAccessDetail } from './panels/access_control/SidePanelAccessDetail'
 import { SidePanelActivity, SidePanelActivityIcon } from './panels/activity/SidePanelActivity'
 import { SidePanelDiscussion, SidePanelDiscussionIcon } from './panels/discussion/SidePanelDiscussion'
 import { SidePanelExports, SidePanelExportsIcon } from './panels/exports/SidePanelExports'
@@ -70,6 +71,11 @@ export const SIDE_PANEL_TABS: Record<SidePanelTab, { label: string; Icon: any; C
         label: 'Access',
         Icon: IconLock,
         Content: SidePanelAccessControl,
+    },
+    [SidePanelTab.AccessDetail]: {
+        label: 'Access',
+        Icon: IconLock,
+        Content: SidePanelAccessDetail,
     },
     [SidePanelTab.Info]: {
         label: 'Actions',

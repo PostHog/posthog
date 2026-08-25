@@ -9,7 +9,11 @@ from posthog.schema import (
     SourceFieldInputConfigType,
 )
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import (
+    UNVERSIONED_API_VERSION,
+    FieldType,
+    ResumableSource,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     CanonicalDescriptions,
 )
@@ -26,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.signoz.set
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.signoz.signoz import (
     HOST_NOT_ALLOWED_ERROR,
+    SIGNOZ_API_VERSION_V5,
     SigNozResumeConfig,
     signoz_source,
     validate_credentials as validate_signoz_credentials,
@@ -37,6 +42,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 class SigNozSource(ResumableSource[SigNozSourceConfig, SigNozResumeConfig]):
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
     api_docs_url = "https://signoz.io/api-reference/"
+
+    # SigNoz versions its telemetry API in the endpoint path (see SIGNOZ_API_VERSION_V5): this source
+    # already reads the v5 query_range endpoint, so the legacy unversioned label and "v5" drive
+    # identical requests. New sources default to "v5"; existing pins keep syncing byte-for-byte.
+    supported_versions = (UNVERSIONED_API_VERSION, SIGNOZ_API_VERSION_V5)
+    default_version = SIGNOZ_API_VERSION_V5
 
     @property
     def source_type(self) -> ExternalDataSourceType:
@@ -85,6 +96,22 @@ Create the API key in SigNoz under **Settings > Service Accounts**: create a ser
             "401 Client Error": "Invalid SigNoz API key. Generate a new key from a service account and reconnect.",
             "403 Client Error": "Your SigNoz API key lacks the required permissions for this data. Check the service account's role and reconnect.",
             HOST_NOT_ALLOWED_ERROR: "The configured SigNoz host is not allowed. Check the host and try again.",
+        }
+
+    def get_retryable_errors(self) -> set[str]:
+        # `get_rows`'s tenacity retry already retries a 429/5xx (the "SigNoz API error
+        # (retryable)" sentinel), a dropped connection, and a read timeout up to MAX_RETRIES.
+        # The query_range telemetry fetch is a POST, which the tracked session's own urllib3
+        # retry skips (it only covers GET/HEAD/OPTIONS), so an exhausted read timeout there
+        # surfaces as the raw "Read timed out" message; a GET config fetch or a failed connect
+        # instead exhausts that adapter-level retry first and surfaces wrapped as "Max retries
+        # exceeded with url". Either way, Temporal retries the whole activity once tenacity's
+        # budget is exhausted, so the failure is self-recovering. The host is
+        # customer-controlled, so match only the stable, host-independent parts of the message.
+        return {
+            "SigNoz API error (retryable)",
+            "Read timed out",
+            "Max retries exceeded with url",
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:

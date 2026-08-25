@@ -737,6 +737,7 @@ class EndpointViewSet(
                 "original_reason": result.original_reason,
             },
             team=self.team,
+            request=request,
         )
 
         return Response(

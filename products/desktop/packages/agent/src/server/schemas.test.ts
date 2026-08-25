@@ -164,6 +164,24 @@ describe("validateCommandParams", () => {
     expect(result.success).toBe(false);
   });
 
+  // A command reaches executeCommand only if it has a schema registered here,
+  // so a missing entry rejects it as "Unknown method" however the dispatch
+  // switch is written.
+  it.each(["side_question", "posthog/side_question"])(
+    "accepts a valid %s",
+    (method) => {
+      const result = validateCommandParams(method, {
+        question: "what does this repo do?",
+      });
+
+      expect(result.success).toBe(true);
+    },
+  );
+
+  it("rejects side_question without a question", () => {
+    expect(validateCommandParams("side_question", {}).success).toBe(false);
+  });
+
   it("accepts valid permission_response", () => {
     const result = validateCommandParams("permission_response", {
       requestId: "abc-123",

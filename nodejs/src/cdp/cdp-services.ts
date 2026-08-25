@@ -15,6 +15,8 @@ import { WarehouseSourceWebhooksOutput } from './outputs/outputs'
 import { CdpProducerName } from './outputs/producers'
 import { createCdpOutputsRegistry } from './outputs/registry'
 import { CapturedEventsService } from './services/captured-events/captured-events.service'
+import { CohortMembershipRepository } from './services/cohorts/cohort-membership-repository'
+import { PostgresCohortMembershipRepository } from './services/cohorts/postgres-cohort-membership-repository'
 import { HogExecutorAsyncService } from './services/hog-executor-async.service'
 import { HogExecutorService } from './services/hog-executor.service'
 import { HogInputsService } from './services/hog-inputs.service'
@@ -40,9 +42,11 @@ import { HogFunctionMonitoringService } from './services/monitoring/hog-function
 import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { HogWatcherService } from './services/monitoring/hog-watcher.service'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
+import { RateLimiterService } from './services/rate-limiter/rate-limiter.service'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
 import { WarehouseWebhooksService } from './services/warehouse/warehouse-webhooks.service'
 import { MAX_FETCH_TIMEOUT_MS, cdpTrackedFetch } from './utils/cdp-fetch'
+import { configureValkeyReads } from './utils/dual-store'
 import { EncryptedFields } from './utils/encryption-utils'
 
 /** Union of every output name resolved by `createCdpOutputsRegistry()`. */
@@ -58,17 +62,17 @@ export interface CdpValkeyShadowPools {
 export interface CdpCoreServices {
     redis: RedisV2
     /**
-     * Shadow Valkey pools used for dual-write/read. Consumers that build their own
+     * Valkey pools used for dual-write/read. Consumers that build their own
      * redis-backed services (e.g. CdpEventsConsumer's HogRateLimiterService) read this
-     * to construct mirror instances bound to the shadow Valkey.
+     * to construct the Valkey-bound twin.
      */
     valkeyShadow: CdpValkeyShadowPools
     hogFunctionManager: HogFunctionManagerService
     hogFlowManager: HogFlowManagerService
     hogWatcher: HogWatcherService
     /**
-     * Mirror HogWatcherService bound to the shadow Valkey pool. Use at call sites
-     * alongside `hogWatcher` (via `mirrorCall`) to load-test the new infrastructure.
+     * Valkey-bound twin of `hogWatcher`. Use at call sites alongside `hogWatcher` via
+     * `dualRead` / `dualWrite`, which decide which of the two results the caller sees.
      * Constructed with `sendEvents: false` so it never emits duplicate billable team events.
      */
     hogWatcherMirror: HogWatcherService
@@ -82,6 +86,8 @@ export interface CdpCoreServices {
     recipientPreferencesService: RecipientPreferencesService
     emailSuppressionService: EmailSuppressionService
     teamWorkflowsConfigService: TeamWorkflowsConfigService
+    /** Point lookups for realtime/behavioral cohort membership (behavioral cohorts DB). */
+    cohortMembershipRepository: CohortMembershipRepository
     hogFlowExecutor: HogFlowExecutorService
     hogFunctionMonitoringService: HogFunctionMonitoringService
     capturedEventsService: CapturedEventsService
@@ -116,6 +122,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_VALKEY_READER_HOST'
         | 'CDP_VALKEY_READER_PORT'
         | 'CDP_VALKEY_TLS'
+        | 'CDP_VALKEY_READ_FEATURES'
         | 'CDP_WATCHER_HOG_COST_TIMING_LOWER_MS'
         | 'CDP_WATCHER_HOG_COST_TIMING_UPPER_MS'
         | 'CDP_WATCHER_HOG_COST_TIMING'
@@ -261,9 +268,10 @@ export function createCdpValkeyShadowPools(
         `[${name}] shadow valkey writer=${config.CDP_VALKEY_HOST}:${config.CDP_VALKEY_PORT} reader=${config.CDP_VALKEY_READER_HOST || '<falling back to writer>'}`
     )
 
-    // commandTimeout aborts in-flight commands at the ioredis protocol level, so a slow shadow
-    // doesn't tie up a pool client until the kernel TCP timeout. Pair this with mirrorCall()'s
-    // race-timeout (which only stops awaiting); together they prevent leaks on bad shadow health.
+    // commandTimeout aborts in-flight commands at the ioredis protocol level, so a slow Valkey
+    // doesn't tie up a pool client until the kernel TCP timeout. Pair this with the race-timeout
+    // in dual-store's secondary path (which only stops awaiting); together they prevent leaks
+    // on bad Valkey health.
     const shadowCommandTimeoutMs = 1000
 
     const tls = config.CDP_VALKEY_TLS ? {} : undefined
@@ -283,15 +291,15 @@ export function createCdpValkeyShadowPools(
         poolMaxSize: config.REDIS_POOL_MAX_SIZE,
     })
 
-    // The config is required, but reachability is not fatal: reads still come from the
-    // primary Redis, so an unreachable Valkey must not take CDP down. It stays a
-    // non-blocking check until reads move over.
+    // The config is required, but reachability is not fatal: features not named in
+    // CDP_VALKEY_READ_FEATURES still read from Redis, so an unreachable Valkey must not take
+    // CDP down at boot. Features that have moved over surface it as failing reads instead.
     void writer
         .useClient({ name: 'startup-ping', timeout: 5000 }, (client) => client.ping())
         .catch((err) => {
             logger.error(
                 '🪞',
-                `[${name}] shadow writer at ${config.CDP_VALKEY_HOST}:${config.CDP_VALKEY_PORT} failed startup health check — shadow ops will surface as "[mirror:*] failed" warn logs from mirrorCall()`,
+                `[${name}] shadow writer at ${config.CDP_VALKEY_HOST}:${config.CDP_VALKEY_PORT} failed startup health check — valkey ops will surface as "[mirror:*] failed" warn logs from dual-store`,
                 { err }
             )
         })
@@ -347,6 +355,10 @@ export function createCdpCoreServices(
     const redisReader = createCdpReaderRedisPool(config, redis, redisName)
     const valkeyShadow = createCdpValkeyShadowPools(config, redisName)
 
+    // Every CDP process funnels through here, so this is the one place the per-feature read
+    // source has to be applied for `dualRead` / `dualWrite` to see it.
+    configureValkeyReads(config.CDP_VALKEY_READ_FEATURES)
+
     const hogFunctionManager = new HogFunctionManagerService(deps.postgres, deps.pubSub, deps.encryptedFields)
     const hogFlowManager = new HogFlowManagerService(deps.postgres, deps.pubSub, deps.encryptedFields)
 
@@ -370,10 +382,10 @@ export function createCdpCoreServices(
 
     const hogWatcher = new HogWatcherService(deps.teamManager, hogWatcherConfig, redis, redisReader)
 
-    // Mirror HogWatcherService bound to the shadow Valkey pool. `sendEvents: false`
-    // so it never emits duplicate billable team events on state transitions; the
-    // Prom counter `cdp_hog_function_state_change` may double-emit when both pools
-    // detect the same transition — rare, accepted during dual-write mode.
+    // Valkey-bound twin of the watcher. `sendEvents: false` so it never emits duplicate
+    // billable team events on state transitions; the Prom counter
+    // `cdp_hog_function_state_change` may double-emit when both pools detect the same
+    // transition — rare, accepted during dual-write mode.
     const hogWatcherMirror = new HogWatcherService(
         deps.teamManager,
         { ...hogWatcherConfig, sendEvents: false },
@@ -392,6 +404,11 @@ export function createCdpCoreServices(
         transientBounceThreshold: config.EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD,
     })
     const recipientsManager = new RecipientsManagerService(deps.postgres)
+    // Per-workflow send pacing rides the SES Valkey pool, which is only populated on pods that
+    // execute email actions — exactly where the limit is enforced. Null elsewhere disables it.
+    const workflowEmailRateLimiter = deps.emailValidationValkey
+        ? new RateLimiterService(deps.emailValidationValkey, { name: 'workflow-email' })
+        : null
     const emailService = new EmailService(
         {
             sesAccessKeyId: config.SES_ACCESS_KEY_ID,
@@ -409,7 +426,8 @@ export function createCdpCoreServices(
         trackingCodeSigner,
         emailSuppressionService,
         recipientsManager,
-        messageAssetsService
+        messageAssetsService,
+        workflowEmailRateLimiter
     )
     const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
     const hogInputsService = new HogInputsService(deps.integrationManager, recipientTokensService, deps.encryptedFields)
@@ -423,7 +441,7 @@ export function createCdpCoreServices(
             backoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
             backoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
         },
-        redis,
+        // Valkey-only: push is pre-release, so it moved over whole rather than dual-writing.
         valkeyShadow.writer,
         messageAssetsService
     )
@@ -459,12 +477,14 @@ export function createCdpCoreServices(
     // whose capabilities execute email actions; everywhere else this is null
     // and EmailValidationService degrades to the local cache + DNS.
     const emailValidationService = new EmailValidationService(deps.emailValidationValkey)
-    // Observer mirrors writes to Valkey (load-only); only the primary path drives metrics.
+    const cohortMembershipRepository = new PostgresCohortMembershipRepository(deps.postgres)
+    // Observer writes to both stores; the read source decides which verdict drives the metric.
     const hogFlowDuplicateObserver = new HogFlowDuplicateObserverService(redis, valkeyShadow.writer)
     const hogFlowExecutor = new HogFlowExecutorService(
         hogFlowFunctionsService,
         recipientPreferencesService,
         emailValidationService,
+        cohortMembershipRepository,
         hogFlowDuplicateObserver
     )
 
@@ -498,6 +518,7 @@ export function createCdpCoreServices(
         recipientPreferencesService,
         emailSuppressionService,
         teamWorkflowsConfigService,
+        cohortMembershipRepository,
         hogFlowExecutor,
         hogFunctionMonitoringService,
         capturedEventsService,

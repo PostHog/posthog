@@ -1,17 +1,20 @@
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
-import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
 
 import { fullName } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
+import { getAccountRelatedUserAdminUrl } from './accountRelatedUserAdminUrl'
 import { accountRelatedUsersLogic, AccountOrganizationMember, PAGE_SIZE } from './accountRelatedUsersLogic'
 import { AccountsEvents } from './constants'
 
 export function AccountRelatedUsersExpansion({ externalId }: { externalId: string }): JSX.Element {
     const logic = accountRelatedUsersLogic({ externalId })
     const { membersResponse, membersResponseLoading, page } = useValues(logic)
+    const { user } = useValues(userLogic)
     const { setPage } = useActions(logic)
 
     const columns: LemonTableColumns<AccountOrganizationMember> = [
@@ -40,6 +43,33 @@ export function AccountRelatedUsersExpansion({ externalId }: { externalId: strin
         },
     ]
 
+    if (user?.is_staff) {
+        columns.push({
+            title: 'Actions',
+            key: 'actions',
+            width: 0,
+            render: (_, member) => {
+                const adminUrl = getAccountRelatedUserAdminUrl(member.region, member.user.id)
+
+                return (
+                    <LemonButton
+                        type="secondary"
+                        size="xsmall"
+                        to={adminUrl}
+                        targetBlank
+                        tooltip="Open this user in admin to impersonate them."
+                        data-attr="customer-analytics-account-user-admin-link"
+                        onClick={() =>
+                            posthog.capture(AccountsEvents.RelatedUserAdminOpened, { region: member.region })
+                        }
+                    >
+                        Impersonate
+                    </LemonButton>
+                )
+            },
+        })
+    }
+
     return (
         <LemonTable<AccountOrganizationMember>
             size="small"
@@ -52,6 +82,7 @@ export function AccountRelatedUsersExpansion({ externalId }: { externalId: strin
                 controlled: true,
                 pageSize: PAGE_SIZE,
                 currentPage: page,
+                useUrl: false,
                 entryCount: membersResponse?.count ?? 0,
                 onForward: () => setPage(page + 1),
                 onBackward: () => setPage(page - 1),

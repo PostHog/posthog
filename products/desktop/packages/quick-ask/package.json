@@ -1,0 +1,35 @@
+{
+  "name": "@posthog/quick-ask",
+  "version": "1.0.0",
+  "description": "The quick-ask floating assistant, host-agnostic: the prewarmed-task transport (service), the panel and annotator UI, and the pure gesture/geometry logic. The Electron host in apps/code only owns windows, IPC, and capture.",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./*": [
+      "./src/*.ts",
+      "./src/*.tsx",
+      "./src/*"
+    ]
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "node ../../scripts/rimraf.mjs .turbo"
+  },
+  "dependencies": {
+    "@posthog/core": "workspace:*",
+    "@posthog/shared": "workspace:*",
+    "@posthog/ui": "workspace:*",
+    "inversify": "catalog:",
+    "react": "catalog:",
+    "react-markdown": "^10.1.0"
+  },
+  "devDependencies": {
+    "@posthog/tsconfig": "workspace:*",
+    "typescript": "catalog:",
+    "vitest": "^4.1.8"
+  },
+  "files": [
+    "src/**/*"
+  ]
+}

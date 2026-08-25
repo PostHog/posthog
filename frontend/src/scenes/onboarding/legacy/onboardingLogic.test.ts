@@ -372,6 +372,35 @@ describe('onboardingLogic — flow composition', () => {
             expect(logic.values.stepId).toBe('')
             expect(logic.values.currentFlowStep?.id).toBe('install:web_analytics')
         })
+
+        it('self-corrects a valid step key the flow has no step for', async () => {
+            // Product selection always routes to ?step=install, but Support's flow has no
+            // install step, so a key being valid is not reason enough to keep waiting on it.
+            logic.actions.setProductKey(ProductKey.CONVERSATIONS)
+            logic.actions.setStepId(OnboardingStepKey.INSTALL)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(logic.values.stepId).toBe('')
+            expect(logic.values.currentFlowStep?.id).toBe('invite_teammates:conversations')
+        })
+
+        it('self-corrects link_data when the flow will never carry it', async () => {
+            // `link_data` is gated on the product keys alone, which are set before the step is,
+            // so for a primary that never gets it there is nothing to wait for.
+            logic.actions.setProductKey(ProductKey.WEB_ANALYTICS)
+            logic.actions.setStepId(OnboardingStepKey.LINK_DATA)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(logic.values.stepId).toBe('')
+            expect(logic.values.currentFlowStep?.id).toBe('install:web_analytics')
+        })
+
+        it('holds a shared trailing step open until it is appended', async () => {
+            // `plans` joins the flow only once billing loads, which it has not here.
+            // Self-correcting it would lose the request before the flow settles.
+            logic.actions.setProductKey(ProductKey.WEB_ANALYTICS)
+            logic.actions.setStepId(OnboardingStepKey.PLANS)
+            await new Promise((resolve) => setTimeout(resolve, 0))
+            expect(logic.values.stepId).toBe(OnboardingStepKey.PLANS)
+        })
     })
 
     describe('navigation', () => {
@@ -509,25 +538,6 @@ describe('onboardingLogic — flow composition', () => {
             await expectLogic(logic, () => {
                 logic.actions.completeOnboarding()
             }).toNotHaveDispatchedActions(['recordProductIntentOnboardingComplete', 'setIsCompleting'])
-        })
-    })
-
-    describe('completeSelfDrivingOnboarding', () => {
-        it('persists both onboarding completion signals', async () => {
-            await expectLogic(logic, () => {
-                logic.actions.completeSelfDrivingOnboarding()
-            }).toDispatchActions([
-                (action) => {
-                    if (action.type !== logic.actionTypes.updateCurrentTeam) {
-                        return false
-                    }
-                    expect(action.payload).toMatchObject({
-                        completed_snippet_onboarding: true,
-                        has_completed_onboarding_for: { [ProductKey.PRODUCT_ANALYTICS]: true },
-                    })
-                    return true
-                },
-            ])
         })
     })
 

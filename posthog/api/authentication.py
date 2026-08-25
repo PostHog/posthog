@@ -50,12 +50,14 @@ from webauthn.helpers.structs import AuthenticatorTransport, PublicKeyCredential
 
 from posthog.api.email_verification import EmailVerifier, is_email_verification_disabled
 from posthog.caching.login_device_cache import check_and_cache_login_device
+from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
 from posthog.email import is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.helpers.email_utils import EmailLookupHandler
+from posthog.helpers.sso import get_safe_next_url, is_sso_reauth_begin, sso_failure_redirect_url
 from posthog.helpers.two_factor_session import (
     CODE_MAX_ATTEMPTS,
     LOGIN_CODE_VERIFICATION_COUNTER,
@@ -67,7 +69,7 @@ from posthog.helpers.two_factor_session import (
 from posthog.helpers.user_devices import has_valid_known_device_cookie
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
 from posthog.models import OrganizationDomain, User
-from posthog.models.activity_logging import signal_handlers  # noqa: F401
+from posthog.models.activity_logging import signal_handlers  # imported for its signal receivers too
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import generate_passkey_authentication_options, verify_passkey_authentication_response
 from posthog.rate_limit import (
@@ -130,12 +132,22 @@ def axes_locked_out(*args, **kwargs):
 
 
 def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
+    sso_providers = get_instance_available_sso_providers()
+    # because SAML is configured at the domain-level, we have to assume it's enabled for someone in the instance
+    sso_providers["saml"] = settings.EE_AVAILABLE
+
+    is_reauth = is_sso_reauth_begin(request)
+
+    # Checked before any session mutation below, so a misconfigured provider can never sign anyone out.
+    if backend not in sso_providers:
+        return redirect(sso_failure_redirect_url(request, "invalid_sso_provider", is_reauth=is_reauth))
+
+    if not sso_providers[backend]:
+        return redirect(sso_failure_redirect_url(request, "improperly_configured_sso", is_reauth=is_reauth))
+
     # The one known `connect_from` value is "posthog_code" - what PH Code uses when linking GH profile to PostHog user
     connect_from = (request.GET.get("connect_from") or "").strip()
-    if not connect_from:
-        # This is the default case - for regular login, we flush the session (log out)
-        request.session.flush()
-    else:
+    if connect_from:
         # For linking a social provider, we keep the session and set the next URL to /account-connected/github-login
         # (see frontend AccountConnected). QueryDict must be copied before mutation (GET is often immutable).
         query_dict = request.GET.copy()
@@ -143,16 +155,12 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
             f"/account-connected/github-login?{urlencode({'provider': backend, 'connect_from': connect_from})}"
         )
         request.GET = query_dict  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
-
-    sso_providers = get_instance_available_sso_providers()
-    # because SAML is configured at the domain-level, we have to assume it's enabled for someone in the instance
-    sso_providers["saml"] = settings.EE_AVAILABLE
-
-    if backend not in sso_providers:
-        return redirect(f"/login?error_code=invalid_sso_provider")
-
-    if not sso_providers[backend]:
-        return redirect("/login?error_code=improperly_configured_sso")
+    elif not is_reauth:
+        # This is the default case - for regular login, we flush the session (log out)
+        request.session.flush()
+    # Re-auth keeps the session: the user is already signed in, and flushing here would sign them out
+    # before the IdP is even contacted, so any hiccup in the round trip would strand them at /login.
+    # `social_reauth_complete` grants the step-up on the way back in.
 
     try:
         return auth(request, backend)
@@ -160,7 +168,7 @@ def sso_login(request: HttpRequest, backend: str) -> HttpResponse:
         # AuthConnectionError covers an unreachable IdP or a TLS cert that fails during OIDC discovery -
         # it's a sibling of AuthFailed (not a subclass), so it would otherwise surface as an unhandled 500.
         logger.warning("SSO login failed, redirecting to login page", exc_info=e)
-        return redirect("/login?error_code=improperly_configured_sso")
+        return redirect(sso_failure_redirect_url(request, "improperly_configured_sso", is_reauth=is_reauth))
 
 
 class TwoFactorRequired(APIException):
@@ -177,17 +185,6 @@ class CodeBasedVerificationRequired(APIException):
     def __init__(self, email: str | None = None):
         detail = email if email else self.default_detail
         super().__init__(detail=detail, code=self.default_code)
-
-
-def get_safe_next_url(next_url: str | None, request: Request) -> str | None:
-    """Return next_url only when it's a safe same-origin/relative redirect target, else None.
-
-    The value is embedded into emailed verification links, so an unvalidated next
-    would be an open-redirect / phishing vector.
-    """
-    if next_url and url_has_allowed_host_and_scheme(next_url, allowed_hosts={request.get_host()}):
-        return next_url
-    return None
 
 
 def is_email_verified_for_login(user: User, next_url: str | None = None) -> bool:
@@ -1276,6 +1273,88 @@ class PasswordResetTokenGenerator(DefaultPasswordResetTokenGenerator):
 
 
 password_reset_token_generator = PasswordResetTokenGenerator()
+
+
+def _sso_reauth_request(strategy: DjangoStrategy) -> HttpRequest | None:
+    """The request behind a step-up re-auth of an already signed-in session, or None if it isn't one."""
+    if strategy.session_get("reauth") != "true":
+        return None
+
+    request = strategy.request
+    if not request or not request.user.is_authenticated:
+        return None
+
+    return request
+
+
+def social_reauth(
+    strategy: DjangoStrategy,
+    backend,
+    details: dict[str, Any] | None = None,
+    user: User | None = None,
+    social: Any = None,
+    **kwargs,
+) -> None:
+    """Turn away a step-up re-auth that isn't the signed-in user.
+
+    Runs right after `social_user`, so a mismatched identity is rejected before `associate_user` can
+    link it to the signed-in account or `social_create_user` can provision anything. The step-up
+    itself is granted at the end of the pipeline, by `social_reauth_complete`.
+    """
+    request = _sso_reauth_request(strategy)
+    if not request:
+        return
+
+    # An identity that isn't associated with anyone yet resolves to whoever is signed in, so without
+    # an email check `associate_user` would silently link a stranger's IdP account to this account.
+    identity_email = ((details or {}).get("email") or "").lower()
+    identity_is_signed_in_user = (
+        user is not None and user.pk == request.user.pk and (social is not None or identity_email == user.email.lower())
+    )
+
+    if not identity_is_signed_in_user:
+        logger.warning(
+            "SSO re-authentication identity mismatch",
+            backend=getattr(backend, "name", ""),
+            session_user_id=request.user.pk,
+        )
+        raise AuthFailed(backend, "reauth_user_mismatch")
+
+
+def social_reauth_complete(strategy: DjangoStrategy, backend, user: User | None = None, **kwargs) -> None:
+    """Grant the step-up, once every other pipeline step has accepted the flow.
+
+    `sso_login` doesn't flush the session for a re-auth, which means `do_complete` takes its
+    already-authenticated path and never calls `login()` - so the freshness stamp and the audit entry
+    that `login()` would have triggered have to happen here, or the modal would reopen forever.
+
+    This runs last because a step that returns a response aborts the pipeline - domain enforcement in
+    `social_create_user` does exactly that - and a refused re-auth must not leave a fresh window, a
+    cleared step-up flag, or a `logged_in` entry behind.
+    """
+    request = _sso_reauth_request(strategy)
+    if not request or user is None or user.pk != request.user.pk:
+        return
+
+    # Rotate the key the way `login()` would on a fresh sign-in. A step-up window is exactly what a
+    # copied session cookie wants, so the identifier that existed before it has to stop working. The
+    # session data - and with it the signed-in user - survives the rotation.
+    request.session.cycle_key()
+    request.session[settings.SESSION_LAST_REAUTH_AT_KEY] = time.time()
+    request.session.pop(settings.SESSION_STEP_UP_REQUIRED_KEY, None)
+
+    backend_name = getattr(backend, "name", "")
+    try:
+        signal_handlers.log_login_activity(
+            user,
+            request,
+            login_method=str(AUTH_BACKEND_DISPLAY_NAMES.get(backend_name, "Unknown")),
+            reauth=True,
+        )
+    except Exception as e:
+        # Matching `log_user_login_activity`: a failed audit write must not fail the re-auth itself
+        logger.exception("Failed to log SSO re-authentication activity", user_id=user.id, error=e)
+        capture_exception(e)
 
 
 def social_login_notification(

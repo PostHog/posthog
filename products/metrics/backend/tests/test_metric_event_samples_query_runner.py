@@ -12,6 +12,8 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 
 from products.metrics.backend.facade.api import list_metric_event_samples
+from products.metrics.backend.facade.contracts import MetricFilter
+from products.metrics.backend.facade.enums import AttributeScope, FilterOp, MetricType
 from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
 from products.metrics.backend.tests._seeder import seed_metric_event
 
@@ -222,3 +224,129 @@ class TestMetricEventSamplesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(results[0]["metric_name"], "checkout.failed")
         self.assertEqual(results[0]["trace_id"], TRACE_A_HEX)
         self.assertEqual(results[0]["attributes"], {"region": "us"})
+
+
+class TestMetricEventSampleFilters(ClickhouseTestMixin, APIBaseTest):
+    CLASS_DATA_LEVEL_SETUP = True
+
+    def setUp(self):
+        super().setUp()
+        sync_execute("TRUNCATE TABLE IF EXISTS metric_samples1")
+        sync_execute("TRUNCATE TABLE IF EXISTS metric_series1")
+        tag_queries(product=Product.METRICS, feature=Feature.QUERY)
+        self.anchor = timezone.now().replace(microsecond=0)
+        seed_metric_event(
+            team_id=self.team.id,
+            metric_name="req",
+            points=[(self.anchor - dt.timedelta(minutes=5), 1.0)],
+            service_name="api",
+            attributes={"env": "prod", "path": "/api"},
+            resource_attributes={"k8s.pod.name": "web-1"},
+        )
+        seed_metric_event(
+            team_id=self.team.id,
+            metric_name="req",
+            points=[(self.anchor - dt.timedelta(minutes=5), 10.0)],
+            service_name="web",
+            attributes={"env": "dev", "path": "/web"},
+        )
+
+    def _values(
+        self,
+        filters: tuple[MetricFilter, ...] = (),
+        metric_type: MetricType | None = None,
+        limit: int = 100,
+    ) -> list[float]:
+        return [
+            sample.value
+            for sample in list_metric_event_samples(
+                team=self.team,
+                metric_name="req",
+                date_from=self.anchor - dt.timedelta(hours=1),
+                date_to=self.anchor + dt.timedelta(hours=1),
+                filters=filters,
+                metric_type=metric_type,
+                limit=limit,
+            )
+        ]
+
+    @parameterized.expand(
+        [
+            ("eq_attribute", MetricFilter(key="env", op=FilterOp.EQ, value="prod"), [1.0]),
+            (
+                "eq_resource_scope",
+                MetricFilter(key="k8s.pod.name", op=FilterOp.EQ, value="web-1", scope=AttributeScope.RESOURCE),
+                [1.0],
+            ),
+            ("eq_service_name_column", MetricFilter(key="service.name", op=FilterOp.EQ, value="web"), [10.0]),
+            (
+                "neq_matches_series_lacking_key",
+                MetricFilter(key="k8s.pod.name", op=FilterOp.NEQ, value="web-1"),
+                [10.0],
+            ),
+        ]
+    )
+    def test_single_filter(self, _label, filter, expected_values):
+        # The chart reads labels off `metrics1`, where `attributes` is an ALIAS that
+        # strips the type tag; here they come off `metric_series`, where the map is
+        # real and `service_name` is its own column. Same filter expressions, two
+        # storage shapes, so both need covering.
+        self.assertEqual(self._values((filter,)), expected_values)
+
+    def test_filter_applies_before_the_limit(self):
+        # Newer emissions from the series the filter excludes. Filtering after the
+        # LIMIT would take these three, drop them all, and return nothing.
+        seed_metric_event(
+            team_id=self.team.id,
+            metric_name="req",
+            points=[(self.anchor - dt.timedelta(minutes=minutes), 100.0) for minutes in (1, 2, 3)],
+            service_name="web",
+            attributes={"env": "dev", "path": "/web"},
+        )
+
+        self.assertEqual(self._values((MetricFilter(key="env", op=FilterOp.EQ, value="prod"),), limit=1), [1.0])
+
+    def test_filter_excludes_a_sample_whose_series_is_missing(self):
+        # A sample can outrun its series row, and there is then no label set to
+        # match, so it drops out of a filtered result. The predicate below matches
+        # both real series, which pins the exclusion on the missing series rather
+        # than on the filter itself.
+        sync_execute(
+            "INSERT INTO metric_samples1 (team_id, metric_name, series_fingerprint, timestamp, value) "
+            "VALUES (%(team_id)s, 'req', 42, %(ts)s, 7.0)",
+            {"team_id": self.team.id, "ts": self.anchor.strftime("%Y-%m-%d %H:%M:%S.%f")},
+        )
+
+        self.assertIn(7.0, self._values())
+        self.assertNotIn(7.0, self._values((MetricFilter(key="env", op=FilterOp.NEQ, value="absent"),)))
+
+    def test_metric_type_isolates_same_named_series(self):
+        seed_metric_event(
+            team_id=self.team.id,
+            metric_name="req",
+            points=[(self.anchor - dt.timedelta(minutes=5), 99.0)],
+            metric_type="gauge",
+            service_name="gauge-source",
+            attributes={"env": "prod", "path": "/api"},
+        )
+
+        self.assertEqual(self._values(metric_type=MetricType.GAUGE), [99.0])
+        self.assertEqual(sorted(self._values(metric_type=MetricType.SUM)), [1.0, 10.0])
+
+    def test_filters_and_metric_type_via_api(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/metrics/samples",
+            data={
+                "query": {
+                    "metricName": "req",
+                    "dateFrom": (self.anchor - dt.timedelta(hours=1)).isoformat(),
+                    "dateTo": (self.anchor + dt.timedelta(hours=1)).isoformat(),
+                    "metricType": "sum",
+                    "filters": [{"key": "k8s.pod.name", "op": "eq", "value": "web-1", "scope": "resource"}],
+                }
+            },
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual([result["value"] for result in response.json()["results"]], [1.0])

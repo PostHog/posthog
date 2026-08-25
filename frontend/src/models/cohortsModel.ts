@@ -95,12 +95,25 @@ function convertTimeValueToRelativeTime(criteria: AnyCohortCriteriaType): string
     }
 }
 
+// Mirrors BEHAVIORAL_VALUE_ALIASES in posthog/models/property/property.py: values older cohort
+// builders stored that the backend still resolves to a canonical behavioral type. The API hands
+// them back verbatim, so without this the frontend treats them as unmapped and renders no fields.
+// A Map, not an object literal: a stored value of 'constructor' or 'toString' resolves to an
+// Object.prototype member on a plain lookup.
+const BEHAVIORAL_VALUE_ALIASES = new Map<string, BehavioralEventType>([
+    ['performed_event_multiple_times', BehavioralEventType.PerformMultipleEvents],
+])
+
 function processCohortCriteria(criteria: AnyCohortCriteriaType): AnyCohortCriteriaType {
     if (!criteria.type) {
         return criteria
     }
 
     const processedCriteria = { ...criteria }
+
+    if (criteria.type === BehavioralFilterKey.Behavioral && typeof criteria.value === 'string') {
+        processedCriteria.value = BEHAVIORAL_VALUE_ALIASES.get(criteria.value) ?? criteria.value
+    }
 
     if (
         [BehavioralFilterKey.Cohort, BehavioralFilterKey.Person, BehavioralFilterKey.PersonMetadata].includes(
@@ -118,8 +131,8 @@ function processCohortCriteria(criteria: AnyCohortCriteriaType): AnyCohortCriter
     if (
         [BehavioralFilterKey.Behavioral].includes(criteria.type) &&
         !('explicit_datetime' in criteria) &&
-        criteria.value &&
-        COHORT_EVENT_TYPES_WITH_EXPLICIT_DATETIME.includes(criteria.value)
+        processedCriteria.value &&
+        COHORT_EVENT_TYPES_WITH_EXPLICIT_DATETIME.includes(processedCriteria.value)
     ) {
         processedCriteria.explicit_datetime = convertTimeValueToRelativeTime(criteria)
     }

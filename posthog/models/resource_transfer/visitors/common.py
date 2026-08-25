@@ -11,7 +11,10 @@ place.
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import (
+    Callable,
+    Set as AbstractSet,
+)
 from typing import Any
 
 from django.db import models
@@ -157,7 +160,7 @@ def make_json_id_rewriter(
 
 
 def build_edges_for_ids(
-    ids: set[int],
+    ids: AbstractSet[int],
     target_model: type[models.Model],
     label_prefix: str,
     rewrite_fn: RewritePayloadFn,

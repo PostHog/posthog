@@ -8,6 +8,7 @@ from django.test import override_settings
 
 from asgiref.sync import sync_to_async
 
+from posthog.kafka_client.topics import KAFKA_APP_METRICS2, KAFKA_CDP_INTERNAL_EVENTS
 from posthog.models import Organization, Team
 
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
@@ -398,3 +399,192 @@ async def test_finish_batch_export_run_records_failed_none_when_not_set(activity
     assert run.status == "Completed"
     assert run.records_completed == 100
     assert run.records_failed is None
+
+
+def get_produced_internal_event_payloads(mocked_try_produce: unittest.mock.AsyncMock) -> list:
+    """Extract payload lists produced to the internal events topic from a mocked 'try_produce'."""
+    return [
+        call.args[0]
+        for call in mocked_try_produce.call_args_list
+        if call.kwargs.get("topic") == KAFKA_CDP_INTERNAL_EVENTS
+    ]
+
+
+def get_produced_app_metrics_payloads(mocked_try_produce: unittest.mock.AsyncMock) -> list:
+    """Extract payload lists produced to the app metrics topic from a mocked 'try_produce'."""
+    return [
+        call.args[0] for call in mocked_try_produce.call_args_list if call.kwargs.get("topic") == KAFKA_APP_METRICS2
+    ]
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_finish_batch_export_run_produces_failed_internal_event(activity_environment, team, batch_export):
+    """Test 'finish_batch_export_run' produces a '$batch_export_run_failed' internal event on failure."""
+    start = dt.datetime(2023, 4, 24, tzinfo=dt.UTC)
+    end = dt.datetime(2023, 4, 25, tzinfo=dt.UTC)
+
+    run_id = await activity_environment.run(
+        start_batch_export_run,
+        StartBatchExportRunInputs(
+            team_id=team.id,
+            batch_export_id=str(batch_export.id),
+            data_interval_start=start.isoformat(),
+            data_interval_end=end.isoformat(),
+        ),
+    )
+
+    finish_inputs = FinishBatchExportRunInputs(
+        id=str(run_id),
+        batch_export_id=str(batch_export.id),
+        status=BatchExportRun.Status.FAILED,
+        team_id=team.id,
+        latest_error="Oh No!",
+    )
+
+    with unittest.mock.patch("products.batch_exports.backend.temporal.batch_exports.try_produce") as mocked_try_produce:
+        await activity_environment.run(finish_batch_export_run, finish_inputs)
+
+    internal_event_payloads = get_produced_internal_event_payloads(mocked_try_produce)
+    assert len(internal_event_payloads) == 1
+    assert [payload["event"]["event"] for payload in internal_event_payloads[0]] == ["$batch_export_run_failed"]
+    assert internal_event_payloads[0][0]["event"]["properties"] == {
+        "batch_export_id": str(batch_export.id),
+        "batch_export_name": batch_export.name,
+        "batch_export_run_id": str(run_id),
+        "data_interval_start": start.isoformat(),
+        "data_interval_end": end.isoformat(),
+        "destination_type": "S3",
+        "error": "Oh No!",
+    }
+
+    assert len(get_produced_app_metrics_payloads(mocked_try_produce)) == 1
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_finish_batch_export_run_produces_paused_internal_event(activity_environment, team, batch_export):
+    """Test 'finish_batch_export_run' produces a '$batch_export_paused' internal event when pausing."""
+    start = dt.datetime(2023, 4, 24, tzinfo=dt.UTC)
+    end = dt.datetime(2023, 4, 25, tzinfo=dt.UTC)
+
+    run_id = await activity_environment.run(
+        start_batch_export_run,
+        StartBatchExportRunInputs(
+            team_id=team.id,
+            batch_export_id=str(batch_export.id),
+            data_interval_start=start.isoformat(),
+            data_interval_end=end.isoformat(),
+        ),
+    )
+
+    finish_inputs = FinishBatchExportRunInputs(
+        id=str(run_id),
+        batch_export_id=str(batch_export.id),
+        status=BatchExportRun.Status.FAILED,
+        team_id=team.id,
+        latest_error="Oh No!",
+    )
+
+    with (
+        unittest.mock.patch(
+            "products.batch_exports.backend.temporal.batch_exports.check_if_over_failure_threshold",
+            return_value=True,
+        ),
+        unittest.mock.patch(
+            "products.batch_exports.backend.temporal.batch_exports.pause_batch_export_over_failure_threshold",
+            return_value=True,
+        ),
+        unittest.mock.patch(
+            "products.batch_exports.backend.temporal.batch_exports.cancel_running_backfills",
+            return_value=0,
+        ),
+        unittest.mock.patch("products.batch_exports.backend.temporal.batch_exports.try_produce") as mocked_try_produce,
+    ):
+        await activity_environment.run(finish_batch_export_run, finish_inputs)
+
+    internal_event_payloads = get_produced_internal_event_payloads(mocked_try_produce)
+    assert len(internal_event_payloads) == 1
+    assert [payload["event"]["event"] for payload in internal_event_payloads[0]] == [
+        "$batch_export_run_failed",
+        "$batch_export_paused",
+    ]
+
+
+@pytest.mark.parametrize("status", [BatchExportRun.Status.CANCELLED, BatchExportRun.Status.FAILED_RETRYABLE])
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_finish_batch_export_run_produces_no_internal_events(activity_environment, team, batch_export, status):
+    """Test 'finish_batch_export_run' produces no internal events for non-failure statuses, only app metrics."""
+    start = dt.datetime(2023, 4, 24, tzinfo=dt.UTC)
+    end = dt.datetime(2023, 4, 25, tzinfo=dt.UTC)
+
+    run_id = await activity_environment.run(
+        start_batch_export_run,
+        StartBatchExportRunInputs(
+            team_id=team.id,
+            batch_export_id=str(batch_export.id),
+            data_interval_start=start.isoformat(),
+            data_interval_end=end.isoformat(),
+        ),
+    )
+
+    finish_inputs = FinishBatchExportRunInputs(
+        id=str(run_id),
+        batch_export_id=str(batch_export.id),
+        status=status,
+        team_id=team.id,
+        latest_error="Oh No!",
+    )
+
+    with unittest.mock.patch("products.batch_exports.backend.temporal.batch_exports.try_produce") as mocked_try_produce:
+        await activity_environment.run(finish_batch_export_run, finish_inputs)
+
+    assert get_produced_internal_event_payloads(mocked_try_produce) == []
+    assert len(get_produced_app_metrics_payloads(mocked_try_produce)) == 1
+
+
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.asyncio
+async def test_start_batch_export_run_produces_failed_billing_internal_event(activity_environment, team, batch_export):
+    """Test 'start_batch_export_run' produces a '$batch_export_run_failed_billing' internal event when over limit."""
+    start = dt.datetime(2023, 4, 24, tzinfo=dt.UTC)
+    end = dt.datetime(2023, 4, 25, tzinfo=dt.UTC)
+
+    with override_settings(BATCH_EXPORTS_ENABLE_BILLING_CHECK=True):
+        inputs = StartBatchExportRunInputs(
+            team_id=team.id,
+            batch_export_id=str(batch_export.id),
+            data_interval_start=start.isoformat(),
+            data_interval_end=end.isoformat(),
+        )
+
+    fut: asyncio.Future[bool] = asyncio.Future()
+    fut.set_result(False)
+
+    with (
+        unittest.mock.patch(
+            "products.batch_exports.backend.temporal.batch_exports.check_is_over_limit", return_value=fut
+        ),
+        unittest.mock.patch("products.batch_exports.backend.temporal.batch_exports.try_produce") as mocked_try_produce,
+        pytest.raises(OverBillingLimitError),
+    ):
+        _ = await activity_environment.run(start_batch_export_run, inputs)
+
+    run = await sync_to_async(BatchExportRun.objects.filter(batch_export=batch_export).get)()
+    assert run.status == BatchExportRun.Status.FAILED_BILLING
+
+    internal_event_payloads = get_produced_internal_event_payloads(mocked_try_produce)
+    assert len(internal_event_payloads) == 1
+    assert [payload["event"]["event"] for payload in internal_event_payloads[0]] == ["$batch_export_run_failed_billing"]
+    assert internal_event_payloads[0][0]["event"]["properties"] == {
+        "batch_export_id": str(batch_export.id),
+        "batch_export_name": batch_export.name,
+        "batch_export_run_id": str(run.id),
+        "data_interval_start": start.isoformat(),
+        "data_interval_end": end.isoformat(),
+        "destination_type": "S3",
+        "error": "Over billing limit",
+    }
+
+    assert len(get_produced_app_metrics_payloads(mocked_try_produce)) == 1

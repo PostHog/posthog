@@ -1,7 +1,11 @@
 import {
+  getPostHogObjectArtifactMetadata,
+  groupRunArtifactVersions,
   OUTPUT_ARTIFACT_TYPES,
+  type PostHogObjectArtifactMetadata,
   parseRunArtifacts,
   type RunArtifact,
+  type RunArtifactVersions,
 } from "@posthog/core/canvas/runArtifactSchemas";
 import type { ThreadTimelineRow } from "@posthog/core/canvas/threadTimeline";
 import {
@@ -16,8 +20,10 @@ import type {
 } from "@posthog/shared/domain-types";
 import { parseHttpsUrl, parseShareLink } from "@posthog/ui/utils/posthogLinks";
 
+export type RunFile = RunArtifact & { runId: string };
+
 export type ArtifactRow =
-  | { kind: "pr"; key: string; url: string }
+  | { kind: "pr"; key: string; url: string; ts: number }
   | {
       kind: "canvas";
       key: string;
@@ -25,6 +31,7 @@ export type ArtifactRow =
       url: string | null;
       /** The canvas row id, the stable comment target (never the name). */
       dashboardId: string | null;
+      ts: number;
     }
   | {
       kind: "file";
@@ -33,6 +40,16 @@ export type ArtifactRow =
       name: string;
       runId: string | null;
       size: number | undefined;
+      group: RunArtifactVersions<RunFile>;
+    }
+  | {
+      kind: "posthog_object";
+      key: string;
+      artifactId: string;
+      name: string;
+      runId: string;
+      metadata: PostHogObjectArtifactMetadata;
+      uploadedAt: string | undefined;
     }
   | { kind: "slack"; key: string; url: string };
 
@@ -43,6 +60,12 @@ export type ArtifactRow =
  */
 export type CommentSource =
   | { kind: "file"; target: CommentTarget; name: string; runId: string | null }
+  | {
+      kind: "posthog_object";
+      target: CommentTarget;
+      name: string;
+      runId: string;
+    }
   | { kind: "canvas"; target: CommentTarget; name: string; url: string | null }
   | { kind: "task"; target: CommentTarget; name: string };
 
@@ -64,6 +87,13 @@ export function commentSources(
     seen.add(commentTargetKey(target));
     if (row.kind === "file") {
       sources.push({ kind: "file", target, name: row.name, runId: row.runId });
+    } else if (row.kind === "posthog_object") {
+      sources.push({
+        kind: "posthog_object",
+        target,
+        name: row.name,
+        runId: row.runId,
+      });
     } else if (row.kind === "canvas") {
       sources.push({ kind: "canvas", target, name: row.name, url: row.url });
     }
@@ -100,7 +130,10 @@ function canvasDashboardId(url: string | null): string | null {
 
 /** Where a row's comments live, or null when the row can't carry any. */
 function targetForRow(row: ArtifactRow): CommentTarget | null {
-  if (row.kind === "file" && row.artifactId) {
+  if (
+    (row.kind === "file" || row.kind === "posthog_object") &&
+    row.artifactId
+  ) {
     return { scope: "task_artifact", itemId: row.artifactId };
   }
   if (row.kind === "canvas" && row.dashboardId) {
@@ -131,6 +164,25 @@ function readRunOutputs(run: TaskRun): RunArtifact[] {
   );
 }
 
+function readRunPostHogReferences(run: TaskRun): Array<{
+  artifact: RunArtifact & { id: string; name: string };
+  metadata: PostHogObjectArtifactMetadata;
+}> {
+  return parseRunArtifacts((run as { artifacts?: unknown }).artifacts, [
+    "reference",
+  ]).flatMap((artifact) => {
+    const metadata = getPostHogObjectArtifactMetadata(artifact);
+    return artifact.id && artifact.name && metadata
+      ? [
+          {
+            artifact: { ...artifact, id: artifact.id, name: artifact.name },
+            metadata,
+          },
+        ]
+      : [];
+  });
+}
+
 export function buildRows(
   task: Task,
   timeline: ThreadTimelineRow<TaskThreadMessage>[],
@@ -139,16 +191,16 @@ export function buildRows(
   const rows: ArtifactRow[] = [];
   const seenPrUrls = new Set<string>();
 
-  const addPr = (url: string, key: string) => {
+  const addPr = (url: string, key: string, ts: number) => {
     if (seenPrUrls.has(url)) return;
     seenPrUrls.add(url);
-    rows.push({ kind: "pr", key, url });
+    rows.push({ kind: "pr", key, url, ts });
   };
 
   for (const row of timeline) {
     if (row.kind !== "artifact") continue;
     if (row.artifact.kind === "pr") {
-      addPr(row.artifact.url, row.message.id);
+      addPr(row.artifact.url, row.message.id, row.timestamp);
     } else {
       const url = row.artifact.url;
       rows.push({
@@ -157,6 +209,7 @@ export function buildRows(
         name: row.artifact.name,
         url,
         dashboardId: canvasDashboardId(url),
+        ts: row.timestamp,
       });
     }
   }
@@ -164,31 +217,72 @@ export function buildRows(
   const allRuns =
     runs.length > 0 ? runs : task.latest_run ? [task.latest_run] : [];
 
-  // Re-uploading a file replaces it rather than adding a second one: agents
-  // revise a deliverable and upload it again under the same name, so keeping
-  // every copy would bury the current one under its own drafts.
-  const newestByName = new Map<string, { file: RunArtifact; runId: string }>();
-  for (const run of allRuns) {
-    for (const outputPr of readPrUrls(run.output)) {
-      addPr(outputPr, `output-pr:${outputPr}`);
+  const files: RunFile[] = [];
+  const postHogReferences = new Map<
+    string,
+    {
+      artifact: RunArtifact & { id: string; name: string };
+      metadata: PostHogObjectArtifactMetadata;
+      runId: string;
     }
-    for (const file of readRunOutputs(run)) {
-      if (!file.name) continue;
-      const previous = newestByName.get(file.name);
-      const isNewer =
-        !previous ||
-        (file.uploaded_at ?? "") >= (previous.file.uploaded_at ?? "");
-      if (isNewer) newestByName.set(file.name, { file, runId: run.id });
+  >();
+  for (const run of allRuns) {
+    // Runs added straight from output have no announcing timeline message, so
+    // the run's own updated_at is the closest stand-in for the PR's age.
+    const runTs = Date.parse(run.updated_at) || 0;
+    for (const outputPr of readPrUrls(run.output)) {
+      addPr(outputPr, `output-pr:${outputPr}`, runTs);
+    }
+    files.push(
+      ...readRunOutputs(run).map((file) => ({ ...file, runId: run.id })),
+    );
+    for (const reference of readRunPostHogReferences(run)) {
+      const existing = postHogReferences.get(reference.artifact.id);
+      const sourceMessageIds = [
+        ...new Set([
+          ...(existing?.metadata.source_message_ids ?? []),
+          ...reference.metadata.source_message_ids,
+        ]),
+      ];
+      const newest =
+        existing &&
+        (existing.artifact.uploaded_at ?? "") >=
+          (reference.artifact.uploaded_at ?? "")
+          ? existing
+          : { ...reference, runId: run.id };
+      postHogReferences.set(reference.artifact.id, {
+        ...newest,
+        metadata: {
+          ...newest.metadata,
+          source_message_ids: sourceMessageIds,
+          occurrence_count: sourceMessageIds.length,
+        },
+      });
     }
   }
-  for (const [name, { file, runId }] of newestByName) {
+  for (const group of groupRunArtifactVersions(files)) {
+    if (group.dismissed) continue;
     rows.push({
       kind: "file",
-      key: `file:${file.id ?? file.storage_path ?? name}`,
-      artifactId: file.id ?? null,
-      name,
+      key: `file:${group.name}`,
+      artifactId: group.latest.id ?? null,
+      name: group.name,
+      runId: group.latest.runId,
+      size: group.latest.size,
+      group,
+    });
+  }
+
+  for (const { artifact, metadata, runId } of postHogReferences.values()) {
+    if (artifact.dismissed_at) continue;
+    rows.push({
+      kind: "posthog_object",
+      key: `posthog-object:${artifact.id}`,
+      artifactId: artifact.id,
+      name: artifact.name,
       runId,
-      size: file.size,
+      metadata,
+      uploadedAt: artifact.uploaded_at,
     });
   }
 

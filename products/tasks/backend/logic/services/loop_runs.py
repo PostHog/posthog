@@ -20,7 +20,7 @@ from django.db.models import Q
 from django.utils import timezone as django_timezone
 
 from posthog.models import User
-from posthog.temporal.oauth import PosthogMcpScopes, resolve_scopes
+from posthog.temporal.oauth import LOOP_CONTEXT_INTERNAL_SCOPE, PosthogMcpScopes, resolve_scopes
 from posthog.user_permissions import UserPermissions
 
 from products.tasks.backend.logic.services.code_usage_gate import usage_limit_response
@@ -49,6 +49,8 @@ TRIGGER_CONTEXT_MAX_BYTES = 64 * 1024
 # the field in facade/loops.py::update_loop either way.
 DISABLED_REASON_USAGE_LIMITED = "usage_limited"
 DISABLED_REASON_REPEATED_FAILURES = "repeated_failures"
+COMPUTE_BILLING_LIMIT_ERROR_TYPE = "ComputeBillingLimitError"
+LOOP_TERMINAL_BOOKKEEPING_STATE_KEY = "loop_terminal_bookkeeping_complete"
 
 _NON_TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.NOT_STARTED, TaskRun.Status.QUEUED, TaskRun.Status.IN_PROGRESS)
 _TERMINAL_TASK_RUN_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
@@ -101,11 +103,12 @@ def render_loop_run_message(loop_instructions: str, execution_context: str) -> s
     return f"{hidden_context}\n\n{loop_instructions}"
 
 
-# Least-privilege write grants for a loop that maintains a context's context.md or canvas,
+# Least-privilege write grants for a loop that maintains a context page or canvas,
 # added on top of whatever posthog_mcp_scopes the loop already carries rather than escalating
 # the run to the broad `full` write surface. resolve_scopes() re-adds the internal scopes at
-# mint time. Channel instructions ride the channels API (task scope); canvases have their own.
-_CONTEXT_MD_WRITE_SCOPES = ["task:read", "task:write"]
+# mint time. Context updates use the task surface plus server-minted internal-run provenance;
+# canvases have their own scopes.
+_CONTEXT_WRITE_SCOPES = ["task:read", "task:write", LOOP_CONTEXT_INTERNAL_SCOPE]
 _CANVAS_WRITE_SCOPES = ["canvas:read", "canvas:write"]
 
 
@@ -148,12 +151,16 @@ def render_context_target_block(context_target: dict | None) -> str:
     ]
     if outputs["update_context"]:
         lines.append(
-            f"- Update its context.md: read the current version with the "
-            f"`channel-instructions-retrieve` tool (id: {channel_id}), revise it to reflect "
-            f"this run, then publish the full new markdown with "
-            f"`channel-instructions-update` (id: {channel_id}, base_version: the "
-            f"version you just read). Edit in place, carrying forward anything still true instead of "
-            f"rewriting from scratch."
+            f"- Update its context for channel id {channel_id}. When the context wiki tools are available, resolve "
+            f"the channel with `loop-context-wiki-channel-resolve`, read the returned path with "
+            f"`loop-context-wiki-page-retrieve`, then publish the complete Markdown with "
+            f"`loop-context-wiki-page-update` using the head_sha you just read as base_head. If resolution returns "
+            f"a path marked as not existing yet, publish the complete Markdown to that path with "
+            f"`loop-context-wiki-page-update`, starting it with frontmatter `channel_id: {channel_id}` and passing "
+            f"no base_head, to create the page. If resolution reports that the wiki is unavailable, use "
+            f"`loop-channel-instructions-retrieve` and "
+            f"`loop-channel-instructions-update` with the version you just read as base_version. Edit in place, "
+            f"carrying forward anything still true instead of rewriting from scratch."
         )
     if outputs["canvas_id"]:
         lines.append(
@@ -201,10 +208,10 @@ def _augment_scopes_for_context(scopes: PosthogMcpScopes, *, outputs: dict) -> P
     """
     extra: list[str] = []
     if outputs.get("update_context"):
-        extra.extend(_CONTEXT_MD_WRITE_SCOPES)
+        extra.extend(_CONTEXT_WRITE_SCOPES)
     if outputs.get("canvas_id"):
         extra.extend(_CANVAS_WRITE_SCOPES)
-    if not extra or scopes == "full":
+    if not extra:
         return scopes
     base = resolve_scopes(scopes, include_internal_scopes=False)
     return list(dict.fromkeys([*base, *extra]))
@@ -378,7 +385,7 @@ def _fire_loop_committed(
         # deactivation grabs the row lock first, the other either sees the disabled row (and skips)
         # or blocks until this fire commits, so deactivation's run-cancellation scan then sees the
         # new run instead of racing past it. A run must never start under a just-deactivated
-        # owner's credentials (see loop_lifecycle._pause_loop_and_cancel_runs).
+        # owner's credentials (see loop_lifecycle.pause_loop).
         # `for_team`: fire_loop runs outside request/team scope (Temporal workflow, webhook), so the
         # fail-closed default manager would raise without ambient team context.
         locked_loop = (
@@ -742,6 +749,12 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
     # regular task's sandbox_environment_id flows through Task._build_task.
     if loop.sandbox_environment_id is not None:
         extra_state["sandbox_environment_id"] = str(loop.sandbox_environment_id)
+    # A repo-less loop still needs `gh` for evidence gathering (PR digests, commit
+    # history), so provisioning mints the team-scoped read-only GitHub token for it
+    # (see get_readonly_github_token; a team with no usable integration skips the
+    # mint). Repo-pinned loops get the repository integration's token instead.
+    if not loop.repositories:
+        extra_state["github_read_access"] = True
     # Reclaim the sandbox promptly once the agent goes idle — a loop run is unattended,
     # so nothing sends a follow-up. CI-watching loops keep the default window so the
     # sandbox survives the orchestrator's CI follow-up cadence.
@@ -775,18 +788,13 @@ def _create_loop_task_and_run(loop: Loop, trigger: LoopTrigger | None, trigger_c
 
     task_run = task.create_run(mode="background", extra_state=extra_state)
 
-    team_id = loop.team_id
-    user_id = loop.created_by_id
-    task_id = str(task.id)
-    run_id = str(task_run.id)
-
     transaction.on_commit(
         lambda: _seed_skill_bundles_and_dispatch(
             task_run=task_run,
-            team_id=team_id,
-            user_id=user_id,
-            task_id=task_id,
-            run_id=run_id,
+            team_id=loop.team_id,
+            user_id=loop.created_by_id,
+            task_id=str(task.id),
+            run_id=str(task_run.id),
             create_pr=create_pr,
             posthog_mcp_scopes=posthog_mcp_scopes,
         )
@@ -850,24 +858,30 @@ def _increment_consecutive_failures_and_maybe_pause(loop: Loop, *, error: str, d
         )
 
 
-def handle_loop_run_terminal(task_run: TaskRun) -> None:
+def handle_loop_run_terminal(task_run: TaskRun, *, error_type: str | None = None) -> None:
     """Update loop bookkeeping when one of its runs reaches a terminal status.
 
     Resets `consecutive_failures` on success, increments it on failure/cancellation,
     auto-pausing the loop (and its schedules) at `LOOP_AUTO_PAUSE_THRESHOLD`. No-op
     for runs that aren't loop-spawned or aren't yet terminal.
     """
-    state = task_run.state if isinstance(task_run.state, dict) else {}
-    loop_id = state.get("loop_id")
-    if not loop_id:
-        return
-    if task_run.status not in _TERMINAL_TASK_RUN_STATUSES:
-        return
-
-    is_success = task_run.status == TaskRun.Status.COMPLETED
     should_pause = False
 
     with transaction.atomic():
+        locked_task_run = TaskRun.objects.select_for_update().filter(id=task_run.id).first()
+        if locked_task_run is None or locked_task_run.status not in _TERMINAL_TASK_RUN_STATUSES:
+            return
+        state = locked_task_run.state if isinstance(locked_task_run.state, dict) else {}
+        if state.get(LOOP_TERMINAL_BOOKKEEPING_STATE_KEY):
+            return
+        loop_id = state.get("loop_id")
+        if not loop_id:
+            return
+
+        task_run = locked_task_run
+        is_success = task_run.status == TaskRun.Status.COMPLETED
+        is_billing_denial = error_type == COMPUTE_BILLING_LIMIT_ERROR_TYPE
+
         # Scope the loop to the run's own team. `loop_id` lives in run state, which is
         # writable through the run-update endpoint; without this a caller in team B could
         # set their run's state loop_id to a team A loop and steer its bookkeeping,
@@ -880,15 +894,28 @@ def handle_loop_run_terminal(task_run: TaskRun) -> None:
 
         loop.last_run_at = task_run.completed_at or django_timezone.now()
         loop.last_run_status = task_run.status
-        loop.last_error = None if is_success else task_run.error_message
+        loop.last_error = (
+            None
+            if is_success
+            else "Your organization has reached its PostHog Desktop credit limit."
+            if is_billing_denial
+            else task_run.error_message
+        )
         loop.consecutive_failures = 0 if is_success else loop.consecutive_failures + 1
         update_fields = ["last_run_at", "last_run_status", "last_error", "consecutive_failures", "updated_at"]
-        if not is_success and loop.consecutive_failures >= LOOP_AUTO_PAUSE_THRESHOLD and loop.enabled:
+        if is_billing_denial and loop.enabled:
+            loop.enabled = False
+            loop.disabled_reason = DISABLED_REASON_USAGE_LIMITED
+            update_fields.extend(["enabled", "disabled_reason"])
+            should_pause = True
+        elif not is_success and loop.consecutive_failures >= LOOP_AUTO_PAUSE_THRESHOLD and loop.enabled:
             loop.enabled = False
             loop.disabled_reason = DISABLED_REASON_REPEATED_FAILURES
             update_fields.extend(["enabled", "disabled_reason"])
             should_pause = True
         loop.save(update_fields=update_fields)
+        task_run.state = {**state, LOOP_TERMINAL_BOOKKEEPING_STATE_KEY: True}
+        task_run.save(update_fields=["state", "updated_at"])
 
     if should_pause:
         pause_loop_schedules(loop)

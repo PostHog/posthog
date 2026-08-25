@@ -351,6 +351,43 @@ class TestExitCodeAndSummary(_BatchCommandTestCase):
             call_command("enrichment_label_batch", label="test_label", limit=limit)
 
 
+class TestExpectedVersionGuard(_BatchCommandTestCase):
+    """--expected-version lets a caller that resolved the active version itself (the ai_enrichment
+    dag) assert nothing changed it before spending - see ai_enrichment.py's module docstring."""
+
+    def test_a_mismatched_expected_version_aborts_before_any_spend(self):
+        self._config(version="v2")
+        self._fetch()
+        client = _mock_llm_client()
+
+        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+            with self.assertRaises(CommandError):
+                call_command("enrichment_label_batch", label="test_label", workers=1, expected_version="v1")
+
+        client.chat.completions.create.assert_not_called()
+        assert EnrichmentLabelResult.objects.count() == 0
+
+    def test_a_matching_expected_version_runs_normally(self):
+        self._config(version="v2")
+        self._fetch()
+        client = _mock_llm_client()
+
+        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+            call_command("enrichment_label_batch", label="test_label", workers=1, expected_version="v2")
+
+        assert EnrichmentLabelResult.objects.count() == 1
+
+    def test_omitting_expected_version_is_unchanged_manual_cli_behavior(self):
+        self._config()
+        self._fetch()
+        client = _mock_llm_client()
+
+        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+            call_command("enrichment_label_batch", label="test_label", workers=1)
+
+        assert EnrichmentLabelResult.objects.count() == 1
+
+
 class TestWorkerConnectionErrors(NonAtomicBaseTest):
     """Non-atomic: worker threads get their own DB connections, matching the pattern in
     TestEnrichmentLabelBatchConcurrency (test_enrichment_labels.py) for the same reason."""
@@ -504,6 +541,33 @@ class TestAiProcessingConsent(_BatchCommandTestCase):
             call_command("enrichment_label_batch", label="test_label", workers=1, stdout=out)
 
         assert "skipped_no_ai_consent 1" in out.getvalue()
+
+    def test_a_declined_org_ordered_before_an_approved_one_does_not_consume_the_limit(self):
+        # Regression: --limit used to count a declined org as "attempted" the moment it was
+        # enumerated, before the consent check (which only ran later, at spend-time inside
+        # _process). A declined org costs nothing, so with --limit 1 and a declined org sorting
+        # first by organization_id, the run used to exhaust its whole budget on that one free
+        # skip and never even enumerate the approved org behind it - zero verdicts, yet the
+        # command still exited 0 (tried == 0 skips the "every attempted org failed" check). A
+        # consent-filtered candidate count downstream can't tell that apart from a real failure.
+        self._config()
+        org_x = Organization.objects.create(name="x")
+        org_y = Organization.objects.create(name="y")
+        declined_org, approved_org = sorted([org_x, org_y], key=lambda org: str(org.id))
+        declined_org.is_ai_data_processing_approved = False
+        declined_org.save(update_fields=["is_ai_data_processing_approved"])
+        self._fetch(organization=declined_org)
+        self._fetch(organization=approved_org)
+        client = _mock_llm_client()
+        out = StringIO()
+
+        with patch(f"{_BATCH_COMMAND_MODULE}.get_llm_client", return_value=client):
+            call_command("enrichment_label_batch", label="test_label", workers=1, limit=1, stdout=out)
+
+        assert EnrichmentLabelResult.objects.filter(organization=approved_org).exists()
+        assert "attempted 1" in out.getvalue()
+        assert "skipped_no_ai_consent 1" in out.getvalue()
+        assert "failures 0" in out.getvalue()
 
     def test_the_dry_run_prints_a_skip_row_rather_than_an_error(self):
         self._config()

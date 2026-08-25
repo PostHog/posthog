@@ -1,7 +1,8 @@
-import { ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-general'
+import { ExperimentEventExposureConfig, ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-general'
 
 import {
     exposureEventLabel,
+    getActivationConfig,
     getExposureEventAndProperty,
     isDefaultExposureConfig,
     resolvedExposureEvent,
@@ -118,5 +119,63 @@ describe('exposureContract', () => {
                 resolvedExposureEvent: '$experiment_exposure',
             }).event
         ).toBe(expectedEvent)
+    })
+
+    // Mirrors the backend `has_activation_config` gate: activation only composes with the
+    // default exposure, so a custom exposure_config must disable it.
+    const activationConfig: ExperimentEventExposureConfig = {
+        kind: NodeKind.ExperimentEventExposureConfig,
+        event: 'activated',
+        properties: [],
+    }
+    it.each<[string, ExperimentExposureCriteria | undefined, boolean]>([
+        ['no criteria', undefined, false],
+        ['activation alone', { activation_config: activationConfig }, true],
+        [
+            'activation with the stored default exposure config',
+            {
+                exposure_config: {
+                    kind: NodeKind.ExperimentEventExposureConfig,
+                    event: '$feature_flag_called',
+                    properties: [],
+                },
+                activation_config: activationConfig,
+            },
+            true,
+        ],
+        [
+            'activation with a pinned $experiment_exposure config',
+            {
+                exposure_config: {
+                    kind: NodeKind.ExperimentEventExposureConfig,
+                    event: '$experiment_exposure',
+                    properties: [],
+                },
+                activation_config: activationConfig,
+            },
+            true,
+        ],
+        [
+            'activation ignored under a custom exposure config',
+            {
+                exposure_config: {
+                    kind: NodeKind.ExperimentEventExposureConfig,
+                    event: 'checkout_started',
+                    properties: [],
+                },
+                activation_config: activationConfig,
+            },
+            false,
+        ],
+        [
+            'activation ignored under an action exposure config',
+            {
+                exposure_config: { kind: NodeKind.ActionsNode, id: 42 },
+                activation_config: activationConfig,
+            },
+            false,
+        ],
+    ])('resolves the activation config for %s', (_name, exposureCriteria, expectActive) => {
+        expect(getActivationConfig(exposureCriteria)).toEqual(expectActive ? activationConfig : undefined)
     })
 })

@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { Children, ComponentProps, MouseEvent, ReactNode, useContext, useEffect } from 'react'
 
-import { IconExternal, IconSidePanel, IconSparkles } from '@posthog/icons'
+import { IconExternal, IconGear, IconSidePanel, IconSparkles } from '@posthog/icons'
 import {
     Badge,
     Button,
@@ -29,10 +29,15 @@ import { IconBlank } from 'lib/lemon-ui/icons'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 import { sceneLogic } from 'scenes/sceneLogic'
+import type { SettingSectionId } from 'scenes/settings/types'
+import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { SidePanelTab } from '~/types'
+
+import { SceneContentContext } from './SceneContent'
 
 /**
  * Central instrumentation for the SceneMenuBar experiment (`SCENE_MENU_BAR` flag). Capturing
@@ -56,6 +61,23 @@ const PADDED_LAYOUTS = new Set(['app', 'app-container', 'app-full-scene-height']
 type SceneMenuBarProps = {
     children: ReactNode
     className?: string
+}
+
+const SETTINGS_SECTION_BY_PRODUCT: Partial<Record<ProductKey, SettingSectionId>> = {
+    [ProductKey.PRODUCT_ANALYTICS]: 'environment-product-analytics',
+    [ProductKey.WEB_ANALYTICS]: 'environment-web-analytics',
+    [ProductKey.SESSION_REPLAY]: 'environment-replay',
+    [ProductKey.FEATURE_FLAGS]: 'environment-feature-flags',
+    [ProductKey.EXPERIMENTS]: 'environment-experiments',
+    [ProductKey.SURVEYS]: 'environment-surveys',
+    [ProductKey.AI_OBSERVABILITY]: 'environment-ai-observability',
+    [ProductKey.LOGS]: 'environment-logs',
+    [ProductKey.WORKFLOWS]: 'environment-workflows',
+}
+
+function getSettingsUrl(productKey: ProductKey | null): string | null {
+    const section = productKey ? SETTINGS_SECTION_BY_PRODUCT[productKey] : undefined
+    return section ? urls.settings(section) : null
 }
 
 export function SceneMenuBar({ children, className }: SceneMenuBarProps): JSX.Element {
@@ -108,8 +130,22 @@ const RIGHT_TRIGGER_CLASSES = 'px-2 h-7 rounded-sm text-xs font-medium inline-fl
 
 function SceneMenuBarRightLinks(): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { productKey } = useContext(SceneContentContext)
+    const settingsUrl = getSettingsUrl(productKey)
+
     return (
         <div className="flex items-center gap-px pr-1">
+            {settingsUrl && (
+                <Button
+                    data-attr="scene-menu-bar-settings"
+                    className={RIGHT_TRIGGER_CLASSES}
+                    onClick={() => captureSceneMenuBar('scene menu bar right link clicked', { link: 'settings' })}
+                    render={<LinkPrimitive to={settingsUrl} />}
+                >
+                    Settings
+                    <IconGear />
+                </Button>
+            )}
             <Button
                 data-attr="scene-menu-bar-docs"
                 className={RIGHT_TRIGGER_CLASSES}
@@ -166,7 +202,7 @@ function SceneMenuBarRightLinks(): JSX.Element {
  *   Activity indicator, ExternalReferences.
  * - **Staff only** *(conditional)* — Debug panels, internal toggles.
  *
- * Right cluster is universal: PostHog AI / Docs / Support.
+ * Right cluster includes PostHog AI, Docs, Support, and Settings when configured for the scene's product.
  *
  * Full conventions: `.agents/skills/scene-menu-bar/SKILL.md`.
  */
@@ -252,7 +288,7 @@ type SceneMenuBarItemProps = ComponentProps<typeof MenubarItem> & {
 
 /**
  * Pass `variant="destructive"` for any "Delete X" / "Archive X" / "Remove X" action so the
- * visual signal (red text + icon) is consistent across PostHog scenes.
+ * visual signal is consistent across PostHog scenes.
  */
 export function SceneMenuBarItem({
     opensFloatingUi,

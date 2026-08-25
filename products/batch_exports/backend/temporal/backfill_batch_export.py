@@ -451,8 +451,9 @@ async def _get_backfill_info_for_sessions(
 ) -> tuple[dt.datetime | None, int | None]:
     """Get earliest timestamp and estimated record count for sessions model.
 
-    Queries the sessions table via HogQL, filtering by $end_timestamp
-    (this logic is the same as the actual export query, which aliases `$end_timestamp` as `_inserted_at`).
+    Queries the sessions table via HogQL, filtering by $end_timestamp. This matches
+    the event-time semantics of backfill export queries (see
+    `SessionsRecordBatchModel.get_hogql_query` with `is_backfill=True`).
 
     Returns:
         A tuple of (min_timestamp, estimated_records_count).

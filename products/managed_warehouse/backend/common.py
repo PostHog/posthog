@@ -120,9 +120,13 @@ def get_org_config(organization_id: str) -> dict[str, str]:
 def is_dev_mode() -> bool:
     """Check if running in development mode."""
     try:
-        from posthog.settings import USE_LOCAL_SETUP
+        # Deliberately the computed default, NOT the env-overridable USE_LOCAL_SETUP:
+        # a production-mode deployment that forces warehouse storage local (e.g. a
+        # compose stack with in-stack MinIO) must not also flip dev-mode behavior
+        # like feature-flag-bypassing DuckLake shadow execution.
+        from posthog.settings import USE_LOCAL_SETUP_DEFAULT
 
-        return USE_LOCAL_SETUP
+        return USE_LOCAL_SETUP_DEFAULT
     except ImportError:
         return True
 

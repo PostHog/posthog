@@ -14,11 +14,13 @@ import { formatCurrency } from 'lib/utils/currency'
 import stringWithWBR from 'lib/utils/stringWithWBR'
 import { groupLogic } from 'scenes/groups/groupLogic'
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
+import { defineNotebookWidgetViews, getNotebookWidgetDefaultView } from 'scenes/notebooks/notebookWidgetCatalog'
 import { groupDisplayId } from 'scenes/persons/GroupActorDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { Query } from '~/queries/Query/Query'
 import { CurrencyCode, NodeKind } from '~/queries/schema/schema-general'
 import { Group, PropertyFilterType, PropertyOperator } from '~/types'
 
@@ -27,21 +29,22 @@ import { DataSourceIcon } from './components/DataSourceIcon'
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { calculateMRRData, getPaidProducts } from './utils'
 
-const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes>): JSX.Element => {
+const Component = (props: NotebookNodeProps<NotebookNodeGroupAttributes>): JSX.Element => {
+    return <GroupCard {...props} compact={false} />
+}
+
+function GroupCard({
+    attributes,
+    compact,
+}: NotebookNodeProps<NotebookNodeGroupAttributes> & { compact: boolean }): JSX.Element {
     const { id, groupTypeIndex, tabId, title } = attributes
     const mountedGroupLogic = groupLogic({
         groupKey: id,
         groupTypeIndex,
         tabId,
     })
-    const {
-        groupData,
-        groupDataLoading,
-        groupTypeName,
-        groupRevenueAnalyticsDataLoading,
-        effectiveMRR,
-        effectiveLifetimeValue,
-    } = useValues(mountedGroupLogic)
+    const { groupData, groupDataLoading, groupRevenueAnalyticsDataLoading, effectiveMRR, effectiveLifetimeValue } =
+        useValues(mountedGroupLogic)
     const { setActions, insertAfter, setTitlePlaceholder } = useActions(notebookNodeLogic)
     const { notebookLogic } = useValues(notebookNodeLogic)
     useAttachedLogic(mountedGroupLogic, notebookLogic)
@@ -50,7 +53,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes
     const inGroupFeed = title === 'Info'
 
     useEffect(() => {
-        const title = groupData ? `${groupTypeName}: ${groupDisplay}` : 'Group'
+        const title = groupData ? groupDisplay : 'Group'
         setTitlePlaceholder(title)
         setActions([
             {
@@ -113,13 +116,15 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes
                             </CopyToClipboardInline>
                         </div>
 
-                        <GroupInfo
-                            groupData={groupData}
-                            mrr={effectiveMRR}
-                            lifetimeValue={effectiveLifetimeValue}
-                            isMRRLoading={groupRevenueAnalyticsDataLoading}
-                            isLifetimeValueLoading={groupRevenueAnalyticsDataLoading}
-                        />
+                        {!compact ? (
+                            <GroupInfo
+                                groupData={groupData}
+                                mrr={effectiveMRR}
+                                lifetimeValue={effectiveLifetimeValue}
+                                isMRRLoading={groupRevenueAnalyticsDataLoading}
+                                isLifetimeValueLoading={groupRevenueAnalyticsDataLoading}
+                            />
+                        ) : null}
                     </>
                 ) : null}
             </div>
@@ -272,13 +277,67 @@ export function PaidProducts({ groupData }: { groupData: Group }): JSX.Element |
 type NotebookNodeGroupAttributes = {
     id: string
     groupTypeIndex: number
+    view?: string
     tabId?: string
     placement?: string
 }
 
+function GroupSummary(props: NotebookNodeProps<NotebookNodeGroupAttributes>): JSX.Element {
+    return <GroupCard {...props} compact />
+}
+
+function GroupActivity({ attributes }: NotebookNodeProps<NotebookNodeGroupAttributes>): JSX.Element {
+    const { notebookLogic } = useValues(notebookNodeLogic)
+    const { setTitlePlaceholder } = useActions(notebookNodeLogic)
+    const { groupData } = useValues(
+        groupLogic({
+            groupKey: attributes.id,
+            groupTypeIndex: attributes.groupTypeIndex,
+            tabId: attributes.tabId,
+        })
+    )
+
+    useEffect(() => {
+        setTitlePlaceholder(groupData ? groupDisplayId(groupData.group_key, groupData.group_properties) : 'Group')
+    }, [groupData, setTitlePlaceholder])
+
+    return (
+        <Query
+            uniqueKey={`${attributes.nodeId}-activity`}
+            attachTo={notebookLogic}
+            query={{
+                kind: NodeKind.DataTableNode,
+                embedded: true,
+                full: false,
+                source: {
+                    kind: NodeKind.EventsQuery,
+                    select: defaultDataTableColumns(NodeKind.EventsQuery),
+                    after: '-30d',
+                    limit: 50,
+                    fixedProperties: [
+                        {
+                            key: `$group_${attributes.groupTypeIndex}`,
+                            value: attributes.id,
+                            type: PropertyFilterType.Event,
+                            operator: PropertyOperator.Exact,
+                        },
+                    ],
+                },
+            }}
+            readOnly
+        />
+    )
+}
+
+const GROUP_NOTEBOOK_WIDGET_VIEWS = defineNotebookWidgetViews<NotebookNodeGroupAttributes, 'Group'>('Group', {
+    summary: GroupSummary,
+    activity: GroupActivity,
+})
+
 export const NotebookNodeGroup = createPostHogWidgetNode<NotebookNodeGroupAttributes>({
     nodeType: NotebookNodeType.Group,
     titlePlaceholder: 'Group',
+    editableTitle: false,
     Component,
     heightEstimate: 300,
     minHeight: 100,
@@ -288,12 +347,11 @@ export const NotebookNodeGroup = createPostHogWidgetNode<NotebookNodeGroupAttrib
     attributes: {
         id: {},
         groupTypeIndex: {},
+        view: {},
         tabId: {},
         placement: {},
     },
-    serializedText: (attrs) => {
-        const title = attrs?.title || ''
-        const id = attrs?.id || ''
-        return `${title} ${id}`.trim()
-    },
+    defaultView: getNotebookWidgetDefaultView('Group'),
+    views: GROUP_NOTEBOOK_WIDGET_VIEWS,
+    serializedText: (attrs) => attrs.title || 'Group',
 })

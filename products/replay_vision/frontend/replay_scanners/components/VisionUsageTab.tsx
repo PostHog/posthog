@@ -3,18 +3,22 @@ import { useMemo } from 'react'
 
 import { LemonSegmentedButton, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { InsightVizNode, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, InsightLogicProps, PropertyFilterType, PropertyOperator } from '~/types'
 
+import { VisionDocsLink } from '../../components/DocsLink'
+import { CreditPriceNote } from '../../components/PricingLink'
 import { visionQuotaLogic } from '../../logics/visionQuotaLogic'
 import { creditsToUsd, formatCreditCount, formatCreditsMaybeUsd, formatCreditsRange } from '../../utils/credits'
 import { exhaustionForecast, hasCreditLimit, projectQuota } from '../../utils/quotaProjection'
 import { STARTUP_CAP_EXPLANATION } from '../../utils/startupCap'
-import { OBSERVATION_CREDITS_BY_MODEL, ReplayScanner, modelName } from '../types'
+import { OBSERVATION_CREDITS_BY_MODEL, ReplayScanner, modelName, modelNamingVariant } from '../types'
 import { SpendChartInterval, visionUsageLogic } from '../visionUsageLogic'
 import { QuotaMeterBar } from './QuotaMeterBar'
 import { VisionInsightChart } from './VisionInsightChart'
@@ -62,6 +66,8 @@ export function VisionUsageTab(): JSX.Element {
         billedLimitCredits,
         showStartupCap,
     } = useValues(visionQuotaLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const namingVariant = modelNamingVariant(featureFlags[FEATURE_FLAGS.REPLAY_VISION_MODEL_TIER_NAMING_EXPERIMENT])
 
     const projection = projectQuota(quota)
     const hasCap = hasCreditLimit(quota)
@@ -152,7 +158,7 @@ export function VisionUsageTab(): JSX.Element {
                     <span className="tabular-nums">
                         {scanner.credits_per_observation} credit{scanner.credits_per_observation === 1 ? '' : 's'}
                     </span>
-                    <span className="text-muted"> · {modelName(scanner.model)}</span>
+                    <span className="text-muted"> · {modelName(scanner.model, namingVariant)}</span>
                 </span>
             ),
         },
@@ -209,7 +215,7 @@ export function VisionUsageTab(): JSX.Element {
             key: 'credits_this_month',
             width: '30%',
             className: 'pl-6',
-            tooltip: 'How much of the total spend this period came from this scanner.',
+            tooltip: 'How much of the total spend this billing period came from this scanner.',
             render: (_, scanner) => {
                 const sharePct = totalCredits > 0 ? Math.round((scanner.credits_this_month / totalCredits) * 100) : 0
                 return (
@@ -237,7 +243,7 @@ export function VisionUsageTab(): JSX.Element {
                                     {hasCap
                                         ? formatCreditsRange(quota.credits_used, quota.credit_limit ?? 0)
                                         : formatCreditCount(quota.credits_used)}{' '}
-                                    this period
+                                    this billing period
                                     {projection.resetsOn ? `, resets ${projection.resetsOn}` : ''}
                                 </span>
                             </Tooltip>
@@ -274,15 +280,26 @@ export function VisionUsageTab(): JSX.Element {
                 dataSource={rows}
                 loading={usageScannersLoading}
                 rowKey={(scanner) => scanner.id}
-                emptyState="No spend this period yet. Costs appear here once scanners produce observations."
+                emptyState={
+                    <>
+                        No spend this billing period yet. Costs appear here once scanners produce observations.{' '}
+                        <VisionDocsLink page="quota-and-limits" dataAttr="vision-empty-docs-link-usage">
+                            Learn how credits and limits work
+                        </VisionDocsLink>
+                    </>
+                }
                 footer={
                     hiddenCount > 0 ? (
                         <div className="px-3 py-2 text-xs text-muted">
-                            {hiddenCount} scanner{hiddenCount === 1 ? '' : 's'} with no spend or estimate this period
+                            {hiddenCount} scanner{hiddenCount === 1 ? '' : 's'} with no spend or estimate this billing
+                            period
                         </div>
                     ) : undefined
                 }
             />
+            <div className="text-xs text-muted">
+                <CreditPriceNote dataAttr="vision-pricing-link-usage" />
+            </div>
         </div>
     )
 }

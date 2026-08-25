@@ -61,6 +61,7 @@ def upsert_direct_postgres_table(
             external_data_source=source,
             columns=columns,
             options=options,
+            created_via=DataWarehouseTable.CreatedVia.SOURCE,
         )
 
     existing_table.name = schema_name
@@ -70,6 +71,8 @@ def upsert_direct_postgres_table(
     existing_table.options = options
     existing_table.deleted = False
     existing_table.deleted_at = None
+    # DIRECT_POSTGRES_URL_PATTERN is a fixed sentinel, not request input, so this upsert is a
+    # trusted writer of a credential-less table's URL.
     existing_table.save(
         update_fields=[
             "name",
@@ -80,7 +83,8 @@ def upsert_direct_postgres_table(
             "deleted",
             "deleted_at",
             "updated_at",
-        ]
+        ],
+        internally_computed_url_pattern=True,
     )
     return existing_table
 

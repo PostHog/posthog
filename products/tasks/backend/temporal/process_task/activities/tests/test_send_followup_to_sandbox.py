@@ -66,7 +66,11 @@ class TestSendFollowupToSandbox(BaseTest):
         event = json.loads(payload)
         self.assertEqual(event["notification"]["params"]["stopReason"], "max_tokens")
 
-    @patch("products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._refresh_sandbox_mcp")
+    # A bare mock would return a truthy value, which now reads as a rebind failure.
+    @patch(
+        "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._refresh_sandbox_mcp",
+        return_value=None,
+    )
     @patch(
         "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.get_tasks_stream_redis_sync"
     )

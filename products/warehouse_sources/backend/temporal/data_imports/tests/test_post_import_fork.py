@@ -334,6 +334,31 @@ async def test_post_import_workflow_runs_moved_steps(gates_on: bool, steps_mode:
     assert any(c.startswith("ducklake-copy-data-imports-") for c in child_ids)
 
 
+async def test_each_completed_sync_gets_its_own_data_quality_suite():
+    from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
+        PostImportContext,
+        PostImportWorkflowInputs,
+        _start_data_quality_checks,
+    )
+
+    schema_id, table_id = str(uuid.uuid4()), str(uuid.uuid4())
+    ctx = PostImportContext(table_id=table_id)
+
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.post_import_job.workflow.start_child_workflow",
+        new_callable=mock.AsyncMock,
+    ) as mock_start_child:
+        for job_id in (_JOB_ID, str(uuid.uuid4())):
+            await _start_data_quality_checks(
+                PostImportWorkflowInputs(team_id=1, job_id=job_id, schema_id=schema_id, source_id=str(uuid.uuid4())),
+                ctx,
+            )
+
+    child_ids = [call.kwargs["id"] for call in mock_start_child.call_args_list]
+    assert len(set(child_ids)) == 2
+    assert all(child_id.startswith(f"data-quality-source-sync-{schema_id}-") for child_id in child_ids)
+
+
 @pytest.fixture
 def _no_close_old_connections():
     # The activity reconnects stale worker connections; under pytest-django that would
@@ -342,7 +367,7 @@ def _no_close_old_connections():
         yield
 
 
-def _create_job(team, *, status, schema_snapshot, schema_last_synced_at):
+def _create_job(team, *, status, schema_snapshot, schema_last_synced_at, rows_synced=5):
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -357,7 +382,7 @@ def _create_job(team, *, status, schema_snapshot, schema_last_synced_at):
         schema=schema,
         status=status,
         schema_snapshot=schema_snapshot,
-        rows_synced=0,
+        rows_synced=rows_synced,
     )
     return source, schema, job
 
@@ -398,6 +423,46 @@ def test_resolve_context_uses_pre_sync_watermark_from_snapshot(team, _no_close_o
     # off in the test environment); a None here would send new runs down the legacy path.
     assert ctx.steps is not None
     assert ctx.steps[-2:] == [TABLE_SIZE_STEP, DUCKLAKE_COPY_STEP]
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "rows_synced,expect_steps",
+    [
+        pytest.param(5, True, id="rows_written"),
+        pytest.param(0, False, id="zero_rows"),
+        pytest.param(None, True, id="row_count_unknown"),
+    ],
+)
+def test_table_size_tracks_rows_written_while_ducklake_copy_always_runs(
+    team, rows_synced, expect_steps, _no_close_old_connections
+):
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+    from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
+        DUCKLAKE_COPY_STEP,
+        TABLE_SIZE_STEP,
+        PostImportWorkflowInputs,
+        resolve_post_import_context_activity,
+    )
+
+    source, schema, job = _create_job(
+        team,
+        status=ExternalDataJob.Status.COMPLETED,
+        schema_snapshot={"last_synced_at": "2026-07-01T00:00:00+00:00"},
+        schema_last_synced_at=None,
+        rows_synced=rows_synced,
+    )
+
+    ctx = resolve_post_import_context_activity(
+        PostImportWorkflowInputs(
+            team_id=team.pk, job_id=str(job.id), schema_id=str(schema.id), source_id=str(source.id)
+        )
+    )
+
+    assert ctx.steps is not None
+    assert (TABLE_SIZE_STEP in ctx.steps) is expect_steps
+    # The sync path is the only retry for a failed DuckLake copy, so it runs even at zero rows.
+    assert DUCKLAKE_COPY_STEP in ctx.steps
 
 
 @pytest.mark.django_db

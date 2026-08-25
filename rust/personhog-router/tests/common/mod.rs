@@ -23,8 +23,7 @@ use personhog_proto::personhog::types::v1::{
     DeleteGroupTypeMappingResponse, DeleteGroupTypeMappingsBatchForTeamRequest,
     DeleteGroupTypeMappingsBatchForTeamResponse, DeleteGroupsBatchForTeamRequest,
     DeleteGroupsBatchForTeamResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, DeletePersonlessDistinctIdsBatchForTeamRequest,
-    DeletePersonlessDistinctIdsBatchForTeamResponse, DeletePersonsBatchForTeamRequest,
+    DeleteHashKeyOverridesByTeamsResponse, DeletePersonsBatchForTeamRequest,
     DeletePersonsBatchForTeamResponse, DeletePersonsRequest, DeletePersonsResponse,
     GetDistinctIdsForPersonRequest, GetDistinctIdsForPersonResponse,
     GetDistinctIdsForPersonsRequest, GetDistinctIdsForPersonsResponse, GetGroupRequest,
@@ -447,15 +446,6 @@ impl PersonHogReplica for TestReplicaService {
         }))
     }
 
-    async fn delete_personless_distinct_ids_batch_for_team(
-        &self,
-        _request: Request<DeletePersonlessDistinctIdsBatchForTeamRequest>,
-    ) -> Result<Response<DeletePersonlessDistinctIdsBatchForTeamResponse>, Status> {
-        Ok(Response::new(
-            DeletePersonlessDistinctIdsBatchForTeamResponse { deleted_count: 0 },
-        ))
-    }
-
     async fn split_person(
         &self,
         _request: Request<SplitPersonRequest>,
@@ -633,6 +623,7 @@ pub fn create_test_person() -> Person {
         is_identified: true,
         is_user_id: None,
         last_seen_at: None,
+        is_deleted: false,
     }
 }
 
@@ -695,6 +686,40 @@ fn require_partition_metadata<T>(request: &Request<T>) -> Result<u32, Status> {
 
 #[tonic::async_trait]
 impl PersonHogLeader for TestLeaderService {
+    async fn fence_person(
+        &self,
+        request: Request<personhog_proto::personhog::types::v1::FencePersonRequest>,
+    ) -> Result<Response<personhog_proto::personhog::types::v1::FencePersonResponse>, Status> {
+        require_partition_metadata(&request)?;
+        Err(Status::unimplemented("not exercised by router tests"))
+    }
+
+    async fn release_fence(
+        &self,
+        request: Request<personhog_proto::personhog::types::v1::ReleaseFenceRequest>,
+    ) -> Result<Response<personhog_proto::personhog::types::v1::ReleaseFenceResponse>, Status> {
+        require_partition_metadata(&request)?;
+        Err(Status::unimplemented("not exercised by router tests"))
+    }
+
+    async fn fold_person_document(
+        &self,
+        request: Request<personhog_proto::personhog::types::v1::FoldPersonDocumentRequest>,
+    ) -> Result<Response<personhog_proto::personhog::types::v1::FoldPersonDocumentResponse>, Status>
+    {
+        require_partition_metadata(&request)?;
+        // Mimics the real leader's fail-closed mark refusal: a definitive
+        // FAILED_PRECONDITION marked as semantic, which the router must
+        // deliver rather than bounce.
+        let mut status =
+            Status::failed_precondition("op holds no live target mark for this person");
+        status.metadata_mut().insert(
+            personhog_common::grpc::SEMANTIC_REFUSAL_METADATA_KEY,
+            "fold-unverified".parse().expect("static slug parses"),
+        );
+        Err(status)
+    }
+
     async fn get_person(
         &self,
         request: Request<GetPersonRequest>,

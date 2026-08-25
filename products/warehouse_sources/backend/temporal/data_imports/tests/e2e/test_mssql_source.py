@@ -166,7 +166,6 @@ def mssql_source_table(mssql_connection: pymssql.Connection, mssql_config: dict[
             """)
             mssql_connection.commit()
 
-            # Insert test data
             _insert_test_data(cursor=cursor, table_name=full_table_name, data=TEST_DATA)
 
             yield cursor
@@ -248,7 +247,6 @@ class TestEndToEndWorkflow:
         external_data_source: ExternalDataSource,
         external_data_schema_full_refresh: ExternalDataSchema,
     ):
-        """Test that a full refresh sync works as expected."""
         table_name = f"mssql_{MSSQL_TABLE_NAME}"
         expected_num_rows = len(TEST_DATA)
 
@@ -282,7 +280,6 @@ class TestEndToEndWorkflow:
         external_data_source: ExternalDataSource,
         external_data_schema_incremental: ExternalDataSchema,
     ):
-        """Test that an incremental sync works as expected."""
         table_name = f"mssql_{MSSQL_TABLE_NAME}"
         expected_num_rows = len(TEST_DATA)
 
@@ -362,7 +359,6 @@ class TestEndToEndWorkflow:
         external_data_source: ExternalDataSource,
         external_data_schema_incremental_using_created_at_column: ExternalDataSchema,
     ):
-        """Test that an incremental sync works as expected when using the `created_at` column as the incremental field."""
         table_name = f"mssql_{MSSQL_TABLE_NAME}"
         expected_num_rows = len(TEST_DATA)
 

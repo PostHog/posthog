@@ -88,7 +88,11 @@ Run separately for each model. Available models: `'text-embedding-3-small-1536'`
 
 Use `embedText(text, model_name)` and `cosineDistance()` for semantic search. See the `signals` skill for detailed query patterns around the signals product specifically, including required deduplication and metadata extraction.
 
-If higher-priority project guidance requires a semantic lookup before data discovery, follow it first. Otherwise use the schema workflow below.
+For a named business or operational measure, look it up in the data catalog (`system.information_schema.metrics`) before any schema discovery.
+Run an approved, non-drifted match with `data-catalog-metric-run` instead of deriving it.
+Every other outcome means there is no canonical definition to reuse — no match, a drifted match, or a match that is not approved: derive the measure with the schema workflow below and label the result noncanonical.
+A project without the data catalog has neither that table nor that tool, so an unknown-table error is that case too, and it holds for the rest of the session: stop checking.
+Everything else starts with that workflow.
 
 #### Schema discovery (information_schema)
 

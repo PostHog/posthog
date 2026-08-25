@@ -1,5 +1,6 @@
 import { RESOURCE_URI_META_KEY } from '@modelcontextprotocol/ext-apps/server'
 
+import { getDiscoveryHint } from '@/lib/discovery-hints'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { formatResponse } from '@/lib/response'
 import { isPrepareConfirmedActionResult } from '@/tools/confirmed-action-runtime'
@@ -187,9 +188,21 @@ export function buildToolResultPayload(opts: BuildToolResultOptions): ToolResult
     const structuredContentOnly =
         !!forceUiDataToMeta && hasUiResource && !isStringResult && !useJson && formattedResults === undefined
 
-    const text = structuredContentOnly
+    let text = structuredContentOnly
         ? STRUCTURED_CONTENT_ONLY_TEXT
         : (formattedResults ?? (useJson ? JSON.stringify(rawResult) : formatResponse(rawResult)))
+
+    // Discovery hints ride the text channel as a footer, mirroring how error
+    // responses carry `getToolRecoveryHint`. Skipped when the caller asked for
+    // raw JSON (the text must stay machine-parseable) and when the text is only
+    // the structuredContent pointer (the model reads the structured field, and
+    // `estimateResponseTokens` keys off the exact pointer string).
+    if (!isStringResult && !useJson && !structuredContentOnly && !isPrepareConfirmedActionResult(handlerResult)) {
+        const discoveryHint = getDiscoveryHint({ toolName, handlerResult })
+        if (discoveryHint) {
+            text = `${text}\n\n${discoveryHint}`
+        }
+    }
 
     const payload: ToolResultPayload = {
         content: [{ type: 'text', text }],

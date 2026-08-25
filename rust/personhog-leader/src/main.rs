@@ -4,7 +4,7 @@ use std::time::Duration;
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use axum::{routing::get, Router};
 use common_kafka::kafka_producer::create_kafka_producer;
-use common_metrics::setup_metrics_routes;
+use common_metrics::{setup_metrics_routes_with_overrides, Matcher};
 use dashmap::DashMap;
 use envconfig::Envconfig;
 use k8s_awareness::{K8sAwareness, PodInfo};
@@ -12,10 +12,12 @@ use kube::Client;
 use lifecycle::{ComponentOptions, Manager};
 use personhog_common::async_gzip::{AsyncGzipConfig, AsyncGzipLayer};
 use personhog_common::grpc::{tracked_tcp_incoming, GrpcLoadShedLayer, GrpcMetricsLayer};
+use personhog_common::metrics::{WARM_LATENCY_BUCKETS_MS, WRITE_PATH_LATENCY_BUCKETS_MS};
 use personhog_coordination::authority::AuthorityClock;
 use personhog_coordination::pod::{PodConfig, PodHandle};
 use personhog_coordination::store::PersonhogStore;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeaderServer;
+use tokio::sync::Notify;
 use tokio::time::timeout;
 use tokio_util::sync::CancellationToken;
 use tonic::codec::CompressionEncoding;
@@ -61,6 +63,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     config
         .validate_fencing_timescales()
         .expect("Invalid fencing configuration");
+    config
+        .validate_shutdown_budgets()
+        .expect("Invalid shutdown configuration");
     validate_table_name(&config.fallback_table).expect("Invalid FALLBACK_TABLE");
 
     // Initialize tracing
@@ -97,16 +102,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // stop in phase 1, only after the drain finishes — signalling them
     // together with coordination black-holed every partition for the whole
     // drain (dead server, still the registered owner). The coordination
-    // graceful window must exceed the pod's drain timeout (30s) plus the pre-revoke fence's short bound (3s), and the
-    // global timeout must fit both phases.
+    // window must fit the pod's whole teardown — drain, fence, keepalive
+    // join, revoke — and the global timeout both phases;
+    // `validate_lease_timescales` refuses a configuration that breaks
+    // the first relation at startup.
     let mut manager = Manager::builder("personhog-leader")
-        .with_global_shutdown_timeout(Duration::from_secs(60))
+        .with_global_shutdown_timeout(config.global_shutdown_timeout())
         .build();
 
     let grpc_handle = manager.register(
         "grpc-server",
         ComponentOptions::new()
-            .with_graceful_shutdown(Duration::from_secs(15))
+            .with_graceful_shutdown(config.phase1_graceful_shutdown())
             .with_shutdown_phase(1),
     );
     let metrics_handle = manager.register(
@@ -115,11 +122,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let coordination_handle = manager.register(
         "coordination",
-        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(35)),
+        ComponentOptions::new().with_graceful_shutdown(config.coordination_graceful_shutdown()),
     );
     let kafka_handle = manager.register(
         "kafka-producer",
-        ComponentOptions::new().with_shutdown_phase(1),
+        // The graceful window is the ceiling; the bounded flush task
+        // spawned after the producer is built normally completes well
+        // inside it.
+        ComponentOptions::new()
+            .with_graceful_shutdown(config.phase1_graceful_shutdown())
+            .with_shutdown_phase(1),
     );
 
     let authority_metrics_handle = manager.register(
@@ -133,9 +145,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let monitor_guard = manager.monitor_background();
 
     // Metrics/health HTTP server. The router is built here rather than
-    // inside the task because `setup_metrics_routes` is what installs the
-    // process-wide recorder: anything preregistered before it lands in a
-    // no-op recorder and never becomes a series.
+    // inside the task because `setup_metrics_routes_with_overrides` is
+    // what installs the process-wide recorder: anything preregistered
+    // before it lands in a no-op recorder and never becomes a series.
     let metrics_port = config.metrics_port;
     let health_router = Router::new()
         .route(
@@ -146,7 +158,71 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }),
         )
         .route("/_liveness", get(move || async move { liveness.check() }));
-    let metrics_router = setup_metrics_routes(health_router);
+    // Changelog payload sizes: dense through the small-person range,
+    // with the top boundaries straddling the broker's message.max.bytes
+    // (typically 1 MiB) so p99 creeping toward the produce limit is
+    // visible before messages start getting rejected.
+    const CHANGELOG_PRODUCE_SIZE_BUCKETS_BYTES: &[f64] = &[
+        256.0, 1024.0, 4096.0, 16384.0, 65536.0, 262144.0, 524288.0, 1048576.0, 2097152.0,
+    ];
+    // The write path and warms are tuned in single-digit milliseconds;
+    // the default ladder's 10 → 50 ms step blurs exactly the spans the
+    // fencing and warm work steers by, and pins interpolated quantiles
+    // to bucket edges. Overridden per metric so seconds-scale histograms
+    // keep the cheap default ladder.
+    let metrics_router = setup_metrics_routes_with_overrides(
+        health_router,
+        &[
+            (
+                Matcher::Full("personhog_leader_kafka_produce_duration_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_leader_fence_send_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_leader_fence_ack_wait_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_leader_fence_window_wait_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_leader_fence_commit_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_leader_fence_init_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_leader_person_lock_wait_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("grpc_server_request_duration_ms".into()),
+                WRITE_PATH_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_leader_warm_duration_ms".into()),
+                WARM_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_coordination_partition_warm_ms".into()),
+                WARM_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_leader_warm_span_ms".into()),
+                WARM_LATENCY_BUCKETS_MS,
+            ),
+            (
+                Matcher::Full("personhog_leader_kafka_produce_bytes".into()),
+                CHANGELOG_PRODUCE_SIZE_BUCKETS_BYTES,
+            ),
+        ],
+    );
     preregister_metrics();
     // The refusals the gate can emit: rare by design, and a burst is
     // exactly what a deploy-window scrape would otherwise miss.
@@ -193,13 +269,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize partitioned cache and Kafka producer
     let cache = Arc::new(PartitionedCache::new(config.cache_memory_capacity_bytes));
 
-    let kafka_producer = match create_kafka_producer(&config.kafka, kafka_handle).await {
+    let kafka_producer = match create_kafka_producer(&config.kafka, kafka_handle.clone()).await {
         Ok(producer) => producer,
         Err(e) => {
             tracing::error!(error = %e, "failed to create Kafka producer");
             return Err(e.into());
         }
     };
+    // Runs at phase 1, after the coordination drain, so the drain's last
+    // records are in the queue it flushes.
+    personhog_leader::kafka::spawn_bounded_flush_on_shutdown(
+        kafka_producer.clone(),
+        kafka_handle,
+        Duration::from_secs(10),
+    );
 
     // PG fallback pool for cache misses (optional, disabled if URL is empty)
     let fallback = if config.fallback_database_url.is_empty() {
@@ -243,6 +326,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!(num_partitions, "loaded partition count from etcd");
 
     let locks = Arc::new(DashMap::new());
+    let fences: personhog_leader::fence::FenceMap = Arc::new(DashMap::new());
     let inflight = Arc::new(InflightTracker::new());
     let dirty_index = Arc::new(DirtyIndex::new(config.dirty_index_max_entries));
     // One per pod, shared by the service that raises floors and the
@@ -266,6 +350,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         kafka_producer.clone(),
         config.ingestion_warnings_topic.clone(),
     );
+    let fence_scan_pool = fallback.as_ref().map(|f| f.pool.clone());
+    let mut fence_repair_nudge: Option<Arc<Notify>> = None;
     let fenced = if config.kafka_transactional_fencing {
         // Every one of these is derived from LEASE_TTL rather than set
         // directly, so an operator debugging a fenced-write timeout has
@@ -280,6 +366,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "broker-enforced epoch fencing enabled for the changelog"
         );
         preregister_fencing_metrics(num_partitions);
+        // A condemned producer's repair otherwise waits for the next
+        // reconcile tick; this nudge lets the condemnation itself
+        // trigger the repair pass that heals it.
+        let repair_nudge = Arc::new(Notify::new());
+        fence_repair_nudge = Some(Arc::clone(&repair_nudge));
         // The fenced producer runs on a tighter message timeout than the
         // shared one: its writes must resolve inside the lease runway.
         let fencing_kafka = common_kafka::config::KafkaConfig {
@@ -291,17 +382,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             kafka_producer_queue_messages: config.fencing_queue_messages(num_partitions),
             ..config.kafka.clone()
         };
-        Some(Arc::new(FencedChangelogProducers::new(
-            FencedProducerConfig {
+        Some(Arc::new(
+            FencedChangelogProducers::new(FencedProducerConfig {
                 kafka: fencing_kafka,
                 topic: config.kafka_person_state_topic.clone(),
                 init_timeout: config.fencing_init_timeout(),
                 commit_timeout: config.fencing_txn_timeout(),
                 broker_txn_timeout: config.fencing_broker_txn_timeout(),
                 window: Duration::from_millis(config.fencing_window_ms),
+                window_max_writes: config.fencing_window_max_writes,
                 settle_budget: config.fencing_settle_budget(),
-            },
-        )))
+            })
+            .with_repair_nudge(repair_nudge),
+        ))
     } else {
         None
     };
@@ -378,10 +471,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             config.properties_trim_target,
         ),
         warnings.clone(),
+        Arc::clone(&fences),
         fenced.clone(),
         gated_authority.clone(),
         Arc::clone(&emitted_versions),
-    );
+    )
+    .with_fence_capacity(config.fence_map_max_entries);
 
     let warm_pools = Arc::new(WarmClientPools::new(
         &config.kafka,
@@ -411,6 +506,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 max_backoff: Duration::from_millis(config.warm_retry_max_backoff_ms),
             },
         },
+        Arc::clone(&fences),
+        fence_scan_pool,
+        num_partitions,
         Arc::clone(&warm_pools),
         fenced.clone(),
         gated_authority.clone(),
@@ -458,44 +556,59 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         (None, String::new(), None)
     };
 
+    // Timescale and concurrency knobs come from `base_pod_config`, the
+    // same values `validate_lease_timescales` summed at startup; only
+    // the identity fields, which no validation reads, are filled here.
     let pod_config = PodConfig {
         pod_name: config.pod_name.clone(),
         generation,
         controller,
-        lease_ttl: config.lease_ttl,
-        heartbeat_interval: config.heartbeat_interval(),
         advertise_address: Some(advertise_address),
-        // Zero would park every warm on an unobtainable permit and wedge
-        // handoffs; treat it as fully sequential instead.
-        warm_concurrency: config.warm_concurrency.max(1),
-        ..Default::default()
+        ..config.base_pod_config()
     };
 
     // Open connections up front: warms cluster in deploy bursts, and a
     // cold pool would make every burst's first operations pay the client
     // setup the pool exists to amortize. Sized from the pod's actual
     // configured warm concurrency — the bound the semaphore enforces —
-    // so the pool and the concurrency limit cannot drift apart; the
-    // offsets pool also serves the dirty-index prune tick. Best-effort:
-    // a failure only defers the cost.
+    // so the pool and the concurrency limit cannot drift apart.
+    // Committed-offset queries run one per concurrent warm, so the
+    // offsets pool needs the same depth; it also serves the dirty-index
+    // prune tick.
+    //
+    // Awaited before the pod registers for partitions: a deploy burst
+    // hands this pod partitions immediately, and a warm that finds the
+    // pool empty builds its clients cold inside the handoff — seconds of
+    // connection setup on the path the pool exists to keep off. The
+    // deadline keeps a broker outage from wedging boot; past it,
+    // registration proceeds and the remaining slots are built cold, so
+    // this stays best-effort.
     {
-        let pools = Arc::clone(&warm_pools);
         let warm_slots = pod_config.warm_concurrency;
-        tokio::spawn(async move {
-            // Committed-offset queries run one per concurrent warm, so
-            // the offsets pool needs the same depth as the warm slots.
-            pools.offsets.warm_up(warm_slots).await;
-            pools.warming.warm_up(warm_slots).await;
-        });
+        let warm_up = async {
+            tokio::join!(
+                warm_pools.offsets.warm_up(warm_slots),
+                warm_pools.warming.warm_up(warm_slots),
+            );
+        };
+        if timeout(POOL_WARM_UP_DEADLINE, warm_up).await.is_err() {
+            tracing::warn!(
+                deadline_secs = POOL_WARM_UP_DEADLINE.as_secs(),
+                "consumer pool warm-up hit its deadline; continuing with a partially cold pool"
+            );
+        }
     }
 
-    let pod = PodHandle::new(
+    let mut pod = PodHandle::new(
         store,
         pod_config,
         Arc::new(handler),
         k8s_awareness,
         Arc::clone(&authority),
     );
+    if let Some(nudge) = fence_repair_nudge.take() {
+        pod = pod.with_repair_nudge(nudge);
+    }
 
     tokio::spawn(async move {
         let _guard = coordination_handle.process_scope();
@@ -504,15 +617,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
-    // Periodic sweep of idle per-key locks and refilled warning-throttle keys
+    // Periodic sweep of idle per-key locks, refilled warning-throttle
+    // keys, and parked fence connections nothing consumed (a cancelled
+    // inbound handoff leaves no convergence behind to discard them).
     let sweep_locks = Arc::clone(&locks);
     let sweep_warnings = warnings.clone();
+    let sweep_fenced = fenced.clone();
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(Duration::from_secs(60));
         loop {
             interval.tick().await;
             sweep_idle_locks(&sweep_locks);
             sweep_warnings.sweep_throttle();
+            if let Some(fenced) = &sweep_fenced {
+                fenced.sweep_prepared();
+            }
         }
     });
 
@@ -678,6 +797,11 @@ async fn run_dirty_index_prune_loop(
 /// tight against an unresponsive one, which must not delay serving.
 const K8S_DISCOVERY_TIMEOUT: Duration = Duration::from_secs(5);
 
+/// Upper bound on the pre-registration consumer-pool warm-up. Generous
+/// against MSK connection setup (~1–2s per client, run concurrently),
+/// tight enough that a broker outage delays boot rather than blocking it.
+const POOL_WARM_UP_DEADLINE: Duration = Duration::from_secs(10);
+
 /// Build a K8s awareness client and discover this pod's owning controller
 /// and generation. The awareness handle is returned alongside so the pod
 /// can also classify its own departure at drain time.
@@ -715,5 +839,12 @@ fn preregister_metrics() {
         .increment(0);
     for stage in ["committed_offset", "fetch_watermarks"] {
         counter!("personhog_leader_warm_retries_total", "stage" => stage).increment(0);
+    }
+    // A broker blip is short enough to fall entirely between two
+    // scrapes, and these fire only during one. The codes seen in dev are
+    // preregistered so that burst is not swallowed; anything else stays
+    // lazy, as elsewhere for dynamic labels.
+    for code in ["BrokerTransportFailure", "AllBrokersDown"] {
+        counter!("personhog_leader_warm_transient_errors_total", "code" => code).increment(0);
     }
 }

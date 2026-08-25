@@ -72,6 +72,7 @@ export function CommentComposer({
             size="icon-sm"
             aria-label={submitLabel}
             disabled={!value.trim() || disabled}
+            loading={disabled}
             onClick={submit}
           >
             <PaperPlaneRightIcon />

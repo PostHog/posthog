@@ -122,7 +122,15 @@ class PipelineNonDLT(Generic[ResumableData]):
         # as a full_refresh overwrite, which would wipe earlier data on the second (delta-only) sync.
         self._is_incremental = models.schema.is_incremental or models.schema.is_webhook or models.schema.is_xmin
 
-        self._delta_table_ref = DeltaTableRef(self._resource_name, self._job, self._logger)
+        # Mirrors the `is_first_sync` passed to `validate_incremental_sync` below: a schema with no
+        # `DataWarehouseTable` row yet is a fresh (or retried-fresh) sync even when a Delta table
+        # already exists in storage from an earlier attempt at writing the same first sync. Without
+        # this, the writer's own is-first-sync detection (no physical table found) never fires for
+        # that case, and an incremental write with no primary key wrongly takes the merge path
+        # instead of overwriting, raising MissingPrimaryKeysException on an otherwise-healthy sync.
+        self._delta_table_ref = DeltaTableRef(
+            self._resource_name, self._job, self._logger, is_first_sync=self._table is None
+        )
         self._resumable_source_manager = resumable_source_manager
         # A source can shrink the batcher chunk (e.g. document sources with large rows) so the
         # source->Arrow conversion doesn't materialise an oversized table; None falls back to defaults.
@@ -133,6 +141,7 @@ class PipelineNonDLT(Generic[ResumableData]):
             source_type=self._source.source_type,
             team_id=self._job.team_id,
             schema_name=self._schema.name,
+            primary_keys=self._resource.primary_keys,
         )
         self._internal_schema = HogQLSchema()
         self._sinks = build_pipeline_sinks(
@@ -442,6 +451,7 @@ class PipelineNonDLT(Generic[ResumableData]):
             logger=self._logger,
             last_incremental_field_value=self._last_incremental_field_value,
             resource=self._resource,
+            allow_zero_row_skip=True,
         )
 
 

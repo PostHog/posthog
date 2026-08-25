@@ -119,6 +119,8 @@ def deliver_scout_slack_output(
     delivery_id: str,
     integration_id: int,
     channel: str,
+    edit_note: str | None = None,
+    thread_reports: bool = False,
 ) -> None:
     context = {
         "team_id": team_id,
@@ -161,6 +163,8 @@ def deliver_scout_slack_output(
                 delivery_id=delivery_id,
                 integration_id=integration_id,
                 channel=channel,
+                edit_note=edit_note,
+                thread_reports=thread_reports,
             )
         else:
             logger.warning("signals_scout.slack_delivery_output_type_invalid", **context)
@@ -212,9 +216,18 @@ def enqueue_scout_slack_delivery(
     delivery_id: str,
     integration_id: int,
     channel: str,
+    edit_note: str | None = None,
+    thread_reports: bool = False,
 ) -> None:
     """Publish after commit, capturing broker failures without affecting the completed emit."""
     try:
+        # Each optional arg rides as a kwarg only when set, so a delivery without one keeps the
+        # payload shape workers running the previous task signature still accept.
+        extra_kwargs: dict[str, str | bool] = {}
+        if edit_note is not None:
+            extra_kwargs["edit_note"] = edit_note
+        if thread_reports:
+            extra_kwargs["thread_reports"] = True
         deliver_scout_slack_output.delay(
             team_id,
             output_type,
@@ -223,6 +236,7 @@ def enqueue_scout_slack_delivery(
             delivery_id,
             integration_id,
             channel,
+            **extra_kwargs,
         )
     except Exception as exc:
         capture_exception(
@@ -513,7 +527,7 @@ def pause_inactive_signal_scouts() -> None:
     """Daily sweep: warn, then auto-pause scouts nothing comes of.
 
     Runs here rather than on the coordinator's 30-minute tick — that tick is deliberately
-    short-lived and bounded, and inactivity doesn't change by the half hour. See
+    bounded, and inactivity doesn't change by the half hour. See
     `scout_harness/inactivity.py` for what counts as productive.
     """
     outcome = sweep_inactive_scouts()

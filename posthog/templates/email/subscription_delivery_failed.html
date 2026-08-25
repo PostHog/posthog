@@ -1,0 +1,15 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% block section %}
+<p>
+    PostHog could not deliver your subscription <strong>{{ subscription_title }}</strong>.
+</p>
+<p>
+    It was scheduled for <strong>{{ scheduled_at|date:"F j, Y, g:i A T" }}</strong>.
+</p>
+<p>
+    We have been notified and are investigating. You do not need to take any action. We will try again at its next
+    scheduled delivery.
+</p>
+<div class="mb mt text-center">
+    <a class="button" href="{{ subscription_url }}">Manage subscription</a>
+</div>
+{% endblock %}

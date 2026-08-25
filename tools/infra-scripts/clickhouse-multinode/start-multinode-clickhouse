@@ -12,19 +12,29 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
 cd "$SCRIPT_DIR/../../.."
 
 COMPOSE_FILE="docker-compose.multinode-clickhouse.yml"
-SERVICES=(zookeeper kafka db redis7 clickhouse-data clickhouse-ai-events clickhouse-aux clickhouse-ops clickhouse-sessions clickhouse-logs)
+CH_SERVICES=(clickhouse-data clickhouse-ai-events clickhouse-aux clickhouse-ops clickhouse-sessions clickhouse-logs
+    clickhouse-ingestion-events clickhouse-ingestion-small clickhouse-ingestion-medium)
+SERVICES=(zookeeper kafka db redis7 "${CH_SERVICES[@]}")
 
 case "${1:-up}" in
     up)
         docker compose -f "$COMPOSE_FILE" up -d "${SERVICES[@]}"
         echo
         echo "Multinode ClickHouse stack starting. Published ports:"
-        echo "  clickhouse-data       localhost:9000 (HTTP 8123)"
-        echo "  clickhouse-ai-events  localhost:9100 (HTTP 8124)"
-        echo "  clickhouse-aux        localhost:9200 (HTTP 8125)"
-        echo "  clickhouse-ops        localhost:9300 (HTTP 8126)"
-        echo "  clickhouse-sessions   localhost:9400 (HTTP 8127)"
-        echo "  clickhouse-logs       localhost:9500 (HTTP 8128)"
+        echo "  clickhouse-data              localhost:9000 (HTTP 8123)"
+        echo "  clickhouse-ai-events         localhost:9100 (HTTP 8124)"
+        echo "  clickhouse-aux               localhost:9200 (HTTP 8125)"
+        echo "  clickhouse-ops               localhost:9300 (HTTP 8126)"
+        echo "  clickhouse-sessions          localhost:9400 (HTTP 8127)"
+        echo "  clickhouse-logs              localhost:9500 (HTTP 8128)"
+        echo "  clickhouse-ingestion-events  localhost:9600 (HTTP 8129)"
+        echo "  clickhouse-ingestion-small   localhost:9700 (HTTP 8130)"
+        echo "  clickhouse-ingestion-medium  localhost:9800 (HTTP 8131)"
+        echo
+        # Migrations run from the host shell but route by the hostnames in
+        # system.clusters, so the host has to resolve every node.
+        echo "Each node name must resolve on this host:"
+        echo "  echo '127.0.0.1 ${CH_SERVICES[*]}' | sudo tee -a /etc/hosts"
         echo
         echo "To run migrations against this stack, set:"
         echo "  export MULTINODE_CLICKHOUSE=1"

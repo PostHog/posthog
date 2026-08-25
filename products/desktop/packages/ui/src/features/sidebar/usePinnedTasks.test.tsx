@@ -68,6 +68,80 @@ describe("usePinnedTasks", () => {
     await waitFor(() => expect(result.current.isPinned("task-1")).toBe(false));
   });
 
+  describe("setPinnedMany", () => {
+    it("pins a whole batch in one pass", async () => {
+      authClient.getPinnedTaskIds.mockResolvedValue([]);
+      mockedApi.setPinned.mockImplementation(async (taskId) => ({
+        taskId,
+        isPinned: true,
+      }));
+      const { result } = renderPinnedTasks();
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      await act(async () => {
+        const outcome = await result.current.setPinnedMany(
+          ["task-1", "task-2"],
+          true,
+        );
+        expect(outcome.succeeded).toEqual(["task-1", "task-2"]);
+        expect(outcome.failed).toEqual([]);
+      });
+
+      await waitFor(() => {
+        expect(result.current.isPinned("task-1")).toBe(true);
+        expect(result.current.isPinned("task-2")).toBe(true);
+      });
+    });
+
+    // The optimistic write pins everything up front, so a failure has to be
+    // walked back or the row keeps showing pinned while the server disagrees.
+    it("rolls the optimistic write back for ids that failed", async () => {
+      authClient.getPinnedTaskIds.mockResolvedValue([]);
+      mockedApi.setPinned.mockImplementation(async (taskId) => {
+        if (taskId === "task-2") throw new Error("nope");
+        return { taskId, isPinned: true };
+      });
+      const { result } = renderPinnedTasks();
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      await act(async () => {
+        const outcome = await result.current.setPinnedMany(
+          ["task-1", "task-2"],
+          true,
+        );
+        expect(outcome.failed).toEqual(["task-2"]);
+      });
+
+      await waitFor(() => {
+        expect(result.current.isPinned("task-1")).toBe(true);
+        expect(result.current.isPinned("task-2")).toBe(false);
+      });
+    });
+
+    it("unpins a whole batch", async () => {
+      authClient.getPinnedTaskIds.mockResolvedValue(["task-1", "task-2"]);
+      mockedApi.setPinned.mockImplementation(async (taskId) => ({
+        taskId,
+        isPinned: false,
+      }));
+      const { result } = renderPinnedTasks();
+      await waitFor(() => expect(result.current.isLoading).toBe(false));
+
+      await act(() =>
+        result.current.setPinnedMany(["task-1", "task-2"], false),
+      );
+
+      expect(mockedApi.setPinned.mock.calls).toEqual([
+        ["task-1", false],
+        ["task-2", false],
+      ]);
+      await waitFor(() => {
+        expect(result.current.isPinned("task-1")).toBe(false);
+        expect(result.current.isPinned("task-2")).toBe(false);
+      });
+    });
+  });
+
   it("preserves rapid toggle order", async () => {
     authClient.getPinnedTaskIds.mockResolvedValue([]);
     mockedApi.setPinned

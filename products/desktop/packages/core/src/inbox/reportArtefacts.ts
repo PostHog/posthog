@@ -28,15 +28,20 @@ function latestOfType<T extends ReportArtefact>(
   return latest;
 }
 
+export function selectSuggestedReviewersArtefact(
+  artefacts: ReportArtefact[],
+): SuggestedReviewersArtefact | null {
+  return latestOfType<SuggestedReviewersArtefact>(
+    artefacts,
+    "suggested_reviewers",
+  );
+}
+
 export function selectSuggestedReviewers(
   artefacts: ReportArtefact[],
   meUuid?: string,
 ): SuggestedReviewer[] {
-  const artefact = latestOfType<SuggestedReviewersArtefact>(
-    artefacts,
-    "suggested_reviewers",
-  );
-  const reviewers = artefact?.content ?? [];
+  const reviewers = selectSuggestedReviewersArtefact(artefacts)?.content ?? [];
   if (!meUuid) return reviewers;
   const meIndex = reviewers.findIndex((r) => r.user?.uuid === meUuid);
   if (meIndex <= 0) return reviewers;

@@ -1,8 +1,10 @@
+from datetime import timedelta
 from zoneinfo import ZoneInfo
 
 from posthog.test.base import APIBaseTest
 
 from dateutil import parser
+from parameterized import parameterized
 
 from posthog.schema import DateRange, IntervalType
 
@@ -33,6 +35,32 @@ class TestQueryPreviousPeriodDateRange(APIBaseTest):
         )
         self.assertEqual(query_date_range.date_from(), parser.isoparse("2021-08-11T00:00:00Z"))
         self.assertEqual(query_date_range.date_to(), parser.isoparse("2021-08-17T23:59:59.999999Z"))
+
+    @parameterized.expand(
+        [
+            ("earliest event at midnight", "2021-07-06T00:00:00Z", "2021-05-16T00:00:00Z"),
+            ("earliest event mid-day", "2021-07-06T12:34:00Z", "2021-05-17T01:08:00Z"),
+        ]
+    )
+    def test_previous_period_for_all_time_ends_before_the_earliest_event(
+        self, _name: str, earliest_timestamp: str, expected_date_from: str
+    ):
+        # The previous period has to stop before the first event, or the comparison counts part of the
+        # first day twice and reports it as the previous period's total. Two ways that happened: the
+        # "-7d is really 8 days" correction in get_compare_period_dates shifted the whole period a day
+        # later, and its end takes date_to's time of day, which for a mid-day first event lands after
+        # the current period already started.
+        now = parser.isoparse("2021-08-25T12:34:00.000Z")
+        date_range = DateRange(date_from="all")
+        query_date_range = QueryPreviousPeriodDateRange(
+            team=self.team,
+            date_range=date_range,
+            interval=IntervalType.DAY,
+            now=now,
+            earliest_timestamp_fallback=parser.isoparse(earliest_timestamp),
+        )
+        self.assertEqual(query_date_range.date_to(), parser.isoparse(earliest_timestamp) - timedelta(microseconds=1))
+        self.assertEqual(query_date_range.date_from(), parser.isoparse(expected_date_from))
 
     def test_explicit_timezone_info_overrides_team_timezone(self):
         # The previous-period delta parsing used to read directly from

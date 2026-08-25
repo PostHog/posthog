@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { McpAppsService } from "./mcp-apps";
-import { McpAppsServiceEvent, type McpServerConnectionConfig } from "./schemas";
+import {
+  McpAppsServiceEvent,
+  type McpResourceUiMeta,
+  type McpServerConnectionConfig,
+} from "./schemas";
 
 function makeLogger() {
   const scopedLog = {
@@ -120,8 +124,13 @@ describe("McpAppsService config resolver", () => {
 const UI_MIME_TYPE = "text/html;profile=mcp-app";
 const REVIEW_URI = "ui://posthog/loops-review.html";
 const REVIEW_CSP = { connectDomains: ["https://us.posthog.com"] };
+const REVIEW_PERMISSIONS = { clipboardWrite: {} };
 
-function makeClient() {
+const UI_META = { ui: { csp: REVIEW_CSP, permissions: REVIEW_PERMISSIONS } };
+
+// metaOn picks whether this client advertises `_meta.ui` on resources/list or
+// on the read response.
+function makeClient(metaOn: "list" | "read" = "list") {
   return {
     close: vi.fn(async () => {}),
     listTools: vi.fn(async () => ({
@@ -134,10 +143,27 @@ function makeClient() {
       ],
     })),
     listResources: vi.fn(async () => ({
-      resources: [{ uri: REVIEW_URI, _meta: { ui: { csp: REVIEW_CSP } } }],
+      resources: [
+        {
+          uri: REVIEW_URI,
+          ...(metaOn === "list" ? { _meta: UI_META } : {}),
+        } as { uri: string; _meta?: McpResourceUiMeta["_meta"] },
+      ],
     })),
     readResource: vi.fn(async ({ uri }: { uri: string }) => ({
-      contents: [{ uri, mimeType: UI_MIME_TYPE, text: "<html></html>" }],
+      contents: [
+        {
+          uri,
+          mimeType: UI_MIME_TYPE,
+          text: "<html></html>",
+          ...(metaOn === "read" ? { _meta: UI_META } : {}),
+        } as {
+          uri: string;
+          mimeType: string;
+          text: string;
+          _meta?: McpResourceUiMeta["_meta"];
+        },
+      ],
     })),
   };
 }
@@ -147,6 +173,15 @@ function connectClient(service: McpAppsService, client = makeClient()) {
     async (c) => ({ name: c.name, client, transport: {} }),
   );
   return client;
+}
+
+function connectClients(
+  service: McpAppsService,
+  clients: Record<string, ReturnType<typeof makeClient>>,
+) {
+  vi.spyOn(internals(service), "createConnection").mockImplementation(
+    async (c) => ({ name: c.name, client: clients[c.name], transport: {} }),
+  );
 }
 
 describe("McpAppsService lazy discovery", () => {
@@ -199,7 +234,10 @@ describe("McpAppsService lazy discovery", () => {
   });
 
   it("does not emit DiscoveryComplete when lazy discovery fails", async () => {
-    service.setConfigResolver(vi.fn(async () => {}));
+    service.setServerConfigs([config("posthog")]);
+    vi.spyOn(internals(service), "createConnection").mockRejectedValue(
+      new Error("server offline"),
+    );
     const onComplete = vi.fn();
     service.on(McpAppsServiceEvent.DiscoveryComplete, onComplete);
 
@@ -243,33 +281,50 @@ describe("McpAppsService lazy discovery", () => {
     expect(client.listTools).toHaveBeenCalledTimes(1);
   });
 
-  it("rethrows discovery failures and backs off retries", async () => {
+  it("treats an unavailable server as having no custom UI", async () => {
     const resolver = vi.fn(async () => {});
     service.setConfigResolver(resolver);
 
     await expect(
       service.hasUiForTool("mcp__posthog__loops-review"),
-    ).rejects.toThrow("No server config for: posthog");
+    ).resolves.toBe(false);
     await expect(
       service.hasUiForTool("mcp__posthog__loops-review"),
-    ).rejects.toThrow("UI tool discovery recently failed for: posthog");
+    ).resolves.toBe(false);
     expect(resolver).toHaveBeenCalledTimes(1);
   });
 
-  it("retries discovery after the failure backoff expires", async () => {
+  it("discovers an unavailable server after its config is added", async () => {
+    const resolver = vi.fn(async () => {});
+    service.setConfigResolver(resolver);
+
+    await expect(
+      service.hasUiForTool("mcp__posthog__loops-review"),
+    ).resolves.toBe(false);
+
+    service.addServerConfigs([config("posthog")]);
+    connectClient(service);
+    await expect(
+      service.hasUiForTool("mcp__posthog__loops-review"),
+    ).resolves.toBe(true);
+  });
+
+  it("retries connection failures after the failure backoff expires", async () => {
     vi.useFakeTimers();
     try {
-      const resolver = vi.fn(async () => {});
-      service.setConfigResolver(resolver);
+      service.setServerConfigs([config("posthog")]);
+      const createConnection = vi
+        .spyOn(internals(service), "createConnection")
+        .mockRejectedValue(new Error("server offline"));
 
       await expect(
         service.hasUiForTool("mcp__posthog__loops-review"),
-      ).rejects.toThrow("No server config for: posthog");
+      ).rejects.toThrow("server offline");
       vi.advanceTimersByTime(61_000);
       await expect(
         service.hasUiForTool("mcp__posthog__loops-review"),
-      ).rejects.toThrow("No server config for: posthog");
-      expect(resolver).toHaveBeenCalledTimes(2);
+      ).rejects.toThrow("server offline");
+      expect(createConnection).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
     }
@@ -318,14 +373,41 @@ describe("McpAppsService lazy discovery", () => {
     expect(resource?.html).toBe("<html></html>");
   });
 
-  it("attaches discovered CSP metadata on direct URI fetches", async () => {
-    service.setConfigResolver(async (name) => {
-      service.addServerConfigs([config(name)]);
-    });
-    connectClient(service);
+  it.each([
+    ["the resource listing", "list"],
+    ["the read response", "read"],
+  ] as const)(
+    "attaches UI metadata advertised on %s to direct URI fetches",
+    async (_label, metaOn) => {
+      service.setConfigResolver(async (name) => {
+        service.addServerConfigs([config(name)]);
+      });
+      connectClient(service, makeClient(metaOn));
+
+      const resource = await service.getUiResourceByUri("posthog", REVIEW_URI);
+      expect(resource?.csp).toEqual(REVIEW_CSP);
+      expect(resource?.permissions).toEqual(REVIEW_PERMISSIONS);
+    },
+  );
+
+  it("prefers read-response CSP over the listing CSP", async () => {
+    service.setServerConfigs([config("posthog")]);
+    const readCsp = { connectDomains: ["https://eu.posthog.com"] };
+    const client = makeClient("list");
+    client.readResource.mockImplementation(async ({ uri }) => ({
+      contents: [
+        {
+          uri,
+          mimeType: UI_MIME_TYPE,
+          text: "<html></html>",
+          _meta: { ui: { csp: readCsp } },
+        },
+      ],
+    }));
+    connectClient(service, client);
 
     const resource = await service.getUiResourceByUri("posthog", REVIEW_URI);
-    expect(resource?.csp).toEqual(REVIEW_CSP);
+    expect(resource?.csp).toEqual(readCsp);
   });
 
   it("returns an uncached resource when the metadata warm-up fails", async () => {
@@ -341,5 +423,76 @@ describe("McpAppsService lazy discovery", () => {
     const second = await service.getUiResourceByUri("posthog", REVIEW_URI);
     expect(second?.html).toBe("<html></html>");
     expect(client.readResource).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not cache a CSP-less resource when config appears after warm-up", async () => {
+    let resolverCalls = 0;
+    service.setConfigResolver(async (name) => {
+      resolverCalls += 1;
+      if (resolverCalls === 2) {
+        service.addServerConfigs([config(name)]);
+      }
+    });
+    const client = makeClient("list");
+    connectClient(service, client);
+
+    const first = await service.getUiResourceByUri("posthog", REVIEW_URI);
+    expect(first?.csp).toBeUndefined();
+
+    const second = await service.getUiResourceByUri("posthog", REVIEW_URI);
+    expect(second?.csp).toEqual(REVIEW_CSP);
+    expect(client.readResource).toHaveBeenCalledTimes(2);
+
+    await service.getUiResourceByUri("posthog", REVIEW_URI);
+    expect(client.readResource).toHaveBeenCalledTimes(2);
+  });
+
+  it("caches a read-advertised resource despite a failed warm-up", async () => {
+    service.setServerConfigs([config("posthog")]);
+    const client = makeClient("read");
+    client.listTools.mockRejectedValue(new Error("listTools broken"));
+    connectClient(service, client);
+
+    const first = await service.getUiResourceByUri("posthog", REVIEW_URI);
+    expect(first?.csp).toEqual(REVIEW_CSP);
+    await service.getUiResourceByUri("posthog", REVIEW_URI);
+    expect(client.readResource).toHaveBeenCalledTimes(1);
+  });
+
+  it("caches same-URI resources separately per server", async () => {
+    service.setServerConfigs([config("posthog"), config("staging")]);
+    const stagingClient = makeClient();
+    stagingClient.readResource.mockImplementation(async ({ uri }) => ({
+      contents: [{ uri, mimeType: UI_MIME_TYPE, text: "<html>staging</html>" }],
+    }));
+    connectClients(service, { posthog: makeClient(), staging: stagingClient });
+
+    const posthogResource = await service.getUiResourceByUri(
+      "posthog",
+      REVIEW_URI,
+    );
+    const stagingResource = await service.getUiResourceByUri(
+      "staging",
+      REVIEW_URI,
+    );
+
+    expect(posthogResource?.html).toBe("<html></html>");
+    expect(stagingResource?.html).toBe("<html>staging</html>");
+  });
+
+  it("evicts only the disconnected server's cached resources", async () => {
+    service.setServerConfigs([config("posthog"), config("staging")]);
+    const posthogClient = makeClient();
+    const stagingClient = makeClient();
+    connectClients(service, { posthog: posthogClient, staging: stagingClient });
+
+    await service.getUiResourceByUri("posthog", REVIEW_URI);
+    await service.getUiResourceByUri("staging", REVIEW_URI);
+    await service.disconnectServer("posthog");
+
+    await service.getUiResourceByUri("staging", REVIEW_URI);
+    expect(stagingClient.readResource).toHaveBeenCalledTimes(1);
+    await service.getUiResourceByUri("posthog", REVIEW_URI);
+    expect(posthogClient.readResource).toHaveBeenCalledTimes(2);
   });
 });

@@ -2,7 +2,9 @@ import ast
 import hashlib
 import builtins
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
+
+from posthog.dataclasses import frozen
 
 
 @dataclass(frozen=True)
@@ -81,9 +83,12 @@ def collect_arg_names(arguments: ast.arguments) -> set[str]:
     return names
 
 
-@dataclass
+ScopeKind = Literal["module", "function", "class", "lambda", "comprehension"]
+
+
+@frozen
 class Scope:
-    kind: str
+    kind: ScopeKind
     locals: set[str]
 
 
@@ -204,7 +209,7 @@ class GlobalAnalyzer(ast.NodeVisitor):
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
         self._visit_function_like(node, "function")
 
-    def _visit_function_like(self, node: ast.AST, kind: str) -> None:
+    def _visit_function_like(self, node: ast.AST, kind: ScopeKind) -> None:
         if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
             for decorator in node.decorator_list:
                 self.visit(decorator)
@@ -268,7 +273,7 @@ class GlobalAnalyzer(ast.NodeVisitor):
     def visit_GeneratorExp(self, node: ast.GeneratorExp) -> None:
         self._visit_comprehension(node, "comprehension")
 
-    def _visit_comprehension(self, node: ast.AST, kind: str) -> None:
+    def _visit_comprehension(self, node: ast.AST, kind: ScopeKind) -> None:
         generators = getattr(node, "generators", [])
         locals_set: set[str] = set()
         for generator in generators:

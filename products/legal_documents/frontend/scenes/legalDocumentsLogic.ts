@@ -30,6 +30,9 @@ export interface LegalDocument {
     company_name: string
     representative_email: string
     status: LegalDocumentStatus
+    // False for the short window between the signature landing and the archive
+    // job storing the PDF — the download link stays hidden until it's true.
+    signed_pdf_stored: boolean
     created_by: LegalDocumentCreator | null
     created_at: string
 }

@@ -6,6 +6,7 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 
 from ee.api.scim.auth import generate_scim_token
@@ -38,17 +39,19 @@ class TestSCIMGroupsAPI(APILicensedTest):
         # Generate SCIM token
         token = generate_scim_token()
         self.plain_token = token.plain
-        config = IdentityProviderConfig.objects.create(
+        self.config = IdentityProviderConfig.objects.create(
             organization=self.organization, scim_enabled=True, scim_bearer_token=token.hashed
         )
-        self.domain.identity_provider_config = config
-        self.domain.save()
+        LinkedIdentityProviderConfig.objects.create(
+            organization_domain=self.domain, identity_provider_config=self.config
+        )
+        self.config.refresh_from_db()
 
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}
         self.client.credentials(**self.scim_headers)
 
     def test_groups_list(self):
-        response = self.client.get(f"/scim/v2/{self.domain.id}/Groups")
+        response = self.client.get(f"/scim/v2/{self.config.scim_slug}/Groups")
 
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
@@ -62,7 +65,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
 
         # Filter for exact match on displayName
         response = self.client.get(
-            f"/scim/v2/{self.domain.id}/Groups",
+            f"/scim/v2/{self.config.scim_slug}/Groups",
             {"filter": 'displayName eq "Engineering"'},
         )
 
@@ -79,7 +82,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
 
         # Filter for role from other org should return nothing
         response = self.client.get(
-            f"/scim/v2/{self.domain.id}/Groups",
+            f"/scim/v2/{self.config.scim_slug}/Groups",
             {"filter": 'displayName eq "Engineering"'},
         )
 
@@ -93,7 +96,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
 
         # Filter for non-existent group
         response = self.client.get(
-            f"/scim/v2/{self.domain.id}/Groups",
+            f"/scim/v2/{self.config.scim_slug}/Groups",
             {"filter": 'displayName eq "NonExistent"'},
         )
 
@@ -111,7 +114,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
         }
 
         response = self.client.post(
-            f"/scim/v2/{self.domain.id}/Groups", data=group_data, content_type="application/scim+json"
+            f"/scim/v2/{self.config.scim_slug}/Groups", data=group_data, content_type="application/scim+json"
         )
 
         assert response.status_code == status.HTTP_201_CREATED
@@ -140,7 +143,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
         }
 
         response = self.client.post(
-            f"/scim/v2/{self.domain.id}/Groups", data=group_data_first, content_type="application/scim+json"
+            f"/scim/v2/{self.config.scim_slug}/Groups", data=group_data_first, content_type="application/scim+json"
         )
 
         assert response.status_code == status.HTTP_201_CREATED
@@ -155,7 +158,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
         }
 
         response = self.client.post(
-            f"/scim/v2/{self.domain.id}/Groups", data=group_data_second, content_type="application/scim+json"
+            f"/scim/v2/{self.config.scim_slug}/Groups", data=group_data_second, content_type="application/scim+json"
         )
 
         assert response.status_code == status.HTTP_201_CREATED
@@ -183,7 +186,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
         }
 
         response = self.client.put(
-            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=put_data, content_type="application/scim+json"
+            f"/scim/v2/{self.config.scim_slug}/Groups/{role.id}", data=put_data, content_type="application/scim+json"
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -200,7 +203,9 @@ class TestSCIMGroupsAPI(APILicensedTest):
 
         fake_group_id = str(uuid.uuid4())
         response = self.client.put(
-            f"/scim/v2/{self.domain.id}/Groups/{fake_group_id}", data=put_data, content_type="application/scim+json"
+            f"/scim/v2/{self.config.scim_slug}/Groups/{fake_group_id}",
+            data=put_data,
+            content_type="application/scim+json",
         )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND, (
@@ -216,7 +221,9 @@ class TestSCIMGroupsAPI(APILicensedTest):
 
         fake_group_id = str(uuid.uuid4())
         response = self.client.patch(
-            f"/scim/v2/{self.domain.id}/Groups/{fake_group_id}", data=patch_data, content_type="application/scim+json"
+            f"/scim/v2/{self.config.scim_slug}/Groups/{fake_group_id}",
+            data=patch_data,
+            content_type="application/scim+json",
         )
 
         assert response.status_code == status.HTTP_404_NOT_FOUND, (
@@ -241,7 +248,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
         }
 
         response = self.client.patch(
-            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+            f"/scim/v2/{self.config.scim_slug}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -258,7 +265,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
         }
 
         response = self.client.patch(
-            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+            f"/scim/v2/{self.config.scim_slug}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -281,7 +288,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
         }
 
         response = self.client.patch(
-            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+            f"/scim/v2/{self.config.scim_slug}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -316,7 +323,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
         }
 
         response = self.client.patch(
-            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+            f"/scim/v2/{self.config.scim_slug}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -339,7 +346,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
         }
 
         response = self.client.patch(
-            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+            f"/scim/v2/{self.config.scim_slug}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -356,7 +363,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
         }
 
         response = self.client.patch(
-            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+            f"/scim/v2/{self.config.scim_slug}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -391,7 +398,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
         }
 
         response = self.client.patch(
-            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+            f"/scim/v2/{self.config.scim_slug}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -420,7 +427,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
         }
 
         response = self.client.patch(
-            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+            f"/scim/v2/{self.config.scim_slug}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -448,7 +455,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
                     "Operations": [op],
                 }
                 response = self.client.patch(
-                    f"/scim/v2/{self.domain.id}/Groups/{role.id}",
+                    f"/scim/v2/{self.config.scim_slug}/Groups/{role.id}",
                     data=patch_data,
                     content_type="application/scim+json",
                 )
@@ -468,7 +475,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
         }
 
         response = self.client.patch(
-            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+            f"/scim/v2/{self.config.scim_slug}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
         )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -496,7 +503,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
         }
 
         response = self.client.patch(
-            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+            f"/scim/v2/{self.config.scim_slug}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -539,7 +546,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
         }
 
         response = self.client.patch(
-            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+            f"/scim/v2/{self.config.scim_slug}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -568,7 +575,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
         }
 
         response = self.client.patch(
-            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+            f"/scim/v2/{self.config.scim_slug}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -606,7 +613,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
         }
 
         response = self.client.patch(
-            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+            f"/scim/v2/{self.config.scim_slug}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -634,7 +641,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
         }
 
         response = self.client.patch(
-            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
+            f"/scim/v2/{self.config.scim_slug}/Groups/{role.id}", data=patch_data, content_type="application/scim+json"
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -659,7 +666,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
         }
 
         response = self.client.put(
-            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=put_data, content_type="application/scim+json"
+            f"/scim/v2/{self.config.scim_slug}/Groups/{role.id}", data=put_data, content_type="application/scim+json"
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -687,7 +694,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
         }
 
         response = self.client.put(
-            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=put_data, content_type="application/scim+json"
+            f"/scim/v2/{self.config.scim_slug}/Groups/{role.id}", data=put_data, content_type="application/scim+json"
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -722,7 +729,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
         }
 
         response = self.client.put(
-            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=put_data, content_type="application/scim+json"
+            f"/scim/v2/{self.config.scim_slug}/Groups/{role.id}", data=put_data, content_type="application/scim+json"
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -764,7 +771,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
         }
 
         response = self.client.put(
-            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=put_data, content_type="application/scim+json"
+            f"/scim/v2/{self.config.scim_slug}/Groups/{role.id}", data=put_data, content_type="application/scim+json"
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -783,7 +790,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
         }
 
         response = self.client.put(
-            f"/scim/v2/{self.domain.id}/Groups/{role.id}", data=put_data, content_type="application/scim+json"
+            f"/scim/v2/{self.config.scim_slug}/Groups/{role.id}", data=put_data, content_type="application/scim+json"
         )
 
         assert response.status_code == status.HTTP_200_OK
@@ -797,7 +804,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
     def test_groups_list_pagination_with_count(self):
         self._create_groups(5)
 
-        response = self.client.get(f"/scim/v2/{self.domain.id}/Groups", {"count": "2"})
+        response = self.client.get(f"/scim/v2/{self.config.scim_slug}/Groups", {"count": "2"})
 
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
@@ -809,7 +816,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
     def test_groups_list_pagination_with_start_index(self):
         self._create_groups(5)
 
-        response = self.client.get(f"/scim/v2/{self.domain.id}/Groups", {"startIndex": "3", "count": "2"})
+        response = self.client.get(f"/scim/v2/{self.config.scim_slug}/Groups", {"startIndex": "3", "count": "2"})
 
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
@@ -821,7 +828,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
     def test_groups_list_pagination_count_zero(self):
         self._create_groups(3)
 
-        response = self.client.get(f"/scim/v2/{self.domain.id}/Groups", {"count": "0"})
+        response = self.client.get(f"/scim/v2/{self.config.scim_slug}/Groups", {"count": "0"})
 
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
@@ -832,7 +839,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
     def test_groups_list_pagination_start_index_beyond_total(self):
         self._create_groups(2)
 
-        response = self.client.get(f"/scim/v2/{self.domain.id}/Groups", {"startIndex": "999"})
+        response = self.client.get(f"/scim/v2/{self.config.scim_slug}/Groups", {"startIndex": "999"})
 
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
@@ -842,7 +849,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
         assert data["startIndex"] == 999
 
     def test_groups_list_pagination_count_capped_at_max(self):
-        response = self.client.get(f"/scim/v2/{self.domain.id}/Groups", {"count": "500"})
+        response = self.client.get(f"/scim/v2/{self.config.scim_slug}/Groups", {"count": "500"})
 
         assert response.status_code == status.HTTP_200_OK
         data = response.json()
@@ -858,14 +865,14 @@ class TestSCIMGroupsAPI(APILicensedTest):
         ]
     )
     def test_groups_list_pagination_invalid_values(self, _name: str, params: dict, expected_status: int):
-        response = self.client.get(f"/scim/v2/{self.domain.id}/Groups", params)
+        response = self.client.get(f"/scim/v2/{self.config.scim_slug}/Groups", params)
         assert response.status_code == expected_status
 
     def test_groups_list_pagination_with_filter(self):
         self._create_groups(3)
 
         response = self.client.get(
-            f"/scim/v2/{self.domain.id}/Groups",
+            f"/scim/v2/{self.config.scim_slug}/Groups",
             {"filter": 'displayName eq "PagGroup0"', "count": "1"},
         )
 
@@ -884,7 +891,7 @@ class TestSCIMGroupsAPI(APILicensedTest):
         page_size = 2
         while True:
             response = self.client.get(
-                f"/scim/v2/{self.domain.id}/Groups",
+                f"/scim/v2/{self.config.scim_slug}/Groups",
                 {"startIndex": str(start_index), "count": str(page_size)},
             )
             assert response.status_code == status.HTTP_200_OK

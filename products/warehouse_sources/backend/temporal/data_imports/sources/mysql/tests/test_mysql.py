@@ -8,8 +8,6 @@ from unittest.mock import MagicMock
 import pymysql
 from sshtunnel import BaseSSHTunnelForwarderError
 
-from posthog.schema import SourceFieldInputConfig
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Table, TableStats
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
@@ -21,8 +19,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     _MAX_CONNECT_ATTEMPTS,
     _SSH_HANDSHAKE_EOF_ERROR,
     STATEMENT_TIMEOUT_SECONDS,
+    UNAVOIDABLE_FILESORT_LOST_CONNECTION_ERROR,
     MySQLColumn,
     MySQLImplementation,
+    MySQLUnavoidableFilesortError,
     _build_query,
     _is_bad_plan_error,
     _is_transient_cant_create_thread,
@@ -248,25 +248,6 @@ def cursor() -> MagicMock:
 
 
 class TestSchemaDiscovery:
-    def test_schema_field_is_optional(self):
-        field = next(field for field in MySQLSource().get_source_config.fields if field.name == "schema")
-
-        assert isinstance(field, SourceFieldInputConfig)
-        assert field.required is False
-        assert (
-            MySQLSourceConfig.from_dict(
-                {
-                    "host": "localhost",
-                    "port": 3306,
-                    "database": "d",
-                    "user": "u",
-                    "password": "p",
-                    "using_ssl": "false",
-                }
-            ).schema
-            is None
-        )
-
     def test_get_columns_uses_plain_table_names_when_schema_configured(self, impl, cursor):
         cursor.fetchall.return_value = [
             ("app", "users", "id", "int", "NO"),
@@ -874,6 +855,65 @@ class TestStreamingReopensDroppedConnection:
         assert ss_cursor.execute.called
 
 
+class TestUnavoidableFilesortFallback:
+    """A bad-plan 2013 that the FORCE INDEX fallback can't dodge — no usable index on the
+    incremental field — is deterministic, so it must fail non-retryably instead of looping."""
+
+    def test_lost_connection_with_no_usable_index_is_non_retryable(self, build_pipeline_mocks, mocker):
+        _, _, ss_cursor = build_pipeline_mocks
+        # The streaming query dies with a bad-plan 2013 before any row streams...
+        ss_cursor.execute.side_effect = pymysql.err.OperationalError(
+            2013, "Lost connection to MySQL server during query"
+        )
+        # ...and the incremental field has no index to force, so the sort can't be avoided.
+        mocker.patch.object(MySQLImplementation, "find_index_for_cursor", return_value=None)
+
+        source = MySQLImplementation().build_pipeline(
+            _make_config(),
+            _make_inputs(
+                should_use_incremental_field=True,
+                incremental_field="created_at",
+                incremental_field_type=IncrementalFieldType.DateTime,
+            ),
+        )
+        with pytest.raises(MySQLUnavoidableFilesortError):
+            list(source.items())  # type: ignore[arg-type]  # MySQL source is always sync
+
+        # The raised marker is classified non-retryable, so the schema is paused, not looped.
+        non_retryable = MySQLSource().get_non_retryable_errors()
+        assert any(pattern in UNAVOIDABLE_FILESORT_LOST_CONNECTION_ERROR for pattern in non_retryable.keys())
+
+
+class TestStreamingSchemaDrift:
+    """Schema discovery can find columns the streaming read no longer returns — a column
+    dropped at the source, or the table recreated narrower, between discovery and the read.
+    The batch must still build against the columns the query actually returned, instead of
+    raising pyarrow's `from_pydict` KeyError ("The passed mapping doesn't contain ... field(s)")."""
+
+    def test_read_returning_a_subset_of_discovered_columns_builds(self, build_pipeline_mocks, mocker):
+        _, _, ss_cursor = build_pipeline_mocks
+        # Discovery finds three columns...
+        wide_table = Table(
+            name="messages",
+            parents=("mydb",),
+            columns=[
+                MySQLColumn(name="id", data_type="int", column_type="int", nullable=False),
+                MySQLColumn(name="text", data_type="text", column_type="text", nullable=True),
+                MySQLColumn(name="provider", data_type="varchar", column_type="varchar", nullable=True),
+            ],
+        )
+        mocker.patch.object(MySQLImplementation, "get_table_metadata", return_value=wide_table)
+        # ...but the streaming read only returns `id`.
+        ss_cursor.description = [("id",)]
+        ss_cursor.fetchmany.side_effect = [[(1,)], []]
+
+        source = MySQLImplementation().build_pipeline(_make_config(), _make_inputs())
+        batches = list(cast(Generator, source.items()))
+
+        assert len(batches) == 1
+        assert batches[0].column_names == ["id"]
+
+
 class TestIsBadPlanError:
     def test_matches_error_2013(self):
         assert _is_bad_plan_error(pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query"))
@@ -883,6 +923,16 @@ class TestIsBadPlanError:
         # field) seen from the other side — the FORCE INDEX fallback resolves it.
         assert _is_bad_plan_error(
             pymysql.err.OperationalError(1038, "Out of sort memory, consider increasing server sort buffer size")
+        )
+
+    def test_matches_error_3024_query_execution_time_exceeded(self):
+        # The server's own max_execution_time cap killing the query is a third
+        # symptom of the same full-scan-and-filesort plan — the FORCE INDEX
+        # fallback resolves it too.
+        assert _is_bad_plan_error(
+            pymysql.err.OperationalError(
+                3024, "Query execution was interrupted, maximum statement execution time exceeded"
+            )
         )
 
     @pytest.mark.parametrize(
@@ -1841,14 +1891,21 @@ class TestMySQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
-            "Cannot build decimal array from values",
-            "ValueError: Cannot build decimal array from values",
+            "(2003, \"Can't connect to MySQL server on 'db.example.com' (timed out)\")",
+            "(2003, \"Can't connect to MySQL server on 'db.example.com' ([Errno 111] Connection refused)\")",
         ],
     )
-    def test_unrepresentable_decimal_values_are_non_retryable(self, source, error_msg):
+    def test_cannot_connect_surfaces_actionable_message(self, source, error_msg):
+        # A persistent connect failure is non-retryable, but the customer must get reachability
+        # guidance rather than the raw pymysql (2003, ...) tuple. Guards against reverting the
+        # umbrella message back to None.
         non_retryable = source.get_non_retryable_errors()
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert is_non_retryable, f"Unrepresentable decimal error should be non-retryable: {error_msg}"
+        friendly = next(
+            (message for pattern, message in non_retryable.items() if pattern in error_msg),
+            None,
+        )
+        assert friendly is not None, f"Connect failure should surface a friendly message: {error_msg}"
+        assert "SSH tunnel" in friendly
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -2032,6 +2089,25 @@ class TestMySQLSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw pymysql str(error) form.
+            str(
+                pymysql.err.OperationalError(
+                    1226,
+                    "User 'app_user' has exceeded the 'max_connections_per_hour' resource (current value: 10)",
+                )
+            ),
+            # Temporal-wrapped str(e.cause) form — different user/quota, same stable code.
+            "OperationalError: (1226, \"User 'reader'@'10.0.1.5' has exceeded the 'max_connections_per_hour' resource (current value: 5)\")",
+        ],
+    )
+    def test_max_connections_per_hour_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Max-connections-per-hour error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # Raw pymysql str(error) form the import/sync path classifies (`_handle_import_error`
             # matches `str(error)`, which has no class-name prefix).
             str(
@@ -2061,6 +2137,46 @@ class TestMySQLSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Out-of-sort-memory error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw pymysql str(error) form (single-quoted tuple repr).
+            str(
+                pymysql.err.OperationalError(
+                    3024, "Query execution was interrupted, maximum statement execution time exceeded"
+                )
+            ),
+            # Temporal-wrapped form (double-quoted).
+            'OperationalError: (3024, "Query execution was interrupted, maximum statement execution time exceeded")',
+        ],
+    )
+    def test_query_execution_time_exceeded_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Query-execution-time-exceeded error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw pymysql str(error) form (single-quoted tuple repr).
+            str(
+                pymysql.err.OperationalError(
+                    1041,
+                    "Out of memory; check if mysqld or some other process uses all available memory; if not, "
+                    "you may have to use 'ulimit' to allow mysqld to use more memory or you can add more swap space",
+                )
+            ),
+            # Temporal-wrapped form (double-quoted).
+            'OperationalError: (1041, "Out of memory; check if mysqld or some other process uses all available '
+            "memory; if not, you may have to use 'ulimit' to allow mysqld to use more memory or you can add more "
+            'swap space")',
+        ],
+    )
+    def test_out_of_memory_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Out-of-memory error should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -2204,18 +2320,6 @@ class TestMySQLSourceNonRetryableErrors:
             "Too many connections",
         ],
     )
-    def test_too_many_connections_stays_retryable(self, source, error_msg):
-        non_retryable = source.get_non_retryable_errors()
-        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
-        assert not is_non_retryable, f"Too-many-connections error should remain retryable: {error_msg}"
-
-    @pytest.mark.parametrize(
-        "error_msg",
-        [
-            "OperationalError: (1040, 'Too many connections')",
-            "Too many connections",
-        ],
-    )
     def test_too_many_connections_is_classified_retryable(self, source, error_msg):
         # Already retried in-process at connect time (`_is_transient_too_many_connections`); once
         # exhausted it re-raises for Temporal to retry the whole activity. Without this
@@ -2224,6 +2328,24 @@ class TestMySQLSourceNonRetryableErrors:
         retryable = source.get_retryable_errors()
         is_retryable = any(pattern in error_msg for pattern in retryable)
         assert is_retryable, f"Too-many-connections error should be classified retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            "(1105, 'unknown: target: keyspace.-.primary: primary is not serving, "
+            "there may be a reparent operation in progress')",
+            "reparent operation in progress",
+        ],
+    )
+    def test_vitess_reparent_is_classified_retryable(self, source, error_msg):
+        # `_retry_on_transient_tablet_unavailable` already retries this in-process during metadata
+        # discovery, but a reparent can outlast that bounded budget; once exhausted it re-raises for
+        # Temporal to retry the whole activity. Without this classification `_handle_import_error`
+        # logs it at `exception` on every occurrence, flooding error tracking with a self-recovering
+        # Vitess/PlanetScale failover.
+        retryable = source.get_retryable_errors()
+        is_retryable = any(pattern in error_msg for pattern in retryable)
+        assert is_retryable, f"Vitess reparent error should be classified retryable: {error_msg}"
 
 
 class TestMySQLSourceValidateCredentials:

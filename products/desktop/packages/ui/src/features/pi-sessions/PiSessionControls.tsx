@@ -1,4 +1,10 @@
-import { CaretDown, Lightning, PiIcon, Stack } from "@phosphor-icons/react";
+import {
+  CaretDown,
+  Lightning,
+  PiIcon,
+  Spinner,
+  Stack,
+} from "@phosphor-icons/react";
 import type {
   PiModelSelection,
   PiThinkingLevel,
@@ -7,6 +13,7 @@ import {
   Button,
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSub,
@@ -20,7 +27,7 @@ import {
   HarnessSubmenu,
 } from "@posthog/ui/features/sessions/components/HarnessSubmenu";
 import type { MessagingMode } from "@posthog/ui/features/sessions/messagingModeStore";
-import { useRef, useState } from "react";
+import { useState } from "react";
 
 type PiModelOption = PiModelSelection & { name?: string };
 
@@ -30,9 +37,12 @@ interface PiModelSelectorProps {
   thinkingLevel?: PiThinkingLevel;
   thinkingLevels?: PiThinkingLevel[];
   disabled?: boolean;
+  isLoading?: boolean;
   onChange: (model: PiModelSelection) => void;
   onThinkingLevelChange?: (level: PiThinkingLevel) => void;
   onHarnessChange?: (harness: AgentHarness) => void;
+  menuOpen?: boolean;
+  onMenuOpenChange?: (open: boolean) => void;
 }
 
 function modelKey(model: PiModelSelection): string {
@@ -59,14 +69,61 @@ export function PiModelSelector({
   thinkingLevel,
   thinkingLevels = [],
   disabled,
+  isLoading,
   onChange,
   onThinkingLevelChange,
   onHarnessChange,
+  menuOpen,
+  onMenuOpenChange,
 }: PiModelSelectorProps) {
-  const [open, setOpen] = useState(false);
-  const pendingChangeRef = useRef<(() => void) | null>(null);
+  const [internalMenuOpen, setInternalMenuOpen] = useState(false);
+  const open = menuOpen ?? internalMenuOpen;
+  const setOpen = onMenuOpenChange ?? setInternalMenuOpen;
 
   if (models.length === 0) {
+    if (isLoading) {
+      // Keep the dropdown mounted while the Pi catalog first loads (a
+      // harness switch to Pi): unmounting it closes a menu the user is
+      // mid-interaction with.
+      return (
+        <DropdownMenu open={open} onOpenChange={setOpen}>
+          <DropdownMenuTrigger
+            render={
+              <Button type="button" variant="default" size="sm">
+                <span className="text-muted-foreground">
+                  <PiIcon size={14} weight="bold" className="translate-y-px" />
+                </span>
+                <Spinner size={12} className="animate-spin" />
+                Loading...
+              </Button>
+            }
+          />
+          <DropdownMenuContent
+            align="start"
+            side="top"
+            sideOffset={6}
+            className="min-w-[230px]"
+          >
+            {onHarnessChange && (
+              <HarnessSubmenu
+                value="pi"
+                includePi
+                closeOnChange={false}
+                onChange={(harness) => {
+                  if (harness !== "pi") {
+                    onHarnessChange(harness);
+                  }
+                }}
+              />
+            )}
+            <DropdownMenuItem disabled>
+              <Spinner size={12} className="animate-spin" />
+              Loading models...
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      );
+    }
     return null;
   }
 
@@ -78,22 +135,8 @@ export function PiModelSelector({
     ? (thinkingLevelLabels[thinkingLevel] ?? thinkingLevel)
     : undefined;
 
-  const selectAndClose = (apply: () => void) => {
-    pendingChangeRef.current = apply;
-    setOpen(false);
-  };
-
   return (
-    <DropdownMenu
-      open={open}
-      onOpenChange={setOpen}
-      onOpenChangeComplete={(isOpen) => {
-        if (!isOpen && pendingChangeRef.current !== null) {
-          pendingChangeRef.current();
-          pendingChangeRef.current = null;
-        }
-      }}
-    >
+    <DropdownMenu open={open} onOpenChange={setOpen}>
       <DropdownMenuTrigger
         render={
           <Button
@@ -134,9 +177,10 @@ export function PiModelSelector({
           <HarnessSubmenu
             value="pi"
             includePi
+            closeOnChange={false}
             onChange={(harness) => {
               if (harness !== "pi") {
-                selectAndClose(() => onHarnessChange(harness));
+                onHarnessChange(harness);
               }
             }}
           />
@@ -156,7 +200,7 @@ export function PiModelSelector({
                   (candidate) => modelKey(candidate) === value,
                 );
                 if (model) {
-                  selectAndClose(() => onChange(model));
+                  onChange(model);
                 }
               }}
             >
@@ -164,6 +208,7 @@ export function PiModelSelector({
                 <DropdownMenuRadioItem
                   key={modelKey(model)}
                   value={modelKey(model)}
+                  closeOnClick={false}
                 >
                   <span className="whitespace-nowrap">{modelLabel(model)}</span>
                 </DropdownMenuRadioItem>
@@ -185,13 +230,15 @@ export function PiModelSelector({
                 <DropdownMenuRadioGroup
                   value={thinkingLevel}
                   onValueChange={(value) =>
-                    selectAndClose(() =>
-                      onThinkingLevelChange(value as PiThinkingLevel),
-                    )
+                    onThinkingLevelChange(value as PiThinkingLevel)
                   }
                 >
                   {thinkingLevels.map((level) => (
-                    <DropdownMenuRadioItem key={level} value={level}>
+                    <DropdownMenuRadioItem
+                      key={level}
+                      value={level}
+                      closeOnClick={false}
+                    >
                       {thinkingLevelLabels[level] ?? level}
                     </DropdownMenuRadioItem>
                   ))}
@@ -261,7 +308,7 @@ export function PiMessagingModeSelector({
           onValueChange={(value) => onModeChange(value as MessagingMode)}
         >
           <DropdownMenuRadioItem value="steer">
-            Steer at the next tool boundary
+            Steer after the current tool finishes
           </DropdownMenuRadioItem>
           <DropdownMenuRadioItem value="queue">
             Queue for the next turn

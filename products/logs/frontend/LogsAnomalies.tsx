@@ -1,14 +1,18 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 
+import { IconUndo } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSelect, LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
 import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { pluralize } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
 
 import type { LogMessage } from '~/queries/schema/schema-general'
 
+import { AnomalyBandChart } from 'products/logs/frontend/components/AnomalyBandChart'
 import { ServiceFilter } from 'products/logs/frontend/components/LogsViewer/Filters/ServiceFilter'
 import { LogTag } from 'products/logs/frontend/components/LogTag'
 import {
@@ -20,7 +24,7 @@ import {
     type LogsAnomalyScanSeriesApi,
     type LogsAnomalyVerdictEnumApi,
 } from 'products/logs/frontend/generated/api.schemas'
-import { SCAN_WINDOW_OPTIONS, logsAnomaliesLogic } from 'products/logs/frontend/logsAnomaliesLogic'
+import { SCAN_WINDOW_OPTIONS, type ScanRange, logsAnomaliesLogic } from 'products/logs/frontend/logsAnomaliesLogic'
 
 const VERDICT_TAG: Record<LogsAnomalyVerdictEnumApi, { label: string; type: LemonTagType }> = {
     spike: { label: 'Spike', type: 'danger' },
@@ -139,8 +143,72 @@ function ScanResults({ result }: { result: LogsAnomalyScanResponseApi }): JSX.El
                     from <TZLabel time={result.eval_start} /> to <TZLabel time={result.eval_end} />.
                 </LemonBanner>
             )}
+            <BandCharts series={result.series} serviceName={result.service_name} />
             <LearningStatus series={result.series} lookbackDays={result.lookback_days} />
         </div>
+    )
+}
+
+function BandCharts({
+    series,
+    serviceName,
+}: {
+    series: LogsAnomalyScanSeriesApi[]
+    serviceName: string
+}): JSX.Element | null {
+    const { zoomedRange, scanDisabledReason } = useValues(logsAnomaliesLogic)
+    const { zoomToRange, resetZoom } = useActions(logsAnomaliesLogic)
+    const withBuckets = series.filter((s) => s.buckets.length > 0)
+    if (withBuckets.length === 0) {
+        return null
+    }
+    return (
+        <div className="flex flex-col gap-2" data-attr="logs-anomalies-band-charts">
+            <h3 className="mb-0">Observed vs expected</h3>
+            <div className="text-secondary text-sm">
+                Log volume per 5 minute bucket against the learned band. Marked points fell outside the band. Drag
+                across a chart to scan a narrower window, or click a bucket to read its logs.
+            </div>
+            {withBuckets.map((s) => (
+                <div key={s.severity} className="rounded border bg-surface-primary p-3">
+                    <div className="mb-2 flex items-center gap-2">
+                        <LogTag level={s.severity as LogMessage['severity_text']} />
+                        <span className="text-secondary text-xs">{s.stage ? STAGE_LABEL[s.stage] : 'Not scored'}</span>
+                        {/* Per chart rather than in the toolbar: you drag on a chart, so the way back
+                            has to be next to the chart you dragged on. */}
+                        {zoomedRange && (
+                            <LemonButton
+                                className="ml-auto"
+                                size="xsmall"
+                                type="secondary"
+                                icon={<IconUndo />}
+                                onClick={resetZoom}
+                                disabledReason={scanDisabledReason}
+                                data-attr="logs-anomalies-reset-zoom"
+                            >
+                                Reset zoom
+                            </LemonButton>
+                        )}
+                    </div>
+                    <AnomalyBandChart
+                        buckets={s.buckets}
+                        onZoom={zoomToRange}
+                        onBucketClick={(range) => openLogsForBucket(serviceName, s.severity, range)}
+                    />
+                </div>
+            ))}
+        </div>
+    )
+}
+
+function openLogsForBucket(serviceName: string, severity: string, range: ScanRange): void {
+    router.actions.push(
+        combineUrl(urls.logs(), {
+            activeTab: 'viewer',
+            serviceNames: serviceName,
+            severityLevels: severity,
+            dateRange: { date_from: range.dateFrom, date_to: range.dateTo },
+        }).url
     )
 }
 

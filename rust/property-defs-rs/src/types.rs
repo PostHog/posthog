@@ -4,11 +4,9 @@ use chrono::{DateTime, Utc};
 use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Map, Value};
-use sqlx::{Executor, Postgres};
 use tracing::warn;
-use uuid::Uuid;
 
-use crate::metrics_consts::{EVENTS_SKIPPED, UPDATES_ISSUED, UPDATES_SKIPPED};
+use crate::metrics_consts::{EVENTS_SKIPPED, UPDATES_SKIPPED};
 
 // Custom deserializer that can handle both string and integer values
 fn deserialize_string_or_i32<'de, D>(deserializer: D) -> Result<i32, D::Error>
@@ -111,17 +109,6 @@ pub enum PropertyParentType {
     Session = 4,
 }
 
-impl From<PropertyParentType> for i32 {
-    fn from(parent_type: PropertyParentType) -> i32 {
-        match parent_type {
-            PropertyParentType::Event => 1,
-            PropertyParentType::Person => 2,
-            PropertyParentType::Group => 3,
-            PropertyParentType::Session => 4,
-        }
-    }
-}
-
 #[derive(Clone, Debug, Deserialize, Serialize, Eq, PartialEq, PartialOrd, Ord)]
 pub enum PropertyValueType {
     DateTime,
@@ -181,9 +168,6 @@ pub struct PropertyDefinition {
     pub property_type: Option<PropertyValueType>,
     pub event_type: PropertyParentType,
     pub group_type_index: Option<GroupType>,
-    pub property_type_format: Option<String>, // Deprecated
-    pub volume_30_day: Option<i64>,           // Deprecated
-    pub query_usage_30_day: Option<i64>,      // Deprecated
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Deserialize, Serialize)]
@@ -193,7 +177,9 @@ pub struct EventDefinition {
     pub team_id: i32,
     #[serde(deserialize_with = "deserialize_string_or_i64")]
     pub project_id: i64,
-    pub last_seen_at: DateTime<Utc>, // Always floored to our update rate for last_seen, so this Eq derive is safe for deduping
+    // Always floored to EVENTDEF_LAST_SEEN_FLOOR_SECS, so this Eq derive is safe for deduping:
+    // two sightings within the same floor period compare equal and collapse to one write.
+    pub last_seen_at: DateTime<Utc>,
 }
 
 // Derived hash since these are keyed on all fields in the DB
@@ -223,12 +209,6 @@ pub struct Event {
     pub project_id: i64,
     pub event: String,
     pub properties: Option<String>,
-}
-
-impl From<&Event> for EventDefinition {
-    fn from(event: &Event) -> Self {
-        event.to_event_definition(DEFAULT_EVENTDEF_LAST_SEEN_FLOOR_SECS)
-    }
 }
 
 impl Event {
@@ -403,9 +383,6 @@ impl Event {
                 property_type,
                 event_type: parent_type,
                 group_type_index: group_type.clone(),
-                property_type_format: None,
-                volume_30_day: None,
-                query_usage_30_day: None,
             }));
         }
     }
@@ -634,35 +611,6 @@ fn will_fit_in_postgres_column(str: &str) -> bool {
 // in strings just fine.
 pub fn sanitize_string(s: &str) -> String {
     s.replace('\u{0000}', "\u{FFFD}")
-}
-
-// The queries below are pulled more-or-less exactly from the TS impl.
-
-impl EventDefinition {
-    pub async fn issue<'c, E>(&self, executor: E) -> Result<(), sqlx::Error>
-    where
-        E: Executor<'c, Database = Postgres>,
-    {
-        let res = sqlx::query!(
-            r#"
-            INSERT INTO posthog_eventdefinition (id, name, volume_30_day, query_usage_30_day, team_id, project_id, last_seen_at, created_at)
-            VALUES ($1, $2, NULL, NULL, $3, $4, $5, NOW())
-            ON CONFLICT (coalesce(project_id, team_id::bigint), name)
-            DO UPDATE SET last_seen_at = $5
-        "#,
-            Uuid::now_v7(),
-            self.name,
-            self.team_id,
-            self.project_id,
-            // last_seen_at is floored only to bound how often we re-issue this write; the stored
-            // value is the real time we saw the event.
-            Utc::now()
-        ).execute(executor).await.map(|_| ());
-
-        metrics::counter!(UPDATES_ISSUED, &[("type", "event_definition")]).increment(1);
-
-        res
-    }
 }
 
 #[cfg(test)]

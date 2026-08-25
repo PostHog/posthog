@@ -16,6 +16,7 @@ export const KAFKA_PERSON_DISTINCT_ID2 = `${prefix}clickhouse_person_distinct_id
 export const KAFKA_EVENTS_PLUGIN_INGESTION = `${prefix}events_plugin_ingestion${suffix}`
 export const KAFKA_EVENTS_PLUGIN_INGESTION_DLQ = `${prefix}events_plugin_ingestion_dlq${suffix}`
 export const KAFKA_EVENTS_PLUGIN_INGESTION_OVERFLOW = `${prefix}events_plugin_ingestion_overflow${suffix}`
+export const KAFKA_EVENTS_PLUGIN_INGESTION_AI = `${prefix}events_plugin_ingestion_ai${suffix}`
 export const KAFKA_EVENTS_PLUGIN_INGESTION_ASYNC = `${prefix}events_plugin_ingestion_async${suffix}`
 export const KAFKA_EVENTS_PLUGIN_INGESTION_HISTORICAL = `${prefix}events_plugin_ingestion_historical${suffix}`
 export const KAFKA_PLUGIN_LOG_ENTRIES = `${prefix}plugin_log_entries${suffix}`
@@ -41,6 +42,19 @@ export const KAFKA_SESSION_REPLAY_ML_BLOCK_METADATA = `${prefix}session_replay_m
 
 // raw inlined replay images: ml-mirror producer -> image-scrub worker
 export const KAFKA_SESSION_REPLAY_IMAGE_SCRUB = `${prefix}session_replay_image_scrub${suffix}`
+
+// remote image URLs: ml-mirror producer -> image-fetch worker. The Kafka key is the registrable
+// domain, not the host. All URLs of one operator therefore go to one partition, and one pod owns
+// the request rate of that operator. A CDN that shards over img1..img8.cdn.example.com keys to
+// example.com, so it gets one budget rather than eight. A record holds an original, unscrubbed
+// URL, so this topic is as sensitive as the raw replay topic.
+export const KAFKA_SESSION_REPLAY_IMAGE_FETCH = `${prefix}session_replay_image_fetch${suffix}`
+// Kafka has no delayed delivery, so a retry waits in a topic whose period is fixed. The period
+// belongs to the topic rather than to the record, so the records leave in the order they become
+// ready and an hour-long wait never sits in front of a one minute wait.
+export const KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1M = `${prefix}ai_research_session_replay_image_fetch_retry_1m${suffix}`
+export const KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_10M = `${prefix}ai_research_session_replay_image_fetch_retry_10m${suffix}`
+export const KAFKA_SESSION_REPLAY_IMAGE_FETCH_RETRY_1H = `${prefix}ai_research_session_replay_image_fetch_retry_1h${suffix}`
 
 // images the scrub sidecar cannot process, parked so they stop holding the head of their partition.
 // The original bytes are kept: unscrubbed content must never reach the ML bucket, but it must not be

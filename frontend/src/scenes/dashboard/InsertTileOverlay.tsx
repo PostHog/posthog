@@ -5,7 +5,7 @@ import { Layout } from 'react-grid-layout'
 import { IconPlusSmall } from '@posthog/icons'
 
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
-import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { LemonMenu, LemonMenuItems } from 'lib/lemon-ui/LemonMenu'
 import { computeBoundaries, InsertZone, LineSegment, TileRect } from 'scenes/dashboard/insertTileGeometry'
 
 interface InsertTileOverlayProps {
@@ -19,7 +19,8 @@ interface InsertTileOverlayProps {
     canEditDashboard: boolean
     isMobileView: boolean
     disabled?: boolean
-    getMenuItems: (targetX: number, targetY: number, targetW?: number) => LemonMenuItem[]
+    getMenuItems: (targetX: number, targetY: number, targetW?: number) => LemonMenuItems
+    onMenuOpen: () => void
 }
 
 export function InsertTileOverlay({
@@ -33,6 +34,7 @@ export function InsertTileOverlay({
     isMobileView,
     disabled,
     getMenuItems,
+    onMenuOpen,
 }: InsertTileOverlayProps): JSX.Element | null {
     const containerRef = useRef<HTMLDivElement>(null)
     const [tileRects, setTileRects] = useState<TileRect[]>([])
@@ -115,6 +117,7 @@ export function InsertTileOverlay({
                     segments={boundary.segments}
                     zones={boundary.zones}
                     getMenuItems={getMenuItems}
+                    onMenuOpen={onMenuOpen}
                 />
             ))}
         </div>
@@ -141,6 +144,7 @@ function InsertionStrip({
     segments,
     zones,
     getMenuItems,
+    onMenuOpen,
 }: {
     lineY: number
     gridRow: number
@@ -148,7 +152,8 @@ function InsertionStrip({
     cols: number
     segments: LineSegment[]
     zones: InsertZone[]
-    getMenuItems: (targetX: number, targetY: number, targetW?: number) => LemonMenuItem[]
+    getMenuItems: (targetX: number, targetY: number, targetW?: number) => LemonMenuItems
+    onMenuOpen: () => void
 }): JSX.Element {
     const stripRef = useRef<HTMLDivElement>(null)
     const buttonRef = useRef<HTMLDivElement>(null)
@@ -235,7 +240,15 @@ function InsertionStrip({
                     revealClass
                 )}
             >
-                <LemonMenu items={menuItems} onVisibilityChange={setMenuOpen}>
+                <LemonMenu
+                    items={menuItems}
+                    onVisibilityChange={(visible) => {
+                        setMenuOpen(visible)
+                        if (visible) {
+                            onMenuOpen()
+                        }
+                    }}
+                >
                     <LemonButton
                         size="xsmall"
                         type="primary"

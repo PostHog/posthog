@@ -70,6 +70,9 @@ def try_ingest_discussion_reply(
         text=str(event.get("text") or ""),
         blocks=event.get("blocks") if isinstance(event.get("blocks"), list) else None,
         message_ts=str(event.get("ts") or ""),
+        # Only metadata is forwarded — the discussion links back to the file in Slack rather
+        # than downloading it, so this works even on installs without files:read.
+        files=event.get("files") if isinstance(event.get("files"), list) else None,
     )
     logger.info(
         "slack_discussion_reply_enqueued",

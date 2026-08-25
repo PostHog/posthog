@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from social_django.models import UserSocialAuth
 
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models import Organization, Team, User
 from posthog.models.github_integration_base import GitHubCommitAuthor
 from posthog.models.integration import Integration
@@ -29,6 +30,7 @@ from products.signals.backend.report_generation.resolve_reviewers import (
     rank_assignee_candidates,
     resolve_org_github_login_to_users,
     resolve_suggested_reviewers,
+    resolve_suggested_reviewers_with_diagnostics,
 )
 
 
@@ -200,7 +202,8 @@ class TestRecencyScoring:
 
     def test_crowded_area_nominates_nobody_but_still_decays_blame(self):
         weights = Counter({"old-timer": 10})
-        # The blame author is past the window, so only the crowded area keeps the stranger out.
+        # The blame author is past the window, so only the crowded area keeps the stranger out —
+        # even with the crowd fallback allowed, since a blame candidate exists.
         activity = {
             "old-timer": _area_contributor(
                 days_since_last_commit=ACTIVITY_WINDOW_DAYS + 5, is_likely_owner_of_area=False
@@ -208,10 +211,29 @@ class TestRecencyScoring:
             "prolific-stranger": _area_contributor(days_since_last_commit=1, is_likely_owner_of_area=False),
         }
 
-        scores = _score_candidates(weights, activity)
+        scores = _score_candidates(weights, activity, allow_crowd_fallback=True)
 
         assert set(scores) == {"old-timer"}
         assert scores["old-timer"] < 10.0
+
+    @pytest.mark.parametrize(
+        ("allow_crowd_fallback", "expected_logins"),
+        [(True, {"crowd-regular", "crowd-passerby"}), (False, set())],
+    )
+    def test_crowd_fallback_fires_only_on_the_reviewer_path(self, allow_crowd_fallback, expected_logins):
+        # No blame candidate at all and no focused area: the pipeline reviewer path must
+        # propose the crowd's contributors rather than nobody, while the agent re-ranking
+        # path must keep returning nothing so the agent's own judgment wins.
+        activity = {
+            "crowd-regular": _area_contributor(days_since_last_commit=1, is_likely_owner_of_area=False),
+            "crowd-passerby": _area_contributor(
+                days_since_last_commit=5, commit_count=2, is_likely_owner_of_area=False
+            ),
+        }
+
+        scores = _score_candidates(Counter(), activity, allow_crowd_fallback=allow_crowd_fallback)
+
+        assert set(scores) == expected_logins
 
     def test_half_stale_bystander_does_not_beat_stale_blame(self):
         weights = Counter({"long-gone": 1})
@@ -343,6 +365,17 @@ class TestRankAssigneeCandidates:
 
         assert [candidate.login for candidate in ranked] == ["first-pick", "second-pick"]
 
+    def test_no_candidates_and_crowded_area_returns_nothing(self, team):
+        # The agent path must not inherit the reviewer path's crowd fallback: when the agent
+        # deliberately proposed nobody and only a crowded area is cached, an empty result
+        # lets the caller keep the agent's judgment.
+        _seed_area(team, "products/signals", [(f"dev-{i}", 3, 1) for i in range(MAX_CONTRIBUTORS_FOR_OWNERSHIP + 1)])
+
+        with patch("products.signals.backend.report_generation.resolve_reviewers._schedule_activity_rebuild"):
+            ranked = rank_assignee_candidates(team.id, "acme/app", [], ["products/signals/backend/models.py"])
+
+        assert ranked == []
+
 
 @pytest.mark.django_db
 class TestResolveSuggestedReviewersEndToEnd:
@@ -444,6 +477,54 @@ class TestResolveSuggestedReviewersEndToEnd:
         assert [r.login for r in reviewers] == ["active-author"]
         assert reviewers[0].commits[0].sha == "d" * 7
 
+    def test_bot_only_blame_in_crowded_area_still_proposes_contributors(self, team):
+        # The production regression this guards: every finding commit is bot-authored, and the
+        # only cached activity level is too crowded to imply ownership (a monorepo norm), so
+        # the resolver used to return nobody and the report went unrouted.
+        class FakeGitHub:
+            def get_commit_author_info(self, repository, sha):
+                return GitHubCommitAuthor(
+                    login="release-bot",
+                    name="Release Bot",
+                    commit_url=f"https://github.com/acme/app/commit/{sha}",
+                    file_paths=("products/signals/backend/models.py",),
+                    is_bot=True,
+                )
+
+        activity = {
+            "products/signals": [
+                ContributorActivity(
+                    login=f"dev-{i}",
+                    name=f"Dev {i}",
+                    commit_count=MAX_CONTRIBUTORS_FOR_OWNERSHIP + 1 - i,
+                    last_commit_at=timezone.now() - timedelta(days=1),
+                    last_commit_sha="c" * 7,
+                    last_commit_url="https://github.com/acme/app/commit/ccccccc",
+                )
+                for i in range(MAX_CONTRIBUTORS_FOR_OWNERSHIP + 1)
+            ]
+        }
+
+        with (
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.GitHubIntegration.first_for_team_repository",
+                return_value=FakeGitHub(),
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.get_area_activity",
+                return_value=activity,
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.repository_activity_needs_rebuild",
+                return_value=False,
+            ),
+        ):
+            reviewers = resolve_suggested_reviewers(team.id, "acme/app", {"d" * 7: "introduced the bug"})
+
+        # Ties on score break by commit count, so the crowd's most active contributors surface.
+        assert [r.login for r in reviewers] == ["dev-0", "dev-1", "dev-2"]
+        assert "Recently active in `products/signals`" in reviewers[0].commits[0].reason
+
     def test_stale_cached_blame_author_does_not_suppress_fresh_owner(self, team):
         class FakeGitHub:
             def get_commit_author_info(self, repository, sha):
@@ -497,3 +578,107 @@ class TestResolveSuggestedReviewersEndToEnd:
         logins = [r.login for r in reviewers]
         assert "fresh-owner" in logins
         assert logins.index("fresh-owner") < logins.index("aged-author")
+
+
+@pytest.mark.django_db
+class TestResolveSuggestedReviewersDiagnostics:
+    @pytest.mark.parametrize(
+        "name,repository,commit_hashes,author,expected_outcome,expected_counts",
+        [
+            ("no_repository", "", {"d" * 7: "bug"}, None, "no_repository", {"commit_hash_count": 1}),
+            ("no_commit_hashes", "acme/app", {}, None, "no_commit_hashes", {"commit_hash_count": 0}),
+            (
+                "unattributed_commits",
+                "acme/app",
+                {"d" * 7: "bug", "e" * 7: "bug"},
+                None,
+                "no_commit_authors",
+                {"lookups_attempted": 2, "lookups_resolved": 0, "lookups_missing": 2},
+            ),
+            (
+                "bot_only_no_activity",
+                "acme/app",
+                {"d" * 7: "bug"},
+                GitHubCommitAuthor(
+                    login="dependabot[bot]",
+                    name="dependabot",
+                    commit_url="https://github.com/acme/app/commit/ddddddd",
+                    file_paths=("products/signals/backend/models.py",),
+                    is_bot=True,
+                ),
+                "only_bot_authors",
+                {"lookups_resolved": 1, "bot_author_count": 1, "blame_login_count": 0, "touched_path_count": 1},
+            ),
+        ],
+    )
+    def test_empty_result_names_its_cause(
+        self, team, name, repository, commit_hashes, author, expected_outcome, expected_counts
+    ):
+        class FakeGitHub:
+            def get_commit_author_info(self, repository, sha):
+                return author
+
+        with (
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.GitHubIntegration.first_for_team_repository",
+                return_value=FakeGitHub(),
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.get_area_activity",
+                return_value={},
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.repository_activity_needs_rebuild",
+                return_value=False,
+            ),
+        ):
+            resolution = resolve_suggested_reviewers_with_diagnostics(team.id, repository, commit_hashes)
+
+        assert resolution.reviewers == []
+        assert resolution.diagnostics.outcome == expected_outcome
+        for field, value in expected_counts.items():
+            assert getattr(resolution.diagnostics, field) == value, field
+
+    def test_a_throttled_lookup_outweighs_what_the_others_returned(self, team):
+        # One lookup throttled, the other unattributed. The throttled commit is the one that could
+        # have carried the human author, so the rate limit is the cause worth reporting — reading
+        # this as `no_commit_authors` would send someone hunting a GitHub attribution problem.
+        class FakeGitHub:
+            def get_commit_author_info(self, repository, sha):
+                if sha.startswith("d"):
+                    raise GitHubRateLimitError("rate limited")
+                return None
+
+        with (
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.GitHubIntegration.first_for_team_repository",
+                return_value=FakeGitHub(),
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.get_area_activity",
+                return_value={},
+            ),
+            patch(
+                "products.signals.backend.report_generation.resolve_reviewers.repository_activity_needs_rebuild",
+                return_value=False,
+            ),
+        ):
+            resolution = resolve_suggested_reviewers_with_diagnostics(
+                team.id, "acme/app", {"d" * 7: "bug", "e" * 7: "bug"}
+            )
+
+        assert resolution.reviewers == []
+        assert resolution.diagnostics.outcome == "github_rate_limited"
+        assert resolution.diagnostics.lookups_rate_limited == 1
+        assert resolution.diagnostics.lookups_attempted == 2
+
+    def test_no_integration_is_reported_before_any_lookup(self, team):
+        with patch(
+            "products.signals.backend.report_generation.resolve_reviewers.GitHubIntegration.first_for_team_repository",
+            return_value=None,
+        ):
+            resolution = resolve_suggested_reviewers_with_diagnostics(team.id, "acme/app", {"d" * 7: "bug"})
+
+        assert resolution.reviewers == []
+        assert resolution.diagnostics.outcome == "no_github_integration"
+        assert resolution.diagnostics.lookups_attempted == 0

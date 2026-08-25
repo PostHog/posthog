@@ -1,6 +1,5 @@
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
-from uuid import UUID
 
 from django.core import exceptions as django_exceptions
 from django.db import transaction
@@ -9,8 +8,8 @@ from django.utils import timezone
 
 import structlog
 import posthoganalytics
-from drf_spectacular.utils import extend_schema, extend_schema_field
-from rest_framework import exceptions, pagination, serializers, viewsets
+from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field
+from rest_framework import exceptions, pagination, serializers, status, viewsets
 from rest_framework.exceptions import ErrorDetail
 from rest_framework.generics import get_object_or_404
 from rest_framework.request import Request
@@ -21,15 +20,22 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
+from posthog.comment.access import task_comment_target_is_accessible
+from posthog.event_usage import groups
 from posthog.exceptions import Conflict
 from posthog.helpers.slack_thread_mirror import post_comment_to_slack_thread, slack_author_from_user
-from posthog.models import User
+from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.comment import Comment, CommentSlackThread
-from posthog.models.comment.comment import TICKET_COMMENT_SCOPES, activity_log_scope_for
+from posthog.models.comment.comment import (
+    COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API,
+    TICKET_COMMENT_SCOPES,
+    activity_log_scope_for,
+)
 from posthog.models.comment.slack_thread import DISCUSSIONS_SLACK_SYNC_FLAG
 from posthog.models.comment.utils import (
+    DESKTOP_COMMENT_SCOPES,
     build_comment_item_url,
     comment_scope_display_name,
     produce_discussion_mention_events,
@@ -38,6 +44,8 @@ from posthog.models.comment.utils import (
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.tasks.comment_slack_sync import backfill_comment_slack_thread
 from posthog.tasks.email import send_discussions_mentioned
+
+from products.conversations.backend import reply_dedupe
 
 if TYPE_CHECKING:
     from posthog.rbac.user_access_control import UserAccessControl
@@ -119,6 +127,57 @@ class CommentSlackThreadRefSerializer(serializers.Serializer):
     url = serializers.CharField(help_text="Deep link that opens the mirrored Slack thread.")
 
 
+def _capture_task_comment_action(comment: Comment, mentions: list[int], team: Team) -> None:
+    if comment.scope not in DESKTOP_COMMENT_SCOPES or not comment.created_by or not comment.created_by.distinct_id:
+        return
+
+    context = comment.item_context if isinstance(comment.item_context, dict) else {}
+    thread_state = context.get("threadState")
+    if comment.source_comment_id and thread_state == "resolved":
+        action_type = "resolved"
+    elif comment.source_comment_id and thread_state == "open":
+        action_type = "reopened"
+    elif comment.source_comment_id:
+        action_type = "replied"
+    else:
+        action_type = "created"
+
+    anchor = context.get("anchor")
+    anchor_kind = anchor.get("kind") if isinstance(anchor, dict) else None
+    raw_task_id = comment.item_id if comment.scope == "task" else context.get("taskId")
+    properties: dict[str, Any] = {
+        "analytics_version": 1,
+        "action_type": action_type,
+        "scope": comment.scope,
+        "anchor_kind": anchor_kind if anchor_kind in {"text", "region", "document"} else "unknown",
+        "task_id": raw_task_id if isinstance(raw_task_id, str) else None,
+        "item_id": comment.item_id,
+        "thread_id": str(comment.source_comment_id or comment.id),
+        "comment_id": str(comment.id),
+        "is_reply": action_type == "replied",
+        "mention_count": len(mentions),
+    }
+    if action_type in {"created", "replied"}:
+        content_length = len(comment.content or "")
+        properties["content_length_bucket"] = (
+            "0-50" if content_length <= 50 else "51-200" if content_length <= 200 else "201+"
+        )
+    if action_type in {"created", "reopened"}:
+        properties["thread_state"] = "open"
+    elif action_type == "resolved":
+        properties["thread_state"] = "resolved"
+
+    try:
+        posthoganalytics.capture(
+            distinct_id=str(comment.created_by.distinct_id),
+            event="Comment action",
+            properties=properties,
+            groups=groups(team=team),
+        )
+    except Exception:
+        logger.exception("Failed to capture task comment analytics", extra={"comment_id": str(comment.id)})
+
+
 def _record_task_comment_activity(
     comment: Comment,
     mentions: list[int],
@@ -126,7 +185,7 @@ def _record_task_comment_activity(
     activity_at: datetime | None = None,
     include_relationship_recipients: bool = True,
 ) -> None:
-    if comment.scope not in {"task", "task_artifact", "desktop_canvas"}:
+    if comment.scope not in DESKTOP_COMMENT_SCOPES:
         return
 
     owner_id = None
@@ -170,7 +229,7 @@ def _record_task_comment_activity(
 def _mentions_allowed_for_comment_target(
     *, team_id: int, scope: str, item_id: str | None, item_context: dict | None
 ) -> bool:
-    if scope not in {"task", "task_artifact", "desktop_canvas"}:
+    if scope not in DESKTOP_COMMENT_SCOPES:
         return True
     task_id = item_id if scope == "task" else (item_context or {}).get("taskId")
     if not task_id:
@@ -178,44 +237,6 @@ def _mentions_allowed_for_comment_target(
     from products.tasks.backend.facade.api import task_comment_mentions_allowed  # noqa: PLC0415
 
     return task_comment_mentions_allowed(team_id=team_id, task_id=task_id)
-
-
-def _task_comment_target_is_accessible(
-    *, team_id: int, user_id: int | None, task_id: str, scope: str, item_id: str | None
-) -> bool:
-    from products.tasks.backend.facade.api import task_comment_target_is_accessible  # noqa: PLC0415
-
-    if scope != "desktop_canvas":
-        return task_comment_target_is_accessible(
-            team_id=team_id,
-            user_id=user_id,
-            task_id=task_id,
-            scope=scope,
-            item_id=item_id,
-        )
-    if not task_comment_target_is_accessible(
-        team_id=team_id,
-        user_id=user_id,
-        task_id=task_id,
-        scope="task",
-        item_id=task_id,
-    ):
-        return False
-
-    from products.canvas.backend.comment_access import canvas_belongs_to_task  # noqa: PLC0415
-
-    try:
-        parsed_task_id = UUID(task_id)
-    except ValueError:
-        return False
-    if not item_id:
-        return False
-    return canvas_belongs_to_task(
-        team_id=team_id,
-        user_id=user_id,
-        canvas_id=item_id,
-        task_id=parsed_task_id,
-    )
 
 
 class CommentSerializer(serializers.ModelSerializer):
@@ -337,6 +358,9 @@ class CommentSerializer(serializers.ModelSerializer):
             raise exceptions.ValidationError({"scope": ErrorDetail("This field is required.", code="required")})
         scope = data["scope"] if "scope" in data else getattr(instance, "scope", None)
         item_id = data["item_id"] if "item_id" in data else getattr(instance, "item_id", None)
+        candidate_scopes = {scope, getattr(instance, "scope", None), getattr(source_comment, "scope", None)}
+        if candidate_scopes & COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API:
+            raise exceptions.PermissionDenied("Email thread messages cannot be managed through the comments API")
         if source_comment is not None:
             if source_comment.team_id != self.context["team_id"]:
                 raise exceptions.ValidationError({"source_comment": "Comment not found."})
@@ -364,10 +388,11 @@ class CommentSerializer(serializers.ModelSerializer):
             data["scope"] = root.scope
             data["item_id"] = root.item_id
             reply_context = data.get("item_context") or {}
+            root_context = root.item_context if isinstance(root.item_context, dict) else {}
             # Replies inherit the root's context (anchor, taskId) so filters keep
             # working, but a reply's own signal keys must survive the merge.
             data["item_context"] = {
-                **(root.item_context or {}),
+                **{key: value for key, value in root_context.items() if key != "threadState"},
                 **({"is_emoji": reply_context["is_emoji"]} if "is_emoji" in reply_context else {}),
                 **(
                     {"threadState": reply_context["threadState"]}
@@ -397,7 +422,7 @@ class CommentSerializer(serializers.ModelSerializer):
         target_context = data.get("item_context", instance.item_context if instance else None) or {}
         if target_scope in {"task", "task_artifact", "desktop_canvas"}:
             task_id = target_item_id if target_scope == "task" else target_context.get("taskId")
-            if not _task_comment_target_is_accessible(
+            if not task_comment_target_is_accessible(
                 team_id=self.context["get_team"]().id,
                 user_id=request.user.id,
                 task_id=task_id or "",
@@ -463,10 +488,12 @@ class CommentSerializer(serializers.ModelSerializer):
         comment = super().create(validated_data)
 
         if mentions:
-            send_discussions_mentioned.delay(comment.id, mentions, slug)
+            if comment.scope not in DESKTOP_COMMENT_SCOPES:
+                send_discussions_mentioned.delay(comment.id, mentions, slug)
             produce_discussion_mention_events(comment, mentions, slug)
             send_mention_notifications(comment, mentions, slug)
         _record_task_comment_activity(comment, mentions)
+        _capture_task_comment_action(comment, mentions, self.context["get_team"]())
 
         return comment
 
@@ -502,7 +529,8 @@ class CommentSerializer(serializers.ModelSerializer):
                 updated_instance = super().update(locked_instance, validated_data)
 
         if mentions:
-            send_discussions_mentioned.delay(updated_instance.id, mentions, slug)
+            if updated_instance.scope not in DESKTOP_COMMENT_SCOPES:
+                send_discussions_mentioned.delay(updated_instance.id, mentions, slug)
             produce_discussion_mention_events(updated_instance, mentions, slug)
             send_mention_notifications(updated_instance, mentions, slug)
             _record_task_comment_activity(
@@ -513,6 +541,11 @@ class CommentSerializer(serializers.ModelSerializer):
             )
 
         return updated_instance
+
+
+class CommentErrorSerializer(serializers.Serializer):
+    detail = serializers.CharField(help_text="Human-readable explanation of what went wrong.")
+    error_type = serializers.CharField(required=False, help_text="Stable machine-readable identifier for the failure.")
 
 
 class CommentPagination(pagination.CursorPagination):
@@ -656,6 +689,79 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
     def list(self, request, *args, **kwargs):
         return super().list(request, *args, **kwargs)
 
+    def _build_reply_fingerprint(self, validated_data: dict[str, Any]) -> "reply_dedupe.ReplyFingerprint | None":
+        created_by = validated_data.get("created_by")
+        source_comment = validated_data.get("source_comment")
+        return reply_dedupe.ReplyFingerprint.build(
+            team_id=self.team_id,
+            created_by_id=getattr(created_by, "id", None),
+            scope=validated_data.get("scope"),
+            item_id=validated_data.get("item_id"),
+            content=validated_data.get("content"),
+            rich_content=validated_data.get("rich_content"),
+            item_context=validated_data.get("item_context"),
+            source_comment_id=getattr(source_comment, "id", None),
+            is_task=validated_data.get("is_task"),
+            has_unverifiable_metadata=bool(validated_data.get("mentions") or validated_data.get("slug")),
+        )
+
+    def _created_response(self, serializer: serializers.BaseSerializer[Any]) -> Response:
+        data = serializer.data
+        return Response(data, status=status.HTTP_201_CREATED, headers=self.get_success_headers(data))
+
+    @extend_schema(
+        responses={
+            200: OpenApiResponse(
+                response=CommentSerializer,
+                description=(
+                    "An identical support message was already created by a recent request. "
+                    "The original comment is returned and nothing new is written."
+                ),
+            ),
+            201: OpenApiResponse(response=CommentSerializer),
+            409: OpenApiResponse(
+                response=CommentErrorSerializer,
+                description="An identical support message is still being created by another request.",
+            ),
+        },
+    )
+    def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        """Create a comment.
+
+        Support messages are deduplicated: an identical message from the same author on the same
+        ticket within a short window returns the original comment with a 200 instead of creating a
+        second one, and a 409 while a concurrent request is still creating it.
+        """
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        # Validate first, so the guard runs behind the ticket-editor check in the serializer rather
+        # than reserving a key for a request that was never allowed to write.
+        fingerprint = self._build_reply_fingerprint(serializer.validated_data)
+        if fingerprint is None:
+            self.perform_create(serializer)
+            return self._created_response(serializer)
+
+        def save_comment() -> Comment:
+            self.perform_create(serializer)
+            return cast(Comment, serializer.instance)
+
+        guarded = reply_dedupe.create_deduplicated(fingerprint, save_comment)
+        if guarded.outcome is reply_dedupe.CreateOutcome.CONFLICT:
+            return Response(
+                {
+                    "detail": reply_dedupe.REPLY_IN_PROGRESS_DETAIL,
+                    "error_type": reply_dedupe.REPLY_IN_PROGRESS_ERROR_TYPE,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+        if guarded.outcome is reply_dedupe.CreateOutcome.REPLAYED:
+            # Serialize the stored row directly. Going back through save() would re-fire the
+            # mention notifications the original request already sent.
+            return Response(self.get_serializer(guarded.comment).data)
+
+        return self._created_response(serializer)
+
     def _slack_mirror_flag_enabled(self) -> bool:
         """Whether discussions↔Slack sync is on for this user/team.
 
@@ -743,7 +849,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             return
         item_context = comment.item_context if isinstance(comment.item_context, dict) else {}
         task_id = comment.item_id if comment.scope == "task" else item_context.get("taskId")
-        if not _task_comment_target_is_accessible(
+        if not task_comment_target_is_accessible(
             team_id=self.team_id,
             user_id=self.request.user.id,
             task_id=task_id or "",
@@ -758,7 +864,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
         comment = get_object_or_404(queryset, **{self.lookup_field: lookup_value})
         if comment.scope in {"task", "task_artifact", "desktop_canvas"}:
             task_id = comment.item_id if comment.scope == "task" else (comment.item_context or {}).get("taskId")
-            if not _task_comment_target_is_accessible(
+            if not task_comment_target_is_accessible(
                 team_id=self.team_id,
                 user_id=self.request.user.id,
                 task_id=task_id or "",
@@ -799,6 +905,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         params = self.request.GET.dict()
+        queryset = queryset.exclude(scope__in=COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API)
 
         if params.get("user"):
             queryset = queryset.filter(user=params.get("user"))
@@ -814,7 +921,7 @@ class CommentViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.ModelV
             elif scope in {"task", "task_artifact", "desktop_canvas"}:
                 task_id = params.get("task_id")
                 item_id = params.get("item_id")
-                if not _task_comment_target_is_accessible(
+                if not task_comment_target_is_accessible(
                     team_id=self.team_id,
                     user_id=self.request.user.id,
                     task_id=task_id or "",

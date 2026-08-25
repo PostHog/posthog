@@ -3,8 +3,14 @@ import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
 
+import { UniversalFiltersGroup } from '~/types'
+
 import { metricsSamplesCreate } from 'products/metrics/frontend/generated/api'
-import type { _MetricEventSampleApi } from 'products/metrics/frontend/generated/api.schemas'
+import type {
+    _MetricEventSampleApi,
+    _MetricFilterApi,
+    OtelMetricTypeEnumApi,
+} from 'products/metrics/frontend/generated/api.schemas'
 import { canViewMetrics } from 'products/metrics/frontend/metricsAccess'
 
 import { formatSeriesName, seriesColor } from './metricsSeries'
@@ -38,7 +44,9 @@ export interface metricsSamplesLogicValues {
     dateFrom: string | null // metricsViewerLogic
     dateTo: string | null // metricsViewerLogic
     metricName: string // metricsViewerLogic
+    queryFilters: _MetricFilterApi[] // metricsViewerLogic
     queryResults: MetricsViewerSeries[] // metricsViewerLogic
+    selectedMetricType: OtelMetricTypeEnumApi | null // metricsViewerLogic
     viewMode: MetricsViewMode // metricsViewerLogic
     currentTeamId: number | null // teamLogic
     activeTab: MetricsPanelTab
@@ -63,8 +71,14 @@ export interface metricsSamplesLogicActions {
     setDateTo: (dateTo: string | null) => {
         dateTo: string | null
     } // metricsViewerLogic
+    setFilterGroup: (filterGroup: UniversalFiltersGroup) => {
+        filterGroup: UniversalFiltersGroup
+    } // metricsViewerLogic
     setMetricName: (metricName: string) => {
         metricName: string
+    } // metricsViewerLogic
+    setSelectedMetricType: (metricType: OtelMetricTypeEnumApi | null) => {
+        metricType: OtelMetricTypeEnumApi | null
     } // metricsViewerLogic
     loadSamples: (_: any) => any
     loadSamplesFailure: (
@@ -111,9 +125,19 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
             teamLogic,
             ['currentTeamId'],
             metricsViewerLogic,
-            ['metricName', 'dateFrom', 'dateTo', 'queryResults', 'viewMode'],
+            ['metricName', 'dateFrom', 'dateTo', 'queryFilters', 'selectedMetricType', 'queryResults', 'viewMode'],
         ],
-        actions: [metricsViewerLogic, ['setMetricName', 'setDateFrom', 'setDateTo', 'fetchQueryResultsSuccess']],
+        actions: [
+            metricsViewerLogic,
+            [
+                'setMetricName',
+                'setDateFrom',
+                'setDateTo',
+                'setFilterGroup',
+                'setSelectedMetricType',
+                'fetchQueryResultsSuccess',
+            ],
+        ],
     })),
     actions({
         setActiveTab: (activeTab: MetricsPanelTab) => ({ activeTab }),
@@ -141,6 +165,8 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
                             metricName,
                             dateFrom,
                             ...(dateTo ? { dateTo } : {}),
+                            ...(values.selectedMetricType ? { metricType: values.selectedMetricType } : {}),
+                            ...(values.queryFilters.length ? { filters: values.queryFilters } : {}),
                             limit: SAMPLES_LIMIT,
                         },
                     })
@@ -182,35 +208,34 @@ export const metricsSamplesLogic = kea<metricsSamplesLogicType>([
                     })),
         ],
     }),
-    listeners(({ actions, values }) => ({
-        setActiveTab: ({ activeTab }) => {
-            if (activeTab === 'samples') {
-                actions.loadSamples({})
-            }
-        },
-        // The chart's exemplar overlay renders from these samples, so every chart
-        // redraw refreshes them; stat mode has no chart to dot, so skip it there.
-        fetchQueryResultsSuccess: () => {
-            if (values.viewMode === 'chart') {
-                actions.loadSamples({})
-            }
-        },
+    listeners(({ actions, values }) => {
         // The viewer's filters are the samples' filters: any change that redraws
         // the chart refreshes the visible samples too, but only when they're shown.
-        setMetricName: () => {
+        const reloadWhenShown = (): void => {
             if (values.activeTab === 'samples') {
                 actions.loadSamples({})
             }
-        },
-        setDateFrom: () => {
-            if (values.activeTab === 'samples') {
-                actions.loadSamples({})
-            }
-        },
-        setDateTo: () => {
-            if (values.activeTab === 'samples') {
-                actions.loadSamples({})
-            }
-        },
-    })),
+        }
+        return {
+            setActiveTab: ({ activeTab }) => {
+                if (activeTab === 'samples') {
+                    actions.loadSamples({})
+                }
+            },
+            // The chart's exemplar overlay renders from these samples, so every chart
+            // redraw refreshes them; stat mode has no chart to dot, so skip it there.
+            fetchQueryResultsSuccess: () => {
+                if (values.viewMode === 'chart') {
+                    actions.loadSamples({})
+                }
+            },
+            setMetricName: reloadWhenShown,
+            setDateFrom: reloadWhenShown,
+            setDateTo: reloadWhenShown,
+            setFilterGroup: reloadWhenShown,
+            // The viewer pins the type in its own setMetricName listener, so without
+            // this a metric switch can load samples pinned to the previous type.
+            setSelectedMetricType: reloadWhenShown,
+        }
+    }),
 ])
