@@ -3,9 +3,10 @@
 //! Producer: Django signal handlers in `products/feature_flags/backend/flags_cache.py`.
 //! Consumer: the `flags-cache-builder` binary in this crate.
 //!
-//! The fixture at `rust/feature-flags/tests/fixtures/flags_cache_invalidation_v1.json`
-//! is the contract. Both this crate and the Python side round-trip against that same
-//! on-disk file (`products/feature_flags/backend/test/test_flags_cache_messages.py`),
+//! The fixtures at `rust/feature-flags/tests/fixtures/flags_cache_invalidation_v1.json`
+//! and `flags_cache_invalidation_v1_shadow.json` are the contract. Both this crate and
+//! the Python side round-trip against the same on-disk files
+//! (`products/feature_flags/backend/test/test_flags_cache_messages.py`),
 //! so a schema drift on either side fails CI. The Rust struct mirrors the Python
 //! model's strictness field-for-field: unknown fields rejected, only `version: 1`,
 //! only `operation: "invalidate"`, and a timezone-aware `emitted_at`.
@@ -42,6 +43,16 @@ pub struct FlagsCacheInvalidation {
     /// ISO 8601, UTC. `DateTime<Utc>` requires an explicit offset, so a naive
     /// timestamp (no `Z`/offset) is rejected — matching Python's `AwareDatetime`.
     pub emitted_at: DateTime<Utc>,
+    /// Shadow invalidation: the consumer builds the payload as usual but never
+    /// writes it — instead it diffs the build against the live cache entry and
+    /// records the result (parity telemetry for teams Celery still owns and
+    /// serve-writes). Absent or `false` means a real invalidation, so producers
+    /// predating this field are unaffected. `skip_serializing_if` keeps `false`
+    /// off the wire, so serialized real invalidations (including DLQ replays)
+    /// stay byte-compatible with pre-shadow consumers and Python's
+    /// `extra="forbid"` model.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub shadow: bool,
 }
 
 impl FlagsCacheInvalidation {
@@ -52,12 +63,17 @@ impl FlagsCacheInvalidation {
             team_id,
             operation: Operation::Invalidate,
             emitted_at,
+            shadow: false,
         }
     }
 }
 
 fn version_1() -> u8 {
     1
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 /// Reject any `version` other than 1. A future schema change bumps this

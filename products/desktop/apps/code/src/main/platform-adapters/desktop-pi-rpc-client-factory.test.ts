@@ -95,7 +95,11 @@ describe("DesktopPiRpcClientFactory", () => {
     ).resolves.toBe(client);
     expect(authProxy.start).toHaveBeenCalledWith(
       getLlmGatewayUrl(getCloudUrlFromRegion("eu")),
-      { "X-PostHog-Project-Id": "1" },
+      {
+        "x-posthog-property-task_id": "task-1",
+        "x-posthog-property-$ai_session_id": "task-1",
+        "X-PostHog-Project-Id": "1",
+      },
     );
     expect(authProxy.start).toHaveBeenCalledWith("https://eu.posthog.com");
     expect(createPiRpcClient).toHaveBeenCalledWith({
