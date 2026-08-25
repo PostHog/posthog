@@ -334,8 +334,7 @@ for (const adapter of ADAPTERS) {
           // call reaches the handler.
           await expect(call).rejects.toThrow(/MCP injection/i);
         } else {
-          // codex doesn't implement extMethod — the call rejects cleanly (known adapter divergence).
-          await expect(call).rejects.toThrow();
+          await expect(call).resolves.toEqual({ refreshed: true });
         }
       } finally {
         await s.cleanup();
