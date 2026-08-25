@@ -721,7 +721,7 @@ jobs:
                       gh release delete "$STAGED_RELEASE_TAG" --yes --cleanup-tag || true
                       gh release create "$STAGED_RELEASE_TAG" \
                           --target "$RELEASE_COMMIT" \
-                          --title "$STAGED_RELEASE_TAG" \
+                          --title "posthog-cli latest (staged)" \
                           --notes "Staged replacement for $LATEST_RELEASE_TAG; same as ${{ needs.plan-release.outputs.tag }}" \
                           --latest=false \
                           artifacts/*
@@ -732,7 +732,7 @@ jobs:
                       gh release edit "$STAGED_RELEASE_TAG" \
                           --tag "$LATEST_RELEASE_TAG" \
                           --target "$RELEASE_COMMIT" \
-                          --title "$LATEST_RELEASE_TAG" \
+                          --title "posthog-cli latest" \
                           --notes "Same as ${{ needs.plan-release.outputs.tag }}" \
                           --latest=false
                       git push origin ":refs/tags/$STAGED_RELEASE_TAG" || true
