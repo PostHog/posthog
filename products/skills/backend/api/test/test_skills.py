@@ -1745,6 +1745,33 @@ class TestLLMSkillOwners(APIBaseTest):
 
         assert [o.email for o in resolve_skill_owners(self.team, "reused")] == [self.user.email]
 
+    def test_list_filters_to_skills_owned_by_one_user(self) -> None:
+        # The owner filter has to match through LLMSkillOwner. created_by_id answers a different
+        # question (who published the latest version), so it can't stand in for this.
+        member = self._member("filterowner@example.com")
+        create_skill(self.team, user=self.user, name="theirs", description="d", body="# b")
+        create_skill(self.team, user=self.user, name="mine", description="d", body="# b")
+        set_skill_owners(self.team, "theirs", [member])
+
+        response = self.client.get(self._url() + f"?owner_id={member.id}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [r["name"] for r in response.json()["results"]] == ["theirs"]
+
+    def test_list_owner_filter_excludes_owner_who_lost_access(self) -> None:
+        # Owner rows survive a member losing access, so filtering by that member must return nothing
+        # rather than surfacing the skills through a stale row.
+        member = self._member("goneowner@example.com")
+        create_skill(self.team, user=self.user, name="orphaned", description="d", body="# b")
+        set_skill_owners(self.team, "orphaned", [member])
+
+        member.organization_memberships.filter(organization=self.organization).delete()
+
+        response = self.client.get(self._url() + f"?owner_id={member.id}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["results"] == []
+
     def test_skill_get_excludes_owner_who_lost_access(self) -> None:
         # An owner row survives the member losing access; the read path serializes UserBasic, so a
         # former member's profile must not keep leaking through skill-get.
