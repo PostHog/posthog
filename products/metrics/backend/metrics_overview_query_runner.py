@@ -24,6 +24,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
+from posthog.dataclasses import frozen
 from posthog.models import Team
 
 from products.metrics.backend.facade.contracts import MetricsOverview, MetricsServiceOverview
@@ -41,6 +42,19 @@ MAX_SERVICES = 500
 DEFAULT_LOOKBACK = dt.timedelta(days=1)
 
 
+@frozen
+class _OverviewTotals:
+    """Project-wide freshness and inventory counts, before the per-service split.
+
+    `metric_names` and `series` are both counts of the window, so they are named
+    rather than positional — swapping them would misreport the project silently.
+    """
+
+    last_seen: str | None
+    metric_names: int
+    series: int
+
+
 class MetricsOverviewQueryRunner:
     def __init__(self, team: Team, *, lookback: dt.timedelta = DEFAULT_LOOKBACK) -> None:
         if lookback <= dt.timedelta(0):
@@ -52,7 +66,7 @@ class MetricsOverviewQueryRunner:
     def _lookback_interval(self) -> ast.Call:
         return ast.Call(name="toIntervalSecond", args=[ast.Constant(value=int(self.lookback.total_seconds()))])
 
-    def _run_totals(self) -> tuple[str | None, int, int]:
+    def _run_totals(self) -> _OverviewTotals:
         # `last_seen_at`, not `last_seen`: HogQL registers select aliases before
         # resolving the aggregate filters and would shadow the table column.
         query = parse_select(
@@ -75,9 +89,13 @@ class MetricsOverviewQueryRunner:
             settings=_QUERY_SETTINGS,
         )
         if not response.results:
-            return None, 0, 0
+            return _OverviewTotals(last_seen=None, metric_names=0, series=0)
         last_seen, metric_names, series = response.results[0]
-        return (last_seen.isoformat() if last_seen is not None else None, int(metric_names), int(series))
+        return _OverviewTotals(
+            last_seen=last_seen.isoformat() if last_seen is not None else None,
+            metric_names=int(metric_names),
+            series=int(series),
+        )
 
     def _run_services(self) -> tuple[MetricsServiceOverview, ...]:
         query = parse_select(
@@ -115,11 +133,11 @@ class MetricsOverviewQueryRunner:
         )
 
     def run(self) -> MetricsOverview:
-        last_seen, metric_names, series = self._run_totals()
+        totals = self._run_totals()
         return MetricsOverview(
-            last_seen=last_seen,
-            metric_names=metric_names,
-            series=series,
+            last_seen=totals.last_seen,
+            metric_names=totals.metric_names,
+            series=totals.series,
             lookback_seconds=int(self.lookback.total_seconds()),
-            services=self._run_services() if last_seen is not None else (),
+            services=self._run_services() if totals.last_seen is not None else (),
         )
