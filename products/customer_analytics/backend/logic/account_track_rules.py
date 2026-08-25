@@ -6,11 +6,12 @@ from typing import Any
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Count, Q, QuerySet, Subquery
+from django.db.models import Count, OuterRef, Q, QuerySet, Subquery
 from django.utils import timezone
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -22,10 +23,12 @@ from products.customer_analytics.backend.logic.account_filters import (
     InvalidAccountFilter,
     apply_account_filters,
 )
+from products.customer_analytics.backend.metrics import record_account_track_rule_run
 from products.customer_analytics.backend.models import (
     Account,
     AccountTrackRuleRun,
     AccountTrackRuleRunStatus,
+    AccountTrackRuleRunTrigger,
     CustomPropertyDefinition,
     CustomPropertyValue,
     DisplayType,
@@ -73,6 +76,21 @@ class ParsedAccountTrackRules:
 class AccountTrackRuleBatchResult:
     status: str
     processed: int
+
+
+@frozen
+class EnabledAccountTrackRuleConfig:
+    team_id: int
+    config_version: int
+    enabled_at: datetime | None
+    first_run_at: datetime | None
+    last_success_at: datetime | None
+
+
+@dataclass(frozen=True)
+class EnabledAccountTrackRuleConfigPage:
+    configs: tuple[EnabledAccountTrackRuleConfig, ...]
+    next_team_id: int | None
 
 
 def _config_to_json(config: contracts.AccountTrackRulesConfig) -> dict[str, Any]:
@@ -339,9 +357,10 @@ def update_account_track_rules(
                 enabled=candidate.enabled,
                 groups=candidate.groups,
             )
+        was_enabled = bool(row.account_track_rules.get("enabled", False))
         previous_summary = {
             "version": current_version,
-            "enabled": bool(row.account_track_rules.get("enabled", False)),
+            "enabled": was_enabled,
             "group_count": len(row.account_track_rules.get("groups", [])),
             "condition_count": sum(
                 len(group.get("conditions", [])) for group in row.account_track_rules.get("groups", [])
@@ -354,7 +373,11 @@ def update_account_track_rules(
             "condition_count": sum(len(group.conditions) for group in candidate.groups),
         }
         row.account_track_rules = candidate_json
-        row.save(update_fields=["account_track_rules"])
+        if candidate.enabled and not was_enabled:
+            row.account_track_rules_enabled_at = timezone.now()
+        elif not candidate.enabled:
+            row.account_track_rules_enabled_at = None
+        row.save(update_fields=["account_track_rules", "account_track_rules_enabled_at"])
 
         try:
             log_activity(
@@ -520,24 +543,91 @@ def list_account_track_rule_runs(
     return [to_run_view(run) for run in queryset[offset : offset + limit]], queryset.count()
 
 
+def list_enabled_account_track_rule_configs(
+    *, after_team_id: int = 0, limit: int = 100
+) -> EnabledAccountTrackRuleConfigPage:
+    team_runs = AccountTrackRuleRun.objects.unscoped().filter(team_id=OuterRef("team_id"))
+    first_run = team_runs.order_by("created_at").values("created_at")[:1]
+    latest_success = (
+        team_runs.filter(
+            status=AccountTrackRuleRunStatus.COMPLETED,
+            finished_at__isnull=False,
+        )
+        .order_by("-finished_at")
+        .values("finished_at")[:1]
+    )
+    rows = list(
+        TeamCustomerAnalyticsConfig.objects.filter(
+            team_id__gt=after_team_id,
+            account_track_rules__enabled=True,
+        )
+        .annotate(
+            first_run_at=Subquery(first_run),
+            last_success_at=Subquery(latest_success),
+        )
+        .order_by("team_id")
+        .values(
+            "team_id",
+            "account_track_rules",
+            "account_track_rules_enabled_at",
+            "first_run_at",
+            "last_success_at",
+        )[:limit]
+    )
+    configs = tuple(
+        EnabledAccountTrackRuleConfig(
+            team_id=row["team_id"],
+            config_version=row["account_track_rules"].get("version", 0),
+            enabled_at=row["account_track_rules_enabled_at"],
+            first_run_at=row["first_run_at"],
+            last_success_at=row["last_success_at"],
+        )
+        for row in rows
+    )
+    return EnabledAccountTrackRuleConfigPage(
+        configs=configs,
+        next_team_id=configs[-1].team_id if configs and len(configs) == limit else None,
+    )
+
+
 def create_account_track_rule_run(
     *,
     team_id: int,
     idempotency_key: UUID,
-    user_id: int,
+    user_id: int | None,
+    trigger: str = AccountTrackRuleRunTrigger.MANUAL,
+    expected_config_version: int | None = None,
 ) -> tuple[AccountTrackRuleRun, bool]:
-    row, _ = TeamCustomerAnalyticsConfig.objects.get_or_create(team_id=team_id)
-    parsed = parse_account_track_rules(team_id, row.account_track_rules)
-    if not parsed.config.enabled:
-        raise AccountTrackRuleRunError("Enable and save Track Rules before running them.")
-    return AccountTrackRuleRun.objects.for_team(team_id).get_or_create(
-        idempotency_key=idempotency_key,
-        defaults={
-            "team_id": team_id,
-            "created_by_id": user_id,
-            "config_version": parsed.config.version,
-        },
-    )
+    with transaction.atomic():
+        existing = AccountTrackRuleRun.objects.for_team(team_id).filter(idempotency_key=idempotency_key).first()
+        if existing is not None:
+            return existing, False
+
+        row, _ = TeamCustomerAnalyticsConfig.objects.select_for_update().get_or_create(team_id=team_id)
+        current_version = row.account_track_rules.get("version", 0)
+        if expected_config_version is not None and current_version != expected_config_version:
+            raise AccountTrackRuleVersionConflict("Track Rules changed before the scheduled run started.")
+
+        parsed = parse_account_track_rules(team_id, row.account_track_rules)
+        if not parsed.config.enabled:
+            raise AccountTrackRuleRunError("Enable and save Track Rules before running them.")
+        return AccountTrackRuleRun.objects.for_team(team_id).get_or_create(
+            idempotency_key=idempotency_key,
+            defaults={
+                "team_id": team_id,
+                "created_by_id": user_id,
+                "config_version": parsed.config.version,
+                "trigger": trigger,
+            },
+        )
+
+
+def _run_duration_seconds(run: AccountTrackRuleRun) -> float | None:
+    started_at = run.started_at
+    finished_at = run.finished_at
+    if started_at is None or finished_at is None:
+        return None
+    return (finished_at - started_at).total_seconds()
 
 
 def _report_run_outcome(team_id: int, run_id: UUID) -> None:
@@ -559,11 +649,7 @@ def _report_run_outcome(team_id: int, run_id: UUID) -> None:
         "ignored": run.ignored,
         "newly_ignored": run.newly_ignored,
         "restored": run.restored,
-        "duration_seconds": (
-            (run.finished_at - run.started_at).total_seconds()
-            if run.finished_at is not None and run.started_at is not None
-            else None
-        ),
+        "duration_seconds": _run_duration_seconds(run),
     }
     try:
         report_user_action(run.created_by, event, properties, team=run.team)
@@ -573,6 +659,21 @@ def _report_run_outcome(team_id: int, run_id: UUID) -> None:
 
 def _report_run_outcome_after_commit(team_id: int, run_id: UUID) -> None:
     transaction.on_commit(lambda: _report_run_outcome(team_id, run_id))
+
+
+def _record_terminal_run(run: AccountTrackRuleRun) -> None:
+    duration_seconds = _run_duration_seconds(run)
+    record_account_track_rule_run(
+        trigger=run.trigger,
+        status=run.status,
+        duration_seconds=duration_seconds,
+        eligible_active=run.eligible_active,
+        skipped_churned=run.skipped_churned,
+        tracked=run.tracked,
+        ignored=run.ignored,
+        newly_ignored=run.newly_ignored,
+        restored=run.restored,
+    )
 
 
 def process_next_account_track_rule_batch(
@@ -598,8 +699,12 @@ def process_next_account_track_rule_batch(
                 team_id=run.team_id,
                 run_id=str(run.id),
                 config_version=run.config_version,
+                trigger=run.trigger,
+                status=run.status,
                 processed=run.processed,
+                duration_seconds=_run_duration_seconds(run),
             )
+            _record_terminal_run(run)
             _report_run_outcome_after_commit(run.team_id, run.id)
             return AccountTrackRuleBatchResult(status=run.status, processed=run.processed)
 
@@ -615,7 +720,11 @@ def process_next_account_track_rule_batch(
                 team_id=run.team_id,
                 run_id=str(run.id),
                 config_version=run.config_version,
+                trigger=run.trigger,
+                status=run.status,
+                duration_seconds=_run_duration_seconds(run),
             )
+            _record_terminal_run(run)
             _report_run_outcome_after_commit(run.team_id, run.id)
             return AccountTrackRuleBatchResult(status=run.status, processed=run.processed)
 
@@ -629,6 +738,8 @@ def process_next_account_track_rule_batch(
                 team_id=run.team_id,
                 run_id=str(run.id),
                 config_version=run.config_version,
+                trigger=run.trigger,
+                status=run.status,
                 eligible_active=run.eligible_active,
                 skipped_churned=run.skipped_churned,
             )
@@ -654,14 +765,17 @@ def process_next_account_track_rule_batch(
                 team_id=run.team_id,
                 run_id=str(run.id),
                 config_version=run.config_version,
+                trigger=run.trigger,
+                status=run.status,
                 eligible_active=run.eligible_active,
                 skipped_churned=run.skipped_churned,
                 tracked=run.tracked,
                 ignored=run.ignored,
                 newly_ignored=run.newly_ignored,
                 restored=run.restored,
-                duration_seconds=(run.finished_at - run.started_at).total_seconds() if run.started_at else None,
+                duration_seconds=_run_duration_seconds(run),
             )
+            _record_terminal_run(run)
             _report_run_outcome_after_commit(run.team_id, run.id)
             return AccountTrackRuleBatchResult(status=run.status, processed=run.processed)
 
@@ -714,8 +828,14 @@ def process_next_account_track_rule_batch(
             team_id=run.team_id,
             run_id=str(run.id),
             config_version=run.config_version,
+            trigger=run.trigger,
+            status=run.status,
             processed=run.processed,
             batch_size=len(account_ids),
+            tracked=run.tracked,
+            ignored=run.ignored,
+            newly_ignored=run.newly_ignored,
+            restored=run.restored,
         )
         return AccountTrackRuleBatchResult(status=run.status, processed=run.processed)
 
@@ -734,5 +854,31 @@ def fail_account_track_rule_run(team_id: int, run_id: UUID) -> None:
         )
     )
     if updated:
-        logger.error("account_track_rule_run_failed", team_id=team_id, run_id=str(run_id))
+        run = AccountTrackRuleRun.objects.for_team(team_id).get(id=run_id)
+        logger.error(
+            "account_track_rule_run_failed",
+            team_id=team_id,
+            run_id=str(run_id),
+            config_version=run.config_version,
+            trigger=run.trigger,
+            status=run.status,
+            eligible_active=run.eligible_active,
+            skipped_churned=run.skipped_churned,
+            tracked=run.tracked,
+            ignored=run.ignored,
+            newly_ignored=run.newly_ignored,
+            restored=run.restored,
+            duration_seconds=_run_duration_seconds(run),
+        )
+        _record_terminal_run(run)
+        if run.trigger == AccountTrackRuleRunTrigger.SCHEDULED:
+            capture_exception(
+                AccountTrackRuleRunError("An Account Track Rules run failed."),
+                {
+                    "team_id": team_id,
+                    "run_id": str(run_id),
+                    "config_version": run.config_version,
+                    "trigger": run.trigger,
+                },
+            )
         _report_run_outcome(team_id, run_id)
