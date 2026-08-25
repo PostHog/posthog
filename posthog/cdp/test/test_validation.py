@@ -898,6 +898,36 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             ],
         }
 
+    # Behavioral filters compile to a ClickHouse subquery over events history, which neither
+    # bytecode (per-event) nor transpiled JS (in-browser) filters can evaluate
+    @parameterized.expand(
+        [
+            ("destination_global_properties", "destination", "properties"),
+            ("site_destination_global_properties", "site_destination", "properties"),
+            ("destination_event_properties", "destination", "event_properties"),
+        ]
+    )
+    def test_validate_filters_rejects_behavioral_properties(self, _name, function_type, placement):
+        behavioral_property = {
+            "type": "behavioral",
+            "value": "performed_event",
+            "key": "$pageview",
+            "event_type": "events",
+            "time_value": 30,
+            "time_interval": "day",
+        }
+        event = {"id": "$pageview", "type": "events", "name": "$pageview", "order": 0}
+        if placement == "properties":
+            filters = {"events": [event], "properties": [behavioral_property]}
+        else:
+            filters = {"events": [{**event, "properties": [behavioral_property]}]}
+
+        serializer = HogFunctionFiltersSerializer(
+            data=filters, context={**self.filters_context, "function_type": function_type}
+        )
+        assert not serializer.is_valid()
+        assert "behavioral" in str(serializer.errors).lower()
+
     def test_validate_filters_person_updates_only_allows_properties(self):
         filters = {
             "source": "person-updates",
