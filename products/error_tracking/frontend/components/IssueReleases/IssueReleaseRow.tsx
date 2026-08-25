@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 
 import { Tooltip as LemonTooltip } from '@posthog/lemon-ui'
 
@@ -7,8 +7,7 @@ import { Button, Text } from 'lib/ui/quill'
 import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { issueFilterPreviewLogic } from '../IssueFilterPreview/issueFilterPreviewLogic'
-import { IssueReleaseStrip as IssueReleaseStripData, releasePropertyFilters } from './issueReleases'
+import { IssueReleaseStrip as IssueReleaseStripData } from './issueReleases'
 import { IssueReleaseStrip } from './IssueReleaseStrip'
 
 interface IssueReleaseRowProps {
@@ -16,23 +15,16 @@ interface IssueReleaseRowProps {
     buckets: string[]
     maxValue: number
     total: number
+    onSelect: () => void
 }
 
-export function IssueReleaseRow({ strip, buckets, maxValue, total }: IssueReleaseRowProps): JSX.Element {
-    const { applyPropertyFilters } = useActions(issueFilterPreviewLogic)
+export function IssueReleaseRow({ strip, buckets, maxValue, total, onSelect }: IssueReleaseRowProps): JSX.Element {
     const { timezone } = useValues(teamLogic)
     const { series, kind, label, color } = strip
     const share = total > 0 ? series.total / total : 0
     const filterable = kind !== 'other'
 
     const formatDate = (iso: string): string => dayjs(iso).tz(timezone).format('D MMM YYYY HH:mm')
-
-    const onSelect = (): void => {
-        const filters = releasePropertyFilters(strip)
-        if (filters.length > 0) {
-            applyPropertyFilters(filters)
-        }
-    }
 
     const swatch = (
         // eslint-disable-next-line react/forbid-dom-props

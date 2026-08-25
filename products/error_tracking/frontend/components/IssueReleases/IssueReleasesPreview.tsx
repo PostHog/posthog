@@ -23,13 +23,13 @@ import { ErrorTrackingReleasesQueryResponse } from '~/queries/schema/schema-gene
 import { IssueFilterPreviewHeader } from '../IssueFilterPreview/IssueFilterPreviewHeader'
 import { issueFilterPreviewLogic } from '../IssueFilterPreview/issueFilterPreviewLogic'
 import { IssueReleaseRow } from './IssueReleaseRow'
-import { listReleaseStrips, maxBucketValue } from './issueReleases'
+import { IssueReleaseStrip, listReleaseStrips, maxBucketValue } from './issueReleases'
 import { issueReleasesLogic } from './issueReleasesLogic'
 import { IssueReleasesStackedChart } from './IssueReleasesStackedChart'
 
 export function IssueReleasesPreview({ issueId }: { issueId: string }): JSX.Element {
     const { releases, releasesLoading, releasesError, selectedNamespace } = useValues(issueReleasesLogic({ issueId }))
-    const { loadReleases, selectNamespace } = useActions(issueReleasesLogic({ issueId }))
+    const { loadReleases, selectNamespace, selectStrip } = useActions(issueReleasesLogic({ issueId }))
     const { releasesViewMode } = useValues(issueFilterPreviewLogic)
     const { setReleasesViewMode } = useActions(issueFilterPreviewLogic)
     const hasReleases = releases !== null && (releases.results.length > 0 || releases.other !== null)
@@ -85,9 +85,9 @@ export function IssueReleasesPreview({ issueId }: { issueId: string }): JSX.Elem
                         </Text>
                     </div>
                 ) : releasesViewMode === 'stacked' ? (
-                    <IssueReleasesStackedChart releases={releases} />
+                    <IssueReleasesStackedChart releases={releases} onSelectStrip={selectStrip} />
                 ) : (
-                    <ReleaseTimeline releases={releases} />
+                    <ReleaseTimeline releases={releases} onSelectStrip={selectStrip} />
                 )}
             </div>
         </div>
@@ -155,7 +155,13 @@ function ReleasesSummary({
     )
 }
 
-function ReleaseTimeline({ releases }: { releases: ErrorTrackingReleasesQueryResponse }): JSX.Element {
+function ReleaseTimeline({
+    releases,
+    onSelectStrip,
+}: {
+    releases: ErrorTrackingReleasesQueryResponse
+    onSelectStrip: (strip: IssueReleaseStrip) => void
+}): JSX.Element {
     const theme = useChartTheme()
     const strips = listReleaseStrips(releases, theme.colors)
     const maxValue = maxBucketValue(strips)
@@ -169,6 +175,7 @@ function ReleaseTimeline({ releases }: { releases: ErrorTrackingReleasesQueryRes
                     buckets={releases.buckets}
                     maxValue={maxValue}
                     total={releases.total}
+                    onSelect={() => onSelectStrip(strip)}
                 />
             ))}
             <ReleaseTimelineAxis dateFrom={releases.date_from} dateTo={releases.date_to} />

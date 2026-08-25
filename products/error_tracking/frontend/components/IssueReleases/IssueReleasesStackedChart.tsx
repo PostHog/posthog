@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useValues } from 'kea'
 import { useMemo } from 'react'
 
 import { DefaultTooltip, TimeSeriesBarChart, createXAxisTickCallback } from '@posthog/quill-charts'
@@ -10,13 +10,17 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { ErrorTrackingReleasesQueryResponse } from '~/queries/schema/schema-general'
 
-import { issueFilterPreviewLogic } from '../IssueFilterPreview/issueFilterPreviewLogic'
-import { IssueReleaseStrip, listReleaseStrips, releasePropertyFilters } from './issueReleases'
+import { IssueReleaseStrip, listReleaseStrips } from './issueReleases'
 
-export function IssueReleasesStackedChart({ releases }: { releases: ErrorTrackingReleasesQueryResponse }): JSX.Element {
+export function IssueReleasesStackedChart({
+    releases,
+    onSelectStrip,
+}: {
+    releases: ErrorTrackingReleasesQueryResponse
+    onSelectStrip: (strip: IssueReleaseStrip) => void
+}): JSX.Element {
     const theme = useChartTheme()
     const { timezone } = useValues(teamLogic)
-    const { applyPropertyFilters } = useActions(issueFilterPreviewLogic)
 
     const labels = releases.buckets
     const series = useMemo<Series<IssueReleaseStrip>[]>(
@@ -49,9 +53,8 @@ export function IssueReleasesStackedChart({ releases }: { releases: ErrorTrackin
     )
 
     const onPointClick = ({ series: clicked }: PointClickData<IssueReleaseStrip>): void => {
-        const filters = clicked.meta ? releasePropertyFilters(clicked.meta) : []
-        if (filters.length > 0) {
-            applyPropertyFilters(filters)
+        if (clicked.meta) {
+            onSelectStrip(clicked.meta)
         }
     }
 

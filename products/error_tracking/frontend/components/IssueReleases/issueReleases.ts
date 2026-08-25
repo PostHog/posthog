@@ -90,15 +90,16 @@ function propertyFilter(key: string, value: string | null): PreviewPropertyFilte
 }
 
 /**
- * The filters a click on the strip applies, empty when the strip cannot be filtered. A release is identified by all
- * three properties, and a missing one filters on "is not set" so a click never leaves a stale chip from an earlier click.
+ * The filters a click on the strip applies, empty when the strip cannot be filtered. A missing property filters on
+ * "is not set" so a click never leaves a stale chip from an earlier click. The namespace only matters when the issue
+ * spans more than one app.
  */
-export function releasePropertyFilters(strip: IssueReleaseStrip): PreviewPropertyFilter[] {
+export function releasePropertyFilters(strip: IssueReleaseStrip, scopeToNamespace: boolean): PreviewPropertyFilter[] {
     if (strip.kind === 'other') {
         return []
     }
     return [
-        propertyFilter('$app_namespace', strip.release?.namespace ?? null),
+        ...(scopeToNamespace ? [propertyFilter('$app_namespace', strip.release?.namespace ?? null)] : []),
         propertyFilter('$app_version', strip.release?.version ?? null),
         propertyFilter('$app_build', strip.release?.build ?? null),
     ]

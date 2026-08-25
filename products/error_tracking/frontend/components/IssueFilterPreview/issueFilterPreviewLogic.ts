@@ -264,6 +264,8 @@ export const issueFilterPreviewLogic = kea<issueFilterPreviewLogicType>([
             for (const filter of filters) {
                 actions.addPropertyFilter(filter.key, filter.value, filter.operator, false, true)
             }
+            // Each add counts one chip as preview-added, which would open the popovers of the earlier ones.
+            actions.setFilterGroup(values.filterGroup, filters.length)
             if (values.filterGroup !== previousFilterGroup) {
                 actions.pushFilterGroupHistory(previousFilterGroup)
             }
