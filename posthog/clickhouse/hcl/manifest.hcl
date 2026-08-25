@@ -15,9 +15,10 @@
 # `shared` = all envs of that role and `prod` = both prod envs (e.g. the OPS metrics
 # suite is prod-only but env-identical).
 #
-# OPS and LOGS are modeled for all three cloud envs (dev, prod-us, prod-eu). OPS carries
-# the env differences; LOGS carries the shared managed subset (env-identical, but verified
-# per env for fidelity). The satellite roles are modeled where a node of that role exists
+# LOGS is modeled for all three cloud envs (dev, prod-us, prod-eu) and carries the shared
+# managed subset (env-identical, but verified per env for fidelity). OPS keeps only its
+# local-multi block: posthog-cloud-infra authors the ops env layers and goldens now, and
+# vendors roles/ops/shared from here. The satellite roles are modeled where a node of that role exists
 # to model: every role the multinode stack runs has a `local-multi` env block, and the
 # convergence gate (dump-live.sh + check-live.sh) dumps and gates all of them.
 #
@@ -26,19 +27,16 @@
 
 role "ops" {
   env "local-multi"   { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/local"] }
-  env "dev"     { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/ops/shared", "roles/ops/dev"] }
-  env "prod-us" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/tophog", "roles/coshared/events_recent", "roles/ops/shared", "roles/ops/prod", "roles/ops/prod-us"] }
-  env "prod-eu" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/tophog", "roles/ops/shared", "roles/ops/prod", "roles/ops/prod-eu"] }
 }
 
-# The local LOGS node runs a partial/newer schema than the cloud logs nodes, so it
-# composes a self-contained roles/logs/local (extracted from the live node) rather
-# than the shared cloud layers.
+# Every logs node composes the trace suite; the local node adds a self-contained
+# roles/logs/local (extracted from the live node) for the legacy logs32 family it
+# still runs, and skips the cloud-only metrics ingest.
 role "logs" {
   env "local-multi"   { layers = ["roles/shared/qla.hcl", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/local"] }
-  env "dev"     { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/shared"] }
-  env "prod-us" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-us"] }
-  env "prod-eu" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-eu"] }
+  env "dev"     { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/shared", "roles/logs/cloud", "roles/logs/dev"] }
+  env "prod-us" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/shared", "roles/logs/cloud", "roles/logs/prod", "roles/logs/prod-us"] }
+  env "prod-eu" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/shared", "roles/logs/cloud", "roles/logs/prod", "roles/logs/prod-eu"] }
 }
 
 # AI_EVENTS satellite (LLM analytics). local/hobby run the MSK variant
@@ -46,24 +44,27 @@ role "logs" {
 # + distributed ai_events reader; US/EU run the WarpStream variant
 # (kafka_ai_events_json_ws + ai_events_json_ws_mv, MSK dropped by migration 0248)
 # writing into a single ai_events data table. roles/ai_events/shared holds the
-# env-uniform person / person_distinct_id2 Distributed shims (0240). dev currently
-# has only the top-level shared objects (per the latest dump).
+# env-uniform person / person_distinct_id2 Distributed shims (0240). dev runs the
+# same WarpStream pipeline as the prod envs; roles/ai_events/dev downsizes the
+# Kafka consumer for dev volume.
 role "ai_events" {
   env "local-multi"   { layers = ["roles/shared", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/local"] }
-  env "dev"     { layers = ["roles/shared"] }
-  env "prod-us" { layers = ["roles/shared", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/prod"] }
-  env "prod-eu" { layers = ["roles/shared", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/prod"] }
+  env "dev"     { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/prod", "roles/ai_events/dev"] }
+  env "prod-us" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/prod"] }
+  env "prod-eu" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/ai_events_data", "roles/ai_events/shared", "roles/ai_events/prod"] }
 }
 
 # AUX satellite: auxiliary tables (error tracking, hog invocations, message assets,
 # property values, web/marketing preaggregated). roles/auxiliary/shared holds the env-uniform
 # objects; local carries the MSK ingest variant (kafka_error_tracking + its MV, MSK
-# kafka_hog_invocation_results); prod carries the WarpStream variant. prod-us adds the
-# ingestion_warnings tables. prod goldens are dump-baselined (not live-verifiable here).
+# kafka_hog_invocation_results); prod carries the WarpStream variant. Every cloud env
+# hosts the ingestion_warnings store; prod-us adds the Distributed proxy onto the data
+# cluster. prod goldens are dump-baselined (not live-verifiable here).
 role "aux" {
   env "local-multi"   { layers = ["roles/shared", "roles/coshared/aux_data", "roles/auxiliary/shared", "roles/auxiliary/local"] }
-  env "prod-us" { layers = ["roles/shared", "roles/coshared/aux_data", "roles/coshared/ingestion_warnings_store", "roles/auxiliary/shared", "roles/auxiliary/prod", "roles/auxiliary/prod-us"] }
-  env "prod-eu" { layers = ["roles/shared", "roles/coshared/aux_data", "roles/auxiliary/shared", "roles/auxiliary/prod", "roles/auxiliary/prod-eu"] }
+  env "dev"     { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/aux_data", "roles/coshared/ingestion_warnings_store", "roles/auxiliary/shared", "roles/auxiliary/prod", "roles/auxiliary/dev"] }
+  env "prod-us" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/aux_data", "roles/coshared/ingestion_warnings_store", "roles/auxiliary/shared", "roles/auxiliary/prod", "roles/auxiliary/prod-us"] }
+  env "prod-eu" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/aux_data", "roles/coshared/ingestion_warnings_store", "roles/auxiliary/shared", "roles/auxiliary/prod", "roles/auxiliary/prod-eu"] }
 }
 
 # SESSIONS satellite: the local node runs only the shared query_log_archive path
@@ -73,6 +74,9 @@ role "aux" {
 # join tables. roles/sessions/shared holds the env-uniform objects; prod-us/prod-eu
 # carry the env-specific channel_definition / events / raw_sessions_v3 (prod-us also
 # has writable_events_recent). prod goldens are dump-baselined (not live-verifiable here).
+# dev carries the channel_definition / web_pre_aggregated_teams objects + dictionaries,
+# but raw_sessions_v3 intentionally skips prod's tuning settings and the sessions-family
+# relocation is still converging — model a dev env block after it settles.
 role "sessions" {
   env "local-multi"   { layers = ["roles/shared"] }
   env "prod-us" { layers = ["roles/shared", "roles/coshared/sessions_data", "roles/coshared/events_recent_write", "roles/sessions/shared", "roles/sessions/prod-us"] }
@@ -90,8 +94,10 @@ role "sessionsv3" {
 # query_log_archive path. Env-specific — prod-eu carries an extra historical_migration
 # column. Dump-baselined (no local batch-exports node).
 role "batch_exports" {
-  env "prod-us" { layers = ["roles/shared", "roles/coshared/batch_exports_data", "roles/batch_exports/prod-us"] }
-  env "prod-eu" { layers = ["roles/shared", "roles/coshared/batch_exports_data", "roles/batch_exports/prod-eu"] }
+  # dev composes the prod-us stack verbatim (verified zero drift via hclexp diff).
+  env "dev"     { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/batch_exports_data", "roles/batch_exports/prod-us"] }
+  env "prod-us" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/batch_exports_data", "roles/batch_exports/prod-us"] }
+  env "prod-eu" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/batch_exports_data", "roles/batch_exports/prod-eu"] }
 }
 
 # DATA cluster: the main sharded cluster (events family, persons/groups, sessions,

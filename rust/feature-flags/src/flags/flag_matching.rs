@@ -6,7 +6,7 @@ use crate::cohorts::cohort_operations::{
     apply_cohort_membership_logic, evaluate_dynamic_cohorts, record_stamp_policy_divergence,
 };
 use crate::cohorts::membership::{CohortMembershipProvider, NoOpCohortMembershipProvider};
-use crate::database::PostgresRouter;
+use crate::database::{pool_names, PostgresRouter};
 use crate::flags::flag_group_type_mapping::{
     GroupTypeCacheManager, GroupTypeIndex, GroupTypeMapping,
 };
@@ -717,14 +717,22 @@ impl FeatureFlagMatcher {
         // When we're writing a hash_key_override, we query the main database (writer), not the replica (reader)
         // This is because we need to make sure the write is successful before we read it back
         // to avoid read-after-write consistency issues with database replication lag
-        let database_for_reading = if writing_hash_key_override {
-            self.router.get_persons_writer().clone()
+        let (database_for_reading, pool_name) = if writing_hash_key_override {
+            (
+                self.router.get_persons_writer().clone(),
+                pool_names::PERSONS_WRITER,
+            )
         } else {
-            self.router.get_persons_reader().clone()
+            (
+                self.router.get_persons_reader().clone(),
+                pool_names::PERSONS_READER,
+            )
         };
 
         match get_feature_flag_hash_key_overrides(
             database_for_reading,
+            pool_name,
+            self.router.get_persons_writer().clone(),
             self.team_id,
             target_distinct_ids,
         )
@@ -2378,6 +2386,8 @@ impl FeatureFlagMatcher {
                     None => {
                         match get_feature_flag_hash_key_overrides(
                             self.router.get_persons_reader().clone(),
+                            pool_names::PERSONS_READER,
+                            self.router.get_persons_writer().clone(),
                             self.team_id,
                             vec![self.distinct_id.clone()],
                         )

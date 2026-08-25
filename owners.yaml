@@ -8,6 +8,8 @@ teams:
     # the channel just doesn't match it.
     ai-research:
         slack: '#team-ai-research'
+        # The team keeps bot output out of its own channel, so automation posts here instead.
+        notifications: '#bots-ai-research'
     batch-exports:
         slack: '#team-batch-exports'
     clickhouse:
@@ -103,7 +105,8 @@ rules:
           - '/tools/hogli/'
           - '/tools/owners/'
           - '/tools/phrocs/'
-          - '/tools/pr-approval-agent/'
+      owners: team-devex
+    - match: '/products/stamphog/packages/pr-approval-agent/'
       owners: team-devex
     - match: '/tools/query-performance-ai/'
       owners: team-analytics-platform

@@ -9,6 +9,10 @@ import {
   sanitizeNavItemOrder,
   sanitizeNavItemOverrides,
 } from "./constants";
+import {
+  type ListItemMetadataField,
+  sanitizeListItemMetadataFields,
+} from "./listItemAppearance";
 
 interface SidebarStoreState {
   open: boolean;
@@ -20,6 +24,7 @@ interface SidebarStoreState {
   historyVisibleCount: number;
   organizeMode: "by-project" | "chronological";
   sortMode: "updated" | "created";
+  listItemMetadataFields: ListItemMetadataField[];
   showAllUsers: boolean;
   showInternal: boolean;
   taskTypeFilter: WorkspaceMode[];
@@ -50,6 +55,7 @@ interface SidebarStoreActions {
   resetHistoryVisibleCount: () => void;
   setOrganizeMode: (mode: SidebarStoreState["organizeMode"]) => void;
   setSortMode: (mode: SidebarStoreState["sortMode"]) => void;
+  setListItemMetadataFields: (fields: ListItemMetadataField[]) => void;
   setShowAllUsers: (showAllUsers: boolean) => void;
   setShowInternal: (showInternal: boolean) => void;
   toggleTaskType: (mode: WorkspaceMode) => void;
@@ -72,6 +78,7 @@ export const useSidebarStore = create<SidebarStore>()(
       historyVisibleCount: 25,
       organizeMode: "by-project",
       sortMode: "updated",
+      listItemMetadataFields: [],
       showAllUsers: false,
       showInternal: false,
       taskTypeFilter: [...ALL_WORKSPACE_MODES],
@@ -126,6 +133,8 @@ export const useSidebarStore = create<SidebarStore>()(
       resetHistoryVisibleCount: () => set({ historyVisibleCount: 25 }),
       setOrganizeMode: (organizeMode) => set({ organizeMode }),
       setSortMode: (sortMode) => set({ sortMode }),
+      setListItemMetadataFields: (listItemMetadataFields) =>
+        set({ listItemMetadataFields }),
       setShowAllUsers: (showAllUsers) => set({ showAllUsers }),
       setShowInternal: (showInternal) => set({ showInternal }),
       toggleTaskType: (mode) =>
@@ -152,6 +161,7 @@ export const useSidebarStore = create<SidebarStore>()(
         historyVisibleCount: state.historyVisibleCount,
         organizeMode: state.organizeMode,
         sortMode: state.sortMode,
+        listItemMetadataFields: state.listItemMetadataFields,
         showAllUsers: state.showAllUsers,
         showInternal: state.showInternal,
         taskTypeFilter: state.taskTypeFilter,
@@ -169,6 +179,7 @@ export const useSidebarStore = create<SidebarStore>()(
           historyVisibleCount?: number;
           organizeMode?: SidebarStoreState["organizeMode"];
           sortMode?: SidebarStoreState["sortMode"];
+          listItemMetadataFields?: unknown;
           showAllUsers?: boolean;
           showInternal?: boolean;
           taskTypeFilter?: WorkspaceMode[];
@@ -191,6 +202,9 @@ export const useSidebarStore = create<SidebarStore>()(
             persistedState.historyVisibleCount ?? current.historyVisibleCount,
           organizeMode: persistedState.organizeMode ?? current.organizeMode,
           sortMode: persistedState.sortMode ?? current.sortMode,
+          listItemMetadataFields: sanitizeListItemMetadataFields(
+            persistedState.listItemMetadataFields,
+          ),
           showAllUsers: persistedState.showAllUsers ?? current.showAllUsers,
           showInternal: persistedState.showInternal ?? current.showInternal,
           taskTypeFilter:

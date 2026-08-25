@@ -16,11 +16,11 @@ from products.signals.backend.contracts import DEFAULT_NOT_ACTIONABLE_KEY, STEER
 from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
 
 from .artefact_schemas import NON_WRITABLE_ARTEFACT_TYPES
+from .daily_limit import reports_generated_today, team_day_start
 from .models import (
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
-    SignalReportCanvas,
     SignalReportRefund,
     SignalSourceConfig,
     SignalTeamConfig,
@@ -172,6 +172,12 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
+# A team overrides the base branch for a handful of its repos; a map larger than this is abuse,
+# not use. Bounding it caps the per-write activity-log row (which stores the full before/after map)
+# and the request body a caller can push through this field.
+MAX_AUTOSTART_BASE_BRANCH_ENTRIES = 500
+
+
 class SignalTeamConfigSerializer(serializers.ModelSerializer):
     autostart_base_branches = serializers.DictField(
         child=serializers.CharField(max_length=255, allow_blank=True),
@@ -182,6 +188,53 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "(or send {}) to keep targeting the repo default branch."
         ),
     )
+    max_reports_per_day = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=1,
+        # Ceiling at the int4 column max so an out-of-range value returns 400, not a DB write error.
+        max_value=2147483647,
+        help_text=(
+            "Daily cap on new reports surfacing to the inbox, counted per calendar day in the "
+            "project's timezone. Once reached, signal ingestion, scout runs, and report research "
+            "pause until local midnight. Null means unlimited."
+        ),
+    )
+    reports_generated_today = serializers.SerializerMethodField(
+        help_text=(
+            "How many reports first became visible in the inbox during the current project-timezone "
+            "day. This is the count the daily report limit compares against."
+        )
+    )
+    daily_report_limit_reached = serializers.SerializerMethodField(
+        help_text=(
+            "Whether the team hit its daily report limit, pausing new report generation until "
+            "local midnight. Always false when max_reports_per_day is null."
+        )
+    )
+
+    # Memoized per serializer instance: both computed fields need the same count, and an
+    # instance only ever renders the team's one singleton row.
+    _reports_today: int | None = None
+
+    def _reports_today_count(self, obj: SignalTeamConfig) -> int:
+        if self._reports_today is None:
+            self._reports_today = reports_generated_today(obj.team, day_start=team_day_start(obj.team))
+        return self._reports_today
+
+    @extend_schema_field(serializers.IntegerField(min_value=0))
+    def get_reports_generated_today(self, obj: SignalTeamConfig) -> int:
+        # No limit means the count is never shown, so skip the query — mirroring the sibling field
+        # and daily_report_limit_gate, which both short-circuit unlimited teams.
+        if obj.max_reports_per_day is None:
+            return 0
+        return self._reports_today_count(obj)
+
+    @extend_schema_field(serializers.BooleanField())
+    def get_daily_report_limit_reached(self, obj: SignalTeamConfig) -> bool:
+        if obj.max_reports_per_day is None:
+            return False
+        return self._reports_today_count(obj) >= obj.max_reports_per_day
 
     class Meta:
         model = SignalTeamConfig
@@ -191,10 +244,13 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
             "default_autostart_priority",
             "default_slack_notification_channel",
             "autostart_base_branches",
+            "max_reports_per_day",
+            "reports_generated_today",
+            "daily_report_limit_reached",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        read_only_fields = ["id", "reports_generated_today", "daily_report_limit_reached", "created_at", "updated_at"]
         extra_kwargs = {
             "autostart_enabled": {
                 "help_text": (
@@ -213,9 +269,18 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         }
 
     def validate_autostart_base_branches(self, value: dict) -> dict:
+        if len(value) > MAX_AUTOSTART_BASE_BRANCH_ENTRIES:
+            raise serializers.ValidationError(
+                f"Too many repository overrides ({len(value)}); the maximum is {MAX_AUTOSTART_BASE_BRANCH_ENTRIES}."
+            )
         cleaned: dict[str, str] = {}
         for repo, branch in value.items():
             repo_key = (repo or "").strip()
+            # Bound the key too — the DictField child only caps the branch value, so an
+            # oversized key would otherwise slip a large string into the stored map and its
+            # activity-log copy.
+            if len(repo_key) > 255:
+                raise serializers.ValidationError("Repository keys must be at most 255 characters.")
             if repo_key.count("/") != 1 or any(not part for part in repo_key.split("/")):
                 raise serializers.ValidationError(
                     f"Repository keys must be in 'organization/repository' form, got '{repo}'."
@@ -410,21 +475,6 @@ class ReportChartSerializer(serializers.Serializer):
     )
 
 
-class SignalReportCanvasSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = SignalReportCanvas
-        fields = [
-            "canvas_id",
-            "discussion_task_id",
-            "generation_task_id",
-            "generation_status",
-            "collaboration_mode",
-            "failure_reason",
-            "updated_at",
-        ]
-        read_only_fields = fields
-
-
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
     charts = ReportChartSerializer(
@@ -435,10 +485,13 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "`[label](chart:<chart_id>)` link; the rest render below it."
         ),
     )
-    canvas_session = SignalReportCanvasSerializer(
+    suggested_prompts = serializers.ListField(
+        child=serializers.CharField(),
         read_only=True,
-        allow_null=True,
-        help_text="The persistent canvas and shared discussion created for this report, when available.",
+        help_text=(
+            "Follow-up questions the report's author suggests asking about it, in the order they were "
+            "written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it."
+        ),
     )
     refund_ineligibility_reason = serializers.SerializerMethodField(
         help_text=(
@@ -500,7 +553,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "updated_at",
             "artefact_count",
             "charts",
-            "canvas_session",
+            "suggested_prompts",
             "priority",
             "actionability",
             "already_addressed",

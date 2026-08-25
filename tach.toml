@@ -87,6 +87,7 @@ depends_on = [
     "products.business_knowledge",
     "products.canvas",
     "products.cdp",
+    "products.context_layer",
     "products.conversations",
     "products.customer_analytics",
     "products.dashboards",
@@ -507,6 +508,15 @@ depends_on = [
 layer = "modules"
 
 [[modules]]
+path = "products.context_layer"
+depends_on = [
+    "ee",
+    "posthog",
+    "products.tasks",
+]
+layer = "modules"
+
+[[modules]]
 path = "products.managed_migrations"
 depends_on = [
     "posthog",
@@ -628,6 +638,23 @@ depends_on = [
 ]
 layer = "modules"
 
+# product_analytics — external consumers go through the facade: facade.api for data
+# capabilities, facade.queries for the QueryRunner wiring core dispatches on, and
+# facade.models for the watched-models allowance crossings (Insight, InsightVariable,
+# InsightViewed — see MODEL_CROSSINGS and architecture.md § Wiring couplings).
+# presentation.* carries the DRF serializers sharing, dashboards and alerts use to
+# render insights in-process — facades must not import DRF, so presentation exposure
+# is the sanctioned channel (products.metrics precedent).
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.presentation.*",
+    "backend\\.routes.*",
+]
+from = [
+    "products.product_analytics",
+]
+
 [[modules]]
 path = "products.product_tours"
 depends_on = [
@@ -703,7 +730,6 @@ layer = "modules"
 path = "products.signals"
 depends_on = [
     "ee",
-    "products.canvas",
     "products.cohorts",
     "posthog",
     "products.actions",
@@ -718,6 +744,9 @@ depends_on = [
     "products.error_tracking",
     "products.experiments",
     "products.feature_flags",
+    # Facade-only: the scout harness pre-resolves the external MCP servers a run's sandbox will
+    # mount so the run prompt can name them.
+    "products.mcp_store",
     "products.notebooks",
     "products.product_analytics",
     # Facade-only: Replay Vision authorizes signal emission per scanner rather than through a
@@ -812,6 +841,8 @@ path = "products.tasks"
 depends_on = [
     "ee",
     "posthog",
+    "products.canvas",
+    "products.context_layer",
     "products.error_tracking",
     "products.event_definitions",
     "products.exports",
@@ -848,14 +879,7 @@ from = [
 
 [[interfaces]]
 expose = [
-    "backend\\.report_canvas.*",
-]
-from = [
-    "products.canvas",
-]
-
-[[interfaces]]
-expose = [
+    "backend\\.teaching.*",
     "backend\\.artifacts.*",
     "backend\\.tasks.*",
 ]
@@ -938,6 +962,9 @@ depends_on = [
     "products.feature_flags",
     "products.messaging",
     "products.notifications",
+    # Facade-only: the AI task action's endpoint creates tasks through
+    # products.tasks.backend.facade.workflow_tasks.
+    "products.tasks",
 ]
 layer = "modules"
 

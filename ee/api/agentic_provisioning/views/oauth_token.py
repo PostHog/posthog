@@ -35,7 +35,7 @@ from ee.api.agentic_provisioning.constants import (
     PARTNER_TOKEN_EXPIRY_SECONDS,
 )
 from ee.api.agentic_provisioning.exceptions import ProvisioningError
-from ee.api.agentic_provisioning.throttling import enforce_partner_rate_limit
+from ee.api.agentic_provisioning.ratelimits import Budget, rate_limited
 from ee.api.agentic_provisioning.tokens import (
     compute_partner_scoped_teams,
     get_available_teams_for_user,
@@ -109,6 +109,12 @@ class OAuthTokenView(ProvisioningAPIView):
     # authentication happens in _require_client_authentication once the grant is known.
     authenticates_in_handler = True
 
+    # Two buckets, charged manually once the grant names the partner. Refreshes are
+    # split from new authorizations because partner tokens live one hour: charging
+    # rotations to the exchange budget capped a partner's live end users at roughly
+    # that budget. Both keep the typed envelope, their historical wire shape here.
+    @rate_limited("token_exchanges", budget=Budget(burst=10, per_hour=20), charge="manual", envelope="typed")
+    @rate_limited("token_refreshes", charge="manual", envelope="typed")
     def post(self, request: Request) -> Response:
         grant_type = request.data.get("grant_type", "")
 
@@ -175,7 +181,7 @@ class OAuthTokenView(ProvisioningAPIView):
         # re-initiate the OAuth flow if rate-limited.
         cache.delete(cache_key)
 
-        enforce_partner_rate_limit(oauth_app, "token_exchanges")
+        self.charge_rate_limit(request, oauth_app, endpoint="token_exchanges")
 
         user_id = code_data["user_id"]
         team_id = code_data["team_id"]
@@ -371,7 +377,7 @@ class OAuthTokenView(ProvisioningAPIView):
             # Not is_provisioning_partner: an admin clearing that flag to disable a partner
             # leaves its outstanding refresh tokens working, and they must stay throttled.
             if oauth_app and oauth_app.carries_provisioning_config:
-                enforce_partner_rate_limit(oauth_app, "token_exchanges")
+                self.charge_rate_limit(request, oauth_app, endpoint="token_refreshes")
 
             old_access = old_refresh.access_token
             old_refresh.access_token = None

@@ -220,6 +220,12 @@ Route through the shared composites rather than hand-rolling `actions/cache`: `.
 One canonical key per artifact; gate saves to master or key deliberately per-ref.
 PR-scoped cache writes nobody else can read just fragment the 10 GB LRU cap.
 
+**Any job that runs `manage.py migrate` against a fresh Postgres must restore the master schema dump first**, keeping the migrate as a seconds-long top-up.
+A from-scratch replay of the full migration history grows with every migration merged and already costs more than most jobs' `timeout-minutes`, so an uncached migrate is a timeout that hasn't fired yet ([agent-skills cancelled at 30 min with the checks green](https://github.com/PostHog/posthog/actions/runs/32250956659/job/96061773764)).
+Copy the three steps (compute keys, `actions/cache/restore`, prime) from `ci-agent-skills.yml` for compose-stack jobs or `ci-rust-flags-integration.yml` for service-container jobs; `hogli db:restore-schema-fresh` reads `TARGET_DB` to pick the database.
+A miss falls through to the full migrate, so the restore is never a correctness risk.
+The only sanctioned exception is a job whose purpose is validating the migration history itself (ci-backend's `check-migrations`), where a restored dump would mask what it checks.
+
 ## Runners
 
 `depot-ubuntu-<version>[-<vCPU>]` for build/compute-heavy jobs (the `-4`/`-8` suffix bumps CPU from the 2-vCPU default); GitHub-hosted for light jobs.
@@ -250,5 +256,6 @@ Roll out a new blocking lint the same way: ship `continue-on-error`, clear the i
 - [ ] High-volume API calls on a dedicated App token with `|| github.token` fork fallback.
 - [ ] Fork PRs handled: secret-needing steps guarded with the same-repo `if:`; no secret-injecting build runs on forks.
 - [ ] Caching through the shared composites; writes gated to master.
+- [ ] Any job running `manage.py migrate` restores the master schema dump first, with the migrate as top-up (see Caching).
 - [ ] Prod image push / deploy dispatch gated per `/gating-production-deploys`.
 - [ ] `bin/hogli lint:workflows` and `actionlint` pass locally.

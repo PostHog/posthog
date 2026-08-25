@@ -265,6 +265,7 @@ describe('InstructionsFormatter', () => {
             )
             expect(result).toContain('- analytics:')
             expect(result).toContain('- visualizations:')
+            expect(result).toContain('- urls:')
             expect(result).toContain('- feedback:')
             expect(result).toContain('SCHEMA DRILL-DOWN RULE')
             expect(result).toContain('**Data discovery:**')
@@ -280,12 +281,13 @@ describe('InstructionsFormatter', () => {
             expect(result).not.toContain('### Retrieving data')
             expect(result).not.toContain('### Examples')
             expect(result).not.toContain('### Rendering visualizations')
+            expect(result).not.toContain('### URL patterns')
             expect(result).not.toContain('### Sharing feedback on PostHog')
             expect(result).not.toContain('- `query-trends` — time series')
             expect(result).not.toMatch(/\{help_topics\}|\{query_tools\}|\{metadata\}|\{defined_groups\}|\{guidelines\}/)
         })
 
-        it('combines analytics guidance and examples in one learning topic', () => {
+        it('builds optional learning topics from their full guidance', () => {
             const formatter = new InstructionsFormatter()
             const entries = formatter.buildClaudeExecHelpEntries(fullCtx)
             const analytics = entries.find((entry) => entry.id === 'analytics')
@@ -293,6 +295,7 @@ describe('InstructionsFormatter', () => {
             expect(entries.map(({ id, kind }) => ({ id, kind }))).toEqual([
                 { id: 'analytics', kind: 'guide' },
                 { id: 'visualizations', kind: 'guide' },
+                { id: 'urls', kind: 'guide' },
                 { id: 'feedback', kind: 'guide' },
             ])
             expect(analytics?.content).toContain('### Retrieving data')
@@ -301,6 +304,7 @@ describe('InstructionsFormatter', () => {
             expect(entries.find((entry) => entry.id === 'visualizations')?.content).toContain(
                 '### Rendering visualizations'
             )
+            expect(entries.find((entry) => entry.id === 'urls')?.content).toContain('### URL patterns')
             expect(entries.find((entry) => entry.id === 'feedback')?.content).toContain(
                 '### Sharing feedback on PostHog'
             )
@@ -315,11 +319,13 @@ describe('InstructionsFormatter', () => {
 
             expect(formatter.buildClaudeExecHelpEntries(ctx).map((entry) => entry.id)).toEqual([
                 'analytics',
+                'urls',
                 'feedback',
             ])
             const result = formatter.buildClaudeExecCommandReference(ctx)
             expect(result).toContain('- analytics:')
             expect(result).not.toContain('- visualizations:')
+            expect(result).toContain('- urls:')
             expect(result).toContain('- feedback:')
         })
     })
@@ -375,6 +381,48 @@ describe('InstructionsFormatter', () => {
                 formatter.buildClaudeExecHelpEntries(ctx).find((entry) => entry.id === 'analytics')!.description
             expect(analyticsDescription({ ...fullCtx, dataCatalogEnabled: true })).toContain('governed metrics')
             expect(analyticsDescription(fullCtx)).toBe('Query or analyze PostHog data, metrics, and events.')
+        })
+    })
+
+    describe('analysis artifact guidance', () => {
+        const surfaces: {
+            name: string
+            render: (formatter: InstructionsFormatter, ctx: InstructionsContext) => string
+        }[] = [
+            {
+                name: 'buildToolsInstructions',
+                render: (formatter, ctx) => formatter.buildToolsInstructions(ctx),
+            },
+            {
+                name: 'analytics learn topic content',
+                render: (formatter, ctx) =>
+                    formatter.buildClaudeExecHelpEntries(ctx).find((entry) => entry.id === 'analytics')!.content,
+            },
+            {
+                name: 'buildExecCommandReference',
+                render: (formatter, ctx) => formatter.buildExecCommandReference(ctx, { stripEnvContext: false }),
+            },
+        ]
+
+        it.each(surfaces)('$name routes deep dives to notebooks and tracking to dashboards', ({ render }) => {
+            const formatter = new InstructionsFormatter()
+            const result = render(formatter, fullCtx)
+            expect(result).toContain('### Where an analysis lands')
+            expect(result).toContain('**Notebook**')
+            expect(result).toContain('**Dashboard**')
+        })
+
+        // The Python guidance names `notebooks-add-cell`, so it must stay out of prompts
+        // for clients that aren't advertised the cell tools.
+        it.each(surfaces)('$name gates the Python section on the notebook cell tools', ({ render }) => {
+            const formatter = new InstructionsFormatter()
+            const cellsOn = render(formatter, { ...fullCtx, notebookCellsEnabled: true })
+            expect(cellsOn).toContain('### Python in an analysis')
+            expect(cellsOn).toContain("cell_type: 'python'")
+
+            const cellsOff = render(formatter, { ...fullCtx, notebookCellsEnabled: false })
+            expect(cellsOff).not.toContain('### Python in an analysis')
+            expect(cellsOff).toBe(render(formatter, fullCtx))
         })
     })
 

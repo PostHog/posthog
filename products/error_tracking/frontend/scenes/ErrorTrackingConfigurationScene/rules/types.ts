@@ -1,6 +1,11 @@
 import { ErrorTrackingIssueAssignee } from '~/queries/schema/schema-general'
 import { JsonType, UniversalFiltersGroup } from '~/types'
 
+import type {
+    ErrorTrackingIssueSeverityRuleEnumApi,
+    ErrorTrackingSeverityRuleApi,
+} from '../../../generated/api.schemas'
+
 export type ErrorTrackingBaseRule = {
     id: string
     filters: UniversalFiltersGroup
@@ -26,17 +31,27 @@ export type ErrorTrackingGroupingRule = ErrorTrackingBaseRule & {
 
 export type ErrorTrackingBypassRule = ErrorTrackingBaseRule
 
+export type ErrorTrackingSeverityRule = ErrorTrackingBaseRule & Pick<ErrorTrackingSeverityRuleApi, 'severity'>
+
+export type ErrorTrackingSeverityRuleNew = Omit<ErrorTrackingSeverityRule, 'id' | 'severity'> & {
+    id: 'new'
+    severity: ErrorTrackingIssueSeverityRuleEnumApi | null
+}
+
 export type ErrorTrackingRule =
     | ErrorTrackingSuppressionRule
     | ErrorTrackingGroupingRule
     | ErrorTrackingAssignmentRule
     | ErrorTrackingBypassRule
+    | ErrorTrackingSeverityRule
+    | ErrorTrackingSeverityRuleNew
 export type ErrorTrackingRuleNew = ErrorTrackingRule & { id: 'new' }
 
 export enum ErrorTrackingRuleType {
     Assignment = 'assignment_rules',
     Bypass = 'bypass_rules',
     Grouping = 'grouping_rules',
+    Severity = 'severity_rules',
     Suppression = 'suppression_rules',
 }
 

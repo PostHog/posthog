@@ -102,6 +102,28 @@ class DisallowUnsupportedDataWarehouseTimestampField:
                 )
 
 
+class RequireRetentionDataWarehouseEntitiesForCustomAggregationTarget:
+    """The "Custom entities" aggregation target is only available when both retention entities read from the
+    data warehouse. Other entities are person/group based."""
+
+    code = "retention_custom_aggregation_target_requires_data_warehouse_entities"
+
+    def validate(self, context: QueryValidationContext[RetentionQuery]) -> None:
+        retention_filter = context.query.retentionFilter
+        if not retention_filter.customAggregationTarget:
+            return
+        both_entities_data_warehouse = all(
+            entity is not None and entity.type == EntityType.DATA_WAREHOUSE
+            for entity in (retention_filter.targetEntity, retention_filter.returningEntity)
+        )
+        if both_entities_data_warehouse:
+            return
+        raise ValidationError(
+            "Custom entity aggregation target requires both retention entities to be data warehouse entities.",
+            code=self.code,
+        )
+
+
 class DisallowPropertyAggregationWith24HourWindows:
     """The 24-hour-window builder never emits the retention_value column that sum/avg aggregation reads in the
     outer query."""

@@ -27,6 +27,7 @@ import {
   CloudStreamDisconnectedBanner,
   ConnectingToAgent,
 } from "@posthog/ui/features/sessions/components/CloudSessionLifecycle";
+import { ComposerWidth } from "@posthog/ui/features/sessions/components/ComposerWidth";
 import { ContextUsageIndicator } from "@posthog/ui/features/sessions/components/ContextUsageIndicator";
 import type { PromptRecallHandler } from "@posthog/ui/features/sessions/components/chat-thread/composerPromptRecall";
 import {
@@ -35,11 +36,13 @@ import {
 } from "@posthog/ui/features/sessions/components/copyContextTarget";
 import { DropZoneOverlay } from "@posthog/ui/features/sessions/components/DropZoneOverlay";
 import { PendingChatView } from "@posthog/ui/features/sessions/components/PendingChatView";
+import { PermissionDock } from "@posthog/ui/features/sessions/components/PermissionDock";
 import { PlanStatusBar } from "@posthog/ui/features/sessions/components/PlanStatusBar";
 import { QueuedMessagesDock } from "@posthog/ui/features/sessions/components/QueuedMessagesDock";
 import { ReasoningLevelSelector } from "@posthog/ui/features/sessions/components/ReasoningLevelSelector";
 import { RawLogsView } from "@posthog/ui/features/sessions/components/raw-logs/RawLogsView";
 import { SessionInitializingView } from "@posthog/ui/features/sessions/components/SessionInitializingView";
+import { SideQuestionCard } from "@posthog/ui/features/sessions/components/SideQuestionCard";
 import { SteerQueueToggle } from "@posthog/ui/features/sessions/components/SteerQueueToggle";
 import {
   isSubmittedContentUnchanged,
@@ -47,10 +50,7 @@ import {
   submitComposerPrompt,
 } from "@posthog/ui/features/sessions/components/submitComposerPrompt";
 import { ThreadView } from "@posthog/ui/features/sessions/components/ThreadView";
-import {
-  CHAT_CONTENT_MAX_WIDTH,
-  CHAT_CONTENT_PADDING_INLINE,
-} from "@posthog/ui/features/sessions/constants";
+import { CHAT_CONTENT_MAX_WIDTH } from "@posthog/ui/features/sessions/constants";
 import { useContextUsage } from "@posthog/ui/features/sessions/hooks/useContextUsage";
 import { useCancelQueuedMessageEdit } from "@posthog/ui/features/sessions/hooks/useEditQueuedMessage";
 import { useSessionEventsResidency } from "@posthog/ui/features/sessions/hooks/useSessionEventsResidency";
@@ -79,7 +79,14 @@ import {
   usePendingTaskPrompt,
 } from "@posthog/ui/shell/pendingTaskPromptStore";
 import { Box, Button, ContextMenu, Flex, Text } from "@radix-ui/themes";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 export function getNewAttachments(
   previousIds: ReadonlySet<string>,
@@ -118,89 +125,12 @@ interface SessionViewProps {
   isActiveSession?: boolean;
   /** Hide the message input and permission UI — log-only view. */
   hideInput?: boolean;
+  /** Contextual actions shown between the thread and its composer. */
+  threadActions?: ReactNode;
 }
 
 const DEFAULT_ERROR_MESSAGE =
   "Failed to resume this session. The working directory may have been deleted. Please start a new session.";
-
-/**
- * Centers composer-slot content at the chat width (or compact padding).
- *
- * The composer reserves the same horizontal room as the thread's scroll
- * content and caps at the same width, so the two columns are identical at
- * every panel width rather than only once the panel is wide enough for the
- * full column. Padding on the capped box instead of around it would eat into
- * `CHAT_CONTENT_MAX_WIDTH` and leave the composer narrower than the messages.
- *
- * The gutter is a percentage of this box, and the thread's equivalent box sits
- * inside a scroller whose `scrollbar-gutter: stable` has already taken the
- * scrollbar's width off it. Without the same reservation here, the composer
- * centers on a wider box and its column lands half a scrollbar right of the
- * messages. Reserving it rather than subtracting a constant keeps the browser's
- * own measurement authoritative, since scrollbar width varies by platform.
- */
-/** Widest ring the composer paints outside its border box (quill's 3px focus outline). */
-const OUTLINE_BLEED = 4;
-
-function ComposerWidth({
-  compact,
-  children,
-}: {
-  compact: boolean;
-  children: React.ReactNode;
-}) {
-  if (compact) {
-    return <Box className="p-1">{children}</Box>;
-  }
-
-  return (
-    <Box
-      style={{
-        paddingInline: CHAT_CONTENT_PADDING_INLINE,
-        overflow: "hidden",
-        scrollbarGutter: "stable",
-        // `overflow: hidden` clips at this box's padding edge, which sits flush
-        // with the composer's top, so the focus ring painted outside its border
-        // box would lose its top. Buy the ring room and take it back out of the
-        // layout. The sides have the gutter and `pb-2` covers below.
-        paddingBlockStart: OUTLINE_BLEED,
-        marginBlockStart: -OUTLINE_BLEED,
-      }}
-    >
-      <Box
-        className="mx-auto pb-2"
-        style={{ maxWidth: CHAT_CONTENT_MAX_WIDTH }}
-      >
-        {children}
-      </Box>
-    </Box>
-  );
-}
-
-/**
- * Input region replacing the composer: `shrink-0` keeps it from being
- * compressed by the scroller above, and `min-h-0 overflow-y-auto` lets tall
- * content scroll inside itself.
- */
-function ComposerSlot({
-  compact,
-  children,
-}: {
-  compact: boolean;
-  children: React.ReactNode;
-}) {
-  return (
-    <Box
-      className={
-        compact
-          ? "max-h-[50%] min-h-0 overflow-y-auto"
-          : "min-h-0 shrink-0 overflow-y-auto"
-      }
-    >
-      <ComposerWidth compact={compact}>{children}</ComposerWidth>
-    </Box>
-  );
-}
 
 export function SessionView({
   events,
@@ -231,6 +161,7 @@ export function SessionView({
   compact = false,
   isActiveSession = true,
   hideInput = false,
+  threadActions,
 }: SessionViewProps) {
   const sessionService = useService<SessionService>(SESSION_SERVICE);
   useSessionEventsResidency(taskId);
@@ -488,6 +419,7 @@ export function SessionView({
     (s) => !!s?.editingQueuedId,
   );
   const cancelQueuedEdit = useCancelQueuedMessageEdit(taskId);
+  const activeTaskRunId = useSessionSelector(taskId, (s) => s?.taskRunId);
 
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const promptRecallRef = useRef<PromptRecallHandler | null>(null);
@@ -742,6 +674,8 @@ export function SessionView({
 
                 <PlanStatusBar plan={latestPlan} />
 
+                {threadActions}
+
                 {hasError && !showInlineBanner ? (
                   <Flex
                     align="center"
@@ -786,14 +720,21 @@ export function SessionView({
                     </Flex>
                   </Flex>
                 ) : hideInput ? null : firstPendingPermission ? (
-                  <ComposerSlot compact={compact}>
+                  // Keyed on when the prompt arrived, not just which tool call
+                  // it belongs to, so a re-asked permission for the same call
+                  // arrives shown rather than inheriting the last one's hidden
+                  // state.
+                  <PermissionDock
+                    key={`${firstPendingPermission.toolCall.toolCallId}-${firstPendingPermission.receivedAt}`}
+                    compact={compact}
+                  >
                     <PermissionSelector
                       toolCall={firstPendingPermission.toolCall}
                       options={firstPendingPermission.options}
                       onSelect={handlePermissionSelect}
                       onCancel={handlePermissionCancel}
                     />
-                  </ComposerSlot>
+                  </PermissionDock>
                 ) : (
                   <Box className="relative shrink-0">
                     <Box
@@ -813,6 +754,12 @@ export function SessionView({
                       }`}
                     >
                       <ComposerWidth compact={compact}>
+                        {taskId && (
+                          <SideQuestionCard
+                            taskId={taskId}
+                            taskRunId={activeTaskRunId}
+                          />
+                        )}
                         {taskId && <QueuedMessagesDock taskId={taskId} />}
                         <PromptInput
                           ref={editorRef}
@@ -866,7 +813,11 @@ export function SessionView({
                             ) : undefined
                           }
                           toolbarEndSlot={
-                            <ContextUsageIndicator usage={contextUsage} />
+                            <ContextUsageIndicator
+                              usage={contextUsage}
+                              taskId={taskId}
+                              focused={isActiveSession !== false}
+                            />
                           }
                           onToggleMessagingMode={toggleMessagingMode}
                           onAttachmentsChange={handleAttachmentsChange}

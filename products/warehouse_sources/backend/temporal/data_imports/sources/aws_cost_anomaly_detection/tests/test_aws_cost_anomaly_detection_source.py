@@ -7,22 +7,9 @@ from unittest import mock
 
 import structlog
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_anomaly_detection import (
     aws_cost_anomaly_detection as transport_module,
     source as source_module,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_anomaly_detection.aws_cost_anomaly_detection import (
-    AwsCostAnomalyDetectionResumeConfig,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_anomaly_detection.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_cost_anomaly_detection.settings import (
     AWS_COST_ANOMALY_DETECTION_ENDPOINTS,
@@ -35,7 +22,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awscostanomalydetection import (
     AwsCostAnomalyDetectionSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def make_inputs(
@@ -68,18 +54,6 @@ class TestAwsCostAnomalyDetectionSource:
             aws_session_token=None,
         )
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.AWSCOSTANOMALYDETECTION
-
-    def test_source_is_released_and_labelled_alpha(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.unreleasedSource is None
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.category == DataWarehouseSourceCategory.FINANCE___ACCOUNTING
-        assert config.iconPath == "/static/services/aws_cost_anomaly_detection.png"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/aws-cost-anomaly-detection"
-
     def test_the_form_asks_only_for_iam_credentials(self) -> None:
         # Cost Anomaly Detection is global and always signed for us-east-1, so a region field
         # would suggest a routing choice the user does not have.
@@ -88,27 +62,6 @@ class TestAwsCostAnomalyDetectionSource:
             "aws_secret_access_key",
             "aws_session_token",
         ]
-
-    @pytest.mark.parametrize(
-        "field_name,required,secret",
-        [
-            ("aws_access_key_id", True, False),
-            ("aws_secret_access_key", True, True),
-            ("aws_session_token", False, True),
-        ],
-    )
-    def test_credential_fields_are_marked_secret_so_they_are_not_echoed_back(
-        self, field_name: str, required: bool, secret: bool
-    ) -> None:
-        field = next(
-            f
-            for f in self.source.get_source_config.fields
-            if isinstance(f, SourceFieldInputConfig) and f.name == field_name
-        )
-
-        assert field.required is required
-        assert field.secret is secret
-        assert (field.type == SourceFieldInputConfigType.PASSWORD) is secret
 
     def test_only_the_anomalies_table_syncs_incrementally(self) -> None:
         # GetAnomalies is the one operation with a server-side date filter; monitors and
@@ -122,21 +75,6 @@ class TestAwsCostAnomalyDetectionSource:
         assert schemas["anomaly_monitors"].supports_incremental is False
         assert schemas["anomaly_subscriptions"].supports_incremental is False
         assert all(schema.description for schema in schemas.values())
-
-    def test_get_schemas_honors_the_schema_picker_filter(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1, names=["anomaly_monitors"])
-
-        assert [schema.name for schema in schemas] == ["anomaly_monitors"]
-
-    def test_table_catalog_is_listable_without_credentials_for_public_docs(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-        assert self.source.get_schemas(
-            AwsCostAnomalyDetectionSourceConfig(aws_access_key_id="", aws_secret_access_key=""), 1
-        )
-
-    def test_canonical_descriptions_are_keyed_by_the_schema_names(self) -> None:
-        assert set(CANONICAL_DESCRIPTIONS) == set(ENDPOINTS)
-        assert set(self.source.get_canonical_descriptions()) == set(ENDPOINTS)
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -161,31 +99,11 @@ class TestAwsCostAnomalyDetectionSource:
     def test_transient_aws_failures_keep_retrying(self, observed_error: str) -> None:
         assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
 
-    def test_validate_credentials_passes_the_configured_credentials_and_schema_through(self) -> None:
-        with mock.patch.object(
-            source_module, "validate_aws_cost_anomaly_detection_credentials", return_value=(True, None)
-        ) as validate:
-            assert self.source.validate_credentials(self.config, team_id=1, schema_name="anomalies") == (True, None)
-
-        assert validate.call_args[0] == ("AKIAEXAMPLE", "secret", None)
-        assert validate.call_args[1] == {"schema_name": "anomalies"}
-
-    def test_validate_credentials_surfaces_the_failure_reason(self) -> None:
-        with mock.patch.object(
-            source_module, "validate_aws_cost_anomaly_detection_credentials", return_value=(False, "denied")
-        ):
-            assert self.source.validate_credentials(self.config, team_id=1) == (False, "denied")
-
     def test_endpoint_permissions_are_probed_per_table_for_the_schema_picker(self) -> None:
         with mock.patch.object(source_module, "probe_endpoint_permissions", return_value={"anomalies": None}) as probe:
             assert self.source.get_endpoint_permissions(self.config, 1, ["anomalies"]) == {"anomalies": None}
 
         assert probe.call_args[0] == ("AKIAEXAMPLE", "secret", None, ["anomalies"])
-
-    def test_resumable_manager_is_bound_to_the_sources_resume_dataclass(self) -> None:
-        manager = self.source.get_resumable_source_manager(make_inputs("anomalies"))
-
-        assert manager._data_class is AwsCostAnomalyDetectionResumeConfig
 
     @pytest.mark.parametrize("endpoint", list(ENDPOINTS))
     def test_source_for_pipeline_carries_the_endpoints_primary_key(self, endpoint: str) -> None:

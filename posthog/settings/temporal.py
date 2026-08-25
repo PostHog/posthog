@@ -56,6 +56,18 @@ SANDBOX_LLM_GATEWAY_URL: str | None = get_from_env("SANDBOX_LLM_GATEWAY_URL", No
 # Both must be set; clearing either rolls back to the Python gateway.
 SANDBOX_AI_GATEWAY_URL: str | None = get_from_env("SANDBOX_AI_GATEWAY_URL", None, optional=True)
 SANDBOX_AI_GATEWAY_PRODUCTS: str | None = get_from_env("SANDBOX_AI_GATEWAY_PRODUCTS", None, optional=True)
+# Gateway credential (phs_) the worker uses to mint per-run phe_ scoped tokens for
+# gateway-routed sandbox runs. Unset: runs get no token and the agent server keeps them
+# on the Python gateway, so the routing allowlist above is inert without it.
+SANDBOX_AI_GATEWAY_MINT_KEY: str | None = get_from_env("SANDBOX_AI_GATEWAY_MINT_KEY", None, optional=True)
+# Per-run spend cap and token lifetime for minted scoped tokens. The cap bounds one
+# runaway run; the daily bound per team is cap x the scheduler's runs-per-day limit.
+# TTL 0 (the default) derives TASKS_MAX_RUN_DURATION_SECONDS + 1h so a capped run
+# never outlives its token; a positive value overrides.
+SANDBOX_AI_GATEWAY_TOKEN_CAP_USD: str = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_CAP_USD", "5")
+# Per-team per-run cap overrides as a JSON object of team id to dollars, e.g. {"2": "10"}.
+SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES: str = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_CAP_USD_OVERRIDES", "")
+SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS: int = get_from_env("SANDBOX_AI_GATEWAY_TOKEN_TTL_SECONDS", 0, type_cast=int)
 SANDBOX_MCP_URL: str | None = get_from_env("SANDBOX_MCP_URL", None, optional=True)
 
 # OTLP destinations for agent-server run telemetry (PostHog Logs/APM).

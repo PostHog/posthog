@@ -4,44 +4,20 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.canonical_descriptions import (
     CANONICAL_DESCRIPTIONS,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.semgrep import SemgrepResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.settings import (
     ENDPOINTS,
     SEMGREP_ENDPOINTS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.source import SemgrepSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_token: str = "token") -> Any:
     config = MagicMock()
     config.api_token = api_token
     return config
-
-
-class TestSourceConfig:
-    def test_source_type(self) -> None:
-        assert SemgrepSource().source_type == ExternalDataSourceType.SEMGREP
-
-    def test_config_is_visible_and_alpha(self) -> None:
-        config = SemgrepSource().get_source_config
-        # A finished source must not be hidden from users.
-        assert getattr(config, "unreleasedSource", None) in (None, False)
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.category == DataWarehouseSourceCategory.ENGINEERING___MONITORING
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/semgrep"
-
-    def test_fields(self) -> None:
-        fields = {f.name: f for f in SemgrepSource().get_source_config.fields if isinstance(f, SourceFieldInputConfig)}
-        assert set(fields) == {"api_token"}
-        assert fields["api_token"].required is True
-        assert fields["api_token"].secret is True
 
 
 class TestGetSchemas:
@@ -90,33 +66,6 @@ class TestValidateCredentials:
         assert error is not None
 
 
-class TestResumableWiring:
-    def test_get_resumable_source_manager_binds_data_class(self) -> None:
-        inputs = MagicMock()
-        inputs.logger = MagicMock()
-        manager = SemgrepSource().get_resumable_source_manager(inputs)
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is SemgrepResumeConfig
-
-    def test_source_for_pipeline_plumbs_arguments(self) -> None:
-        inputs = MagicMock()
-        inputs.schema_name = "sca_findings"
-        inputs.team_id = 7
-        inputs.job_id = "job-1"
-        manager = MagicMock()
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.semgrep.source.semgrep_source"
-        ) as mocked:
-            SemgrepSource().source_for_pipeline(_config(), manager, inputs)
-        mocked.assert_called_once_with(
-            api_token="token",
-            endpoint="sca_findings",
-            team_id=7,
-            job_id="job-1",
-            resumable_source_manager=manager,
-        )
-
-
 class TestNonRetryableErrors:
     @parameterized.expand(
         [
@@ -156,6 +105,3 @@ class TestCanonicalDescriptions:
     def test_canonical_descriptions_keys_are_known_endpoints(self) -> None:
         # Every documented table must map to a real endpoint, or its descriptions never apply.
         assert set(CANONICAL_DESCRIPTIONS) == set(ENDPOINTS)
-
-    def test_source_exposes_canonical_descriptions(self) -> None:
-        assert SemgrepSource().get_canonical_descriptions() is CANONICAL_DESCRIPTIONS

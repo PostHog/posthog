@@ -18,7 +18,7 @@ from products.signals.dags.inbox_ranking.training.examples import (
 )
 from products.signals.dags.inbox_ranking.training.heads import HEADS_BY_NAME
 from products.signals.dags.inbox_ranking.training.promotion import AUC_TOLERANCE, decide_promotion
-from products.signals.dags.inbox_ranking.training.train import train_head
+from products.signals.dags.inbox_ranking.training.train import _head_readable, train_head
 
 D0 = datetime.date(2026, 8, 10)
 NOW = datetime.datetime(2026, 8, 20, tzinfo=datetime.UTC)
@@ -186,6 +186,17 @@ def test_train_head_returns_none_without_both_classes():
     assert train_head(examples, head, holdout_days=7) is None
 
 
+@pytest.mark.parametrize(
+    "holdout_auc,null_auc,holdout_positives,expected",
+    [
+        (0.46, 0.40, 50, False),  # below chance, yet clears the null margin: the floor must reject it
+        (0.70, 0.50, 50, True),  # above chance, clears the margin, enough positives
+    ],
+)
+def test_head_readable_requires_above_chance_auc(holdout_auc, null_auc, holdout_positives, expected):
+    assert _head_readable(holdout_auc, null_auc, holdout_positives, min_positives=30) is expected
+
+
 def _metadata(version: str, **aucs: float | None) -> dict:
     return {
         "model_version": version,
@@ -221,6 +232,20 @@ def _metadata(version: str, **aucs: float | None) -> dict:
             {**_metadata("d1", open=0.65, action=0.6), "promoted_at": "2026-08-10T00:00:00+00:00"},
             False,
             "action readable on champion but not on candidate",
+        ),
+        # A backfilled older candidate, even a much better one, must not roll the champion backwards.
+        (
+            _metadata("2026-08-11", open=0.90),
+            {**_metadata("2026-08-12", open=0.65), "promoted_at": "2026-08-10T00:00:00+00:00"},
+            False,
+            "not newer",
+        ),
+        # Re-running the champion's own partition must not re-promote it.
+        (
+            _metadata("2026-08-12", open=0.90),
+            {**_metadata("2026-08-12", open=0.65), "promoted_at": "2026-08-10T00:00:00+00:00"},
+            False,
+            "not newer",
         ),
     ],
 )

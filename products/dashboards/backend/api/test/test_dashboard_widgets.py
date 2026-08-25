@@ -23,7 +23,7 @@ from products.dashboards.backend.models.dashboard_templates import DashboardTemp
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.dashboards.backend.widget_registry import EXPECTED_WIDGET_TYPES
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 
 class TestDashboardWidgets(APIBaseTest):

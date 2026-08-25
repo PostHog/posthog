@@ -83,6 +83,13 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertEqual(len(self._ids(search="")), 2)
         self.assertEqual(len(self._ids(search="   ")), 2)
 
+    def test_ignored_accounts_are_hidden_by_default(self):
+        create_account(team_id=self.team.id, name="Tracked")
+        create_account(team_id=self.team.id, name="Ignored", ignored_at=timezone.now())
+
+        self.assertEqual(self._names(), ["Tracked"])
+        self.assertEqual(set(self._names(includeIgnored=True)), {"Tracked", "Ignored"})
+
     def test_search_respects_team_isolation(self):
         other_team = Team.objects.create(organization=self.organization)
         create_account(team_id=other_team.id, name="Acme")

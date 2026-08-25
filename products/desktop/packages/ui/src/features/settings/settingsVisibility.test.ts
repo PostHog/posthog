@@ -34,19 +34,6 @@ describe("getHiddenSettingsCategories", () => {
       expected: ["workspaces", "worktrees", "terminal", "harness", "discord"],
     },
     {
-      // The channels layout uses a fixed nav, so the Sidebar page's
-      // reorder/hide controls would have nothing to act on.
-      name: "hides the sidebar page under the channels layout",
-      input: {
-        billingEnabled: true,
-        spendAnalysisEnabled: true,
-        localWorkspaces: true,
-        channelsLayout: true,
-        quickAskAvailable: true,
-      },
-      expected: ["sidebar"],
-    },
-    {
       // The page's only content when the panel is unavailable is a dead-end
       // "not available in this build" message, so hide it (web hosts and
       // packaged desktop without the prototype gate).

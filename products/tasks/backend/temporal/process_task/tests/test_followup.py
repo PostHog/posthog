@@ -21,6 +21,9 @@ from products.tasks.backend.temporal.process_task.activities.provision_sandbox i
     CreateSandboxForRepositoryOutput,
     PrepareSandboxForRepositoryOutput,
 )
+from products.tasks.backend.temporal.process_task.activities.record_peer_message_outcome import (
+    RecordPeerMessageOutcomeInput,
+)
 from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import SendFollowupToSandboxInput
 from products.tasks.backend.temporal.process_task.activities.start_agent_server import StartAgentServerOutput
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import UpdateTaskRunStatusInput
@@ -122,6 +125,15 @@ _progress_events: list[tuple[str, str, str, str | None, str]] = []
 @activity.defn(name="emit_progress_activity")
 def _mock_emit_progress(input: EmitProgressInput) -> None:
     _progress_events.append((input.step, input.status, input.label, input.detail, input.group))
+
+
+_peer_outcome_calls: list[tuple[str, str, str]] = []
+
+
+@activity.defn(name="record_peer_message_outcome")
+def _mock_record_peer_outcome(input: RecordPeerMessageOutcomeInput) -> bool:
+    _peer_outcome_calls.append((input.peer_message_id, input.outcome, input.failure_phase))
+    return True
 
 
 @activity.defn(name="track_workflow_event")
@@ -267,6 +279,77 @@ class TestFollowupDeliveryFailure:
         failed_updates = [(s, e) for s, e, _ in _status_updates if s == "failed"]
         assert failed_updates == [("failed", "Follow-up delivery failed: RuntimeError: Sandbox session is dead")]
         assert [event for event in _progress_events if event[0] == "followup_delivery"] == []
+
+    @pytest.mark.timeout(60, func_only=True)
+    async def test_failed_peer_message_never_fails_the_recipient_run(self):
+        # Delivery contract, item 1: the identical delivery failure that marks the
+        # run failed for a user follow-up must, for a peer message, record the
+        # outcome on the message row and leave the recipient run healthy.
+        _status_updates.clear()
+        _peer_outcome_calls.clear()
+        peer_message_id = str(uuid.uuid4())
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            task_queue = f"test-{uuid.uuid4()}"
+            async with Worker(
+                env.client,
+                task_queue=task_queue,
+                workflows=[ProcessTaskWorkflow],
+                activities=[
+                    _mock_get_context,
+                    _mock_update_status,
+                    _mock_prepare_sandbox,
+                    _mock_create_sandbox,
+                    _mock_clone_repository,
+                    _mock_start_agent,
+                    _mock_forward,
+                    _mock_send_followup_raises,
+                    _mock_record_peer_outcome,
+                    _mock_track,
+                    _mock_read_logs,
+                    _mock_cleanup,
+                ],
+                workflow_runner=UnsandboxedWorkflowRunner(),
+                activity_executor=ThreadPoolExecutor(max_workers=5),
+            ):
+                handle = await env.client.start_workflow(
+                    ProcessTaskWorkflow.run,
+                    ProcessTaskInput(run_id="run-1"),
+                    id=f"test-{uuid.uuid4()}",
+                    task_queue=task_queue,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=timedelta(minutes=5),
+                )
+
+                await asyncio.sleep(2)
+
+                await handle.signal(
+                    ProcessTaskWorkflow.send_followup_message,
+                    args=[
+                        "peer ping",
+                        [],
+                        str(uuid.uuid4()),
+                        None,
+                        {"kind": "agent_peer_message", "peer_message_id": peer_message_id},
+                    ],
+                )
+
+                # Advance VIRTUAL time until the recording activity fires: the
+                # delivery activity's retry backoff runs on workflow timers, which
+                # only progress under env.sleep in a time-skipping environment.
+                for _ in range(60):
+                    if _peer_outcome_calls:
+                        break
+                    await env.sleep(5)
+                assert _peer_outcome_calls, "peer delivery failure was never recorded"
+
+                await handle.signal(ProcessTaskWorkflow.complete_task, args=["completed", None])
+                result = await handle.result()
+
+        assert result.success is True
+        assert _peer_outcome_calls == [(peer_message_id, "delivery_failed", "sandbox_delivery")]
+        # The load-bearing assertion: the recipient run was never marked failed.
+        assert [(s, e) for s, e, _ in _status_updates if s == "failed"] == []
 
 
 _ci_context_overrides: dict = {}

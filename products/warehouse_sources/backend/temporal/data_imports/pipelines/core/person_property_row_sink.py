@@ -159,14 +159,23 @@ class PersonPropertyRowSink:
         wiping it would lose that sync's delta. Only prefixes older than
         ``ABANDONED_STAGED_PREFIX_TTL`` are swept, as the backstop against a consumer that never
         ran.
+
+        The two clears are independent backstops, so a failure in one (e.g. a permissions error
+        deleting the own prefix) must not skip the other — the sweep always runs, and any
+        own-prefix error is re-raised only afterward.
         """
         async with aget_s3_client() as s3_client:
+            own_prefix_error: Exception | None = None
             if not self._is_incremental:
                 try:
                     await s3_client._rm(f"s3://{self._get_path_prefix()}/", recursive=True)
                 except FileNotFoundError:
                     pass
+                except Exception as e:
+                    own_prefix_error = e
             await self._sweep_abandoned_sibling_prefixes(s3_client)
+            if own_prefix_error is not None:
+                raise own_prefix_error
 
     async def _sweep_abandoned_sibling_prefixes(self, s3_client: Any) -> None:
         try:

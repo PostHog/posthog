@@ -20,6 +20,7 @@ from posthog.temporal.common.errors import NonReportableError
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     BillingLimitsWillBeReachedException,
+    BinaryColumnReporter,
     SchemaColumnTypeChangedException,
     _get_max_decimal_type,
     _to_list_array,
@@ -164,10 +165,20 @@ def test_table_from_py_list_inconsistent_types_with_none():
     )
 
 
-def test_table_from_py_list_inconsistent_types_with_str_and_dict():
-    table = table_from_py_list([{"column": "hello"}, {"column": {"field": 1}}])
+@pytest.mark.parametrize(
+    "rows,expected",
+    [
+        ([{"column": "hello"}, {"column": {"field": 1}}], ["hello", '{"field":1}']),
+        # A third scalar type (e.g. int) alongside str and dict used to reach pa.array()
+        # unconverted and raise "ArrowTypeError: Expected bytes, got a 'int' object" — a free-form
+        # field that's sometimes a plain number is a real shape (e.g. an execution's JSON output).
+        ([{"column": "hello"}, {"column": {"field": 1}}, {"column": 5}], ["hello", '{"field":1}', "5"]),
+    ],
+)
+def test_table_from_py_list_inconsistent_types_with_str_and_dict(rows, expected):
+    table = table_from_py_list(rows)
 
-    assert table.equals(pa.table({"column": ["hello", '{"field":1}']}))
+    assert table.equals(pa.table({"column": expected}))
     assert table.schema.equals(
         pa.schema(
             [
@@ -334,6 +345,53 @@ def test_table_from_py_list_with_null_filled_binary_column():
 
 
 @pytest.mark.parametrize(
+    "column_name,primary_keys,expect_kept",
+    [
+        ("id", None, True),
+        ("ID", None, True),
+        ("order_id", None, True),
+        ("uuid", None, True),
+        ("guid", None, True),
+        ("token", ["token"], True),
+        ("token", None, False),
+        ("payload", None, False),
+    ],
+)
+def test_table_from_py_list_keeps_id_like_binary_columns_as_hex(
+    column_name: str, primary_keys: list[str] | None, expect_kept: bool
+):
+    table = table_from_py_list([{column_name: b"\xbd\xd6\x40", "other": 1.0}], primary_keys=primary_keys)
+
+    if expect_kept:
+        assert table.column(column_name).to_pylist() == ["bdd640"]
+        assert table.schema.field(column_name).type == pa.string()
+    else:
+        assert column_name not in table.schema.names
+
+
+def test_table_from_py_list_keeps_binary_id_column_with_schema():
+    schema = pa.schema(cast(Any, [pa.field("id", pa.binary()), pa.field("column", pa.string())]))
+    table = table_from_py_list([{"id": b"\x01\xff", "column": "hello"}, {"id": None, "column": "world"}], schema)
+
+    assert table.column("id").to_pylist() == ["01ff", None]
+    assert table.schema.field("id").type == pa.string()
+    assert table.column("column").to_pylist() == ["hello", "world"]
+
+
+def test_binary_column_reporter_logs_each_column_once_across_batches():
+    logger = MagicMock()
+    reporter = BinaryColumnReporter(logger)
+
+    for _ in range(2):
+        table_from_py_list([{"id": b"\x01", "payload": b"\x02"}], binary_reporter=reporter)
+
+    assert logger.info.call_count == 1
+    assert "id" in logger.info.call_args[0][0]
+    assert logger.warning.call_count == 1
+    assert "payload" in logger.warning.call_args[0][0]
+
+
+@pytest.mark.parametrize(
     "value, expected_type",
     [
         (datetime.datetime(2024, 1, 2, 3, 4, 5), pa.timestamp("us")),
@@ -485,7 +543,6 @@ def test_get_max_decimal_type_returns_correct_decimal_type(
     decimals: list[decimal.Decimal],
     expected: pa.Decimal128Type | pa.Decimal256Type,
 ):
-    """Test whether expected PyArrow decimal type variant is returned."""
     result = _get_max_decimal_type(decimals)
     assert result == expected
 
@@ -1002,7 +1059,6 @@ def test_raise_on_nullability_drift_permits_valid_batches(
 
 
 def test_evolve_pyarrow_schema_with_struct_containing_datetime_and_decimal():
-    """Test that evolve_pyarrow_schema can handle struct columns with non-JSON-serializable types."""
     metadata_struct_type = pa.struct(
         [
             ("role", pa.string()),
@@ -1041,7 +1097,6 @@ def test_evolve_pyarrow_schema_with_struct_containing_datetime_and_decimal():
 
 
 def test_evolve_pyarrow_schema_with_list_containing_datetime():
-    """Test that evolve_pyarrow_schema can handle list columns with non-JSON-serializable types."""
     arrow_table = pa.table(
         {
             "id": pa.array([1, 2], type=pa.int64()),

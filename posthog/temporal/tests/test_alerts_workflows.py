@@ -38,7 +38,7 @@ from posthog.temporal.common.slo_interceptor import SloInterceptor
 from posthog.temporal.tests.test_alerts_activities import _email_delivery
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, Threshold
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 CHECK_ALERT_ACTIVITIES: list[Callable[..., Any]] = [
     prepare_alert,

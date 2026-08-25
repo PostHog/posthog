@@ -15,6 +15,7 @@ from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.cdp.filters import compile_filters_bytecode, compile_filters_expr
+from posthog.models.integration import Integration
 
 from products.cdp.backend.models.hog_functions.hog_function import (
     TYPES_WITH_JAVASCRIPT_SOURCE,
@@ -29,6 +30,114 @@ logger = logging.getLogger(__name__)
 
 CORE_SUPPORTED_FUNCTIONS = {"fetch", "postHogCapture"}
 MAX_WORKFLOW_EMAIL_SENDERS = 10
+
+# The mask the UI shows in place of a stored secret. A re-save that did not touch the secret
+# sends this back, meaning "keep the stored value". It must never be persisted as a real secret.
+MASKED_SECRET_VALUE = "********"
+
+
+def masked_secret_input_keys(stored_inputs: object) -> list[str]:
+    """Input keys whose stored secret is the mask rather than a real credential.
+
+    Such an input authenticates against nothing, and the original value is gone, so only the
+    owner can restore it. The match cannot be a SQL predicate: the storage column is Fernet
+    encrypted, and Fernet embeds a random IV, so the same plaintext encrypts differently every
+    write. Callers have to decrypt and inspect.
+
+    A row encrypted under a key we no longer hold decrypts to the raw ciphertext string rather
+    than a dict, because the field swallows the failure, so the shape is checked, not assumed.
+    """
+    if not isinstance(stored_inputs, dict):
+        return []
+    return sorted(
+        key
+        for key, entry in stored_inputs.items()
+        if isinstance(entry, dict) and entry.get("value") == MASKED_SECRET_VALUE
+    )
+
+
+# Mirrors FROM_OVERRIDE_EMAIL_REGEX in nodejs/src/cdp/services/messaging/email.service.ts, which
+# is what the send path enforces after rendering. Keep the two in sync.
+FROM_OVERRIDE_EMAIL_REGEX = re.compile(r'^[^\s@"<>,;]+@[^\s@"<>,;]+\.[^\s@"<>,;]+$')
+
+
+def _sender_integration_ids(from_value: dict) -> set[int]:
+    return {
+        integration_id
+        for integration_id in [from_value.get("integrationId"), *(from_value.get("integrationIds") or [])]
+        if isinstance(integration_id, int) and not isinstance(integration_id, bool)
+    }
+
+
+def _validate_email_sender_override(from_value: dict, context: dict) -> None:
+    """Reject a literal custom sender address the send path would refuse.
+
+    The runtime only sends from an address on the selected integration's verified domain; an
+    off-domain override is discarded at send time with a run-log warning the author never sees.
+    Catching it at save time puts the error in front of the person who can fix it. Only newly
+    written sender configurations are checked: templated addresses resolve at render time, and a
+    value already stored on the workflow (live or draft) is grandfathered so legacy placeholder
+    data (cleaned up by a separate backfill) does not block unrelated edits.
+    """
+    override = (from_value.get("email") or "").strip()
+    # A brace means a Liquid or Hog template that only resolves at send time.
+    if not override or "{" in override:
+        return
+
+    existing = context.get("existing_email_from") or []
+    # Grandfather only a fully unchanged sender configuration: the address AND the selected
+    # sender set must match a stored variant. Keeping the address while switching senders must
+    # re-check it against the new sender's domain, or the pair silently falls back at send time.
+    for stored in existing if isinstance(existing, list) else [existing]:
+        if not isinstance(stored, dict):
+            continue
+        if override == (stored.get("email") or "").strip() and _sender_integration_ids(
+            from_value
+        ) == _sender_integration_ids(stored):
+            return
+
+    get_team = context.get("get_team")
+    if get_team is None:
+        # No request context (internal re-saves, direct construction); the send path still
+        # enforces the domain.
+        return
+
+    if not FROM_OVERRIDE_EMAIL_REGEX.match(override):
+        raise serializers.ValidationError(
+            {
+                "input": f'The custom sender address "{override}" is not a valid email address. '
+                "Use a single address like sender@yourdomain.com, or a template that resolves to one."
+            }
+        )
+
+    integration_ids = _sender_integration_ids(from_value)
+    if not integration_ids:
+        return
+
+    override_domain = override.split("@")[1].lower()
+    # An empty cached domain means the id resolved to no email integration for this team; the
+    # save is not blocked on it (there is no domain to compare), matching the uncached behavior.
+    shared_cache = context.get("email_integration_domain_cache")
+    domain_cache: dict[int, str] = shared_cache if isinstance(shared_cache, dict) else {}
+    missing_ids = [integration_id for integration_id in integration_ids if integration_id not in domain_cache]
+    if missing_ids:
+        for integration in Integration.objects.filter(team_id=get_team().id, id__in=missing_ids, kind="email"):
+            config = integration.config or {}
+            domain_cache[integration.id] = (config.get("domain") or (config.get("email") or "").split("@")[-1]).lower()
+        for integration_id in missing_ids:
+            domain_cache.setdefault(integration_id, "")
+
+    for integration_id in sorted(integration_ids):
+        integration_domain = domain_cache.get(integration_id) or ""
+        if integration_domain and override_domain != integration_domain:
+            raise serializers.ValidationError(
+                {
+                    "input": f'The custom sender address "{override}" is not on the verified domain '
+                    f'"{integration_domain}" of the selected sender. Use an address on that domain, '
+                    "or select a different sender."
+                }
+            )
+
 
 PRODUCT_ASYNC_FUNCTIONS: set[str] = set()
 
@@ -369,6 +478,9 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "non_failure_status_codes",
             "customer_analytics_account_properties",
             "customer_analytics_account_relationships",
+            "task_model",
+            "task_repository",
+            "task_mcp_installations",
         ]
     )
     key = serializers.CharField()
@@ -459,6 +571,30 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "integration_multi":
             if not isinstance(value, list) or not all(isinstance(v, int) and not isinstance(v, bool) for v in value):
                 raise serializers.ValidationError({"input": "Value must be a list of Integration IDs."})
+        elif item_type == "task_repository":
+            if not isinstance(value, str):
+                raise serializers.ValidationError({"input": "Value must be a repository name like your-org/your-repo."})
+        elif item_type == "task_model":
+            # A non-empty value means a model was chosen (an empty value returned above as "use the
+            # default model"), so it must name a usable model. Otherwise the run-time consumer drops
+            # the setting and the task silently falls back to the default, which this guard exists to
+            # prevent for programmatically authored workflows.
+            model = value.get("model") if isinstance(value, dict) else None
+            reasoning_effort = value.get("reasoning_effort") if isinstance(value, dict) else None
+            if (
+                not isinstance(value, dict)
+                or not isinstance(model, str)
+                or not model
+                or (reasoning_effort is not None and not isinstance(reasoning_effort, str))
+            ):
+                raise serializers.ValidationError(
+                    {
+                        "input": "Value must be an object with a non-empty 'model' string and an optional 'reasoning_effort' string."
+                    }
+                )
+        elif item_type == "task_mcp_installations":
+            if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+                raise serializers.ValidationError({"input": "Value must be a list of MCP connector IDs."})
         elif item_type == "email" or item_type == "native_email":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be an email object."})
@@ -503,6 +639,8 @@ class InputsItemSerializer(serializers.Serializer):
                         raise serializers.ValidationError(
                             {"input": "Expected 'from.integrationIds' to be a list of Integration IDs."}
                         )
+
+                _validate_email_sender_override(from_value, self.context)
 
             if isinstance(value.get("html"), str) and value["html"] and not value.get("design"):
                 # Programmatically authored emails often supply html without a design, which the
@@ -606,10 +744,15 @@ class InputsSerializer(serializers.DictField):
             value = data.get(key) or {}
 
             if schema.get("secret"):
-                # A {"secret": true} value with no "value" is the read-back mask, meaning "keep the
-                # stored secret". One that also carries a "value" is a rotation and must win, so it
-                # falls through to normal validation.
-                is_masked = isinstance(value, dict) and bool(value.get("secret")) and "value" not in value
+                # A {"secret": true} value the user did not retype is the read-back mask, meaning
+                # "keep the stored secret". The UI sends it either without a "value" key or with the
+                # literal mask as the value, so both shapes must count as masked. A different "value"
+                # is a rotation and must win, so it falls through to normal validation.
+                is_masked = (
+                    isinstance(value, dict)
+                    and bool(value.get("secret"))
+                    and ("value" not in value or value.get("value") == MASKED_SECRET_VALUE)
+                )
                 if is_masked or value == {}:
                     existing_value = (existing_secret_inputs or {}).get(key)
                     if existing_value:
@@ -619,6 +762,11 @@ class InputsSerializer(serializers.DictField):
                         # webhook auth in production - fail so the caller re-enters the value.
                         errors[key] = "No value is saved for this secret input. Enter the value again."
                         continue
+
+            if value == {} and schema.get("required") and schema.get("default") is not None:
+                # The destination editor pre-fills defaults from the template schema, but callers that
+                # build inputs by hand cannot, so a required input with a default would reject them.
+                value = {"value": schema["default"]}
 
             self.context["schema"] = schema
 
@@ -637,6 +785,12 @@ class InputsSerializer(serializers.DictField):
 
                 if "value" not in input_value:
                     # Indicates no value is provided and no error was thrown which is fine so we can exclude it
+                    continue
+
+                if schema.get("secret") and input_value.get("value") == MASKED_SECRET_VALUE:
+                    # The mask reached persistence, so recovery of the stored secret failed. Refuse
+                    # rather than encrypt the mask and silently destroy the real credential.
+                    errors[key] = "This secret input was not updated correctly. Enter the value again."
                     continue
 
                 result[key] = input_value
@@ -673,9 +827,14 @@ class InputsSerializer(serializers.DictField):
         # Unlike standard dict validation we are iterating the schema - not the inputs
 
 
+# Filter sources whose rows come from the warehouse rather than from events: one invocation per
+# row, with the row under `event.properties` and no person attached.
+DATA_WAREHOUSE_SOURCES = ("data-warehouse-table", "data-warehouse-view")
+
+
 class HogFunctionFiltersSerializer(serializers.Serializer):
     source = serializers.ChoiceField(
-        choices=["events", "person-updates", "data-warehouse-table"], required=False, default="events"
+        choices=["events", "person-updates", *DATA_WAREHOUSE_SOURCES], required=False, default="events"
     )  # type: ignore
     actions = serializers.ListField(child=serializers.DictField(), required=False)
     events = serializers.ListField(child=serializers.DictField(), required=False)
@@ -723,8 +882,8 @@ class HogFunctionFiltersSerializer(serializers.Serializer):
             data.pop("actions", None)
             data.pop("data_warehouse", None)
 
-        if data.get("source") == "data-warehouse-table":
-            # Don't allow events or actions for data-warehouse-table
+        if data.get("source") in DATA_WAREHOUSE_SOURCES:
+            # Don't allow events or actions for warehouse sources
             data.pop("events", None)
             data.pop("actions", None)
 

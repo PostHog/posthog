@@ -1,19 +1,21 @@
 import { findGroupFolder } from "@posthog/core/sidebar/groupTasks";
 import {
-  computeEffectiveBulkIds,
   computeOrderedVisibleTaskIds,
   computePriorTaskIds,
   formatArchiveResult,
+  formatBulkResult,
 } from "@posthog/core/sidebar/selection";
 import { isTaskActivelyRunning } from "@posthog/core/sidebar/taskRunning";
 import { resolveBulkTaskContextMenuIntent } from "@posthog/core/tasks/contextMenuActions";
 import { useHostTRPCClient } from "@posthog/host-router/react";
-import type { Task } from "@posthog/shared/types";
+import type { Task, UserBasic } from "@posthog/shared/types";
 import {
   archiveTasksImperative,
   useArchiveCacheKeys,
   useArchiveTask,
 } from "@posthog/ui/features/archive/useArchiveTask";
+import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
 import { placeTaskInCommandCenter } from "@posthog/ui/features/command-center/placeTaskInCommandCenter";
 import { useExternalAppAction } from "@posthog/ui/features/external-apps/useExternalAppAction";
@@ -22,12 +24,14 @@ import { StopCloudRunDialog } from "@posthog/ui/features/sessions/components/Sto
 import { useArchivingTasksStore } from "@posthog/ui/features/sidebar/archivingTasksStore";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { useTaskSelectionStore } from "@posthog/ui/features/sidebar/taskSelectionStore";
+import { useBulkArchiveConfirm } from "@posthog/ui/features/sidebar/useBulkArchiveConfirm";
 import { useClearSelectionOnEscape } from "@posthog/ui/features/sidebar/useClearSelectionOnEscape";
 import { useMarqueeSelection } from "@posthog/ui/features/sidebar/useMarqueeSelection";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { useSidebarBulkActions } from "@posthog/ui/features/sidebar/useSidebarBulkActions";
 import { useSidebarData } from "@posthog/ui/features/sidebar/useSidebarData";
 import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
+import { HandoffTaskDialog } from "@posthog/ui/features/task-detail/components/HandoffTaskDialog";
 import { useTaskContextMenu } from "@posthog/ui/features/tasks/useTaskContextMenu";
 import { useRenameTask } from "@posthog/ui/features/tasks/useTaskMutations";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
@@ -43,11 +47,20 @@ import { useQueryClient } from "@tanstack/react-query";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArchiveRunningTaskDialog } from "./ArchiveRunningTaskDialog";
 import { MarqueeOverlay } from "./MarqueeOverlay";
-import { SidebarBulkActionFooter } from "./SidebarBulkActionFooter";
+import { SidebarBulkActionBar } from "./SidebarBulkActionBar";
 import { SidebarItem } from "./SidebarItem";
 import { TaskListView } from "./TaskListView";
 
 const log = logger.scope("sidebar-menu");
+
+function creatorName(createdBy: UserBasic | null | undefined): string | null {
+  if (!createdBy) return null;
+  const name = [createdBy.first_name, createdBy.last_name]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  return name || createdBy.email || null;
+}
 
 function SidebarMenuComponent() {
   const hostClient = useHostTRPCClient();
@@ -69,9 +82,11 @@ function SidebarMenuComponent() {
 
   const { showContextMenu, editingTaskId, setEditingTaskId } =
     useTaskContextMenu();
+  const authStatus = useAuthStateValue((s) => s.status);
+  const currentUser = useCurrentUser();
   const { archiveTask } = useArchiveTask();
   const { renameTask } = useRenameTask();
-  const { togglePin } = usePinnedTasks();
+  const { togglePin, setPinnedMany } = usePinnedTasks();
 
   const sidebarData = useSidebarData({
     activeView: view,
@@ -81,6 +96,14 @@ function SidebarMenuComponent() {
     () => new Map<string, Task>(allTasks.map((task) => [task.id, task])),
     [allTasks],
   );
+  const creatorNameByTaskId = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const task of allTasks) {
+      const name = creatorName(task.created_by);
+      if (name) names.set(task.id, name);
+    }
+    return names;
+  }, [allTasks]);
 
   const commandCenterCells = useCommandCenterStore((s) => s.cells);
 
@@ -116,6 +139,8 @@ function SidebarMenuComponent() {
     taskTitle: string;
     runId?: string;
   } | null>(null);
+  const [handoffTaskId, setHandoffTaskId] = useState<string | null>(null);
+  const handoffTask = handoffTaskId ? taskMap.get(handoffTaskId) : undefined;
 
   useClearSelectionOnEscape();
   const listAnchorRef = useRef<HTMLDivElement | null>(null);
@@ -172,15 +197,13 @@ function SidebarMenuComponent() {
     pruneSelection(allSidebarTaskIds);
   }, [allSidebarTaskIds, pruneSelection]);
 
-  // The active (routed) task is implicitly part of any bulk selection — the
-  // user expects to see and act on it together with cmd/shift-clicked tasks.
+  // A bulk action acts on exactly the rows that are highlighted. The routed
+  // task used to be folded in as well, which told you "2 selected" after one
+  // cmd-click and archived a session you never picked.
   const activeTaskId = sidebarData.activeTaskId;
-  const effectiveBulkIds = useMemo(
-    () => computeEffectiveBulkIds(selectedTaskIds, activeTaskId),
-    [activeTaskId, selectedTaskIds],
-  );
 
-  const bulkActions = useSidebarBulkActions(effectiveBulkIds, allSidebarTasks);
+  const bulkActions = useSidebarBulkActions(selectedTaskIds, allSidebarTasks);
+  const bulkArchiveConfirm = useBulkArchiveConfirm(bulkActions);
 
   const handleTaskClick = (taskId: string, e: React.MouseEvent) => {
     // Ignore clicks on a row that's mid-archive.
@@ -301,13 +324,16 @@ function SidebarMenuComponent() {
       return;
     }
 
-    // Bulk menu when 2+ tasks are in the effective selection (active + cmd/shift-clicked)
-    // and the right-clicked task is one of them. Otherwise clear and fall through.
-    if (effectiveBulkIds.length > 1) {
-      if (effectiveBulkIds.includes(taskId)) {
+    // Bulk menu when 2+ rows are selected and the right-clicked row is one of
+    // them. A right-click outside the selection clears it first, so the row menu
+    // that follows is about the row under the pointer — the same rule the space
+    // sidebar applies in ChannelSidebar.
+    if (selectedTaskIds.includes(taskId)) {
+      if (selectedTaskIds.length > 1) {
         handleBulkContextMenu(e);
         return;
       }
+    } else if (selectedTaskIds.length > 0) {
       clearSelection();
     }
 
@@ -320,6 +346,14 @@ function SidebarMenuComponent() {
         (id) => id === taskId && taskMap.has(id),
       );
 
+      // The menu mirrors the header's rule: only the owner sees Hand off.
+      // Read through the full task map: the sidebar's summary rows don't
+      // always carry `created_by`.
+      const canHandoff =
+        authStatus === "authenticated" &&
+        currentUser.data?.id != null &&
+        taskMap.get(taskId)?.created_by?.id === currentUser.data.id;
+
       showContextMenu(task, e, {
         worktreePath: workspace?.worktreePath ?? undefined,
         folderPath: workspace?.folderPath ?? undefined,
@@ -331,6 +365,8 @@ function SidebarMenuComponent() {
         runId,
         isInCommandCenter,
         hasEmptyCommandCenterCell: true,
+        canHandoff,
+        onHandoff: () => setHandoffTaskId(task.id),
         onTogglePin: () => handleTaskTogglePin(taskId),
         onStop: (stopTaskId, taskTitle, stopRunId) =>
           setStopConfirm({
@@ -412,6 +448,33 @@ function SidebarMenuComponent() {
     [togglePin],
   );
 
+  // One request for the batch rather than a toggle per row: pinning is a scoped
+  // mutation, so a row-at-a-time batch waits out a round trip for each one.
+  const handleTasksSetPinned = useCallback(
+    async (taskIds: string[], pinned: boolean) => {
+      const archiving = useArchivingTasksStore.getState();
+      const eligible = taskIds.filter((id) => !archiving.isArchiving(id));
+      if (eligible.length === 0) return;
+      try {
+        // setPinnedMany settles every request itself and reports the failures
+        // in `failed` rather than rejecting, so surface them the same way the
+        // bulk action bar does — a bare .catch() never sees a partial failure.
+        const { succeeded, failed } = await setPinnedMany(eligible, pinned);
+        if (failed.length > 0) {
+          const { message } = formatBulkResult(pinned ? "pinned" : "unpinned", {
+            succeeded: succeeded.length,
+            failed: failed.length,
+          });
+          toast.error(message);
+        }
+      } catch (error) {
+        log.error("Failed to set pinned sessions", error);
+        toast.error(`Couldn't ${pinned ? "pin" : "unpin"} the sessions`);
+      }
+    },
+    [setPinnedMany],
+  );
+
   const handleArchivePrior = useCallback(
     async (taskId: string) => {
       const priorTaskIds = computePriorTaskIds(allSidebarTasks, taskId);
@@ -487,15 +550,17 @@ function SidebarMenuComponent() {
               groupedTasks={sidebarData.groupedTasks}
               activeTaskId={sidebarData.activeTaskId}
               editingTaskId={editingTaskId}
-              selectedTaskIds={effectiveBulkIds}
+              selectedTaskIds={selectedTaskIds}
               onTaskClick={handleTaskClick}
               onTaskDoubleClick={handleTaskDoubleClick}
               onTaskContextMenu={handleTaskContextMenu}
               onTaskArchive={handleTaskArchive}
               onTaskTogglePin={handleTaskTogglePin}
+              onTasksSetPinned={handleTasksSetPinned}
               onTaskEditSubmit={handleTaskEditSubmit}
               onTaskEditCancel={handleTaskEditCancel}
               onGroupContextMenu={handleGroupContextMenu}
+              creatorNameByTaskId={creatorNameByTaskId}
               hasMore={sidebarData.hasMore}
             />
           )}
@@ -505,10 +570,12 @@ function SidebarMenuComponent() {
       {/* A sticky footer rather than an overlay: the list shrinks instead of
           having its bottom rows — where a shift-click range usually ends —
           covered up. */}
-      <SidebarBulkActionFooter
+      <SidebarBulkActionBar
         actions={bulkActions}
         onClearSelection={clearSelection}
+        onArchive={bulkArchiveConfirm.requestArchive}
       />
+      {bulkArchiveConfirm.dialog}
 
       <ArchiveRunningTaskDialog
         open={archiveConfirm !== null}
@@ -517,6 +584,15 @@ function SidebarMenuComponent() {
         onConfirm={handleConfirmArchive}
         onCancel={() => setArchiveConfirm(null)}
       />
+      {handoffTask ? (
+        <HandoffTaskDialog
+          task={handoffTask}
+          open
+          onOpenChange={(open) => {
+            if (!open) setHandoffTaskId(null);
+          }}
+        />
+      ) : null}
       {stopConfirm ? (
         <StopCloudRunDialog
           open

@@ -91,11 +91,12 @@ signals you have, and combine them:
 
 ## Step 3 — Read a batch (this is the job)
 
-Open and actually read the traces you selected — plan on roughly 20–30 for a use case. This step is not
-optional, and nothing substitutes for it. You **cannot** find silent failures with `GROUP BY` or by
-grepping outputs for "refusal" / "sorry" language, because you don't yet know the patterns to search for —
-reading is how you discover them. A clever SQL proxy that returns nothing is not evidence the failures
-aren't there; it means you have to read.
+Open and actually read the traces you selected — plan on roughly 20–30 for a use case. Read each one with
+`query-llm-trace`, whose one required argument is `traceId`; the value to pass is the trace's `id` from
+the `query-llm-traces-list` result. This step is not optional, and nothing substitutes for it. You
+**cannot** find silent failures with `GROUP BY` or by grepping outputs for "refusal" / "sorry" language,
+because you don't yet know the patterns to search for — reading is how you discover them. A clever SQL
+proxy that returns nothing is not evidence the failures aren't there; it means you have to read.
 
 For each trace, note in plain language what went wrong — and jot down the trace's earliest-event timestamp
 alongside the note (it's right there in the trace you just read, and in `query-llm-traces-list`'s
@@ -133,15 +134,18 @@ niche domains.
 
 ## Constructing UI links
 
-`query-llm-trace` does not return a `_posthogUrl`, so build links with `posthog:generate-app-url` —
-never hand-write the host or the `/project/<id>/` prefix. The `url` must be a canonical catalog
-template; pass concrete ids via `params`, never inline them into the path.
+`query-llm-trace` returns a `_posthogUrl` for the trace it read, so hand that one back instead of composing
+your own. Build a link yourself only for a trace you have an id for but haven't opened, and then only with
+`posthog:generate-app-url` — never hand-write the host or the `/project/<id>/` prefix. The `url` must be a
+canonical catalog template; pass concrete ids via `params`, never inline them into the path.
 
 - **Traces list:** `generate-app-url {url: "/ai-observability/traces"}` (then filter to your use case)
-- **Single trace:** `generate-app-url {url: "/ai-observability/traces/{id}", params: {id: "<trace_id>"}}`,
-  then append `?timestamp=<url_encoded_timestamp>` to the returned URL (the timestamp isn't expressible via the tool).
+- **Single trace:** `generate-app-url {url: "/ai-observability/traces/{id}", params: {id: "<trace_id>"}}`
 
-These resolve to the correct region host and project prefix (e.g.
+No trace link carries a timestamp, so append `?timestamp=<url_encoded_timestamp>` to whichever URL you hand
+back — the trace page reads it to resolve older traces, and neither tool can express it.
+
+Generated links resolve to the correct region host and project prefix (e.g.
 `https://us.posthog.com/project/<id>/ai-observability/traces/<trace_id>`), so a user not already on the
 target project still lands in the right place.
 

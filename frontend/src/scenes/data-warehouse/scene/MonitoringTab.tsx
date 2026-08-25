@@ -312,7 +312,7 @@ const HistoricalMonitoringCharts = memo(function HistoricalMonitoringCharts({
                         description="Share of queries that returned an error"
                         responses={monitoringSeries}
                         metrics={[{ metric: 'error_ratio', fallbackLabel: 'Errors' }]}
-                        yAxis={{ format: 'percentage' }}
+                        yAxis={{ format: 'percentage_scaled' }}
                         valueFormatter={(value) => percentage(value)}
                         loading={initialLoading}
                     />

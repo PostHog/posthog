@@ -424,6 +424,7 @@ export const signalsScoutCreateBodyConfigOneRunIntervalMinutesMax = 43200
 
 export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneChannelMax = 255
 
+export const signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault = false
 export const signalsScoutCreateBodyConfigOneRunCronScheduleMax = 100
 
 export const signalsScoutCreateBodyConfigOneModelMax = 200
@@ -504,12 +505,35 @@ export const SignalsScoutCreateBody = /* @__PURE__ */ zod
                                         .describe(
                                             "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
                                         ),
+                                    thread_reports: zod
+                                        .boolean()
+                                        .default(
+                                            signalsScoutCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault
+                                        )
+                                        .describe(
+                                            "When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
+                                        ),
                                 }),
                                 zod.null(),
                             ])
                             .optional()
                             .describe(
                                 'Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery.'
+                            ),
+                        webhook: zod
+                            .union([
+                                zod.object({
+                                    hog_function_id: zod
+                                        .string()
+                                        .describe(
+                                            "Id of the CDP destination delivering this scout's reports. Set by the product that provisioned it, so it can find that destination again to update or remove it."
+                                        ),
+                                }),
+                                zod.null(),
+                            ])
+                            .optional()
+                            .describe(
+                                "The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle."
                             ),
                     })
                     .optional()
@@ -609,6 +633,7 @@ export const signalsScoutConfigCreateBodyRunIntervalMinutesMax = 43200
 
 export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneChannelMax = 255
 
+export const signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneThreadReportsDefault = false
 export const signalsScoutConfigCreateBodyRunCronScheduleMax = 100
 
 export const signalsScoutConfigCreateBodyModelMax = 200
@@ -652,12 +677,33 @@ export const SignalsScoutConfigCreateBody = /* @__PURE__ */ zod
                                 .describe(
                                     "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
                                 ),
+                            thread_reports: zod
+                                .boolean()
+                                .default(signalsScoutConfigCreateBodyOutputDestinationsOneSlackOneThreadReportsDefault)
+                                .describe(
+                                    "When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
+                                ),
                         }),
                         zod.null(),
                     ])
                     .optional()
                     .describe(
                         'Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery.'
+                    ),
+                webhook: zod
+                    .union([
+                        zod.object({
+                            hog_function_id: zod
+                                .string()
+                                .describe(
+                                    "Id of the CDP destination delivering this scout's reports. Set by the product that provisioned it, so it can find that destination again to update or remove it."
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        "The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle."
                     ),
             })
             .optional()
@@ -740,6 +786,7 @@ export const signalsScoutConfigUpdateBodyRunCronScheduleMax = 100
 
 export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneChannelMax = 255
 
+export const signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneThreadReportsDefault = false
 export const signalsScoutConfigUpdateBodyModelMax = 200
 
 export const signalsScoutConfigUpdateBodyTagsMax = 10
@@ -791,12 +838,33 @@ export const SignalsScoutConfigUpdateBody = /* @__PURE__ */ zod
                                 .describe(
                                     "Slack channel target in the channel picker's `channel_id|#channel-name` format. Null while choosing a channel; no messages are sent until it is set."
                                 ),
+                            thread_reports: zod
+                                .boolean()
+                                .default(signalsScoutConfigUpdateBodyOutputDestinationsOneSlackOneThreadReportsDefault)
+                                .describe(
+                                    "When true, post a report as a thread: a short lead in the channel and the rest split by the report's Markdown headings into replies. Keeps a long summary from being clipped at Slack's section limit. Off by default, and it does not change how findings post."
+                                ),
                         }),
                         zod.null(),
                     ])
                     .optional()
                     .describe(
                         'Slack destination for each emitted scout finding or report. Null or omitted disables Slack delivery.'
+                    ),
+                webhook: zod
+                    .union([
+                        zod.object({
+                            hog_function_id: zod
+                                .string()
+                                .describe(
+                                    "Id of the CDP destination delivering this scout's reports. Set by the product that provisioned it, so it can find that destination again to update or remove it."
+                                ),
+                        }),
+                        zod.null(),
+                    ])
+                    .optional()
+                    .describe(
+                        "The CDP destination another product provisioned for this scout's reports. Null or omitted means no webhook. Unlike Slack, Signals does not deliver this itself: the reference lives here so the owning product can manage the destination's lifecycle."
                     ),
             })
             .optional()
@@ -860,7 +928,7 @@ export const SignalsScoutConfigDestroyParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Dispatch one on-demand run of this scout immediately, regardless of its schedule. Useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously on the worker and inherits every guard the scheduled path has: it is forbidden if scouts are not enabled for the project (403), and skipped if the project is over its Signals credits quota or daily run budget (429) or a run for this scout is already in progress (409). A manual run counts against the same daily run budget as scheduled runs, so repeated manual runs of the same scout can exhaust the project's daily allowance. A manual run does not change the scout's schedule or `last_run_at`. A disabled scout can still be run this way (to test before enabling). Returns immediately with the workflow id — poll the scout's runs for the result.
+ * Dispatch one on-demand run of this scout immediately, regardless of its schedule. Useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously on the worker and inherits every guard the scheduled path has: it is forbidden if scouts are not enabled for the project (403), and skipped if the project is over its Signals credits quota, daily report limit, or daily run budget (429) or a run for this scout is already in progress (409). A manual run counts against the same daily run budget as scheduled runs, so repeated manual runs of the same scout can exhaust the project's daily allowance. A manual run does not change the scout's schedule or `last_run_at`. A disabled scout can still be run this way (to test before enabling). Returns immediately with the workflow id — poll the scout's runs for the result.
  * @summary Run a scout now
  */
 export const SignalsScoutConfigRunParams = /* @__PURE__ */ zod.object({
@@ -1153,6 +1221,10 @@ export const signalsScoutEditReportBodyChartsItemCaptionMax = 500
 
 export const signalsScoutEditReportBodyChartsMax = 20
 
+export const signalsScoutEditReportBodySuggestedPromptsItemMax = 200
+
+export const signalsScoutEditReportBodySuggestedPromptsMax = 3
+
 export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
     .object({
         report_id: zod.string().describe('Id of the report to edit (must belong to this project).'),
@@ -1252,6 +1324,13 @@ export const SignalsScoutEditReportBody = /* @__PURE__ */ zod
             .describe(
                 "The full set of charts the report should show. Replaces the report's charts rather than adding to them, the way `summary` replaces the summary — so send every chart you want kept. Omit the field (or send null) to leave the report's existing charts untouched, and send an empty list to take them all down."
             ),
+        suggested_prompts: zod
+            .array(zod.string().max(signalsScoutEditReportBodySuggestedPromptsItemMax))
+            .max(signalsScoutEditReportBodySuggestedPromptsMax)
+            .nullish()
+            .describe(
+                "The full set of follow-up questions the report should offer above its `Ask AI` box. Replaces the report's questions rather than adding to them, so send every one you want kept. Omit the field (or send null) to leave them untouched, and send an empty list to take them down, which is what you want once a rewrite has left them answering the old report."
+            ),
     })
     .describe(
         "Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones."
@@ -1314,6 +1393,10 @@ export const signalsScoutEmitReportBodyChartsItemTitleMax = 200
 export const signalsScoutEmitReportBodyChartsItemCaptionMax = 500
 
 export const signalsScoutEmitReportBodyChartsMax = 20
+
+export const signalsScoutEmitReportBodySuggestedPromptsItemMax = 200
+
+export const signalsScoutEmitReportBodySuggestedPromptsMax = 3
 
 export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
     .object({
@@ -1468,6 +1551,13 @@ export const SignalsScoutEmitReportBody = /* @__PURE__ */ zod
             .optional()
             .describe(
                 'Optional charts to attach to the report — the inbox renders them inline, so a metric move is something the reader sees rather than a number they take on trust. Attach one whenever the finding rests on a trend, a spike, or a comparison you already queried.'
+            ),
+        suggested_prompts: zod
+            .array(zod.string().max(signalsScoutEmitReportBodySuggestedPromptsItemMax))
+            .max(signalsScoutEmitReportBodySuggestedPromptsMax)
+            .optional()
+            .describe(
+                "Optional follow-up questions to offer above the report's `Ask AI` box. The reader clicks one to fill the box with it, then sends or edits it. Write the questions your own research left open, phrased as the reader would ask them."
             ),
     })
     .describe('Request body for `emit-report`. Run attribution is taken from the URL path.')

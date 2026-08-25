@@ -99,7 +99,18 @@ const SIGNALS_STAGE_PRODUCTS = new Set([
   "research",
   "implementation",
   "repo_selection",
+  "custom_agent",
 ]);
+
+/**
+ * Scout runs qualify their stage with the skill (`scout:web-analytics`) for
+ * per-scout cost attribution. The product stays `signals_scout`.
+ */
+const SCOUT_STAGE_PREFIX = "scout:";
+
+function signalsStage(aiStage: string): string {
+  return aiStage.startsWith(SCOUT_STAGE_PREFIX) ? "scout" : aiStage;
+}
 
 /**
  * The `ai_product` value sent to the Go gateway, which has no product route and
@@ -117,8 +128,11 @@ export function resolveAiProduct({
   product: GatewayProduct;
   aiStage?: string | null;
 }): string {
-  if (product === "signals" && aiStage && SIGNALS_STAGE_PRODUCTS.has(aiStage)) {
-    return `signals_${aiStage}`;
+  if (product === "signals" && aiStage) {
+    const stage = signalsStage(aiStage);
+    if (SIGNALS_STAGE_PRODUCTS.has(stage)) {
+      return `signals_${stage}`;
+    }
   }
   return product;
 }
@@ -150,6 +164,10 @@ export interface GatewayTarget {
  * Both must be set: an unlisted product, or a listed one with no URL, stays on
  * the Python gateway. Migration is therefore opt-in per product, and clearing
  * either value rolls everything back.
+ *
+ * Scout entries may qualify by skill (`signals_scout:web-analytics`), matching
+ * only runs of that skill, so the scout fleet can migrate in batches. A plain
+ * `signals_scout` entry matches every skill.
  */
 export function resolveGatewayTarget({
   product,
@@ -164,9 +182,14 @@ export function resolveGatewayTarget({
 }): GatewayTarget {
   const aiProduct = resolveAiProduct({ product, aiStage });
   const aiGatewayUrl = (env.AI_GATEWAY_URL ?? "").trim();
+  const routedProducts = parseAiGatewayProducts(env.AI_GATEWAY_PRODUCTS);
+  const skillQualified = aiStage?.startsWith(SCOUT_STAGE_PREFIX)
+    ? `${aiProduct}:${aiStage.slice(SCOUT_STAGE_PREFIX.length)}`
+    : null;
   const routed =
     aiGatewayUrl !== "" &&
-    parseAiGatewayProducts(env.AI_GATEWAY_PRODUCTS).has(aiProduct);
+    (routedProducts.has(aiProduct) ||
+      (skillQualified !== null && routedProducts.has(skillQualified)));
 
   if (routed) {
     return {

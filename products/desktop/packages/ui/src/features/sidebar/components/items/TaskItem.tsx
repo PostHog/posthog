@@ -4,6 +4,7 @@ import { parseGithubUrl } from "@posthog/git/utils";
 import type { WorkspaceMode } from "@posthog/shared";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import type { TaskRunStatus } from "@posthog/shared/domain-types";
+import { writeTaskDragData } from "@posthog/ui/features/sidebar/taskDrag";
 import { SESSION_ROW_ATTRIBUTE } from "@posthog/ui/features/sidebar/useMarqueeSelection";
 import { navigateToPullRequestView } from "@posthog/ui/router/navigationBridge";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -35,6 +36,7 @@ interface TaskItemProps {
   depth?: number;
   taskId: string;
   label: string;
+  subtitle?: React.ReactNode;
   isActive: boolean;
   isSelected?: boolean;
   /** Archive request in flight: show a spinner and suppress hover actions. */
@@ -111,6 +113,7 @@ export function TaskItem({
   depth = 0,
   taskId,
   label,
+  subtitle,
   isActive,
   isSelected = false,
   isArchiving = false,
@@ -193,7 +196,7 @@ export function TaskItem({
 
   const handleDragStart = useCallback(
     (e: React.DragEvent) => {
-      e.dataTransfer.setData("text/x-task-id", taskId);
+      writeTaskDragData(e.dataTransfer, taskId);
       // Both, always. Command Center tiles ask for `copy` and the pinned run
       // asks for `move`; a source that permits only one resolves the other
       // pairing to no drop, and the tile silently stops accepting the row.
@@ -221,6 +224,7 @@ export function TaskItem({
       depth={depth}
       icon={icon}
       label={label}
+      subtitle={subtitle}
       isActive={isActive}
       isSelected={isSelected}
       // Lets a drag-selection find the row and the session it stands for.

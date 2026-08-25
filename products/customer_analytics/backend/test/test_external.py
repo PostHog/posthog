@@ -131,6 +131,7 @@ class TestExternalAccountAPI(APIBaseTest):
         self.assertEqual(data["external_id"], "acme-1")
         self.assertEqual(data["name"], "Acme Corp")
         self.assertEqual(data["churned_at"], "2026-08-01T12:30:00Z")
+        self.assertIsNone(data["ignored_at"])
         self.assertEqual(data["relationships"], {})
 
     def test_get_account_returns_active_relationships(self):
