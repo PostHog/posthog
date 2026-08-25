@@ -17,6 +17,22 @@ function resolveActiveCategories(activeFilters: Set<SentimentCategory> | undefin
     return active.length > 0 ? active : [...SENTIMENT_CATEGORIES]
 }
 
+/** How far past a page the candidate scan reaches, to absorb rows the per-generation dedup drops */
+const CANDIDATE_SCAN_OVERFETCH = 3
+
+/** The scores payload before the candidate subquery aliases it, for use in that subquery's own clauses */
+const RAW_SCORES_EXPRESSION = 'toString(properties.$ai_sentiment_scores)'
+
+/**
+ * Ranks by the strongest score among the selected categories only, so a deselected category can't
+ * push a generation to the top of the page. Takes the scores expression because the inner and outer
+ * queries reach the same payload by different names.
+ */
+function buildRankingExpression(categories: SentimentCategory[], scoresExpression: string): string {
+    const categoryScores = categories.map((category) => `JSONExtractFloat(${scoresExpression}, '${category}')`)
+    return categoryScores.length > 1 ? `greatest(${categoryScores.join(', ')})` : categoryScores[0]
+}
+
 const SENTIMENT_QUERY_TAGS = {
     productKey: ProductKey.AI_OBSERVABILITY,
     scene: 'ai_observability_sentiment',
@@ -272,16 +288,24 @@ export async function fetchStoredGenerationSentiments(
     return results
 }
 
+/**
+ * Ranks candidates with a bounded top-N scan instead of aggregating the whole date range.
+ *
+ * Grouping by (trace_id, generation_id) held a hash table the size of its input, because there is
+ * one sentiment evaluation per generation and so the grouping deduplicated nothing. That exhausted
+ * query memory on wide date ranges. `LIMIT 1 BY` keeps the newest row per generation instead, so a
+ * re-evaluated generation still collapses to one row.
+ */
 async function fetchSentimentEvaluationCandidates(
     values: SentimentGenerationsQueryValues,
     offset: number,
     refresh?: RefreshType
 ): Promise<SentimentEvaluationCandidate[]> {
     const categories = resolveActiveCategories(values.activeFilters)
-    const categoryScores = categories.map((category) => `JSONExtractFloat(scores, '${category}')`)
-    // Rank by the strongest score among the selected categories only, so a deselected
-    // category can't push a generation to the top of the page
-    const rankingExpression = categoryScores.length > 1 ? `greatest(${categoryScores.join(', ')})` : categoryScores[0]
+    const safeOffset = Math.max(0, Math.trunc(offset))
+    // The scan has to reach past the page it fills, both to skip the offset and to leave room for
+    // rows the dedup drops.
+    const scanLimit = (safeOffset + GENERATIONS_PAGE_SIZE) * CANDIDATE_SCAN_OVERFETCH
     const evaluationClause = values.evaluationId
         ? `AND properties.$ai_evaluation_id = ${escapeHogQLString(values.evaluationId)}`
         : ''
@@ -296,27 +320,26 @@ async function fetchSentimentEvaluationCandidates(
                 SELECT
                     properties.$ai_trace_id AS trace_id,
                     ${hogql.raw(EVALUATION_TARGET_ID_SELECT)} AS generation_id,
-                    argMax(toString(uuid), timestamp) AS evaluation_id,
-                    argMax(toString(properties.$ai_sentiment_label), timestamp) AS label,
-                    argMax(toString(properties.$ai_sentiment_scores), timestamp) AS scores,
-                    argMax(toString(properties.$ai_sentiment_message_count), timestamp) AS message_count,
-                    max(timestamp) AS evaluation_timestamp
+                    toString(uuid) AS evaluation_id,
+                    toString(properties.$ai_sentiment_scores) AS scores,
+                    timestamp AS evaluation_timestamp
                 FROM events
                 WHERE event = '$ai_evaluation'
                   AND properties.$ai_evaluation_runtime = 'sentiment'
                   AND timestamp >= now() - INTERVAL 30 DAY
+                  AND toString(properties.$ai_sentiment_label) IN ${categories}
+                  AND toIntOrZero(toString(properties.$ai_sentiment_message_count)) > 0
+                  AND length(toString(properties.$ai_trace_id)) > 0
+                  AND length(${hogql.raw(EVALUATION_TARGET_ID_SELECT)}) > 0
                   ${hogql.raw(evaluationClause)}
                   AND {filters}
-                GROUP BY trace_id, generation_id
+                ORDER BY ${hogql.raw(buildRankingExpression(categories, RAW_SCORES_EXPRESSION))} DESC, timestamp DESC
+                LIMIT ${scanLimit}
             )
-            WHERE length(evaluation_id) > 0
-              AND length(trace_id) > 0
-              AND length(generation_id) > 0
-              AND label IN ${categories}
-              AND toIntOrZero(message_count) > 0
-            ORDER BY ${hogql.raw(rankingExpression)} DESC, evaluation_timestamp DESC, generation_id DESC
+            ORDER BY ${hogql.raw(buildRankingExpression(categories, 'scores'))} DESC, evaluation_timestamp DESC, generation_id DESC
+            LIMIT 1 BY trace_id, generation_id
             LIMIT ${GENERATIONS_PAGE_SIZE}
-            OFFSET ${Math.max(0, Math.trunc(offset))}
+            OFFSET ${safeOffset}
         `,
         { ...SENTIMENT_QUERY_TAGS, name: 'ai_observability_sentiment_evaluations' },
         {

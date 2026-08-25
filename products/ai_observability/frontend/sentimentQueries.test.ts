@@ -197,7 +197,7 @@ describe('sentimentQueries', () => {
         const [candidateQuery, , candidateOptions] = mockApi.queryHogQL.mock.calls[0]
         expect(candidateQuery).toContain("JSONExtractFloat(scores, 'positive')")
         expect(candidateQuery).toContain("JSONExtractFloat(scores, 'negative')")
-        expect(candidateQuery).toContain('toIntOrZero(message_count) > 0')
+        expect(candidateQuery).toContain('toIntOrZero(toString(properties.$ai_sentiment_message_count)) > 0')
         expect(candidateOptions?.queryParams?.filters).toEqual({
             dateRange: { date_from: '-7d', date_to: null },
         })
@@ -219,8 +219,18 @@ describe('sentimentQueries', () => {
     })
 
     it.each<[string, SentimentCategory[], string, string]>([
-        ['negative only', ['negative'], "label IN ['negative']", "ORDER BY JSONExtractFloat(scores, 'negative') DESC"],
-        ['positive only', ['positive'], "label IN ['positive']", "ORDER BY JSONExtractFloat(scores, 'positive') DESC"],
+        [
+            'negative only',
+            ['negative'],
+            "toString(properties.$ai_sentiment_label) IN ['negative']",
+            "ORDER BY JSONExtractFloat(scores, 'negative') DESC",
+        ],
+        [
+            'positive only',
+            ['positive'],
+            "toString(properties.$ai_sentiment_label) IN ['positive']",
+            "ORDER BY JSONExtractFloat(scores, 'positive') DESC",
+        ],
     ])('restricts the candidate query to the selected categories (%s)', async (_, categories, labelClause, order) => {
         mockApi.queryHogQL
             .mockResolvedValueOnce({ columns: candidateColumns, results: [] })
