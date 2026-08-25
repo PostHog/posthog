@@ -15,11 +15,17 @@ from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.rbac.user_access_control import AccessSource
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.utils import render_template
 
+from products.access_control.backend.facade.user_access_control import AccessSource
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role, RoleMembership
+from products.access_control.backend.presentation.access_control_settings import (
+    _display_model,
+    resources_with_object_access_controls,
+)
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.cohorts.backend.models.cohort import Cohort
 from products.conversations.backend.models import Ticket
@@ -29,10 +35,7 @@ from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.models import DataWarehouseTable, ExternalDataSource
 
-from ee.api.rbac.access_control_settings import _display_model, resources_with_object_access_controls
 from ee.api.test.base import APILicensedTest
-from ee.models.rbac.access_control import AccessControl
-from ee.models.rbac.role import Role, RoleMembership
 
 
 class BaseAccessControlTest(APILicensedTest):
@@ -245,7 +248,7 @@ class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
         )
         assert res.status_code == status.HTTP_200_OK, f"Failed to set access control: {res.json()}"
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         ac = AccessControl.objects.filter(team=self.team, resource="activity_log", resource_id=None).first()
         assert ac is not None, "Access control was not created"
@@ -411,7 +414,9 @@ class TestAccessControlObjectCap(BaseAccessControlTest):
         super().setUp()
         self._org_membership(OrganizationMembership.Level.ADMIN)
         # Patch the cap to a small value so tests don't have to create 1000 rows.
-        self.cap_patcher = patch("ee.api.rbac.access_control.ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE", 3)
+        self.cap_patcher = patch(
+            "products.access_control.backend.presentation.access_control.ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE", 3
+        )
         self.cap_patcher.start()
         self.addCleanup(self.cap_patcher.stop)
 
@@ -618,7 +623,7 @@ class TestResourceAccessControlsViaProjectId(BaseAccessControlTest):
         assert res.status_code == status.HTTP_403_FORBIDDEN, res.json()
 
     def test_put_resource_access_controls_via_project_id_creates_correct_access_control(self):
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self._org_membership(OrganizationMembership.Level.ADMIN)
         res = self.client.put(
@@ -661,7 +666,7 @@ class TestResourceAccessControlsViaProjectId(BaseAccessControlTest):
         assert "Resource-level access controls can only be configured for projects" in res.json()["detail"]
 
     def test_delete_resource_access_control_via_project_id(self):
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         self._org_membership(OrganizationMembership.Level.ADMIN)
 
@@ -1759,7 +1764,7 @@ class TestAccessControlDefaultsEndpoint(BaseAccessControlTest):
         """Without explicit defaults, project uses system default; resources have no saved level."""
         res = self.client.get("/api/projects/@current/access_control_defaults")
         data = res.json()
-        from posthog.rbac.user_access_control import default_access_level
+        from products.access_control.backend.facade.user_access_control import default_access_level
 
         assert data["project_access_level"] == default_access_level("project")
         for entry in data["resource_access_levels"].values():
@@ -1775,7 +1780,7 @@ class TestAccessControlDefaultsEndpoint(BaseAccessControlTest):
 
     def test_only_returns_current_team_defaults(self):
         """Access controls from other teams are not included."""
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         # Set defaults on current team
         self._put_project_access_control({"access_level": "member"})
@@ -1899,7 +1904,7 @@ class TestAccessControlRolesEndpoint(BaseAccessControlTest):
 
     def test_project_defaults_populated_without_explicit_entries(self):
         """Project defaults should use hardcoded defaults when no AccessControl entries exist."""
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         # Ensure no access controls exist for this team
         AccessControl.objects.filter(team=self.team).delete()
@@ -1925,7 +1930,7 @@ class TestAccessControlRolesEndpoint(BaseAccessControlTest):
 
     def test_only_returns_current_team_role_overrides(self):
         """Role overrides from other teams are not included."""
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         # Set role override on current team
         self._put_project_access_control({"role": str(self.role.id), "access_level": "member"})
@@ -2109,7 +2114,7 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
 
     def test_project_defaults_populated_without_explicit_entries(self):
         """Project defaults should use hardcoded defaults when no AccessControl entries exist."""
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         # Ensure no access controls exist for this team
         AccessControl.objects.filter(team=self.team).delete()
@@ -2225,7 +2230,7 @@ class TestAccessControlMembersEndpoint(BaseAccessControlTest):
 
     def test_only_returns_current_team_member_overrides(self):
         """Member overrides from other teams are not included."""
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         # Set member override on current team
         self._put_project_access_control(
