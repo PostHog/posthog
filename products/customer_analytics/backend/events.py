@@ -82,6 +82,27 @@ def emit_account_tags_added(
     ).raise_for_status()
 
 
+def emit_account_tags_removed(
+    account: Account, tags: list[Tag], actor: User | None, workflow_id: str | None = None
+) -> None:
+    if not tags:
+        return
+
+    properties = _base_event_properties(account, actor, workflow_id)
+    capture_batch_internal(
+        events=[
+            {
+                "event": "$account_tag_removed",
+                "distinct_id": _event_distinct_id(account, actor),
+                "properties": {**properties, "tag": tag.name, "tag_id": str(tag.id)},
+            }
+            for tag in tags
+        ],
+        token=account.team.api_token,
+        event_source=EVENT_SOURCE,
+    ).raise_for_status()
+
+
 def emit_account_custom_property_changed(
     account: Account,
     definition: CustomPropertyDefinition,
