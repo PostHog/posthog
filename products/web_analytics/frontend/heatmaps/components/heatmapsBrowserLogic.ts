@@ -704,6 +704,10 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
             if (url) {
                 actions.setHref(url)
                 actions.setHrefMatchType(isUrlPattern(url) ? 'pattern' : 'exact')
+            } else if (!values.hasValidReplayIframeData) {
+                // No page URL and no recording snapshot: clear the stale href so a previous page's
+                // heatmap does not repaint over the page now in the frame.
+                actions.setHref('')
             }
 
             actions.loadHeatmap()

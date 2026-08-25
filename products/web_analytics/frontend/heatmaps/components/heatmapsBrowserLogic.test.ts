@@ -140,6 +140,46 @@ describe('heatmapsBrowserLogic', () => {
         })
     })
 
+    describe('non-recording stale href', () => {
+        beforeEach(() => {
+            initKeaTests()
+            jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [] } as any)
+            jest.spyOn(global, 'fetch').mockResolvedValue({
+                status: 200,
+                json: async () => ({ results: [] }),
+            } as any)
+            router.actions.push('/heatmaps/abc123')
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        // Open a heatmap with a page URL, then open one without a data URL (e.g. a saved heatmap
+        // with no custom data URL). Without clearing, onIframeLoad would re-query the previous
+        // page's href and repaint its click data over the page now in the frame.
+        it('clears the previous href when the iframe loads without a dataUrl', async () => {
+            const logic = heatmapsBrowserLogic({ iframeRef: { current: null } })
+            logic.mount()
+            const dataLogic = heatmapDataLogic({ context: 'in-app' })
+
+            logic.actions.setDisplayUrl('https://example.com/a')
+            await expectLogic(logic).toFinishAllListeners()
+            expect(dataLogic.values.href).toBe('https://example.com/a')
+
+            logic.actions.setDataUrlUserTouched(true)
+            logic.actions.setDisplayUrl('https://example.com/b')
+            logic.actions.setDataUrl(null)
+            await expectLogic(logic).toFinishAllListeners()
+            // setDataUrl(null) leaves href alone, so it still points at the previous page here.
+            expect(dataLogic.values.href).toBe('https://example.com/a')
+
+            logic.actions.onIframeLoad()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(dataLogic.values.href).toBe('')
+        })
+    })
+
     describe('iframeBanner', () => {
         beforeEach(() => {
             initKeaTests()
