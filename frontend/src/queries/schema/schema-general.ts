@@ -9115,6 +9115,11 @@ export const externalDataSources = [
     'DatoCMS',
     'WPSOffice',
     'TeraBox',
+    'SimonData',
+    'CommissionJunction',
+    'Liveblocks',
+    'NationBuilder',
+    'Tana',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
