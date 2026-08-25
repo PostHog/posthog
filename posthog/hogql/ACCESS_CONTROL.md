@@ -97,7 +97,7 @@ Gated by the `hogql-warehouse-access-control` feature flag (checked in `Database
 
 ### Resource-level: the `warehouse_objects` umbrella
 
-`warehouse_table` and `warehouse_view` both inherit from the umbrella resource `warehouse_objects` (`RESOURCE_INHERITANCE_MAP` in `posthog/rbac/user_access_control.py`).
+`warehouse_table` and `warehouse_view` both inherit from the umbrella resource `warehouse_objects` (`RESOURCE_INHERITANCE_MAP` in `products/access_control/backend/facade/user_access_control.py`).
 Denying `warehouse_objects` for a user filters every warehouse table and view out of their schema at build time.
 
 ### Object-level: per-source, per-table, and per-view
@@ -112,7 +112,7 @@ The deny checks are `_is_warehouse_table_denied` and `_is_warehouse_view_denied`
 ### How a table's access level resolves
 
 A table can be part of a source, so rules can exist at both levels.
-`RESOURCE_FALLBACK_MAP` (`posthog/rbac/user_access_control.py`) resolves this by applying the most specific rule that exists:
+`RESOURCE_FALLBACK_MAP` (`products/access_control/backend/facade/user_access_control.py`) resolves this by applying the most specific rule that exists:
 
 1. This table
 2. Its source
@@ -207,7 +207,7 @@ When a run has no user but does read access-controlled resources, the fingerprin
 
 ## One preloaded `UserAccessControl` everywhere
 
-`UserAccessControl` (`posthog/rbac/user_access_control.py`) bulk-fetches every access control row relevant to the user on the team in a single query (`_cached_access_controls`, covering team defaults, the user's membership, and the user's roles), then resolves all checks in memory (`access_level_for_resource`, `check_access_level_for_object`, `blocked_resource_ids_by_scope`, ...).
+`UserAccessControl` (`products/access_control/backend/facade/user_access_control.py`) bulk-fetches every access control row relevant to the user on the team in a single query (`_cached_access_controls`, covering team defaults, the user's membership, and the user's roles), then resolves all checks in memory (`access_level_for_resource`, `check_access_level_for_object`, `blocked_resource_ids_by_scope`, ...).
 
 The same instance is reused across:
 
