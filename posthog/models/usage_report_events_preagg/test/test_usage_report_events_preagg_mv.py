@@ -10,10 +10,9 @@ import time
 from datetime import datetime
 from uuid import uuid4
 
-from posthog.test.base import ClickhouseTestMixin
+from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 from django.conf import settings
-from django.test import SimpleTestCase
 
 from kafka import KafkaProducer
 
@@ -90,7 +89,7 @@ def _wait_for_team_row(
     )
 
 
-class TestUsageReportEventsPreaggMV(ClickhouseTestMixin, SimpleTestCase):
+class TestUsageReportEventsPreaggMV(ClickhouseTestMixin, BaseTest):
     @classmethod
     def setUpClass(cls) -> None:
         super().setUpClass()
