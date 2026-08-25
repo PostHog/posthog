@@ -178,19 +178,25 @@ class TestProxyRecordAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("insecure", "http://www.example.com", "https://"),
-            ("credentials", "https://user:password@example.com", "credentials"),
-            ("loop", "https://proxy.example.com/", "managed proxy domain"),
-            ("loop_trailing_dot", "https://proxy.example.com./", "managed proxy domain"),
-            ("unrelated_domain", "https://google.com/", "example.com"),
-            ("root_domain_prefix", "https://example.com.attacker.com/", "example.com"),
+            ("insecure", "proxy.example.com", "http://www.example.com", "https://"),
+            ("credentials", "proxy.example.com", "https://user:password@example.com", "credentials"),
+            ("loop", "proxy.example.com", "https://proxy.example.com/", "managed proxy domain"),
+            ("loop_trailing_dot", "proxy.example.com", "https://proxy.example.com./", "managed proxy domain"),
+            ("unrelated_domain", "proxy.example.com", "https://google.com/", "example.com"),
+            ("root_domain_prefix", "proxy.example.com", "https://example.com.attacker.com/", "example.com"),
+            ("private_suffix", "proxy.victim.dynv6.net", "https://attacker.dynv6.net/", "victim.dynv6.net"),
         ]
     )
-    def test_rejects_unsafe_root_redirect(self, _name, redirect_url, expected_error):
+    @patch("posthog.api.proxy_record.update_custom_hostname_metadata")
+    @patch("posthog.api.proxy_record.get_custom_hostname_by_domain")
+    def test_rejects_unsafe_root_redirect(
+        self, _name, proxy_domain, redirect_url, expected_error, get_hostname, _update_metadata
+    ):
+        get_hostname.return_value = SimpleNamespace(custom_metadata={})
         record = ProxyRecord.objects.create(
             organization=self.organization,
             created_by=self.user,
-            domain="proxy.example.com",
+            domain=proxy_domain,
             target_cname="abc.cf-prod-us-proxy.proxyhog.com",
             status=ProxyRecord.Status.VALID,
         )
@@ -204,6 +210,7 @@ class TestProxyRecordAPI(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert response.json()["attr"] == "root_redirect_url"
         assert expected_error in response.json()["detail"]
+        _update_metadata.assert_not_called()
 
     @patch("posthog.api.proxy_record.update_custom_hostname_metadata")
     @patch("posthog.api.proxy_record.get_custom_hostname_by_domain")

@@ -149,8 +149,8 @@ class ProxyRecordUpdateSerializer(serializers.Serializer):
         if redirect_hostname.lower() == proxy_hostname.lower():
             raise serializers.ValidationError("The redirect URL cannot point to the managed proxy domain.")
 
-        proxy_root_domain, _ = extract_root_domain_and_host(proxy_hostname)
-        redirect_root_domain, _ = extract_root_domain_and_host(redirect_hostname)
+        proxy_root_domain, _ = extract_root_domain_and_host(proxy_hostname, include_private_suffixes=True)
+        redirect_root_domain, _ = extract_root_domain_and_host(redirect_hostname, include_private_suffixes=True)
         if redirect_root_domain.lower() != proxy_root_domain.lower():
             raise serializers.ValidationError(f"Enter a URL on {proxy_root_domain} or one of its subdomains.")
 

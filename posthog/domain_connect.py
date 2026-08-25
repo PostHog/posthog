@@ -159,7 +159,7 @@ def get_key_id() -> str:
     return getattr(settings, "DOMAIN_CONNECT_KEY_ID", "_dcpubkeyv1")
 
 
-def extract_root_domain_and_host(full_domain: str) -> tuple[str, str]:
+def extract_root_domain_and_host(full_domain: str, *, include_private_suffixes: bool = False) -> tuple[str, str]:
     """Split a full domain into (root_domain, host_prefix).
 
     Examples:
@@ -170,7 +170,7 @@ def extract_root_domain_and_host(full_domain: str) -> tuple[str, str]:
     Uses the Public Suffix List via tldextract for correct TLD handling.
     """
     full_domain = full_domain.rstrip(".")
-    ext = tldextract.extract(full_domain)
+    ext = tldextract.extract(full_domain, include_psl_private_domains=include_private_suffixes)
     if ext.suffix:
         root = f"{ext.domain}.{ext.suffix}"
     else:
