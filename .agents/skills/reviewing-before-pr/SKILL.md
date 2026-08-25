@@ -29,9 +29,17 @@ A finding handled here is an ordinary pre-push edit; the same finding after the 
 6. Either way, record the local review in the PR description's Agent context section: the review ID and each finding's disposition (fixed, or rejected with the reason). The findings are otherwise invisible to reviewers — they only appeared in the terminal.
 7. Continue the normal PR-opening flow (`hogli ci:preflight`, `gh pr create`).
 
+## Fallback without Greptile access
+
+When `hogli review` cannot run (exit 78 with no way to sign in, or no CLI in a sandbox), do not block the PR on it.
+Run your harness's own review instead (Claude Code: `/code-review`) over the branch diff, and triage its findings through the same flow: verify each premise, fix what holds, commit.
+Treat it as the weaker pass — it reviews code your own session may have written, with no independent context — so verify premises strictly.
+A fallback review never earns the `no-greptile` label: `hogli review --check` stays nonzero without a Greptile review, so the gate enforces this on its own and the bot reviews the PR as usual.
+Say in the PR description's receipt that the local pass was the harness fallback, so reviewers know the independent review is still the bot's.
+
 ## Notes
 
-- **Exit 78 means not signed in.** Ask the user to run `greptile login` and sign in with Google, using their @posthog.com account — that is what grants access to the PostHog Greptile org, so pick "Continue with Google" in the browser window rather than creating an email-and-password account. Headless environments set `GREPTILE_API_KEY` in `.env.local` instead (see `.env.local.example`). Never attempt the interactive login yourself.
+- **Exit 78 means not signed in.** Ask the user to run `greptile login` and sign in with Google, using their @posthog.com account — that is what grants access to the PostHog Greptile org, so pick "Continue with Google" in the browser window rather than creating an email-and-password account. Headless environments set `GREPTILE_API_KEY` in `.env.local` instead (see `.env.local.example`). Never attempt the interactive login yourself; when sign-in is not available, use the fallback above.
 - **Missing CLI.** Flox activation installs the version pinned in `.flox/env/on-activate.sh` into the machine-shared store `~/.config/posthog/tools/greptile/`, so re-entering the environment usually fixes it. Outside flox: `brew install greptileai/tap/greptile` or `npm install -g greptile`.
 - **Held-back files.** Greptile holds back files that look like they contain secrets. Leave them held back; pass `--include <path>` only when certain the file is safe to send.
 - **Focus.** `--instructions "<text>"` steers the reviewer, the same way an `@greptile` comment does on a PR.

@@ -44,7 +44,10 @@ _INSTALL_HINT = (
     "Re-enter the flox environment (activation installs it), "
     "or install it with `brew install greptileai/tap/greptile` or `npm install -g greptile`, then re-run."
 )
-_SIGNIN_HINT = "Run `greptile login`, or set GREPTILE_API_KEY in .env.local (see .env.local.example)."
+_SIGNIN_HINT = (
+    "Run `greptile login`, or set GREPTILE_API_KEY in .env.local (see .env.local.example). "
+    "No access? The reviewing-before-pr skill has a harness-review fallback."
+)
 
 # From the Greptile CLI reference for `review status`: exit 0 means a completed
 # review exists for the commit, 3 means one is still running.
