@@ -7,7 +7,7 @@ This is the expensive half of the product. A real run costs roughly a dollar in 
 
 The other half is `../inference/`, which consumes what this package produces and must never re-fit.
 
-This package landed ahead of its callers. `../temporal/` and the `autoresearch_train` command arrive in later pieces of the split tracked in [#88464](https://github.com/PostHog/posthog/pull/88464), so the references to them below describe where they will sit.
+This package landed ahead of one caller. `../temporal/` arrives in a later piece of the split tracked in [#88464](https://github.com/PostHog/posthog/pull/88464), so the references to it below describe where it will sit.
 
 ## What lives here
 
