@@ -48,9 +48,23 @@ export function useInboxAllReports(options?: {
   pullRequestsOnly?: boolean;
   withReportsCount?: boolean;
   refetchIntervalMs?: number;
+  /**
+   * Overrides the pipeline status set (server-side, part of the query key).
+   * Callers sharing one dataset must pass the same value.
+   */
+  statusFilter?: string;
+  /**
+   * Apply the persisted `prFilter` (with-PR / without-PR) to the query. Only
+   * the sectioned inbox renders the control that sets it, so only it opts in —
+   * otherwise a stored value would silently filter surfaces with no way to
+   * clear it (e.g. empty the legacy Reports tab, which then drops PR-backed
+   * reports itself).
+   */
+  applyPrFilter?: boolean;
 }) {
   const ignoreScope = options?.ignoreScope ?? false;
   const ignoreFilters = options?.ignoreFilters ?? false;
+  const applyPrFilter = options?.applyPrFilter ?? false;
   const refetchIntervalMs =
     options?.refetchIntervalMs ?? INBOX_REFETCH_INTERVAL_MS;
   // The Pull requests tab fetches a server-filtered list (reports that have a
@@ -75,6 +89,9 @@ export function useInboxAllReports(options?: {
   const priorityFilter = useInboxSignalsFilterStore((s) =>
     ignoreFilters ? EMPTY_FILTER_ARRAY : s.priorityFilter,
   );
+  const prFilter = useInboxSignalsFilterStore((s) =>
+    ignoreFilters || !applyPrFilter ? "all" : s.prFilter,
+  );
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser } = useCurrentUser({ client });
 
@@ -92,8 +109,14 @@ export function useInboxAllReports(options?: {
       // matching its count query and the PostHog Cloud inbox.
       status: pullRequestsOnly
         ? INBOX_PULL_REQUEST_STATUS_FILTER
-        : INBOX_PIPELINE_STATUS_FILTER,
-      has_implementation_pr: pullRequestsOnly ? true : undefined,
+        : (options?.statusFilter ?? INBOX_PIPELINE_STATUS_FILTER),
+      has_implementation_pr: pullRequestsOnly
+        ? true
+        : prFilter === "with_pr"
+          ? true
+          : prFilter === "without_pr"
+            ? false
+            : undefined,
       ordering: buildSignalReportListOrdering(sortField, sortDirection),
       source_product:
         sourceProductFilter.length > 0
