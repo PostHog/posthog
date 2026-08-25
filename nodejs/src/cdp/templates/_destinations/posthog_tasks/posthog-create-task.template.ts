@@ -16,11 +16,15 @@ export const template: HogFunctionTemplate = {
     code: `
 ${hogApiErrorMessageFn}
 
-if (empty(inputs.prompt)) {
-  throw Error('Instructions are required')
+if (empty(inputs.prompt) and empty(inputs.scout)) {
+  throw Error('Instructions or a scout are required')
 }
 
 let payload := { 'prompt': inputs.prompt, 'event': event }
+
+if (not empty(inputs.scout)) {
+  payload.scout := inputs.scout
+}
 
 if (not empty(inputs.title)) {
   payload.title := inputs.title
@@ -64,7 +68,11 @@ if (inputs.reply_in_slack_thread != false and event.event == '$slack_message_rec
 let response := postHogCreateTask(payload)
 
 if (response.status == 409) {
-  print(f'Task not created: {apiErrorMessage(response)}')
+  if (not empty(inputs.scout)) {
+    print(f'Scout not run: {apiErrorMessage(response)}')
+  } else {
+    print(f'Task not created: {apiErrorMessage(response)}')
+  }
   return { 'skipped': true, 'reason': apiErrorMessage(response) }
 }
 
@@ -76,12 +84,23 @@ return response.body
 `,
     inputs_schema: [
         {
+            key: 'scout',
+            type: 'string',
+            label: 'Scout',
+            secret: false,
+            required: false,
+            description:
+                'Name of a scout in this project, for example signals-scout-error-tracking. When set, the step runs that scout instead of starting a new task. The scout explores as it does on its schedule, and the instructions, model, repository, and connectors below are ignored.',
+        },
+        {
             key: 'prompt',
             type: 'string',
             label: 'Instructions',
             secret: false,
-            required: true,
-            description: 'What the agent should do. Supports variable templating.',
+            // Not required at the schema level so a step that names a scout can leave it empty;
+            // the code above fails the step when both are missing.
+            required: false,
+            description: 'What the agent should do. Supports variable templating. Ignored when a scout is set.',
         },
         {
             key: 'title',

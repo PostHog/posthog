@@ -1067,29 +1067,6 @@ describe('Hog Executor', () => {
             expect(result.execResult).toEqual({ status: 200, body: 'Hello, world!' })
         })
 
-        it('does not retry a status the staged request declared final', async () => {
-            mockRequest.mockImplementation((req: any, res: any) => {
-                res.writeHead(429, { 'Content-Type': 'text/plain' })
-                res.end('cooldown')
-            })
-
-            const invocation = await createFetchInvocation({
-                url: `${baseUrl}/test`,
-                method: 'GET',
-                nonRetriableStatusCodes: [429],
-            })
-
-            const result = await executor.executeFetch(invocation)
-
-            expect(result.logs.map((log) => log.message)).toEqual([
-                'HTTP fetch failed on attempt 1 with status code 429.',
-            ])
-            expect(result.invocation.queueScheduledAt).toBeUndefined()
-            expect(result.invocation.state.attempts).toBe(0)
-            expect(result.error?.message).toContain('status code 429')
-            expect(result.invocation.state.vmState!.stack.slice(-1)[0]).toMatchObject({ status: 429 })
-        })
-
         it('handles failure status and retries', async () => {
             mockRequest.mockImplementation((req: any, res: any) => {
                 res.writeHead(500, { 'Content-Type': 'text/plain' })

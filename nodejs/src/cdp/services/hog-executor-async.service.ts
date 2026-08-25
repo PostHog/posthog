@@ -434,11 +434,6 @@ export class HogExecutorAsyncService {
         }
 
         const fetchParams: FetchOptions = { method, headers: signedHeaders }
-        // Only async functions set this (never user input): a staged request that is known to
-        // do real work server-side can ask for more than the default external-request budget.
-        if (params.timeoutMs) {
-            fetchParams.timeoutMs = params.timeoutMs
-        }
 
         if (!['GET', 'HEAD'].includes(method) && params.body) {
             fetchParams.body = params.body
@@ -477,9 +472,7 @@ export class HogExecutorAsyncService {
                 this.config.fetchBackoffMaxMs
             )
 
-            const declaredFinal =
-                !!fetchResponse?.status && (params.nonRetriableStatusCodes ?? []).includes(fetchResponse.status)
-            const canRetry = !declaredFinal && isFetchResponseRetriable(fetchResponse, fetchError)
+            const canRetry = isFetchResponseRetriable(fetchResponse, fetchError)
             const maxRetries = options?.maxFetchRetries ?? this.config.fetchRetries
             // `canRetry` only says the failure class is retriable. On the last attempt it is still
             // true while no retry follows, so the customer-facing log has to gate on the same

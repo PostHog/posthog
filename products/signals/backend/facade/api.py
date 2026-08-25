@@ -23,18 +23,6 @@ from posthog.temporal.common.client import async_connect
 from products.signals.backend.contracts import SIGNAL_VARIANT_LOOKUP, SignalRemediation
 from products.signals.backend.enums import SIGNAL_SOURCE_PRODUCT_LABELS, SignalSourceProduct
 from products.signals.backend.models import SignalReport, SignalScoutConfig, SignalScoutRun, SignalSourceConfig
-from products.signals.backend.scout_harness.customer_events import (
-    # The events a scout run writes into the team's own project. Re-exported so the workflows
-    # product's self-loop guard can tell whether an event trigger could be fed by the very scout
-    # the flow runs, without reaching into the scout harness.
-    SCOUT_EMITTED_EVENTS as SCOUT_EMITTED_EVENTS,
-)
-from products.signals.backend.scout_harness.limits import (
-    # The 30-minute cooldown between workflow-triggered runs of one scout. Re-exported so the
-    # workflows product's save-time guard can demand a masking window at least that long, instead
-    # of accepting a window that only buys guaranteed cooldown skips.
-    WORKFLOW_RUN_COOLDOWN_S as WORKFLOW_RUN_COOLDOWN_S,
-)
 from products.signals.backend.scout_harness.run_gates import (
     # Re-exported so the workflows endpoint can branch on why a fire was refused without reaching
     # into the scout harness. Every decision behind them stays Signals-side.
@@ -43,9 +31,9 @@ from products.signals.backend.scout_harness.run_gates import (
 from products.signals.backend.scout_harness.workflow_runs import (
     WorkflowScoutRunRejected as WorkflowScoutRunRejected,
     WorkflowScoutRunStarted as WorkflowScoutRunStarted,
-    # Facade entrypoint for a workflow's "Run scout" action: the workflows endpoint proves which
-    # workflow is firing, and everything after that — enrolment, budget, quota, the paused-scout
-    # rule, the workflow cooldown, single-flight, dispatch — happens behind here.
+    # Facade entrypoint for the scout option on a workflow's "Create AI task" step: the workflows
+    # endpoint proves which workflow is firing, and everything after that (enrolment, budget,
+    # quota, the paused-scout rule, the workflow cooldown, single-flight, dispatch) happens here.
     start_workflow_scout_run as start_workflow_scout_run,
 )
 from products.signals.backend.signal_metadata import fetch_signal_stats_for_source_slice

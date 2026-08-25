@@ -23,6 +23,8 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.temporal.oauth import ARRAY_APP_CLIENT_ID_DEV
 
+from products.signals.backend.facade.api import ScoutRunRejectionKind, WorkflowScoutRunRejected, WorkflowScoutRunStarted
+from products.signals.backend.scout_harness.run_gates import ScoutRunRejection
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
 from products.tasks.backend.logic.services.workflow_tasks import (
     WORKFLOW_TASK_RATE_CAP_PER_DAY,
@@ -34,6 +36,8 @@ from products.workflows.backend.api.workflow_tasks import WorkflowTaskCreateSeri
 from products.workflows.backend.models import HogFlow
 
 SECRET = "test-tasks-create-jwt"
+SCOUT = "signals-scout-error-tracking"
+_START_SCOUT = "products.workflows.backend.api.workflow_tasks.start_workflow_scout_run"
 
 
 def _token(
@@ -424,6 +428,45 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert Task.objects.filter(team=self.team).filter(task_visibility_q(teammate.id)).filter(id=task_id).exists()
         assert Task.objects.filter(team=self.team).filter(task_control_q(teammate.id)).filter(id=task_id).exists()
 
+    def test_a_scout_name_runs_that_scout_instead_of_creating_a_task(self) -> None:
+        started = WorkflowScoutRunStarted(skill_name=SCOUT, workflow_id="signals-scout-workflow-run-1")
+        with patch(_START_SCOUT, return_value=started) as start:
+            response = self._post({"scout": SCOUT, "prompt": ""})
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert response.json() == {"scout": SCOUT, "workflow_id": "signals-scout-workflow-run-1"}
+        start.assert_called_once_with(team_id=self.team.id, skill_name=SCOUT)
+        assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
+
+    @parameterized.expand(
+        [
+            ("paused", ScoutRunRejectionKind.CONFLICT, status.HTTP_409_CONFLICT),
+            ("cooldown", ScoutRunRejectionKind.THROTTLED, status.HTTP_409_CONFLICT),
+            ("unknown_scout", ScoutRunRejectionKind.NOT_FOUND, status.HTTP_404_NOT_FOUND),
+            ("child_environment", ScoutRunRejectionKind.FORBIDDEN, status.HTTP_403_FORBIDDEN),
+        ]
+    )
+    def test_a_refused_scout_run_maps_onto_the_status_the_step_expects(
+        self, reason: str, kind: ScoutRunRejectionKind, expected: int
+    ) -> None:
+        # The step skips on 409 and fails on anything else, so backpressure has to be a 409 and a
+        # scout that cannot run has to be something else.
+        rejection = WorkflowScoutRunRejected(ScoutRunRejection(kind=kind, reason=reason, detail=f"detail: {reason}"))
+        with patch(_START_SCOUT, side_effect=rejection):
+            response = self._post({"scout": SCOUT})
+
+        assert response.status_code == expected
+        assert response.json()["detail"] == f"detail: {reason}"
+
+    def test_a_scout_request_for_a_deleted_workflow_is_refused(self) -> None:
+        token = _token(self.team.id, str(self.hog_flow.id))
+        self.hog_flow.delete()
+        with patch(_START_SCOUT) as start:
+            response = self._post({"scout": SCOUT}, token=token)
+
+        assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+        start.assert_not_called()
+
     def test_a_request_without_a_prompt_is_rejected(self) -> None:
         response = self.client.post(
             self.url,
@@ -759,8 +802,11 @@ class TestWorkflowTaskCreateSerializer(SimpleTestCase):
         assert not serializer.is_valid()
         assert field in serializer.errors
 
-    def test_accepts_a_minimal_request(self) -> None:
-        serializer = WorkflowTaskCreateSerializer(data={"prompt": "look into the alert"})
+    @parameterized.expand(
+        [("prompt", {"prompt": "look into the alert"}), ("scout", {"scout": "signals-scout-general"})]
+    )
+    def test_accepts_a_minimal_request(self, _name: str, body: dict) -> None:
+        serializer = WorkflowTaskCreateSerializer(data=body)
 
         assert serializer.is_valid(), serializer.errors
 

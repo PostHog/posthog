@@ -171,7 +171,7 @@ async def arun_signals_scout(
 
     `triggered_by` is `"schedule"` for coordinator-dispatched runs (including breaker probes),
     `"manual"` for on-demand triggers (the `run` endpoint, the management command) and
-    `"workflow"` for a workflow's "Run scout" action. Only scheduled failures feed the
+    `"workflow"` for a workflow step that runs a scout. Only scheduled failures feed the
     failure-streak breaker; see the failure path below. Anything but `"schedule"` is also stamped
     onto the run row's `metadata`, which is what the workflow path's cooldown reads.
     """

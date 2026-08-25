@@ -24,8 +24,10 @@ registerAsyncFunction('postHogCreateTask', {
     execute: (args, context, result) => {
         const [payload] = args as [Record<string, any> | undefined]
 
-        if (!payload?.prompt || typeof payload.prompt !== 'string') {
-            throw new Error("postHogCreateTask call missing 'prompt' property")
+        const hasPrompt = typeof payload?.prompt === 'string' && payload.prompt.length > 0
+        const hasScout = typeof payload?.scout === 'string' && payload.scout.length > 0
+        if (!hasPrompt && !hasScout) {
+            throw new Error("postHogCreateTask call needs a 'prompt' or a 'scout' property")
         }
 
         // Both come from the flow-spawned invocation, never from step inputs: the hog_flow_id

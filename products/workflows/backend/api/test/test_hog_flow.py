@@ -5036,65 +5036,10 @@ def _create_task_template() -> dict:
     return template
 
 
-def _run_scout_template() -> dict:
-    template = deepcopy(webhook_template)
-    template["id"] = "template-posthog-run-scout"
-    template["name"] = "Run scout"
-    template["inputs_schema"] = [
-        {"key": "skill_name", "type": "string", "label": "Scout", "secret": False, "required": True},
-        {
-            "key": "non_failure_status_codes",
-            "type": "non_failure_status_codes",
-            "label": "Non-failure status codes",
-            "secret": False,
-            "required": False,
-            "hidden": True,
-            "default": [409, 429],
-        },
-    ]
-    return template
-
-
 class TestFlagGatedTemplates(APIBaseTest):
     def setUp(self):
         super().setUp()
         sync_template_to_db(_create_task_template())
-        sync_template_to_db(_run_scout_template())
-
-    @parameterized.expand(
-        [
-            ("absent_is_filled", {}, [409, 429]),
-            ("authored_value_is_kept", {"non_failure_status_codes": {"value": [409]}}, [409]),
-        ]
-    )
-    def test_non_failure_status_codes_default_is_stored_on_the_step(self, _name, extra_inputs, expected):
-        # The engine only reads the setting off the step's own inputs, so a step created without
-        # it (API/MCP callers) would fail on the very statuses the template declares as skips.
-        trigger_action = {
-            "id": "trigger_node",
-            "name": "trigger_1",
-            "type": "trigger",
-            "config": {"type": "event", "filters": {"events": [{"id": "$pageview", "type": "events"}]}},
-        }
-        action = {
-            "id": "action_1",
-            "name": "action_1",
-            "type": "function",
-            "config": {
-                "template_id": "template-posthog-run-scout",
-                "inputs": {"skill_name": {"value": "signals-scout-general"}, **extra_inputs},
-            },
-        }
-        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=True):
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/hog_flows",
-                {"name": "Scout flow", "actions": [trigger_action, action], "edges": []},
-                HTTP_X_POSTHOG_CLIENT="mcp",
-            )
-
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-        stored = HogFlow.objects.get(id=response.json()["id"]).actions[1]["config"]["inputs"]
-        assert stored["non_failure_status_codes"]["value"] == expected
 
     def _post_flow_with_create_task_action(self):
         trigger_action = {
@@ -5220,25 +5165,6 @@ class TestFlagGatedTemplates(APIBaseTest):
             response = self.client.patch(
                 f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
                 {"status": "active"},
-            )
-
-        assert response.status_code == status.HTTP_400_BAD_REQUEST
-        assert "Template not found" in str(response.json())
-
-    def test_a_grandfathered_step_cannot_switch_to_another_gated_template(self):
-        # Grandfathering is per (step, template): a step that passed one template's gate must not
-        # be re-submitted under a different gated template the team has no flag for.
-        flow_id = self._create_active_flow_with_gated_step()
-        actions = HogFlow.objects.get(id=flow_id).actions
-        gated_step = next(action for action in actions if action["id"] == "action_1")
-        gated_step["config"] = {
-            "template_id": "template-posthog-run-scout",
-            "inputs": {"skill_name": {"value": "signals-scout-general"}},
-        }
-        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=False):
-            response = self.client.patch(
-                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
-                {"actions": actions, "trigger_masking": {"hash": "'run-scout'", "ttl": 1800}},
             )
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST

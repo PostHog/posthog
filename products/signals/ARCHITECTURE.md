@@ -336,8 +336,9 @@ model's own status column; active recovery of stranded `IN_PROGRESS` task runs
 **Three dispatch paths, one workflow.** The coordinator's per-tick children are the schedule
 (`triggered_by="schedule"`). Two off-schedule paths reuse the same workflow under their own stable
 id namespaces, so they single-flight independently at the Temporal server: the `run` endpoint
-(`"manual"`) and a workflow's "Run scout" action (`"workflow"`,
-`backend/scout_harness/workflow_runs.py`). Neither stamps `last_run_at` — a trigger is additive to
+(`"manual"`) and a workflow's "Create AI task" step with a scout selected (`"workflow"`,
+`backend/scout_harness/workflow_runs.py`, called from the workflows product's `workflow_tasks`
+endpoint). Neither stamps `last_run_at` — a trigger is additive to
 the cadence, never a substitute for it — and neither feeds the failure-streak breaker, whose
 threshold is sized on the schedule. The pre-dispatch gates they share (enrolment kill switch, daily
 run budget, Signals quota, daily report limit, in-flight single-flight) live in
@@ -1373,9 +1374,8 @@ products/signals/
 │   │   ├── skill_loader.py          # Resolves signals-scout-* LLMSkill rows for a run
 │   │   ├── lazy_seed.py             # Canonical SKILL.md → LLMSkill sync (sync_canonical_skills)
 │   │   ├── limits.py                # DEFAULT_MAX_RUNTIME_S + ACTIVITY_SLACK_S + WORKFLOW_HARD_CEILING_S + trigger-source vocabulary
-│   │   ├── customer_events.py       # The $scout_* events a run writes into the team's own project
 │   │   ├── run_gates.py             # Pre-dispatch gates shared by the off-schedule run paths
-│   │   ├── workflow_runs.py         # Dispatch for the workflows "Run scout" action
+│   │   ├── workflow_runs.py         # Dispatch for a workflow step that runs a scout
 │   │   ├── serializers.py           # DRF serializers for runs / scratchpad / project profile
 │   │   ├── views.py                 # SignalScoutRunViewSet, SignalScratchpadViewSet, SignalProjectProfileViewSet
 │   │   ├── profile/

@@ -121,11 +121,6 @@ export const CyclotronInvocationQueueParametersFetchSchema = z.object({
     method: z.string(),
     body: z.union([z.string(), z.null()]).optional(),
     max_tries: z.number().optional(),
-    timeoutMs: z.number().optional(),
-    // Statuses the staged request treats as final even though the engine would normally retry
-    // them. Set by async functions only (never user input), for a 429 that is a deliberate
-    // "not now" rather than transient load.
-    nonRetriableStatusCodes: z.array(z.number()).optional(),
     headers: z.record(z.string(), z.string()).optional(),
     aws_sigv4: CyclotronInvocationQueueParametersFetchAwsSigV4Schema.optional(),
 })

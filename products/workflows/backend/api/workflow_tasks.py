@@ -12,6 +12,11 @@ from rest_framework.response import Response
 from posthog.auth import InternalAPIUser, ScopedServiceJWTAuthentication
 from posthog.models.team.team import Team
 
+from products.signals.backend.facade.api import (
+    ScoutRunRejectionKind,
+    WorkflowScoutRunRejected,
+    start_workflow_scout_run,
+)
 from products.tasks.backend.facade.workflow_tasks import (
     WorkflowTaskConnectorsInvalid,
     WorkflowTaskLimitExceeded,
@@ -27,6 +32,16 @@ from products.workflows.backend.models import HogFlow
 from products.workflows.backend.service_jwt import TASKS_CREATE_PURPOSE
 
 logger = structlog.get_logger(__name__)
+
+# How a refused scout run reaches the step. The step only treats 409 as a graceful skip, so every
+# backpressure kind (paused, in flight, cooldown, budget, quota) maps onto it; a scout that cannot
+# run at all fails the step so the author notices.
+_SCOUT_REJECTION_STATUS: dict[ScoutRunRejectionKind, int] = {
+    ScoutRunRejectionKind.NOT_FOUND: status.HTTP_404_NOT_FOUND,
+    ScoutRunRejectionKind.FORBIDDEN: status.HTTP_403_FORBIDDEN,
+    ScoutRunRejectionKind.CONFLICT: status.HTTP_409_CONFLICT,
+    ScoutRunRejectionKind.THROTTLED: status.HTTP_409_CONFLICT,
+}
 
 
 class WorkflowTasksJWTAuthentication(ScopedServiceJWTAuthentication):
@@ -75,7 +90,18 @@ class WorkflowTaskSlackContextSerializer(serializers.Serializer):
 
 
 class WorkflowTaskCreateSerializer(serializers.Serializer):
-    prompt = serializers.CharField(help_text="Instructions for the agent.")
+    scout = serializers.CharField(
+        max_length=200,
+        required=False,
+        allow_blank=True,
+        help_text=(
+            "Name of a scout in this project. When set, the step runs that scout instead of creating a "
+            "task, and the task fields are ignored."
+        ),
+    )
+    prompt = serializers.CharField(
+        required=False, allow_blank=True, help_text="Instructions for the agent. Required unless a scout is named."
+    )
     event = serializers.DictField(
         required=False,
         help_text="The event that triggered the workflow run. Rendered into the agent's prompt as data.",
@@ -121,10 +147,20 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
         help_text="Stable key for this invocation. A retried request with the same key returns the existing task.",
     )
 
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        if not (attrs.get("scout") or "").strip() and not (attrs.get("prompt") or "").strip():
+            raise serializers.ValidationError({"prompt": "Instructions are required unless a scout is named."})
+        return attrs
+
 
 class WorkflowTaskResponseSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Task ID.")
     run_id = serializers.UUIDField(allow_null=True, help_text="Run started for the task.")
+
+
+class WorkflowScoutRunResponseSerializer(serializers.Serializer):
+    scout = serializers.CharField(help_text="The scout that was run.")
+    workflow_id = serializers.CharField(help_text="Temporal workflow ID of the dispatched scout run.")
 
 
 class WorkflowTaskRejectedSerializer(serializers.Serializer):
@@ -133,7 +169,13 @@ class WorkflowTaskRejectedSerializer(serializers.Serializer):
 
 class WorkflowTaskViewSet(viewsets.GenericViewSet):
     """Create AI tasks from a workflow's "Create AI task" action. Authenticated by a scoped
-    service JWT minted by the plugin server, never by a user credential."""
+    service JWT minted by the plugin server, never by a user credential.
+
+    A request that names a scout starts a run of that scout instead of creating a task. The run
+    is a pure kick: nothing from the triggering event reaches it, so the scout explores exactly as
+    it does on its schedule. The scout path has no idempotency replay of its own; a retried step
+    that overlaps the run it started collides with it and is answered with a 409, which the step
+    records as a skip."""
 
     authentication_classes = [WorkflowTasksJWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -147,12 +189,25 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
                 response=WorkflowTaskResponseSerializer,
                 description="The idempotency key was already used; this is the task it created",
             ),
+            202: OpenApiResponse(
+                response=WorkflowScoutRunResponseSerializer,
+                description="A scout was named and its run was dispatched. It runs asynchronously; poll the scout's runs for the result",
+            ),
+            403: OpenApiResponse(
+                response=WorkflowTaskRejectedSerializer,
+                description="A scout was named but the workflow lives in a child environment, which cannot run scouts",
+            ),
+            404: OpenApiResponse(
+                response=WorkflowTaskRejectedSerializer,
+                description="A scout was named but no runnable scout of that name exists in this project",
+            ),
             409: OpenApiResponse(
                 response=WorkflowTaskRejectedSerializer,
                 description=(
                     "The task was not created: the workflow is at its in-flight or daily limit, "
                     "the project is at its daily limit of workflow-created tasks, "
-                    "the owner is over the AI usage limit, or the idempotency key belongs to another workflow"
+                    "the owner is over the AI usage limit, or the idempotency key belongs to another workflow. "
+                    "Or a scout was named and it is paused, already running, or over its cooldown, budget, or quota"
                 ),
             ),
             422: OpenApiResponse(
@@ -172,6 +227,10 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
+        scout = (data.get("scout") or "").strip()
+        if scout:
+            return _run_scout(team_id=team_id, hog_flow_id=hog_flow_id, skill_name=scout)
+
         owner_id = _resolve_workflow_owner(team_id, hog_flow_id)
         if owner_id is None:
             return _rejected("Workflow has no owner who can run tasks.", status.HTTP_422_UNPROCESSABLE_ENTITY)
@@ -181,7 +240,7 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
                 team=Team.objects.get(id=team_id),
                 hog_flow_id=hog_flow_id,
                 owner_id=owner_id,
-                prompt=data["prompt"].strip(),
+                prompt=(data.get("prompt") or "").strip(),
                 title=data.get("title"),
                 repository=data.get("repository") or None,
                 model=data.get("model") or None,
@@ -254,6 +313,37 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
             WorkflowTaskResponseSerializer({"id": result.task_id, "run_id": result.run_id}).data,
             status=status.HTTP_201_CREATED if result.created else status.HTTP_200_OK,
         )
+
+
+def _run_scout(*, team_id: int, hog_flow_id: uuid.UUID, skill_name: str) -> Response:
+    # A token outlives the workflow it was minted for (its TTL covers the whole fetch retry
+    # chain), so a deleted workflow must not still be able to spend scout runs.
+    if not HogFlow.objects.filter(team_id=team_id, id=hog_flow_id).exists():
+        return _rejected("Workflow no longer exists.", status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+    try:
+        started = start_workflow_scout_run(team_id=team_id, skill_name=skill_name)
+    except WorkflowScoutRunRejected as error:
+        logger.info(
+            "workflow_scout_run_rejected",
+            team_id=team_id,
+            hog_flow_id=str(hog_flow_id),
+            skill_name=skill_name,
+            reason=error.rejection.reason,
+        )
+        return _rejected(error.rejection.detail, _SCOUT_REJECTION_STATUS[error.rejection.kind])
+
+    logger.info(
+        "workflow_scout_run_started",
+        team_id=team_id,
+        hog_flow_id=str(hog_flow_id),
+        skill_name=started.skill_name,
+        workflow_id=started.workflow_id,
+    )
+    return Response(
+        WorkflowScoutRunResponseSerializer({"scout": started.skill_name, "workflow_id": started.workflow_id}).data,
+        status=status.HTTP_202_ACCEPTED,
+    )
 
 
 def _rejected(detail: str, http_status: int) -> Response:

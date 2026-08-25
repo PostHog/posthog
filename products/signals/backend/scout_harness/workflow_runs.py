@@ -1,9 +1,9 @@
-"""Dispatch a scout run from a workflow's "Run scout" action.
+"""Dispatch a scout run from a workflow's "Create AI task" step with a scout selected.
 
 The third way a scout run starts, after the coordinator's schedule and the manual `run` endpoint.
-A workflow node fires this via `products/workflows/backend/api/workflow_scout_runs.py`, which has
-already proved *which* workflow is calling; everything this module does is decide whether that fire
-is allowed to spend a run, and dispatch it if so.
+The step fires this via `products/workflows/backend/api/workflow_tasks.py`, which has already
+proved *which* workflow is calling; everything this module does is decide whether that fire is
+allowed to spend a run, and dispatch it if so.
 
 Two properties define the semantics, and both are deliberate:
 
@@ -73,8 +73,7 @@ def start_workflow_scout_run(*, team_id: int, skill_name: str) -> WorkflowScoutR
 
     `team_id` has to be the project's main environment. Scout rows live under it, and unlike the
     manual endpoint there is no human credential here to re-authorize against it, so a child
-    environment's workflow is refused rather than resolved upwards (save validation already
-    rejects the node there; this is the backstop for a flow saved before that rule).
+    environment's workflow is refused rather than resolved upwards.
 
     Rejection kinds are chosen so the workflow step reads them correctly: `NOT_FOUND` means the
     node names a scout that cannot run (a typo, a deleted skill) and should surface as a step

@@ -155,10 +155,50 @@ describe('posthog create task template', () => {
         expect(parseJSON(params.body!).slack_context).toBeUndefined()
     })
 
-    it('fails without staging a request when the instructions are empty', async () => {
-        const response = await tester.invoke({ prompt: '' }, undefined, workflowOptions)
-        expect(response.error).toMatch(/Instructions are required/)
+    it('fails without staging a request when both the instructions and the scout are empty', async () => {
+        const response = await tester.invoke({ prompt: '', scout: '' }, undefined, workflowOptions)
+        expect(response.error).toMatch(/Instructions or a scout are required/)
         expect(response.invocation.queueParameters).toBeUndefined()
+    })
+
+    it('sends the scout name and needs no instructions when a scout is set', async () => {
+        const { invocation, params } = await invokeAndGetFetch({ prompt: '', scout: 'signals-scout-error-tracking' })
+
+        expect(params.url).toMatch(/\/api\/projects\/1\/workflow_tasks\/$/)
+        expect(parseJSON(params.body!)).toEqual({
+            prompt: '',
+            scout: 'signals-scout-error-tracking',
+            posthog_mcp_scopes: 'read_only',
+            max_parallel_tasks: 5,
+            event: defaultEventBody,
+            idempotency_key: `${invocation.id}:action_1`,
+        })
+    })
+
+    it('returns the dispatched scout run on a 202 response', async () => {
+        let response = await tester.invoke({ scout: 'signals-scout-error-tracking' }, undefined, workflowOptions)
+        response = await tester.invokeFetchResponse(response.invocation, {
+            status: 202,
+            body: { scout: 'signals-scout-error-tracking', workflow_id: 'wf-1' },
+        })
+
+        expect(response.error).toBeUndefined()
+        expect(response.finished).toBe(true)
+        expect(response.execResult).toEqual({ scout: 'signals-scout-error-tracking', workflow_id: 'wf-1' })
+    })
+
+    it('skips with a scout-specific log line when the scout is refused', async () => {
+        let response = await tester.invoke({ scout: 'signals-scout-error-tracking' }, undefined, workflowOptions)
+        response = await tester.invokeFetchResponse(response.invocation, {
+            status: 409,
+            body: { detail: 'A run for this scout is already in progress.' },
+        })
+
+        expect(response.error).toBeUndefined()
+        expect(response.execResult).toEqual({ skipped: true, reason: 'A run for this scout is already in progress.' })
+        expect(response.logs.map((log) => log.message)).toContain(
+            'Scout not run: A run for this scout is already in progress.'
+        )
     })
 
     it('fails when invoked outside a workflow', async () => {

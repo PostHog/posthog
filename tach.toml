@@ -962,9 +962,8 @@ depends_on = [
     "products.feature_flags",
     "products.messaging",
     "products.notifications",
-    # Facade-only: the "Run scout" action's endpoint starts scout runs through
-    # products.signals.backend.facade.api, which also owns the list of scout-emitted event
-    # names the run-scout self-loop guard validates a trigger against.
+    # Facade-only: the AI task action's endpoint starts a scout run through
+    # products.signals.backend.facade.api when the step names a scout.
     "products.signals",
     # Facade-only: the AI task action's endpoint creates tasks through
     # products.tasks.backend.facade.workflow_tasks.

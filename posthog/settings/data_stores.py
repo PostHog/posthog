@@ -574,13 +574,6 @@ TASKS_CREATE_JWT_SECRETS = get_list(
     get_from_env("TASKS_CREATE_JWT_SECRET", "local-dev-tasks-create-jwt" if DEBUG or TEST else "")
 )
 
-# Signs the tokens a workflow's "Run scout" action calls back with. Its own secret, not the
-# task-create one: a leak of either must not reach the other surface. The dev/test value must
-# match the plugin server's minting default so local workflows work with no setup.
-SIGNALS_SCOUT_RUN_JWT_SECRETS = get_list(
-    get_from_env("SIGNALS_SCOUT_RUN_JWT_SECRET", "local-dev-signals-scout-run-jwt" if DEBUG or TEST else "")
-)
-
 EMBEDDING_API_URL = get_from_env("EMBEDDING_API_URL", "")
 
 # Used to generate embeddings on the fly, for use with the document embeddings table

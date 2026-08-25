@@ -1,7 +1,7 @@
 """Pre-dispatch gates shared by every off-schedule scout run.
 
 Two entry points start a scout outside its schedule: the `run` endpoint (a human pressing "Run
-now", `scout_harness/views.py`) and the workflows "Run scout" action
+now", `scout_harness/views.py`) and a workflow step that runs a scout
 (`scout_harness/workflow_runs.py`). Both have to honour the controls the scheduled coordinator
 already applies before it would ever dispatch this scout — otherwise a trigger routes around a
 rollout kill-switch, or repeated triggers blow past the daily cap the scheduled path respects.

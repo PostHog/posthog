@@ -7,7 +7,6 @@ export enum PosthogJwtAudience {
     WORKFLOWS_CANCEL_INVOCATIONS = 'posthog:workflows:cancel_invocations',
     WORKFLOWS_CANCEL_BATCH = 'posthog:workflows:cancel_batch',
     TASKS_CREATE = 'posthog:tasks:create',
-    SIGNALS_SCOUT_RUN = 'posthog:signals:scout_run',
 }
 
 export class JWT {

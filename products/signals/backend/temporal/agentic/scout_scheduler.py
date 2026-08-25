@@ -44,7 +44,7 @@ class RunSignalsScoutInput:
     skill_version: int | None = None
     repository: str | None = None
     # "schedule" (coordinator dispatch, including breaker probes), "manual" (the `run` endpoint)
-    # or "workflow" (a workflow's "Run scout" action). Only scheduled failures feed the
+    # or "workflow" (a workflow step that runs a scout). Only scheduled failures feed the
     # failure-streak breaker; the default keeps in-flight workflow histories decoding to today's
     # behavior. See `scout_harness/limits.py` for the vocabulary.
     triggered_by: str = TRIGGERED_BY_SCHEDULE
@@ -227,7 +227,7 @@ def manual_run_workflow_id(team_id: int, skill_name: str) -> str:
 
 
 def workflow_triggered_run_workflow_id(team_id: int, skill_name: str) -> str:
-    """Deterministic workflow id for a run fired by a workflow's "Run scout" action."""
+    """Deterministic workflow id for a run fired by a workflow step that runs a scout."""
     return _off_schedule_run_workflow_id("signals-scout-workflow-run", team_id, skill_name)
 
 
