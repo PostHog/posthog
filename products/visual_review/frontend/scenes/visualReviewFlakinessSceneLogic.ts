@@ -429,11 +429,13 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
                     source_run_id: sourceRunId,
                 })
                 lemonToast.success('Quarantined. Runs stop gating on this snapshot.')
-                actions.loadOverview()
             } catch (e: any) {
                 lemonToast.error(e?.detail || e?.message || 'Could not quarantine that snapshot. Try again.')
             } finally {
                 actions.quarantineSettled(identifier, runType)
+                if (!values.pendingQuarantineKeys.length) {
+                    actions.loadOverview()
+                }
             }
         },
         unquarantineIdentifier: async ({ identifier, runType }) => {
@@ -443,11 +445,13 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
                     reason: '',
                 })
                 lemonToast.success('Quarantine lifted. Runs gate on this snapshot again.')
-                actions.loadOverview()
             } catch (e: any) {
                 lemonToast.error(e?.detail || e?.message || 'Could not lift that quarantine. Try again.')
             } finally {
                 actions.quarantineSettled(identifier, runType)
+                if (!values.pendingQuarantineKeys.length) {
+                    actions.loadOverview()
+                }
             }
         },
     })),

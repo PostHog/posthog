@@ -359,12 +359,24 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
             )
         )
 
-    # Most variants first, then most recently active, so the worst offenders
-    # lead regardless of which the client sorts by afterwards. Rows that never
-    # flaked sort last against an aware epoch, because `last_flaked_at` is
-    # aware and mixing it with a naive datetime raises.
+    # Ordering decides what survives the cap, so the rows somebody has to act on
+    # come first. Sorting on variant count alone put clean quarantines last,
+    # exactly the rows the `quarantined` and `needs a decision` filters exist to
+    # surface, and the tiles would still have counted them.
+    #
+    # Rows that never flaked sort last within their group against an aware
+    # epoch, because `last_flaked_at` is aware and mixing it with a naive
+    # datetime raises.
     never = datetime.min.replace(tzinfo=UTC)
-    rows.sort(key=lambda row: (row.variant_count, row.last_flaked_at or never), reverse=True)
+    rows.sort(
+        key=lambda row: (
+            row.needs_decision,
+            row.quarantine is not None,
+            row.variant_count,
+            row.last_flaked_at or never,
+        ),
+        reverse=True,
+    )
     listed = rows[:FLAKINESS_MAX_ENTRIES]
 
     snapshots_by_key = _hydrate_snapshots(

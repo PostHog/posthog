@@ -26,6 +26,7 @@ const overview: FlakinessOverviewApi = {
 
 describe('visualReviewFlakinessSceneLogic', () => {
     let logic: ReturnType<typeof visualReviewFlakinessSceneLogic.build>
+    let overviewRequests = 0
 
     afterEach(() => {
         logic?.unmount()
@@ -61,8 +62,14 @@ describe('visualReviewFlakinessSceneLogic', () => {
     describe('while quarantine writes are in flight', () => {
         beforeEach(() => {
             initKeaTests()
+            overviewRequests = 0
             useMocks({
-                get: { [FLAKINESS_URL]: overview },
+                get: {
+                    [FLAKINESS_URL]: () => {
+                        overviewRequests += 1
+                        return overview
+                    },
+                },
                 post: { '/api/projects/:team_id/visual_review/repos/:id/quarantine/:runType/': { ok: true } },
             })
             logic = visualReviewFlakinessSceneLogic({ repoId: REPO_ID })
@@ -77,11 +84,22 @@ describe('visualReviewFlakinessSceneLogic', () => {
             logic.actions.quarantineIdentifier('story--dark', 'storybook', 'flaky', null, null)
             expect(logic.values.pendingQuarantineKeys).toEqual(['storybook::story--dark', 'storybook::story--dark'])
 
-            logic.actions.quarantineSettled('story--dark', 'storybook')
-            expect(logic.values.pendingQuarantineKeys).toEqual(['storybook::story--dark'])
-
-            logic.actions.quarantineSettled('story--dark', 'storybook')
+            await expectLogic(logic).toFinishAllListeners()
             expect(logic.values.pendingQuarantineKeys).toEqual([])
+        })
+
+        // Each write used to reload on its own success, so the earlier reload
+        // could read before the sibling committed and land last, replacing the
+        // fresh response with a half-applied one.
+        it('reloads once, after the last write settles', async () => {
+            overviewRequests = 0
+            await expectLogic(logic, () => {
+                logic.actions.quarantineIdentifier('story--dark', 'storybook', 'flaky', null, null)
+                logic.actions.quarantineIdentifier('story--light', 'storybook', 'flaky', null, null)
+            }).toFinishAllListeners()
+
+            expect(logic.values.pendingQuarantineKeys).toEqual([])
+            expect(overviewRequests).toBe(1)
         })
     })
 

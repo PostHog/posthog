@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconGear, IconWarning } from '@posthog/icons'
+import { IconGear } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -8,24 +8,24 @@ import {
     LemonSegmentedButton,
     LemonSkeleton,
     LemonTable,
-    LemonTag,
     Link,
 } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
-import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { QuarantineCell } from '../components/FlakinessQuarantineCell'
+import { StateCell } from '../components/FlakinessStateCell'
 import { FlakinessStatRow } from '../components/FlakinessStatRow'
+import { VariantsCell } from '../components/FlakinessVariantsCell'
 import { QuarantineAction } from '../components/QuarantineAction'
 import { RepoSwitcher } from '../components/RepoSwitcher'
 import { SnapshotFacetSidebar } from '../components/SnapshotFacetSidebar'
-import { VariantStrip } from '../components/VariantStrip'
 import { VisualReviewTabs } from '../components/VisualReviewTabs'
 import type { FlakinessEntryApi } from '../generated/api.schemas'
 import {
@@ -48,93 +48,6 @@ function formatLastSeen(lastFlakedAt: string | null | undefined): string {
     }
     const days = dayjs().diff(dayjs(lastFlakedAt), 'day')
     return days === 0 ? 'today' : `${days}d ago`
-}
-
-// Sub-pixel jitter and a small real change both round to tiny percentages, so
-// two decimals is the smallest precision that keeps them apart.
-function formatJitter(avgDiffPercentage: number | null | undefined): string | null {
-    if (avgDiffPercentage === null || avgDiffPercentage === undefined) {
-        return null
-    }
-    return `${avgDiffPercentage.toFixed(2)}% avg`
-}
-
-function formatBaselineAge(baselineAgeDays: number | null | undefined): string {
-    if (baselineAgeDays === null || baselineAgeDays === undefined) {
-        return 'baseline never moved'
-    }
-    return `baseline ${baselineAgeDays}d old`
-}
-
-function formatExpiry(expiresAt: string | null | undefined): { label: string; isOverdue: boolean } {
-    if (!expiresAt) {
-        return { label: 'no expiry', isOverdue: false }
-    }
-    const expiry = dayjs(expiresAt)
-    if (expiry.isBefore(dayjs())) {
-        return { label: `ran out ${dayjs().diff(expiry, 'day')}d ago`, isOverdue: true }
-    }
-    return { label: `runs out in ${expiry.diff(dayjs(), 'day')}d`, isOverdue: false }
-}
-
-const STATE_TAG: Record<string, { label: string; type: 'danger' | 'warning' | 'success' }> = {
-    unstable: { label: 'Unstable', type: 'danger' },
-    settled: { label: 'Settled', type: 'warning' },
-    clean: { label: 'Clean', type: 'success' },
-}
-
-function StateCell({ entry }: { entry: FlakinessEntryApi }): JSX.Element {
-    const tag = STATE_TAG[entry.flakiness_state] ?? STATE_TAG.clean
-    return (
-        <div className="flex flex-col gap-1 items-start">
-            <LemonTag type={tag.type}>{tag.label}</LemonTag>
-            {entry.is_quarantined && (
-                <LemonTag type="warning" icon={<IconWarning />}>
-                    Quarantined
-                </LemonTag>
-            )}
-        </div>
-    )
-}
-
-function VariantsCell({ entry }: { entry: FlakinessEntryApi }): JSX.Element {
-    const jitter = formatJitter(entry.avg_diff_percentage)
-    return (
-        <div className="flex flex-col gap-1 items-end">
-            <Tooltip
-                title={`This snapshot is currently allowed to produce ${entry.variant_count} different ${
-                    entry.variant_count === 1 ? 'image' : 'images'
-                } and still pass`}
-            >
-                <span className="font-mono font-semibold tabular-nums">{entry.variant_count.toLocaleString()}</span>
-            </Tooltip>
-            <VariantStrip
-                dailyCounts={entry.daily_variant_counts}
-                baselineMovedDayIndex={entry.baseline_moved_day_index ?? null}
-            />
-            <span className="text-[11px] text-muted font-mono">
-                {jitter ? `${jitter} · ` : ''}
-                {formatBaselineAge(entry.baseline_age_days)}
-            </span>
-        </div>
-    )
-}
-
-function QuarantineCell({ entry }: { entry: FlakinessEntryApi }): JSX.Element {
-    if (!entry.quarantine) {
-        return <span className="text-muted">—</span>
-    }
-    const expiry = formatExpiry(entry.quarantine.expires_at)
-    const author = entry.quarantine.created_by
-    return (
-        <div className="text-xs max-w-48">
-            <div>{entry.quarantine.reason || 'No reason given'}</div>
-            <div className="text-[11px] text-muted mt-0.5">
-                {author ? `${author.first_name || author.email} · ` : ''}
-                <span className={expiry.isOverdue ? 'text-danger font-semibold' : 'font-semibold'}>{expiry.label}</span>
-            </div>
-        </div>
-    )
 }
 
 export function VisualReviewFlakinessScene(): JSX.Element {

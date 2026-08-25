@@ -381,6 +381,26 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         assert entry is not None
         assert entry.flakiness_state == FlakinessState.SETTLED
 
+    def test_rows_needing_a_decision_survive_the_entry_cap(self):
+        # The cap slices the sorted list, so ordering decides what a client can
+        # still act on. A clean quarantine has no variants and would sort last
+        # under a count-only order, while the tiles kept counting it.
+        _mk_snapshot(self.master_run, identifier="muted")
+        QuarantinedIdentifier.objects.create(
+            repo=self.repo,
+            team_id=self.team.id,
+            identifier="muted",
+            run_type=RunType.STORYBOOK,
+            reason="Known flaky",
+        )
+        _mk_snapshot(self.master_run, identifier="noisy")
+        for index in range(5):
+            self._mk_variant(identifier="noisy", alternate_hash=f"a-{index}")
+
+        result = vr_api.get_flakiness_overview(self.repo.id)
+
+        assert [e.identifier for e in result.entries] == ["muted", "noisy"]
+
     def test_snapshots_with_nothing_to_report_are_not_listed(self):
         _mk_snapshot(self.master_run, identifier="stable")
         _mk_snapshot(self.master_run, identifier="flaky")
