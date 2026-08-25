@@ -93718,6 +93718,11 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Comma-separated services to narrow the list to, e.g. `service=web,worker`. Omit for every service. Send it empty to select only series whose sender did not set `service.name`. A service name containing a comma cannot be selected.
+     * @maxLength 1024
+     */
+    service?: string;
+    /**
      * Substring filter (case-insensitive) applied to metric names.
      * @maxLength 255
      */
