@@ -23,6 +23,7 @@ import { useDraftStore } from "@posthog/ui/features/message-editor/draftStore";
 import { useAutoFocusOnTyping } from "@posthog/ui/features/message-editor/useAutoFocusOnTyping";
 import { resolveAndAttachDroppedFiles } from "@posthog/ui/features/message-editor/utils/persistFile";
 import { PermissionSelector } from "@posthog/ui/features/permissions/PermissionSelector";
+import { BabysitIndicator } from "@posthog/ui/features/sessions/components/BabysitIndicator";
 import {
   CloudStreamDisconnectedBanner,
   ConnectingToAgent,
@@ -813,11 +814,14 @@ export function SessionView({
                             ) : undefined
                           }
                           toolbarEndSlot={
-                            <ContextUsageIndicator
-                              usage={contextUsage}
-                              taskId={taskId}
-                              focused={isActiveSession !== false}
-                            />
+                            <div className="flex items-center gap-1">
+                              <BabysitIndicator taskId={taskId} />
+                              <ContextUsageIndicator
+                                usage={contextUsage}
+                                taskId={taskId}
+                                focused={isActiveSession !== false}
+                              />
+                            </div>
                           }
                           onToggleMessagingMode={toggleMessagingMode}
                           onAttachmentsChange={handleAttachmentsChange}

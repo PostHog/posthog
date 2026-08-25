@@ -26,6 +26,7 @@ import {
 import { SettingsSegmented } from "@posthog/ui/features/settings/components/SettingsSegmented";
 import { SettingsSelect } from "@posthog/ui/features/settings/components/SettingsSelect";
 import { ThemePicker } from "@posthog/ui/features/settings/components/ThemePicker";
+import { BabysitSettings } from "@posthog/ui/features/settings/sections/BabysitSettings";
 import { UpdatesSection } from "@posthog/ui/features/settings/sections/UpdatesSettings";
 import {
   type AutoConvertLongText,
@@ -369,6 +370,8 @@ export function GeneralSettings() {
           </SettingsCardRow>
         </SettingsCard>
       </SettingsSection>
+
+      <BabysitSettings />
 
       <SettingsSection label="Composer">
         <SettingsCard>
