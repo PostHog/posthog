@@ -8,10 +8,12 @@ from functools import lru_cache
 from typing import TYPE_CHECKING
 
 from django.conf import settings
+from django.core.cache import cache
 from django.urls import resolve
 from django.utils import timezone
 
 from prometheus_client import Counter
+from rest_framework import exceptions
 from rest_framework.throttling import SimpleRateThrottle, UserRateThrottle
 from statshog.defaults.django import statsd
 
@@ -1066,33 +1068,17 @@ class SetupWizardGatewayTokenRateThrottle(SimpleRateThrottle):
         return "5/day"
 
     def allow_request(self, request, view):
-        """Read the bucket without consuming it; `record` charges a real mint."""
-        if self.rate is None:
-            return True
-        self.key = self.get_cache_key(request, view)
-        if self.key is None:
-            return True
-        self.history = self.cache.get(self.key, [])
-        self.now = self.timer()
-        while self.history and self.history[-1] <= self.now - self.duration:
-            self.history.pop()
-        return len(self.history) < self.num_requests
+        """Always admit; the ceiling is the view's atomic reservation.
 
-    def record(self, request, view) -> None:
-        """Charge one mint. Called by the view only once a token was issued."""
-        if self.rate is None:
-            return
-        key = self.get_cache_key(request, view)
-        if key is None:
-            return
-        now = self.timer()
-        history = self.cache.get(key, [])
-        while history and history[-1] <= now - self.duration:
-            history.pop()
-        history.insert(0, now)
-        self.cache.set(key, history, self.duration)
+        A read here and a charge after the mint would sit a whole mint round trip
+        apart, so parallel requests would all see the same free slot. This class
+        now only derives the identity, and `reserve_wizard_mint` owns the count.
+        Errors are swallowed: this is a load-shedding gate, and it must fail open.
+        """
+        return True
 
     def get_cache_key(self, request, view):
+        """The per-user, per-program bucket identity. Read by the view's reservation."""
         # request.user is anonymous here: the viewset authenticates sessions only and
         # the bearer is checked in the action body, after throttling. get_ident would
         # then key on the caller-chosen X-Forwarded-For, so resolve the token and fall
@@ -1120,6 +1106,39 @@ class SetupWizardGatewayTokenRateThrottle(SimpleRateThrottle):
         ident = f"{ident}|{wizard_product_node(program) or 'unknown-program'}"
         # nosemgrep: python.flask.security.audit.directly-returned-format-string.directly-returned-format-string
         return f"throttle_wizard_gateway_token_{hashlib.sha256(ident.encode()).hexdigest()}"
+
+
+def reserve_wizard_mint(request, view) -> None:
+    """Atomically consume one of this user's daily mints for this program, or raise.
+
+    Called immediately before the mint, after every gate, so a request that never
+    mints spends nothing, while parallel requests cannot all slip under the
+    ceiling the way a read-then-charge throttle lets them. Same shape as the
+    sibling cloud-run attempt reservation.
+
+    Fails open on a cache error: this bounds spend that the per-token cap and the
+    wallet also bound, and a Redis blip must not turn a minted token into a 500.
+    """
+    throttle = SetupWizardGatewayTokenRateThrottle()
+    if throttle.rate is None:
+        return
+    try:
+        key = throttle.get_cache_key(request, view)
+        if key is None:
+            return
+        window = int(time.time()) // throttle.duration
+        counter = f"{key}:{window}"
+        cache.add(counter, 0, timeout=throttle.duration)
+        try:
+            count = cache.incr(counter)
+        except ValueError:
+            # Expired between add and incr; this request is the window's first.
+            count = 1
+    except Exception as e:
+        capture_exception(e)
+        return
+    if count > throttle.num_requests:
+        raise exceptions.Throttled(detail="This wizard program has used its daily run limit. Try again tomorrow.")
 
 
 class SetupWizardCloudRunOutcomeAwareThrottle(UserRateThrottle):

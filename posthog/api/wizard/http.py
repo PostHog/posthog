@@ -47,6 +47,7 @@ from posthog.rate_limit import (
     SetupWizardCloudRunSustainedRateThrottle,
     SetupWizardGatewayTokenRateThrottle,
     SetupWizardQueryRateThrottle,
+    reserve_wizard_mint,
 )
 from posthog.storage.gateway_credential_cache import (
     GATEWAY_CREDENTIAL_REQUIRED_SCOPE as RequiredGatewayScope,
@@ -487,6 +488,10 @@ class SetupWizardViewSet(viewsets.ViewSet):
             # gateway rather than failing. It still cannot mint.
             WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="program_unknown").inc()
             raise exceptions.NotFound("Unrecognized wizard program.")
+        # Immediately before the mint, after every gate above: a refused request
+        # spends nothing, and the reservation is atomic so parallel requests
+        # cannot all pass the same free slot.
+        reserve_wizard_mint(request, self)
         try:
             minted = mint_wizard_gateway_token(obo=str(team.organization_id), user=distinct_id, product=product)
         except WizardGatewayMintError as e:
@@ -494,10 +499,6 @@ class SetupWizardViewSet(viewsets.ViewSet):
             capture_exception(e, {"ai_product": "wizard", "team_id": team.id})
             return Response({"error": "Gateway token mint failed."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
-        # Charged here rather than on arrival: every gate above answers 404 or a
-        # refusal without minting, and a request that issues no token must not
-        # spend a run's quota.
-        SetupWizardGatewayTokenRateThrottle().record(request, self)
         WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="minted").inc()
         return Response(
             {

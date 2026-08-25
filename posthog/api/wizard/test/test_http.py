@@ -1,6 +1,7 @@
 import json
 from datetime import timedelta
 
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
@@ -10,6 +11,7 @@ from django.urls import reverse
 from django.utils import timezone
 
 from rest_framework import status
+from rest_framework.exceptions import Throttled
 from rest_framework.request import Request
 from rest_framework.test import APIRequestFactory
 
@@ -18,6 +20,7 @@ from posthog.cloud_utils import get_api_host
 from posthog.llm.wizard_gateway_token import WizardGatewayMintError
 from posthog.models import Organization, PersonalAPIKey, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.rate_limit import SetupWizardGatewayTokenRateThrottle, reserve_wizard_mint
 
 
 class SetupWizardTests(APIBaseTest):
@@ -821,3 +824,34 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         )
         assert response.status_code == status.HTTP_404_NOT_FOUND
         mock_mint.assert_not_called()
+
+
+class TestReserveWizardMint:
+    """The ceiling is atomic and sits on the mint, not on arrival."""
+
+    @pytest.fixture(autouse=True)
+    def _settings(self):
+        with override_settings(WIZARD_GATEWAY_PROGRAM_IDS=["integration"], DEBUG=False):
+            yield
+
+    def _request(self):
+        factory = APIRequestFactory()
+        return Request(factory.post("/api/wizard/gateway_token", {"program": "integration"}))
+
+    def test_the_sixth_reservation_in_a_window_is_refused(self):
+        from django.core.cache import cache as django_cache
+
+        django_cache.clear()
+        req = self._request()
+        with patch.object(SetupWizardGatewayTokenRateThrottle, "get_cache_key", return_value="k"):
+            for _ in range(5):
+                reserve_wizard_mint(req, None)
+            with pytest.raises(Throttled):
+                reserve_wizard_mint(req, None)
+
+    def test_a_cache_failure_fails_open(self):
+        # Load-shedding posture: the per-token cap and the wallet also bound this,
+        # and a Redis blip must not turn a minted token into a 500.
+        req = self._request()
+        with patch.object(SetupWizardGatewayTokenRateThrottle, "get_cache_key", side_effect=RuntimeError("redis down")):
+            reserve_wizard_mint(req, None)

@@ -50,9 +50,10 @@ def wizard_product_node(program: str | None) -> str | None:
     folded into a generic node. Gateway budgets match a node value exactly, so
     folding would report a new program's spend as plain wizard spend and leave the
     program itself with no budget of its own, and the drift would be silent. A
-    refusal is visible in the mint outcome counter. The CLI stays on the legacy
-    gateway only for a 404, so an unlisted program fails its run rather than
-    silently spending unattributed.
+    A refusal is visible in the mint outcome counter, and the endpoint answers it
+    with a 404, the one status the CLI falls back on: a program this deploy has
+    not been told about keeps running on the legacy gateway rather than having
+    its run killed, while still being unable to mint.
     """
     # isinstance first: the value is caller JSON, and an unhashable one (a list
     # or object) raises on the set membership below, inside a throttle that runs

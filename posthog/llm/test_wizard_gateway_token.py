@@ -138,6 +138,13 @@ class TestMintWizardGatewayToken:
             "0",
             "-5",
             "20000",
+            # Reaches the quantize guard: the result needs more digits than the
+            # decimal context allows, so quantize raises rather than returning.
+            "1e100000",
+            # Parse as Decimals but are not finite, so the is_finite branch is the
+            # only thing between them and the gateway.
+            "NaN",
+            "Infinity",
             "",
             # Positive but under a microdollar: it quantizes to 0.000000, which
             # the gateway rejects as non-positive.
