@@ -351,7 +351,7 @@ jobs:
                         "packageName": "posthog-cli",
                         "packageVersion": "${{ steps.prepare-release.outputs.new-version || 'unknown' }}",
                         "actionUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-                        "alertText": ":rotating_light: Failed to prepare release posthog-cli@v${{ steps.prepare-release.outputs.new-version }} :rotating_light:",
+                        "alertText": ":rotating_light: Failed to prepare release posthog-cli@v${{ steps.prepare-release.outputs.new-version || 'unknown' }} :rotating_light:",
                         "alertContext": "The version bump step failed before cargo-dist ran."
                       }
 
@@ -363,7 +363,7 @@ jobs:
                   slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
                   slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
                   thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
-                  message: '❌ Failed to prepare `posthog-cli@v${{ steps.prepare-release.outputs.new-version }}`. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow run>'
+                  message: "❌ Failed to prepare `posthog-cli@v${{ steps.prepare-release.outputs.new-version || 'unknown' }}`. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow run>"
                   emoji_reaction: 'x'
 
     # Keep cargo-dist publishing in this workflow so the Release approval gates the full release path.
@@ -904,7 +904,7 @@ jobs:
                         "packageName": "posthog-cli",
                         "packageVersion": "${{ needs.release.outputs.new-version || 'unknown' }}",
                         "actionUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
-                        "alertText": ":rotating_light: Failed to publish posthog-cli@v${{ needs.release.outputs.new-version }} :rotating_light:",
+                        "alertText": ":rotating_light: Failed to publish posthog-cli@v${{ needs.release.outputs.new-version || 'unknown' }} :rotating_light:",
                         "alertContext": "The release commit landed, so master carries a version cargo-dist did not publish. Failed jobs: ${{ steps.failure-metadata.outputs.failed-jobs }}."
                       }
 
@@ -916,5 +916,5 @@ jobs:
                   slack_bot_token: ${{ secrets.SLACK_CLIENT_LIBRARIES_BOT_TOKEN }}
                   slack_channel_id: ${{ vars.SLACK_APPROVALS_CLIENT_LIBRARIES_CHANNEL_ID }}
                   thread_ts: ${{ needs.notify-approval-needed.outputs.slack_ts }}
-                  message: '❌ Failed to publish `posthog-cli@v${{ needs.release.outputs.new-version }}` (${{ steps.failure-metadata.outputs.failed-jobs }}). <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow run>'
+                  message: "❌ Failed to publish `posthog-cli@v${{ needs.release.outputs.new-version || 'unknown' }}` (${{ steps.failure-metadata.outputs.failed-jobs }}). <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View workflow run>"
                   emoji_reaction: 'x'
