@@ -154,7 +154,7 @@ export function ReplayNetworkCapture(): JSX.Element {
                 }
                 loading={currentTeamLoading}
             />
-            {currentTeam?.capture_performance_opt_in && (
+            {currentTeam?.session_recording_opt_in && currentTeam?.capture_performance_opt_in && (
                 <LemonBanner type="warning">
                     <p>
                         PostHog captures each request URL in full, including its query string. An auth token or a signed
