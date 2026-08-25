@@ -133,9 +133,9 @@ class TestResolveObjectAccess(BaseMostSpecificResolutionTest):
         ]
     )
     def test_source_system_default_is_equivalent_to_legacy_explicit_true(self, _name, rules):
-        # The new resolvers have no `explicit` parameter: explicit=True returning None is
-        # exactly the new answer carrying source="system_default". Enforcement relies on this
-        # equivalence when the enforced signature becomes an adapter.
+        # The new resolvers have no `explicit` parameter. On the enforced method, explicit=True
+        # returns None exactly when the new answer has source="system_default". The future
+        # adapter in get_user_access_level relies on this equivalence.
         self._apply(rules)
 
         legacy_explicit = self.user_access_control.get_user_access_level(self.dashboard, explicit=True)

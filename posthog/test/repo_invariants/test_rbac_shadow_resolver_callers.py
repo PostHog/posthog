@@ -6,10 +6,10 @@ SCANNED_ROOTS = ("posthog", "ee", "products")
 
 
 def test_shadow_resolvers_have_no_callers_outside_their_module():
-    # The most-specific resolvers are WIP shadow code (RFC 557): until the migration flips,
-    # enforcement and display must keep using the legacy methods. A new caller anywhere else is
-    # almost certainly a mistake — use get_user_access_level / check_access_level_for_object /
-    # access_level_for_resource instead, or extend ALLOWED deliberately in a migration PR.
+    # The most-specific resolvers (RFC 557) are shadow code. Until the migration completes,
+    # enforcement and display must use the enforced methods: get_user_access_level,
+    # check_access_level_for_object, access_level_for_resource. A caller anywhere else is
+    # almost certainly a mistake. Extend ALLOWED only in a migration PR.
     repo_root = Path(__file__).resolve().parents[3]
     offenders = []
     for root in SCANNED_ROOTS:

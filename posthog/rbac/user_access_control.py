@@ -399,10 +399,10 @@ class UserAccessControl:
         self._team = team
         self._cache: dict[str, list[AccessControl]] = {}
         self._sibling_team_access_controls: dict[int, UserAccessControl] = {}
-        # Shadow divergences already reported by this instance (one request). Without this,
-        # volume tracks our internals instead of customer rules: project access resolves several
-        # times per request, and list endpoints resolve per object — the same divergence would be
-        # reported hundreds of times per request for an affected org.
+        # Divergences this instance already reported. An instance lives for one request, and one
+        # request resolves the same rules many times: project access several times, and each
+        # object in a list response. The events carry no object id, so these repeats are
+        # identical events. Report each distinct divergence once per request.
         self._shadow_divergences_reported: set[tuple] = set()
 
         if not organization_id and team:
@@ -1620,21 +1620,24 @@ class UserAccessControl:
     # ------------------------------------------------------------
     # Most-specific-wins resolution (RFC 557). Not enforced.
     #
-    # The nearest scope with a rule decides: object -> fallback source -> resource -> the
-    # source's resource. In a scope, the most specific subject decides: member row -> role
-    # rows -> everyone-row. A more specific rule wins even when it grants less. The enforced
-    # walk differs: it takes max() across member and role rows, and the resource level
-    # outranks the object's default row.
+    # These methods resolve access by specificity:
+    # - Most specific subject first: member override -> max(role overrides) -> the object's
+    #   own default.
+    # - When the resource is in RESOURCE_FALLBACK_MAP (e.g. `warehouse_table` ->
+    #   `external_data_source`), access resolves as: rules on the object -> its parent ->
+    #   the resource -> the parent's resource.
+    # The first rule found in this order decides, even when it gives a lower level.
+    # The enforced methods resolve differently: they take the highest level across the
+    # member and role overrides, and rules on the resource win over the object's own default.
     #
-    # Do not call these methods for enforcement or display. Use `get_user_access_level` /
-    # `check_access_level_for_object` / `access_level_for_resource`. A repo invariant
-    # (posthog/test/repo_invariants/test_rbac_shadow_resolver_callers.py) fails any caller
-    # outside this module.
+    # DO NOT CALL THESE METHODS FOR ENFORCEMENT YET.
+    # Call `get_user_access_level`, `check_access_level_for_object`, or
+    # `access_level_for_resource` instead.
     # ------------------------------------------------------------
 
     def _rows_by_subject(self, rows: list[_AccessControl]) -> list[list[_AccessControl]]:
-        """One scope's rows grouped by subject, most specific first: the member's own rows, then
-        their roles', then the everyone-rows. Groups with no rows are absent."""
+        """Group one scope's rows by subject, most specific first: the member's own rows, then
+        the rows of their roles, then the rows that apply to everyone. Empty groups are removed."""
         by_subject: dict[str, list[_AccessControl]] = {"member": [], "role": [], "default": []}
         for ac in rows:
             by_subject[self._row_subject(ac)].append(ac)
@@ -1643,8 +1646,9 @@ class UserAccessControl:
     def resolve_object_access(self, obj: Model) -> Optional[ResolvedAccess]:
         """Future source of truth for object access — NOT enforced yet, see the section comment.
 
-        There is no `explicit` parameter: the full answer is always returned, and
-        `resolved.source != "system_default"` is what `explicit=True` means on the enforced methods.
+        This method has no `explicit` parameter. It always returns the full answer. For the
+        `explicit=True` behavior of the enforced methods, check
+        `resolved.source != "system_default"`.
         """
         resource = model_to_resource(obj)
         if not resource:
@@ -1702,8 +1706,8 @@ class UserAccessControl:
     def resolve_resource_access(self, resource: APIScopeObject) -> Optional[ResolvedAccess]:
         """Future source of truth for resource access — NOT enforced yet, see the section comment.
 
-        Same guards as `access_level_for_resource`; only the row step differs: the most specific
-        subject with any row decides, instead of one max over every row.
+        The guards are the same as in `access_level_for_resource`. Only the row step differs:
+        the most specific subject that has a row decides.
         """
         parent_resource = RESOURCE_INHERITANCE_MAP.get(resource)
         if parent_resource:
@@ -1762,10 +1766,10 @@ class UserAccessControl:
     ) -> None:
         """Capture a PostHog event when the enforced resolution and the most-specific one disagree.
 
-        Read-only telemetry for the RFC 557 migration: nothing here changes the enforced answer.
-        `proposed_fn` defers the second resolution so it only runs when the shadow is live.
-        Skipped on subclasses: SubjectAccessControl resolves other people's access for display,
-        so its divergences describe the subject, not this user.
+        This is read-only telemetry for the RFC 557 migration. It does not change the enforced
+        answer. `proposed_fn` runs only after the guards pass, so a skipped call does not pay
+        for the second resolution. Subclasses are skipped: SubjectAccessControl resolves
+        another subject's access for display, and those divergences do not describe this user.
         """
         if type(self) is not UserAccessControl or current is None:
             return
@@ -1780,7 +1784,7 @@ class UserAccessControl:
 
         order = ordered_access_levels(resource)
         direction = "widens" if order.index(proposed.access_level) > order.index(current.access_level) else "narrows"
-        # Deliberately no object ids and no emails: enough to size the migration, nothing more
+        # The event carries no object ids and no emails. Aggregate counts are enough for the migration.
         posthoganalytics.capture(
             distinct_id=self._user.distinct_id,
             event="rbac shadow resolution divergence",
