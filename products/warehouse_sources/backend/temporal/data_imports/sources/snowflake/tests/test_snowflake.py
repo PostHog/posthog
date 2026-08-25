@@ -179,7 +179,9 @@ class TestBuildQuery:
     def test_incremental_field_with_space_is_quoted(self):
         # A column name with a space must build a valid query, not crash. The
         # name is wrapped in double-quotes so Snowflake reads it as one field.
-        sql, _ = _build_query("DB", "PUBLIC", "t", True, "Date Established", IncrementalFieldType.DateTime, "2025-01-01")
+        sql, _ = _build_query(
+            "DB", "PUBLIC", "t", True, "Date Established", IncrementalFieldType.DateTime, "2025-01-01"
+        )
         assert 'WHERE "Date Established"' in sql
         assert 'ORDER BY "Date Established" ASC' in sql
 

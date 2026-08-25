@@ -5,15 +5,24 @@ names) reach a SQL query. Every SQL source goes through an
 `IdentifierQuoter` implementation so quoting is uniform and a subclass
 cannot bypass it.
 
-Each quoter makes a name safe by escaping the delimiter with the doubling
-rule its dialect defines: a literal `"` becomes `""` (ANSI: Postgres,
-Redshift, Snowflake), a literal `` ` `` becomes ` `` ` (MySQL / MariaDB /
-ClickHouse), and a literal `]` becomes `]]` (T-SQL, the same escape
-`QUOTENAME()` performs). Escaping — not an allowlist — is the safety
-boundary, so ordinary business column names with spaces or punctuation
-(`Date Established`, `applicant profile`, `Orden#`) import correctly.
-Control characters, which quoting cannot neutralise and never appear in a
-real identifier, are still rejected.
+Each quoter makes a name safe by doubling its delimiter: a literal `"`
+becomes `""` (ANSI: Postgres, Redshift, Snowflake), a literal `` ` ``
+becomes ` `` ` (MySQL / MariaDB / ClickHouse / BigQuery), and a literal `]`
+becomes `]]` (T-SQL, the same escape `QUOTENAME()` performs). Escaping —
+not an allowlist — is the safety boundary, so ordinary business column
+names with spaces or punctuation (`Date Established`, `applicant profile`,
+`Orden#`) import correctly. Control characters, which quoting cannot
+neutralise and never appear in a real identifier, are still rejected.
+
+Doubling the delimiter fails closed even in a dialect whose lexer does not
+read a doubled delimiter as one literal character. The reported failures
+are names with spaces or punctuation, which hold no delimiter, so quoting
+alone makes them valid. A name that does hold the delimiter is rarer than
+these: doubling turns every delimiter into a pair, so the count stays even
+and each one pairs with another. An injected keyword therefore stays inside
+a quoted-identifier token — the worst outcome is a query the engine
+rejects, never SQL that runs. Untrusted row-filter columns also pass an
+allowlist upstream (`validate_and_coerce_row_filters`).
 """
 
 from __future__ import annotations
