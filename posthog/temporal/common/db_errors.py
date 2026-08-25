@@ -1,4 +1,4 @@
-from django.db import InterfaceError, OperationalError
+from django.db import InterfaceError, InternalError, OperationalError
 
 # Substrings identifying transient Postgres failures. pgbouncer kills queries that wait too long
 # for a backend connection with `query_wait_timeout`, and surfaces dropped/reset backend
@@ -40,11 +40,15 @@ _TRANSIENT_DB_ERROR_MARKERS = (
 # refusing work while it does, which clears once it comes back. Available on the wrapped
 # psycopg error for server-raised failures; connect failures carry no SQLSTATE and fall
 # through to the message markers above.
-_TRANSIENT_SQLSTATE_PREFIXES = ("57P",)
+# 25006 (read_only_sql_transaction): a primary briefly refuses writes/locks mid-failover
+# (e.g. Aurora promoting a new writer) before client connections are redirected. psycopg
+# classes this under its own InternalError, not OperationalError, so it needs the wider
+# isinstance check below.
+_TRANSIENT_SQLSTATE_PREFIXES = ("57P", "25006")
 
 
 def is_transient_db_error(error: BaseException) -> bool:
-    if not isinstance(error, OperationalError | InterfaceError):
+    if not isinstance(error, OperationalError | InterfaceError | InternalError):
         return False
     sqlstate = getattr(error.__cause__, "sqlstate", None)
     if isinstance(sqlstate, str) and sqlstate.startswith(_TRANSIENT_SQLSTATE_PREFIXES):
