@@ -201,7 +201,9 @@ class EvaluationRunViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 target_event_id=target_event_id,
                 error=str(e),
             )
-            raise APIException("Failed to start evaluation") from e
+            # The shared frontend handler prefixes this with the action, so a message that repeats
+            # "failed to start" reads back as "Run evaluation failed: Failed to start evaluation".
+            raise APIException("The evaluation service is unavailable. Try again in a moment.") from e
 
     def _fetch_event_for_evaluation(self, where_clauses: list[str], params: dict[str, object]) -> dict:
         """Fetch the target event with its heavy AI columns from ai_events.
