@@ -17,11 +17,11 @@ from products.data_modeling.backend.models import (
 )
 from products.data_modeling.backend.models.data_modeling_job import DataModelingJobRunMode
 from products.data_modeling.backend.models.datawarehouse_saved_query import validate_saved_query_name
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable
+from products.warehouse_sources.backend.facade.api import get_queryable_table
 
 
 def _to_record(saved_query: DataWarehouseSavedQuery) -> ManagedWarehouseSavedQueryRecord:
-    table = saved_query.table
+    table = get_queryable_table(saved_query.table_id, saved_query.team_id) if saved_query.table_id is not None else None
     return ManagedWarehouseSavedQueryRecord(
         id=saved_query.id,
         team_id=saved_query.team_id,
@@ -82,11 +82,9 @@ def create_managed_warehouse_saved_query(
 def get_managed_warehouse_saved_query(
     team_id: int, saved_query_id: UUID | str
 ) -> ManagedWarehouseSavedQueryRecord | None:
-    saved_query = (
-        DataWarehouseSavedQuery.objects.select_related("table")
-        .filter(team_id=team_id, id=saved_query_id, origin=DataWarehouseSavedQuery.Origin.MANAGED_WAREHOUSE)
-        .first()
-    )
+    saved_query = DataWarehouseSavedQuery.objects.filter(
+        team_id=team_id, id=saved_query_id, origin=DataWarehouseSavedQuery.Origin.MANAGED_WAREHOUSE
+    ).first()
     return _to_record(saved_query) if saved_query is not None else None
 
 
@@ -134,8 +132,10 @@ def complete_managed_warehouse_saved_query_publish(
         origin=DataWarehouseSavedQuery.Origin.MANAGED_WAREHOUSE,
         deleted=False,
     )
-    table = DataWarehouseTable.objects.get(team_id=team_id, id=table_id, deleted=False)
-    saved_query.table = table
+    table = get_queryable_table(table_id, team_id)
+    if table is None:
+        raise ValueError(f"Warehouse table {table_id} is not queryable")
+    saved_query.table_id = table.id
     saved_query.set_columns(table.columns or {})
     saved_query.status = DataWarehouseSavedQuery.Status.COMPLETED
     saved_query.last_run_at = timezone.now()
