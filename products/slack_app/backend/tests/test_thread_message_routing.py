@@ -183,15 +183,20 @@ class TestRouteThreadMessage(TestCase):
 
     @parameterized.expand(
         [
-            ("owned here", "T_SLACK", None, False),
-            ("owned by the other region", "T_OTHER_REGION", None, True),
+            ("owned here only", "T_SLACK", None, False, False, False),
+            ("owned here and by the other region", "T_SLACK", None, True, False, True),
+            ("owned here, claims probe failed", "T_SLACK", None, None, False, False),
+            ("owned by the other region", "T_OTHER_REGION", None, False, True, False),
             # Nothing to trigger on, so no reason to spend a hop looking for a region that wants it.
-            ("an edit, owned by the other region", "T_OTHER_REGION", "message_changed", False),
+            ("an edit, owned by the other region", "T_OTHER_REGION", "message_changed", False, False, False),
+            ("an edit, owned in both regions", "T_SLACK", "message_changed", True, False, False),
         ]
     )
     @override_settings(SLACK_WORKFLOW_TRIGGERS_ENABLED=True)
-    def test_top_level_post_reaches_the_region_owning_the_workspace(self, _name, slack_team_id, subtype, expect_proxy):
-        from products.slack_app.backend.api import ROUTE_HANDLED_LOCALLY, ROUTE_PROXIED
+    def test_top_level_post_reaches_every_region_holding_the_workspace(
+        self, _name, slack_team_id, subtype, other_region_claims, expect_full_proxy, expect_mirror
+    ):
+        from products.slack_app.backend.api import EMIT_ONLY_MIRROR_HEADER, ROUTE_HANDLED_LOCALLY, ROUTE_PROXIED
 
         # thread_ts == ts, so a top-level post
         event = self._make_event(thread_ts="1001.0000")
@@ -199,13 +204,48 @@ class TestRouteThreadMessage(TestCase):
             event["subtype"] = subtype
         with (
             patch("products.slack_app.backend.api.cross_region_routing_enabled", return_value=True),
+            patch(
+                "products.slack_app.backend.api.does_other_region_claim_workspace",
+                return_value=other_region_claims,
+            ),
             patch("products.slack_app.backend.api._proxy_event_to_region") as mock_proxy,
             patch("products.slack_app.backend.slack_workflow_events.produce_internal_event"),
         ):
             result = self._route(event, slack_team_id=slack_team_id)
 
-        assert result == (ROUTE_PROXIED if expect_proxy else ROUTE_HANDLED_LOCALLY)
-        assert mock_proxy.called is expect_proxy
+        assert result == (ROUTE_PROXIED if expect_full_proxy else ROUTE_HANDLED_LOCALLY)
+        assert mock_proxy.called is (expect_full_proxy or expect_mirror)
+        if expect_mirror:
+            assert mock_proxy.call_args.kwargs["extra_headers"] == {EMIT_ONLY_MIRROR_HEADER: "1"}
+
+    @override_settings(SLACK_WORKFLOW_TRIGGERS_ENABLED=True)
+    def test_emit_only_mirror_emits_for_local_projects_and_nothing_else(self):
+        from products.slack_app.backend.api import (
+            EMIT_ONLY_MIRROR_HEADER,
+            REGION_PROXY_HEADER,
+            ROUTE_HANDLED_LOCALLY,
+            route_posthog_code_event_to_relevant_region,
+        )
+
+        event = self._make_event(thread_ts="1001.0000")
+        request = self.factory.post(
+            "/slack/event-callback/",
+            HTTP_HOST="us.posthog.com",
+            headers={REGION_PROXY_HEADER: "1", EMIT_ONLY_MIRROR_HEADER: "1"},
+        )
+        with (
+            patch("products.slack_app.backend.api.cross_region_routing_enabled", return_value=True),
+            patch("products.slack_app.backend.api._proxy_event_to_region") as mock_proxy,
+            patch("products.slack_app.backend.slack_workflow_events.produce_internal_event") as mock_produce,
+            patch("products.slack_app.backend.api._start_mention_workflow") as mock_start,
+        ):
+            result = route_posthog_code_event_to_relevant_region(request, event, "T_SLACK")
+
+        assert result == ROUTE_HANDLED_LOCALLY
+        mock_produce.assert_called_once()
+        assert mock_produce.call_args.args[0] == self.team.id
+        mock_proxy.assert_not_called()
+        mock_start.assert_not_called()
 
     # --- Mapping + FF gate -------------------------------------------------
 
