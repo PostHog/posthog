@@ -46,6 +46,7 @@ import { SkillLogicProps, SkillMode, isSkill, llmSkillLogic } from './llmSkillLo
 import { SKILL_NAME_MAX_LENGTH, SKILL_DESCRIPTION_MAX_LENGTH } from './skillConstants'
 import { skillFileLogic } from './skillFileLogic'
 import { collectFilesFromDrop } from './skillFileUpload'
+import { SkillOwners } from './SkillOwners'
 import { SkillPublishReviewModal, openArchiveSkillDialog } from './skillSceneComponents'
 
 const MonacoDiffEditor = lazyWithRetry(() => import('lib/components/MonacoDiffEditor'))
@@ -343,6 +344,8 @@ function SkillViewDetails(): JSX.Element {
                 <label className="text-xs font-semibold uppercase text-secondary">Description</label>
                 <p className="text-sm">{skill.description}</p>
             </div>
+
+            <SkillOwners />
 
             <div>
                 <label className="text-xs font-semibold uppercase text-secondary">Frontmatter</label>

@@ -98,6 +98,27 @@ describe('VolumeSparkline', () => {
             expect(onRangeSelect).toHaveBeenCalledWith(data[2].date, data[3].date)
             expect(wrapper.classList.contains('cursor-pointer')).toBe(true)
         })
+
+        it('shows a pointer over an ordinary bucket, which onBucketClick makes actionable', () => {
+            const data = buildData({ 2: { isSpike: true, color: 'var(--brand-red)' } })
+            const wrapper = renderChart({ data, onBucketClick: jest.fn(), onRangeSelect: jest.fn() })
+
+            hoverAtIndex(wrapper, 0, data.length)
+
+            expect(wrapper.classList.contains('cursor-pointer')).toBe(true)
+        })
+
+        // The handler needs a bucket width to build an end date, and placeholder data gives it
+        // none. The cursor has to agree, or it promises a filter that never applies.
+        it('shows no pointer over placeholder data, which the handler declines', () => {
+            const sameInstant = new Date('2024-01-01T00:00:00.000Z')
+            const data = [0, 1, 2, 3, 4].map(() => ({ date: sameInstant, value: 10 }))
+            const wrapper = renderChart({ data, onBucketClick: jest.fn(), onRangeSelect: jest.fn() })
+
+            hoverAtIndex(wrapper, 1, data.length)
+
+            expect(wrapper.classList.contains('cursor-pointer')).toBe(false)
+        })
     })
 
     describe('spike clicks', () => {
@@ -171,28 +192,7 @@ describe('VolumeSparkline', () => {
 
             hoverAtIndex(wrapper, index, data.length)
 
-            expect(wrapper.className).toContain(expected)
-        })
-
-        it('shows a pointer on every bucket when onBucketClick makes them all actionable', () => {
-            const data = buildData({ 2: { isSpike: true, color: 'var(--brand-red)' } })
-            const wrapper = renderChart({ data, onBucketClick: jest.fn(), onRangeSelect: jest.fn() })
-
-            hoverAtIndex(wrapper, 0, data.length)
-
-            expect(wrapper.className).toContain('cursor-pointer')
-        })
-
-        // The bucket handler needs a bucket width to build an end date, and placeholder data
-        // gives it none. The cursor has to agree, or it promises a filter that never applies.
-        it('shows no pointer when every bucket carries the same timestamp', () => {
-            const sameInstant = new Date('2024-01-01T00:00:00.000Z')
-            const data = [0, 1, 2, 3, 4].map(() => ({ date: sameInstant, value: 10 }))
-            const wrapper = renderChart({ data, onBucketClick: jest.fn(), onRangeSelect: jest.fn() })
-
-            hoverAtIndex(wrapper, 1, data.length)
-
-            expect(wrapper.className).not.toContain('cursor-pointer')
+            expect(wrapper.classList.contains(expected)).toBe(true)
         })
 
         it('never fires when no bucket in the data is flagged as a spike', () => {

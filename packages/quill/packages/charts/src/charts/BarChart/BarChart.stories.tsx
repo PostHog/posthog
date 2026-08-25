@@ -332,7 +332,7 @@ export const MixedClickability: Story = {
     render: () => {
         const theme = useReactiveTheme()
         const [status, setStatus] = useState('Hover the tall bars for a pointer, the rest for the drag crosshair')
-        const config: BarChartConfig = { showGrid: true }
+        const config = useMemo<BarChartConfig>(() => ({ showGrid: true }), [])
         const series = useMemo<Series[]>(
             () => [{ key: 'volume', label: 'Occurrences', color: '', data: [12, 90, 14, 11, 85, 13, 12] }],
             []

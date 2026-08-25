@@ -378,9 +378,9 @@ describe('BarChart', () => {
             const onlyIndexOne = (dataIndex: number): boolean => dataIndex === 1
 
             it.each([
-                ['an actionable point', 1, 1],
-                ['a point the predicate rejects', 0, 0],
-            ])('%s fires onPointClick %i time(s)', async (_name, index, calls) => {
+                { name: 'an actionable point', index: 1, calls: 1 },
+                { name: 'a point the predicate rejects', index: 0, calls: 0 },
+            ])('$name fires onPointClick $calls time(s)', async ({ index, calls }) => {
                 const onPointClick = jest.fn()
                 const { chart } = renderHogChart(
                     <BarChart
@@ -396,9 +396,9 @@ describe('BarChart', () => {
             })
 
             it.each([
-                ['pointer over an actionable point', 1, 'cursor-pointer'],
-                ['the drag crosshair over a rejected one', 0, 'cursor-crosshair'],
-            ])('shows %s', (_name, index, expected) => {
+                { name: 'pointer over an actionable point', index: 1, expected: 'cursor-pointer' },
+                { name: 'the drag crosshair over a rejected one', index: 0, expected: 'cursor-crosshair' },
+            ])('shows $name', ({ index, expected }) => {
                 const { chart } = renderHogChart(
                     <BarChart
                         series={SERIES}
@@ -481,6 +481,10 @@ describe('BarChart', () => {
                     seen.push(dataIndex)
                     return true
                 }
+                // One handler identity across both renders, so `labels` is the only input that
+                // changes — otherwise a fresh handler rebuilds the click callback anyway and
+                // hides whether it tracks the label count.
+                const onPointClick = jest.fn()
                 const long = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri']
                 const longSeries: Series[] = [{ key: 'a', label: 'A', data: [1, 2, 3, 4, 5] }]
                 const { chart, rerender } = renderHogChart(
@@ -488,11 +492,14 @@ describe('BarChart', () => {
                         series={longSeries}
                         labels={long}
                         theme={THEME}
-                        onPointClick={jest.fn()}
+                        onPointClick={onPointClick}
                         isPointClickable={predicate}
                     />
                 )
                 chart.hoverAtIndex(3)
+                // Proves the predicate is reached at all, so the assertion below can't pass on
+                // an empty array.
+                expect(seen).toContain(3)
                 seen.length = 0
 
                 const short = ['Mon', 'Tue']
@@ -502,12 +509,15 @@ describe('BarChart', () => {
                         series={shortSeries}
                         labels={short}
                         theme={THEME}
-                        onPointClick={jest.fn()}
+                        onPointClick={onPointClick}
                         isPointClickable={predicate}
                     />
                 )
+                // The hover index survives the shrink, so a click still carries the old index —
+                // the cursor and the click each have to bound it.
+                fireEvent.click(chart.element)
 
-                expect(seen.every((index) => index < short.length)).toBe(true)
+                expect(seen.filter((index) => index >= short.length)).toEqual([])
             })
 
             it('leaves every point clickable when no predicate is given', async () => {
