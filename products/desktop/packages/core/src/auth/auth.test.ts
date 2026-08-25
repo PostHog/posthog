@@ -1285,6 +1285,58 @@ describe("AuthService", () => {
   });
 
   describe("transient org fetch failures", () => {
+    it("does not replace the stored project with another org's first project during partial recovery", async () => {
+      seedStoredSession({ selectedProjectId: 84 });
+      oauthFlow.refreshToken.mockResolvedValue(
+        mockTokenResponse({ scopedOrgs: ["org-1", "org-2"] }),
+      );
+
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (input: string | Request) => {
+          const url = typeof input === "string" ? input : input.url;
+
+          if (url.includes("/api/users/@me/")) {
+            return {
+              ok: true,
+              json: vi.fn().mockResolvedValue({
+                uuid: "user-1",
+                organization: { id: "org-1" },
+              }),
+            } as unknown as Response;
+          }
+
+          if (url.includes("/api/organizations/org-1/")) {
+            return {
+              ok: true,
+              json: vi.fn().mockResolvedValue({
+                name: "Org 1",
+                teams: [{ id: 42, name: "Project 42" }],
+              }),
+            } as unknown as Response;
+          }
+
+          if (url.includes("/api/organizations/org-2/")) {
+            return {
+              ok: false,
+              status: 503,
+              json: vi.fn().mockResolvedValue({}),
+            } as unknown as Response;
+          }
+
+          return {
+            ok: true,
+            json: vi.fn().mockResolvedValue({ allowed: true, reason: null }),
+          } as unknown as Response;
+        }) as unknown as typeof fetch,
+      );
+
+      await service.initialize();
+
+      expect(service.getState().currentProjectId).toBeNull();
+      expect(sessionPort.getCurrent()?.selectedProjectId).toBe(84);
+    });
+
     it("retries the org fetch on a transient network failure and keeps the selected project", async () => {
       seedStoredSession({ selectedProjectId: 84 });
       oauthFlow.refreshToken.mockResolvedValue(mockTokenResponse());

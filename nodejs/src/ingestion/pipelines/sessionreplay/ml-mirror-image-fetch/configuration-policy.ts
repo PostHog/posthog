@@ -163,7 +163,12 @@ export class HttpConfigurationFetcher {
         if (body.overLimit && file === 'tdmrep') {
             return complete({ kind: 'done', result: { outcome: 'unreachable', cache } })
         }
-        const text = body.bytes.toString('utf8')
+        let text: string
+        try {
+            text = new TextDecoder('utf-8', { fatal: true }).decode(body.bytes, { stream: body.overLimit })
+        } catch {
+            return complete({ kind: 'done', result: { outcome: 'unreachable', cache } })
+        }
         if (file === 'tdmrep' && !isValidTdmrepDocument(text)) {
             return complete({ kind: 'done', result: { outcome: 'unreachable', cache } })
         }

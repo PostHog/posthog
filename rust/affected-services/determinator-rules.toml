@@ -39,6 +39,7 @@ mark-changed = [
     "cymbal-proto",
     "ingestion-worker-proto",
     "prometheus-rw-proto",
+    "usage-ingestion-proto",
 ]
 
 # Hypercache contract: Python serializer changes may break Rust deserialization.

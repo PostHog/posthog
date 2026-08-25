@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+package usage_ingestion.v1;
+
+// UsageIngestion accepts usage records for durable analytics. Producers must reuse
+// record_id when retrying a record. The service preserves the producer's timestamp and
+// assigns insertion time when it publishes.
+//
+// IngestBillingUsage carries tenant-billable usage: exact, idempotent, retained
+// indefinitely. Cost and resource metering is a separate RPC and table.
+service UsageIngestion {
+  rpc IngestBillingUsage(IngestBillingUsageRequest) returns (IngestBillingUsageResponse);
+}
+
+// Fields 1-5 are the record's identity, in the order the storage sorting key uses them:
+// (team_id, toDate(timestamp), producer_id, usage_key, record_id). A retry reuses all five
+// and collapses to one row. Correcting a quantity means re-sending the same identity, and
+// the last send wins.
+message BillingUsageRecord {
+  // The service owns organization attribution: it resolves the organization from team_id,
+  // so producers cannot supply one.
+  int64 team_id = 1;
+
+  // Stamp this from the producer's own clock when it emits, never from a customer payload.
+  // It is part of the identity, so a value a customer controls would let them decide
+  // whether their own records deduplicate.
+  int64 timestamp_ms = 2;
+
+  string producer_id = 3;
+  string usage_key = 4;
+  string record_id = 5;
+
+  int64 quantity = 6;
+  string unit = 7;
+}
+
+message IngestBillingUsageRequest {
+  repeated BillingUsageRecord records = 1;
+}
+
+message IngestBillingUsageResponse {
+  // The service validates a whole batch before producing, so validation failures accept no
+  // records. The RPC waits for Kafka delivery confirmation, so callers must use it off their
+  // request-critical path. A retry after an unavailable response is safe because record_id is
+  // the deduplication identity, including when Kafka delivered only part of the batch.
+  repeated string accepted_record_ids = 1;
+}
