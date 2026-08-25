@@ -47,8 +47,15 @@ export function GithubIntegration({
     })
 
     const settingsPath = next ?? urls.settings('environment-integrations')
+    // Some callers (e.g. the signals inbox) pass a `next` that already carries the `/project/<id>`
+    // prefix. Wrapping it again produces `/project/<id>/project/<id>/...`, which matches no route, so
+    // GitHub sends the user to a 404. Only add the prefix when it is missing.
+    const nextUrl =
+        currentTeam?.id && !settingsPath.startsWith('/project/')
+            ? urls.project(currentTeam.id, settingsPath)
+            : settingsPath
     const authorizationUrl = api.integrations.authorizeUrl({
-        next: currentTeam?.id ? urls.project(currentTeam.id, settingsPath) : settingsPath,
+        next: nextUrl,
         kind: 'github',
     })
 

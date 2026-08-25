@@ -62,6 +62,28 @@ describe('GithubIntegration', () => {
         expect(connectClicks()).toEqual([])
     })
 
+    // The OAuth round trip returns to `next`. If `next` already carries a `/project/<id>` prefix, the
+    // component must not add a second one — a doubled path matches no route and lands the user on a 404.
+    const authorizeNext = async (next?: string): Promise<string | null> => {
+        render(
+            <Provider>
+                <GithubIntegration connectSurface="settings" next={next} />
+            </Provider>
+        )
+        const button = await screen.findByText('Connect account')
+        const href = button.closest('a')?.getAttribute('href') ?? ''
+        return new URL(href, 'http://localhost').searchParams.get('next')
+    }
+
+    it.each([
+        ['keeps an already project-prefixed next intact', '/project/997/inbox?setup=github', '/project/997/inbox'],
+        ['adds the project prefix to a bare next', '/settings/environment-integrations', '/project/997/settings'],
+    ])('%s', async (_name, next, expectedPrefix) => {
+        const resolvedNext = await authorizeNext(next)
+        expect(resolvedNext?.startsWith(expectedPrefix)).toBe(true)
+        expect(resolvedNext).not.toContain('/project/997/project/997')
+    })
+
     it.each([
         ['pending', 'GitHub sent your request', 'Copy message for your org owner'],
         ['approved', 'An organization owner approved the PostHog app for', 'Finish connecting'],
