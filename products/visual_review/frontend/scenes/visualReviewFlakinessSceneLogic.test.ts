@@ -1,0 +1,78 @@
+import { expectLogic } from 'kea-test-utils'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+
+import type { FlakinessOverviewApi } from '../generated/api.schemas'
+import { visualReviewFlakinessSceneLogic } from './visualReviewFlakinessSceneLogic'
+
+const REPO_ID = '00000000-0000-0000-0000-0000000000bb'
+const FLAKINESS_URL = `/api/projects/:team_id/visual_review/repos/${REPO_ID}/flakiness/`
+
+const overview: FlakinessOverviewApi = {
+    entries: [],
+    totals: {
+        listed: 0,
+        tracked: 4494,
+        unstable: 231,
+        settled: 604,
+        quarantined: 47,
+        needs_decision: 12,
+        by_run_type: {},
+    },
+    truncated: false,
+    generated_at: '2026-06-10T10:00:00Z',
+}
+
+describe('visualReviewFlakinessSceneLogic', () => {
+    let logic: ReturnType<typeof visualReviewFlakinessSceneLogic.build>
+
+    afterEach(() => {
+        logic?.unmount()
+    })
+
+    describe('when the overview loads', () => {
+        beforeEach(() => {
+            initKeaTests()
+            useMocks({ get: { [FLAKINESS_URL]: overview } })
+            logic = visualReviewFlakinessSceneLogic({ repoId: REPO_ID })
+            logic.mount()
+        })
+
+        it('reports no error', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.loadError).toBeNull()
+            expect(logic.values.overview).toEqual(overview)
+        })
+
+        // Server totals, not counts over the returned entries, so the tiles stay
+        // right when the payload is capped.
+        it('takes the stat counts from server totals rather than the listed entries', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.statCounts).toEqual({
+                unstable: 231,
+                settled: 604,
+                quarantined: 47,
+                needs_decision: 12,
+            })
+        })
+    })
+
+    describe('when the overview fails to load', () => {
+        beforeEach(() => {
+            initKeaTests()
+            useMocks({ get: { [FLAKINESS_URL]: () => [500, { detail: 'Upstream timed out' }] } })
+            logic = visualReviewFlakinessSceneLogic({ repoId: REPO_ID })
+            logic.mount()
+        })
+
+        // A failed load leaves `overview` null, which is what an empty repo also
+        // looks like. Without `loadError` the scene renders "every snapshot
+        // renders the same way every time" over a request that never answered.
+        it('records the error so the scene can tell it from an empty repo', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.loadError).not.toBeNull()
+            expect(logic.values.overview).toBeNull()
+        })
+    })
+})

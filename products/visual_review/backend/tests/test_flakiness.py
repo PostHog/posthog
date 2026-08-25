@@ -7,6 +7,7 @@ Coverage:
 - Only identifiers carrying variants or a quarantine are listed.
 - `needs_decision` fires on the three ways an open quarantine stops fitting.
 - The activity strip is dense and positions the baseline divider.
+- Recency comes from runs that matched a variant, not from when it was minted.
 """
 
 from datetime import timedelta
@@ -25,6 +26,7 @@ from products.visual_review.backend.facade.contracts import (
     FLAKINESS_STRIP_DAYS,
 )
 from products.visual_review.backend.facade.enums import (
+    ClassificationReason,
     FlakinessState,
     RunStatus,
     RunType,
@@ -62,6 +64,7 @@ def _mk_snapshot(
     identifier: str,
     baseline_hash: str = CURRENT_BASELINE,
     result: str = SnapshotResult.UNCHANGED,
+    tolerated_hash_match: ToleratedHash | None = None,
 ) -> RunSnapshot:
     return RunSnapshot.objects.create(
         run=run,
@@ -69,6 +72,8 @@ def _mk_snapshot(
         identifier=identifier,
         baseline_hash=baseline_hash,
         result=result,
+        tolerated_hash_match=tolerated_hash_match,
+        classification_reason=ClassificationReason.TOLERATED_HASH if tolerated_hash_match else "",
     )
 
 
@@ -107,7 +112,28 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         )
         ToleratedHash.objects.filter(id=row.id).update(created_at=timezone.now() - age)
         row.refresh_from_db()
+        if reason == ToleratedReason.AUTO_THRESHOLD:
+            self._mk_match(row, age=age)
         return row
+
+    def _mk_match(self, tolerated: ToleratedHash, *, age: timedelta) -> Run:
+        """A superseded run that rendered `tolerated` and matched it.
+
+        A variant only exists because a run produced it, so a fixture that
+        creates the row alone cannot exercise recency. Superseded, because
+        `unique_latest_run_per_group` allows one current run per group and the
+        test's own master run holds that slot.
+        """
+        run = _mk_run(self.repo, superseded_by=self.master_run)
+        Run.objects.filter(id=run.id).update(created_at=timezone.now() - age)
+        _mk_snapshot(
+            run,
+            identifier=tolerated.identifier,
+            baseline_hash=tolerated.baseline_hash,
+            tolerated_hash_match=tolerated,
+        )
+        run.refresh_from_db()
+        return run
 
     def _entry(self, identifier: str):
         result = vr_api.get_flakiness_overview(self.repo.id)
@@ -174,6 +200,23 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         assert entry.variant_count == 20
         assert entry.flakiness_state == expected
 
+    def test_a_snapshot_cycling_through_known_variants_stays_unstable(self):
+        # The mint site uses get_or_create, so a repeat match never refreshes
+        # ToleratedHash.created_at. Scoring recency off that timestamp would
+        # call this snapshot settled while it still fails to render the same
+        # way twice, which is the worst case this page exists to find.
+        _mk_snapshot(self.master_run, identifier="cycling")
+        old = timedelta(days=FLAKINESS_RECENT_DAYS + 20)
+        for index in range(3):
+            variant = self._mk_variant(identifier="cycling", alternate_hash=f"a-{index}", age=old)
+            self._mk_match(variant, age=timedelta(hours=6))
+
+        entry = self._entry("cycling")
+
+        assert entry is not None
+        assert entry.variant_count == 3
+        assert entry.flakiness_state == FlakinessState.UNSTABLE
+
     def test_snapshots_with_nothing_to_report_are_not_listed(self):
         _mk_snapshot(self.master_run, identifier="stable")
         _mk_snapshot(self.master_run, identifier="flaky")
@@ -184,6 +227,14 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         assert [e.identifier for e in result.entries] == ["flaky"]
         assert result.totals.listed == 1
         assert result.totals.tracked == 2
+
+    def test_the_denominator_counts_only_snapshots_with_a_baseline(self):
+        _mk_snapshot(self.master_run, identifier="compared")
+        _mk_snapshot(self.master_run, identifier="brand-new", baseline_hash="")
+
+        result = vr_api.get_flakiness_overview(self.repo.id)
+
+        assert result.totals.tracked == 1
 
     def test_a_quarantined_snapshot_with_no_variants_is_listed_as_clean(self):
         _mk_snapshot(self.master_run, identifier="muted")

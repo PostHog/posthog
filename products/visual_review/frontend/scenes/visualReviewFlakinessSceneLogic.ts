@@ -125,7 +125,7 @@ function applyFilters(
 }
 
 function recencyOf(entry: DecoratedEntry): number {
-    return entry.last_variant_at ? new Date(entry.last_variant_at).getTime() : 0
+    return entry.last_flaked_at ? new Date(entry.last_flaked_at).getTime() : 0
 }
 
 function variantCountOf(entry: DecoratedEntry): number {
@@ -168,6 +168,7 @@ export interface visualReviewFlakinessSceneLogicValues {
     facetSelection: FacetSelection
     filteredEntries: DecoratedEntry[]
     filters: Filters
+    loadError: string | null
     overview: FlakinessOverviewApi | null
     overviewLoading: boolean
     repoId: string
@@ -195,6 +196,19 @@ export interface visualReviewFlakinessSceneLogicActions {
         overview: FlakinessOverviewApi
         payload?: any
     }
+    quarantineIdentifier: (
+        identifier: string,
+        runType: string,
+        reason: string,
+        expiresAt: string | null,
+        sourceRunId: string | null
+    ) => {
+        expiresAt: string | null
+        identifier: string
+        reason: string
+        runType: string
+        sourceRunId: string | null
+    }
     setPreset: (preset: FlakinessPreset) => {
         preset: FlakinessPreset
     }
@@ -209,17 +223,6 @@ export interface visualReviewFlakinessSceneLogicActions {
     }
     toggleType: (value: string) => {
         value: string
-    }
-    quarantineIdentifier: (
-        identifier: string,
-        runType: string,
-        reason: string,
-        expiresAt: string | null
-    ) => {
-        identifier: string
-        runType: string
-        reason: string
-        expiresAt: string | null
     }
     unquarantineIdentifier: (
         identifier: string,
@@ -267,15 +270,33 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
         setSearch: (search: string) => ({ search }),
         setSort: (sort: FlakinessSort) => ({ sort }),
         clearAllFilters: true,
-        quarantineIdentifier: (identifier: string, runType: string, reason: string, expiresAt: string | null) => ({
+        quarantineIdentifier: (
+            identifier: string,
+            runType: string,
+            reason: string,
+            expiresAt: string | null,
+            sourceRunId: string | null
+        ) => ({
             identifier,
             runType,
             reason,
             expiresAt,
+            sourceRunId,
         }),
         unquarantineIdentifier: (identifier: string, runType: string) => ({ identifier, runType }),
     }),
     reducers({
+        // The loader resets `overview` to null on failure, which is
+        // indistinguishable from an empty repo. Hold the error so the scene can
+        // tell "nothing to show" from "we could not look".
+        loadError: [
+            null as string | null,
+            {
+                loadOverview: () => null,
+                loadOverviewSuccess: () => null,
+                loadOverviewFailure: (_state: string | null, { error }: { error: string }) => error || 'Unknown error',
+            },
+        ],
         filters: [
             EMPTY_FILTERS,
             {
@@ -374,12 +395,16 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
         ],
     }),
     listeners(({ actions, values, props }) => ({
-        quarantineIdentifier: async ({ identifier, runType, reason, expiresAt }) => {
+        quarantineIdentifier: async ({ identifier, runType, reason, expiresAt, sourceRunId }) => {
             try {
                 await visualReviewReposQuarantineCreate(String(values.currentProjectId), props.repoId, runType, {
                     identifier,
                     reason,
                     expires_at: expiresAt,
+                    // Forward the prior source when extending. The endpoint expires the
+                    // old row and creates a replacement, so dropping this loses the link
+                    // to the run that prompted the quarantine.
+                    source_run_id: sourceRunId,
                 })
                 lemonToast.success('Quarantined. Runs stop gating on this snapshot.')
                 actions.loadOverview()

@@ -93,8 +93,8 @@ class FlakinessState(StrEnum):
     classifier can still match, so the score resets when the baseline moves.
     """
 
-    UNSTABLE = "unstable"  # Recorded a new variant inside the recency window
-    SETTLED = "settled"  # Has variants against this baseline, but none recently
+    UNSTABLE = "unstable"  # Rendered a variant inside the recency window
+    SETTLED = "settled"  # Has variants against this baseline, but rendered none recently
     CLEAN = "clean"  # No live variants against the current baseline
 
 

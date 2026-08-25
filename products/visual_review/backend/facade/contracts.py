@@ -503,10 +503,10 @@ class BaselineOverview:
     generated_at: datetime
 
 
-# How recently a snapshot must have recorded a new variant to count as
-# unstable rather than settled. A Storybook run lands many times a day on an
-# active repo, so a week is wide enough that a genuinely flaky snapshot cannot
-# stay quiet through it by chance.
+# How recently a snapshot must have rendered a variant to count as unstable
+# rather than settled. A Storybook run lands many times a day on an active
+# repo, so a week is wide enough that a genuinely flaky snapshot cannot stay
+# quiet through it by chance.
 FLAKINESS_RECENT_DAYS = 7
 
 # Width of the per-day activity strip on each row. Fixed rather than following
@@ -543,14 +543,16 @@ class FlakinessEntry:
     # snapshot's current baseline. Reads as "how many different images this
     # snapshot is currently allowed to produce".
     variant_count: int
-    # When the newest of those variants was first recorded. None when
-    # `variant_count` is 0, which only happens on a quarantined entry.
-    last_variant_at: datetime | None
+    # Last default-branch run that rendered one of those variants. Not when a
+    # variant was first recorded: a snapshot can cycle through variants it
+    # already recorded forever without adding a new one, and that is the worst
+    # case this page exists to find. None when no run has matched one.
+    last_flaked_at: datetime | None
     # Mean pixel-diff fraction across those variants. Separates sub-pixel
     # noise from a small but real rendering change.
     avg_diff_percentage: float | None
-    # Days since the last baseline move on the default branch. None when the
-    # baseline has never moved, so the snapshot has only ever had one.
+    # Days since the first default-branch run that compared against the
+    # current baseline, which is when that baseline took effect.
     baseline_age_days: int | None
     # Variants recorded per day over the last `FLAKINESS_STRIP_DAYS`, oldest
     # first. Always that length so the frontend can render a fixed axis.

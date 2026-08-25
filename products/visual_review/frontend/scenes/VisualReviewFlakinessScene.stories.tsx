@@ -40,7 +40,7 @@ const entry = (overrides: Partial<FlakinessEntryApi>): FlakinessEntryApi => ({
     width: 320,
     height: 200,
     variant_count: 41,
-    last_variant_at: '2026-06-10T09:00:00Z',
+    last_flaked_at: '2026-06-10T09:00:00Z',
     avg_diff_percentage: 0.041,
     baseline_age_days: 34,
     daily_variant_counts: series('chronic'),
@@ -78,7 +78,7 @@ const overview: FlakinessOverviewApi = {
             baseline_age_days: 4,
             daily_variant_counts: series('burst'),
             baseline_moved_day_index: 25,
-            last_variant_at: '2026-06-09T09:00:00Z',
+            last_flaked_at: '2026-06-09T09:00:00Z',
         }),
     ],
     totals: {
@@ -145,6 +145,25 @@ export const NothingToShow: StoryObj = {
         mswDecorator({
             get: {
                 [`/api/projects/:team_id/visual_review/repos/${REPO_ID}/flakiness/`]: emptyOverview,
+            },
+        }),
+    ],
+}
+
+// A failed load has to look different from an empty repo. Both leave the scene
+// with no overview, and rendering NothingToShow here would claim every snapshot
+// is stable on the strength of a request that never answered.
+export const CouldNotLoad: StoryObj = {
+    // The stat tiles are hidden on this screen, so the meta-level selector never
+    // appears and the snapshot would wait for it forever.
+    parameters: { testOptions: { waitForSelector: '[data-attr="visual-review-flakiness-retry"]' } },
+    decorators: [
+        mswDecorator({
+            get: {
+                [`/api/projects/:team_id/visual_review/repos/${REPO_ID}/flakiness/`]: [
+                    500,
+                    { detail: 'Upstream timed out' },
+                ],
             },
         }),
     ],

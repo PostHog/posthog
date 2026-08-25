@@ -344,8 +344,7 @@ def get_flakiness_overview(repo_id: UUID) -> contracts.FlakinessOverview:
 
     entries: list[contracts.FlakinessEntry] = []
     for row in raw.rows:
-        key = (row.run_type, row.identifier)
-        snapshot = raw.snapshots_by_key.get(key)
+        snapshot = raw.snapshots_by_key.get(flakiness.snapshot_key(row))
         artifact = snapshot.current_artifact if snapshot is not None else None
         thumbnail = artifact.thumbnail if artifact is not None else None
         metadata = (snapshot.metadata or {}) if snapshot is not None else {}
@@ -358,7 +357,7 @@ def get_flakiness_overview(repo_id: UUID) -> contracts.FlakinessOverview:
                 width=artifact.width if artifact is not None else None,
                 height=artifact.height if artifact is not None else None,
                 variant_count=row.variant_count,
-                last_variant_at=row.last_variant_at,
+                last_flaked_at=row.last_flaked_at,
                 avg_diff_percentage=row.avg_diff_percentage,
                 baseline_age_days=_days_since(row.baseline_moved_at, raw.generated_at),
                 daily_variant_counts=row.daily_counts,

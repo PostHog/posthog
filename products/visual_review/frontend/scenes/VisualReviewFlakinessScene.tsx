@@ -152,8 +152,10 @@ export function VisualReviewFlakinessScene(): JSX.Element {
         facetSelection,
         filters,
         thumbnailBasePath,
+        loadError,
     } = useValues(visualReviewFlakinessSceneLogic)
     const {
+        loadOverview,
         setPreset,
         toggleType,
         toggleArea,
@@ -202,7 +204,7 @@ export function VisualReviewFlakinessScene(): JSX.Element {
                 snapshot changes for real, its baseline moves and the count starts over.
             </LemonBanner>
 
-            <FlakinessStatRow counts={statCounts} preset={filters.preset} onChange={setPreset} />
+            {!loadError && <FlakinessStatRow counts={statCounts} preset={filters.preset} onChange={setPreset} />}
 
             {overview && (
                 <div className="text-xs text-muted">
@@ -258,6 +260,17 @@ export function VisualReviewFlakinessScene(): JSX.Element {
                         <LemonSkeleton key={index} className="h-12 w-full" />
                     ))}
                 </div>
+            ) : loadError ? (
+                <LemonBanner
+                    type="error"
+                    action={{
+                        children: 'Try again',
+                        onClick: () => loadOverview(),
+                        'data-attr': 'visual-review-flakiness-retry',
+                    }}
+                >
+                    Could not load flakiness for this repo. {loadError}
+                </LemonBanner>
             ) : !hasPopulation ? (
                 <div className="flex flex-col items-center justify-center py-20 gap-2 text-center">
                     <p className="m-0 font-semibold">Every snapshot renders the same way every time</p>
@@ -336,7 +349,7 @@ export function VisualReviewFlakinessScene(): JSX.Element {
                                     align: 'right',
                                     width: 100,
                                     render: (_, entry: DecoratedEntry) => {
-                                        const lastSeen = formatLastSeen(entry.last_variant_at)
+                                        const lastSeen = formatLastSeen(entry.last_flaked_at)
                                         return (
                                             <span
                                                 className={`font-mono text-xs ${
@@ -365,13 +378,15 @@ export function VisualReviewFlakinessScene(): JSX.Element {
                                                 triggerLabel={entry.is_quarantined ? 'Extend' : 'Quarantine'}
                                                 initialReason={entry.quarantine?.reason}
                                                 initialExpiresAt={entry.quarantine?.expires_at}
-                                                onQuarantine={(reason, identifiers, expiresAt) => {
+                                                sourceRunId={entry.quarantine?.source_run?.id ?? null}
+                                                onQuarantine={(reason, identifiers, expiresAt, sourceRunId) => {
                                                     identifiers.forEach((identifier) =>
                                                         quarantineIdentifier(
                                                             identifier,
                                                             entry.run_type,
                                                             reason,
-                                                            expiresAt
+                                                            expiresAt,
+                                                            sourceRunId
                                                         )
                                                     )
                                                 }}

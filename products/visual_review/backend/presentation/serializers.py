@@ -335,11 +335,13 @@ class FlakinessEntrySerializer(DataclassSerializer):
             "baseline hash can never match again."
         )
     )
-    last_variant_at = serializers.DateTimeField(
+    last_flaked_at = serializers.DateTimeField(
         allow_null=True,
         required=False,
         help_text=(
-            "When the newest of those variants was first recorded. Null only on a quarantined entry with no variants."
+            "Last default-branch run that rendered one of those variants. This is not when a variant "
+            "was first recorded: a snapshot can cycle through variants it already recorded without "
+            "adding a new one, and that case still flakes on every run. Null when no run matched one."
         ),
     )
     avg_diff_percentage = serializers.FloatField(
@@ -354,9 +356,9 @@ class FlakinessEntrySerializer(DataclassSerializer):
         allow_null=True,
         required=False,
         help_text=(
-            "Days since this snapshot's baseline last moved on the default branch. Null when it has "
-            "never moved. Context for `variant_count`: the same count against a four-day-old "
-            "baseline is far worse than against a six-month-old one."
+            "Days since the first default-branch run that compared against the current baseline, "
+            "which is when that baseline took effect. Context for `variant_count`: the same count "
+            "against a four-day-old baseline is far worse than against a six-month-old one."
         ),
     )
     daily_variant_counts = serializers.ListField(
