@@ -458,6 +458,29 @@ impl Harness {
             deferred_flush_timeout,
             registry_config,
             0,
+            ComponentOptions::new(),
+        )
+        .await
+    }
+
+    async fn start_with_liveness(
+        topic: &str,
+        worker_count: usize,
+        deferred_flush_timeout: Duration,
+        liveness_deadline: Duration,
+        stall_threshold: u32,
+    ) -> Self {
+        Self::start_inner(
+            topic,
+            1,
+            worker_count,
+            1,
+            deferred_flush_timeout,
+            fast_registry_config(),
+            0,
+            ComponentOptions::new()
+                .with_liveness_deadline(liveness_deadline)
+                .with_stall_threshold(stall_threshold),
         )
         .await
     }
@@ -474,6 +497,7 @@ impl Harness {
             Duration::from_secs(60),
             fast_registry_config(),
             batch_size_bytes,
+            ComponentOptions::new(),
         )
         .await
     }
@@ -487,6 +511,7 @@ impl Harness {
         deferred_flush_timeout: Duration,
         registry_config: WorkerRegistryConfig,
         batch_size_bytes: usize,
+        component_options: ComponentOptions,
     ) -> Self {
         create_topic(topic, partitions).await;
 
@@ -521,9 +546,11 @@ impl Harness {
 
         let mut manager = Manager::builder("e2e-test")
             .with_trap_signals(false)
+            .with_health_poll_interval(Duration::from_millis(100))
             .build();
-        let handle = manager.register("consumer", ComponentOptions::new());
+        let handle = manager.register("consumer", component_options);
         let shutdown = handle.shutdown_token();
+        let _monitor = manager.monitor_background();
 
         let group_id = format!("e2e-{}", Uuid::new_v4());
         let kafka_consumer = make_kafka_consumer(topic, &group_id, None);
@@ -1150,19 +1177,16 @@ async fn partial_send_failure_replays_only_the_failed_subbatch() {
 
 /// When a send fails and there is no healthy worker to replay to, the deferred
 /// work is held (not lost, not dropped) and the flush loop retries until a
-/// worker returns, then drains in order.
+/// worker returns, then drains in order. Waiting for a worker, and waiting on
+/// a slow one once found, both outlast the liveness deadline here: neither is
+/// a stall, so the lifecycle monitor must not shut the consumer down.
 #[tokio::test]
 async fn deferred_flush_retries_until_a_worker_recovers() {
     let topic = format!("e2e-replay-wait-{}", Uuid::new_v4());
-    let harness = Harness::start(
-        &topic,
-        1,
-        2,
-        1,
-        Duration::from_secs(60),
-        fast_registry_config(),
-    )
-    .await;
+    let liveness_deadline = Duration::from_millis(1500);
+    let harness =
+        Harness::start_with_liveness(&topic, 2, Duration::from_secs(60), liveness_deadline, 2)
+            .await;
     let producer = make_producer();
 
     // Take worker 1 out of the pool so the batch routes to worker 0.
@@ -1208,16 +1232,34 @@ async fn deferred_flush_retries_until_a_worker_recovers() {
     // The deferred work is held steady — the flush loop is backing off, not
     // dropping anything — for as long as no worker is available.
     let held = harness.dispatcher.stashed_messages();
-    tokio::time::sleep(Duration::from_millis(400)).await;
+    tokio::time::sleep(liveness_deadline * 4).await;
     assert_eq!(
         harness.dispatcher.stashed_messages(),
         held,
         "deferred work must be held steady while no worker is available"
     );
+    assert!(
+        !harness.shutdown.is_cancelled(),
+        "waiting for a worker must keep the liveness heartbeat going"
+    );
 
-    // Recover worker 1 → the flush loop drains the stash to it, then the consumer
-    // resumes and delivers the rest. All of user-1 lands on worker 1, in order.
+    // Recover worker 1 while it is blocked → the flush loop sends the stash to
+    // it and waits on the in-flight request past the liveness deadline.
+    let guard1 = harness.workers[1].block().await;
     harness.workers[1].healthy.store(true, Ordering::SeqCst);
+    wait_until(Duration::from_secs(10), "replay to reach worker 1", || {
+        harness.workers[1].arrived_count() > 0
+    })
+    .await;
+    tokio::time::sleep(liveness_deadline * 4).await;
+    assert!(
+        !harness.shutdown.is_cancelled(),
+        "waiting on a slow worker must keep the liveness heartbeat going"
+    );
+
+    // Release worker 1 → the stash drains, then the consumer resumes and
+    // delivers the rest. All of user-1 lands on worker 1, in order.
+    drop(guard1);
     harness.wait_for(4, Duration::from_secs(15)).await;
 
     assert_eq!(
