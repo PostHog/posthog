@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from collections.abc import Callable, Iterable
 from typing import TYPE_CHECKING
 
@@ -20,6 +21,19 @@ from products.tasks.backend.logic.services.custom_prompt_internals import Custom
 from products.tasks.backend.logic.services.custom_prompt_multi_turn_runner import MultiTurnSession
 from products.tasks.backend.logic.services.sandbox import SandboxResources
 from products.tasks.backend.models import Task
+
+# Repo-relative paths from stack frames / error content (e.g. src/routes/+page.svelte).
+_CODE_PATH_RE = re.compile(
+    r"(?<![A-Za-z0-9_./-])((?:[A-Za-z0-9_.@-]+/){1,}[A-Za-z0-9_.@-]+\.[A-Za-z0-9]{1,15})(?![A-Za-z0-9_./-])"
+)
+_SKIP_PATH_FRAGMENTS = (
+    "node_modules/",
+    "site-packages/",
+    ".pnpm/",
+    "webpack://",
+    "http://",
+    "https://",
+)
 
 if TYPE_CHECKING:
     from products.tasks.backend.logic.services.custom_prompt_internals import OutputFn
@@ -201,6 +215,122 @@ def _list_eligible_full_names(github: GitHubIntegrationBase, team_id: int) -> se
     return set(qs.values_list("full_name", flat=True))
 
 
+def extract_code_paths_from_context(context: str, *, max_paths: int = 40) -> list[str]:
+    """Pull repo-relative file paths out of free-form signal/report text.
+
+    Used to prefer deterministic stack-frame evidence over architectural similarity when
+    choosing among same-stack candidates (#86091).
+    """
+    found: list[str] = []
+    seen: set[str] = set()
+    for match in _CODE_PATH_RE.finditer(context or ""):
+        path = match.group(1).lstrip("./").replace("\\", "/")
+        lowered = path.lower()
+        if any(skip in lowered for skip in _SKIP_PATH_FRAGMENTS):
+            continue
+        if lowered in seen:
+            continue
+        seen.add(lowered)
+        found.append(path)
+        if len(found) >= max_paths:
+            break
+    return found
+
+
+def _tree_contains_path(tree_paths: str, path: str) -> bool:
+    needle = path.replace("\\", "/").lstrip("./").lower()
+    if not needle or not tree_paths:
+        return False
+    for line in tree_paths.split("\n"):
+        candidate = line.strip().replace("\\", "/").lstrip("./").lower()
+        if not candidate:
+            continue
+        if candidate == needle or candidate.endswith("/" + needle) or candidate.endswith(needle):
+            return True
+    return False
+
+
+def score_candidates_by_stack_paths(
+    team_id: int,
+    github: GitHubIntegrationBase,
+    candidate_repos: list[str],
+    paths: list[str],
+) -> dict[str, list[str]]:
+    """Map each candidate full_name to the context paths found in its cached tree."""
+    hits: dict[str, list[str]] = {repo: [] for repo in candidate_repos}
+    if not paths:
+        return hits
+
+    names = [repo.lower() for repo in candidate_repos]
+    entries = github.integration.repository_cache_entries.filter(team_id=team_id, full_name__in=names).only(
+        "full_name", "tree_paths"
+    )
+    by_name = {entry.full_name.lower(): entry for entry in entries}
+
+    for repo in candidate_repos:
+        entry = by_name.get(repo.lower())
+        if entry is None or not entry.tree_paths:
+            continue
+        matched: list[str] = []
+        for path in paths:
+            if _tree_contains_path(entry.tree_paths, path):
+                matched.append(path)
+        hits[repo] = matched
+    return hits
+
+
+def apply_stack_path_disambiguation(
+    result: RepoSelectionResult,
+    *,
+    paths: list[str],
+    path_hits: dict[str, list[str]],
+) -> RepoSelectionResult:
+    """Correct or reject a selection when stack paths disprove the chosen repo (#86091).
+
+    - Chosen repo has path hits → keep.
+    - Chosen has zero hits and exactly one other candidate has hits → override to that repo.
+    - Chosen has zero hits and multiple others have hits → null (require human input).
+    """
+    if not paths or result.repository is None:
+        return result
+
+    selected = result.repository
+    selected_hits = path_hits.get(selected, [])
+    if selected_hits:
+        return result
+
+    repos_with_hits = [repo for repo, hits in path_hits.items() if hits]
+    if not repos_with_hits:
+        return result
+
+    sample_paths = ", ".join(f"`{p}`" for p in paths[:6])
+    if len(repos_with_hits) == 1:
+        winner = repos_with_hits[0]
+        winner_hits = ", ".join(f"`{p}`" for p in path_hits[winner][:6])
+        return RepoSelectionResult(
+            repository=winner,
+            reason=(
+                f"Overrode selection of `{selected}`: none of the stack/context paths "
+                f"({sample_paths}) appear in its tree, while `{winner}` contains {winner_hits}. "
+                f"Absent stack paths disqualify a candidate rather than implying a stale deploy. "
+                f"Original agent reason: {result.reason}"
+            ),
+            task_id=result.task_id,
+        )
+
+    others = ", ".join(f"`{r}`" for r in repos_with_hits[:8])
+    return RepoSelectionResult(
+        repository=None,
+        reason=(
+            f"Rejected `{selected}`: none of the stack/context paths ({sample_paths}) appear in "
+            f"its tree, while they appear in {others}. Low confidence — requires human input to "
+            f"choose the target repository rather than opening a PR against the wrong codebase. "
+            f"Original agent reason: {result.reason}"
+        ),
+        task_id=result.task_id,
+    )
+
+
 def _build_repo_selection_prompt(context_block: str, candidate_repos: list[str]) -> str:
     """Build the prompt for the sandbox agent to select the most relevant repository.
 
@@ -289,6 +419,15 @@ you MUST query the cache to disambiguate. Reasoning from prior knowledge — "th
 actively refactored," "this is the canonical one," "the other is a downstream mirror" — is **not
 acceptable evidence**. Only specific path matches or README/description content from the cache
 count. If you find yourself reaching for that kind of justification, run a query first.
+
+**Stack-frame paths disqualify (mandatory).** When the context includes concrete file paths
+(stack frames, `file_path=`, source locations), grep `tree_paths` for those paths in **every**
+plausible candidate. A path that is **absent** from a candidate's tree is evidence that candidate
+is the **wrong repository** — not that the deployment is "behind the default branch" or stale.
+Do **not** rationalize missing paths away. Prefer the candidate whose tree contains the stack
+paths. If two same-stack apps both lack the paths, or both contain them, and you cannot
+disambiguate from cache evidence, return `repository: null` and say a human must choose —
+never assert uniqueness from architecture alone when another candidate shares the same stack.
 
 **`gh` CLI as fallback.** When SQL alone is inconclusive (e.g. matching paths in two repos and
 you need to read the file to know which is the real subject), use
@@ -445,6 +584,25 @@ async def select_repository(
             reason=f"Single eligible repository: {candidate_repos[0]}",
         )
 
+    # Deterministic stack-path evidence before paying for the sandbox agent (#86091).
+    stack_paths = extract_code_paths_from_context(context)
+    path_hits = await database_sync_to_async(score_candidates_by_stack_paths, thread_sensitive=False)(
+        team_id, github, candidate_repos, stack_paths
+    )
+    repos_with_path_hits = [repo for repo, hits in path_hits.items() if hits]
+    if len(repos_with_path_hits) == 1:
+        winner = repos_with_path_hits[0]
+        hit_sample = ", ".join(f"`{p}`" for p in path_hits[winner][:6])
+        if output_fn:
+            output_fn(f"Selected {winner} from stack-path evidence (skipped agent).")
+        return RepoSelectionResult(
+            repository=winner,
+            reason=(
+                f"Deterministic path match: stack/context paths ({hit_sample}) exist only in "
+                f"`{winner}` among {len(candidate_repos)} eligible candidates."
+            ),
+        )
+
     if output_fn:
         output_fn(f"Selecting repository from {len(candidate_repos)} candidates...")
     prompt = _build_repo_selection_prompt(context, candidate_repos)
@@ -490,6 +648,9 @@ async def select_repository(
                 result.repository,
             )
             raise RepoSelectionRejectedError(result.repository, result.reason)
+        # Correct architectural false positives: missing stack paths disqualify (#86091).
+        if stack_paths:
+            result = apply_stack_path_disambiguation(result, paths=stack_paths, path_hits=path_hits)
         logger.info(
             "repo selection completed",
             extra={"repository": result.repository, "reason": result.reason, "candidates": len(candidate_repos)},
