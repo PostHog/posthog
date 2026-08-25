@@ -10,6 +10,8 @@ The shared Rust URL policy performs admission, canonicalization, and global ref 
 
 The mirror emits versioned frontier jobs. Each job carries the original ref, current URL, remaining hops, timing, and amplification counters.
 
+The mirror can read crawl history after its local URL cache and before Kafka. It suppresses URLs whose next fetch time is still in the future. A timeout or store error publishes every candidate. The fetch consumer repeats the read because a completion can race with the mirror.
+
 Kafka uses the registrable domain as the frontier key. Rate, burst, active-request, transient back-off, and circuit-breaker state use that registrable domain. Policy caches and crawl delay use the full origin.
 
 ### Policy and network boundary
@@ -70,7 +72,7 @@ The ML data-preparation resolver reads URL images by global ref. It removes sibl
 
 ### Operations
 
-Metrics cover terminal outcomes, requests, origin policy, registrable-domain request state, retries, amplification, system time, and DynamoDB failures. Every metric label defined by this lane uses a fixed category.
+Metrics cover terminal outcomes, requests, origin policy, registrable-domain request state, retries, amplification, system time, and DynamoDB failures. Mirror metrics separate fresh history, misses, errors, and read duration. Every metric label defined by this lane uses a fixed category.
 
 Batch-diversity histograms record the top 1, 5, and 10 URL shares and the inverse Simpson effective count for origins and registrable domains. Fetch-pass histograms record immediately schedulable slots and their ratio to the pod request limit. These metrics use only fixed scope and top-count labels.
 
@@ -120,6 +122,7 @@ The pass-budget alert is inactive in dry-run mode. Delay-topic lag has no alert 
 - The fetch deployment uses Smokescreen without proxy credentials. The lane does not send `Proxy-Authorization`.
 - The Web Bot Auth private key and Kubernetes secret remain operator-managed. No private key material belongs in these repositories.
 - The DynamoDB table and its workload identity permissions exist before the fetch deployment becomes active.
+- The mirror workload has DynamoDB read permission before deployment.
 - The shared ML bucket grants the data-preparation workload read access to the deterministic URL-image prefix.
 - Retry topics use the `ai_research_session_replay_` naming convention.
 - Replacement infrastructure provisions the required topics before consumers start. No deployed producer or consumer uses the deprecated names.
