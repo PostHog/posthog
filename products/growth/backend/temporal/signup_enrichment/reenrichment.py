@@ -18,7 +18,7 @@ for those orgs on a 30–90-day window:
 An org that Harmonic indexes after day 90 is never revisited. That is a deliberate ceiling,
 not a backoff: `icp_reenrichment_attempt_count` is recorded but nothing reads it.
 
-Runs as a Temporal Schedule (see the init_icp_reenrichment_schedule command) because the
+Runs as a Temporal Schedule (registered on deploy by signup_enrichment/schedule.py) because the
 Harmonic key lives on the workers only. Selection re-checks the kill switch and region on
 every run, so flipping GROWTH_SIGNUP_ENRICHMENT_ENABLED off also stops the sweep. Each org
 goes through `enrich_organization(is_recheck=True)` — same archive, same writers, same
@@ -97,11 +97,11 @@ async def select_reenrichment_candidates_activity(inputs: IcpReenrichmentSweepIn
     Guards live here rather than in the schedule so a config flip takes effect on the next
     run without touching Temporal state.
     """
-    from django.conf import settings  # noqa: PLC0415 — heavy imports kept off the workflow module path
     from django.db.models import Max, Min, Q  # noqa: PLC0415
 
     from asgiref.sync import sync_to_async  # noqa: PLC0415
 
+    from posthog.models.instance_setting import get_instance_setting  # noqa: PLC0415
     from posthog.models.organization import OrganizationMembership  # noqa: PLC0415
     from posthog.utils import GenericEmails, get_instance_region  # noqa: PLC0415
 
@@ -110,14 +110,15 @@ async def select_reenrichment_candidates_activity(inputs: IcpReenrichmentSweepIn
 
     logger = LOGGER.bind()
 
-    if not settings.GROWTH_SIGNUP_ENRICHMENT_ENABLED:
+    if not await sync_to_async(get_instance_setting)("GROWTH_SIGNUP_ENRICHMENT_ENABLED"):
         logger.info("icp_reenrichment_skipped_kill_switch")
         return []
     if get_instance_region() not in ("US", "EU"):
         logger.info("icp_reenrichment_skipped_region")
         return []
 
-    cap = inputs.cap if inputs.cap and inputs.cap > 0 else settings.GROWTH_ICP_REENRICH_DAILY_CAP
+    daily_cap = await sync_to_async(get_instance_setting)("GROWTH_ICP_REENRICH_DAILY_CAP")
+    cap = inputs.cap if inputs.cap and inputs.cap > 0 else daily_cap
     generic_emails = GenericEmails()
 
     def _select() -> list[dict[str, typing.Any]]:
@@ -211,7 +212,6 @@ async def select_reenrichment_candidates_activity(inputs: IcpReenrichmentSweepIn
 @close_db_connections
 async def reenrich_organization_activity(inputs: ReenrichOrgInputs) -> dict[str, typing.Any]:
     """One org through the standard enrichment path, recheck-style, with its own event."""
-    from django.conf import settings  # noqa: PLC0415 — heavy imports kept off the workflow module path
 
     from asgiref.sync import sync_to_async  # noqa: PLC0415
 
@@ -223,9 +223,11 @@ async def reenrich_organization_activity(inputs: ReenrichOrgInputs) -> dict[str,
 
     logger = LOGGER.bind(organization_id=inputs.organization_id)
 
+    from posthog.models.instance_setting import get_instance_setting  # noqa: PLC0415
+
     # Re-checked here, not just at selection: a run can span hours, and this is the only
     # gate standing between a flipped-off switch and further paid Harmonic calls.
-    if not settings.GROWTH_SIGNUP_ENRICHMENT_ENABLED:
+    if not await sync_to_async(get_instance_setting)("GROWTH_SIGNUP_ENRICHMENT_ENABLED"):
         logger.info("icp_reenrichment_skipped_kill_switch")
         return {"matched": False, "skipped": "kill_switch"}
 
