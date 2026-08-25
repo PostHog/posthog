@@ -159,13 +159,15 @@ export function Exporter(props: ExportedData): JSX.Element {
                 {dashboard ? (
                     type === ExportType.Scene ? (
                         <div className="SharedDashboard-header">
-                            {!whitelabel && (
+                            {!whitelabel ? (
                                 <Link
                                     to="https://posthog.com?utm_medium=in-product&utm_campaign=shared-dashboard"
                                     target="_blank"
                                 >
                                     <Logo size="xs" />
                                 </Link>
+                            ) : (
+                                <div className="SharedDashboard-header-logo-placeholder" aria-hidden />
                             )}
                             <div className="SharedDashboard-header-title">
                                 <h1 className="mb-2" data-attr="dashboard-item-title">

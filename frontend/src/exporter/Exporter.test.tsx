@@ -55,6 +55,15 @@ describe('Exporter (shared dashboard)', () => {
         expect(getAllByText(/Auto refresh every/i).length).toBeGreaterThan(0)
     })
 
+    it('keeps a spacer cell in the logo column when whitelabel hides the logo', () => {
+        // The header is a three-column grid; the spacer holds the logo column so the title stays centered
+        const { container } = render(<Exporter {...makeDashboardExport({ whitelabel: true })} />)
+
+        const header = container.querySelector('.SharedDashboard-header')
+        expect(header).not.toBeNull()
+        expect(header?.querySelector('.SharedDashboard-header-logo-placeholder')).not.toBeNull()
+    })
+
     it('does not show auto refresh text for image exports', () => {
         const { container } = render(<Exporter {...makeDashboardExport({ type: ExportType.Image })} />)
 
