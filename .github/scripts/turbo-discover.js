@@ -25,6 +25,7 @@ const { execFileSync } = require('child_process')
 const fs = require('fs')
 const path = require('path')
 const { analyzeSchemaImpact, readBaseSchema } = require('./schema-impact')
+const { loadContractSurfaces } = require('./trunk-impacted-targets')
 
 // --- Product shard sizing (same Amdahl shape as Django below) ---
 // Each product is atomic for packing, but unlike Django the test pool isn't
@@ -127,8 +128,19 @@ function packageToProduct(pkg) {
     return pkg.replace('@posthog/products-', '')
 }
 
-function getIsolatedProducts(contractTasks) {
-    return new Set(contractTasks.map((t) => packageToProduct(t.package)))
+// A product that ships the contract-check script but no turbo.json of its own
+// inherits the root task, whose inputs are the product's whole backend. Every
+// backend edit then reads as a contract change, so the isolation it claims can
+// never pay out. Requiring the narrowed declaration keeps "isolated" meaning
+// what turbo-discover uses it for, and reading it through loadContractSurfaces
+// keeps this reader and the Trunk lane reader on one definition.
+function getIsolatedProducts(contractTasks, repoRoot = process.cwd()) {
+    const products = contractTasks.map((t) => packageToProduct(t.package))
+    // Package names use dashes, product directories use underscores; the surface
+    // reader resolves products/<dir>/turbo.json, so look up the directory form.
+    const toDir = (product) => product.replace(/-/g, '_')
+    const surfaces = loadContractSurfaces(repoRoot, products.map(toDir))
+    return new Set(products.filter((product) => surfaces.has(toDir(product))))
 }
 
 function getAffectedTaskProducts(tasks) {
@@ -524,14 +536,16 @@ function packProducts(products, durations) {
     return buckets
 }
 
-// Path filters matching the Django workflow pytest invocations.
-// Core: posthog/ + ee/ minus temporal, dags, hogvm
+// Path filters matching the Django workflow pytest invocations. A segment that
+// drifts from its pytest targets sizes shards for a run that never happens, so
+// turbo-discover.test.js asserts these against ci-backend.yml itself.
+// Core: posthog/ + ee/ minus the paths the Core invocation --ignore's
 // Core POE: subset of Core (ignores hogql, hogql_queries) — same pool, fewer tests
-// Temporal: posthog/temporal + products/batch_exports/backend/tests/temporal + products/tasks/backend/temporal
+// Temporal: posthog/temporal + the product temporal/emission suites it runs alongside
 const DJANGO_SEGMENTS = {
     Core: {
         include: ['posthog/', 'ee/'],
-        exclude: ['posthog/temporal/', 'posthog/dags/', 'common/hogvm/'],
+        exclude: ['posthog/temporal/', 'posthog/dags/', 'common/hogvm/python/test/', 'posthog/test/repo_invariants/'],
     },
     CorePOE: {
         // Keep in sync with the person-on-events pytest targets in
@@ -543,10 +557,22 @@ const DJANGO_SEGMENTS = {
             'posthog/api/test/dashboards/test_dashboard.py',
             'ee/clickhouse/',
         ],
-        exclude: ['posthog/temporal/', 'posthog/dags/', 'common/hogvm/', 'posthog/hogql_queries/', 'posthog/hogql/'],
+        exclude: [
+            'posthog/temporal/',
+            'posthog/dags/',
+            'common/hogvm/python/test/',
+            'posthog/test/repo_invariants/',
+            'posthog/hogql_queries/',
+            'posthog/hogql/',
+        ],
     },
     Temporal: {
-        include: ['posthog/temporal/', 'products/batch_exports/backend/tests/temporal/', 'products/tasks/backend/temporal/'],
+        include: [
+            'posthog/temporal/',
+            'products/batch_exports/backend/tests/temporal/',
+            'products/tasks/backend/temporal/',
+            'products/signals/backend/emission/',
+        ],
         exclude: [],
     },
 }
@@ -674,6 +700,8 @@ function buildMatrix(products, durations) {
 module.exports = {
     calculateShards,
     DJANGO_OVERHEAD_SECONDS_BY_SEGMENT,
+    DJANGO_SEGMENTS,
+    getIsolatedProducts,
     collectTestFiles,
     checkProductStaleness,
     productPrefix,
