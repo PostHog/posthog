@@ -185,4 +185,3 @@ function SkillLink({ href, children }: { href: string; children: string }) {
     </a>
   );
 }
-
