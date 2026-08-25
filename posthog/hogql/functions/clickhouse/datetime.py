@@ -105,7 +105,15 @@ DATETIME_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ((UnknownType(), UnknownType()), DateTimeType()),
         ],
     ),
-    "toLastDayOfWeek": HogQLFunctionMeta("toLastDayOfWeek", 1, 2),
+    "toLastDayOfWeek": HogQLFunctionMeta(
+        "toLastDayOfWeek",
+        1,
+        2,
+        signatures=[
+            ((UnknownType(),), DateType()),
+            ((UnknownType(), UnknownType()), DateType()),
+        ],
+    ),
     "toStartOfHour": HogQLFunctionMeta(
         "toStartOfHour",
         1,

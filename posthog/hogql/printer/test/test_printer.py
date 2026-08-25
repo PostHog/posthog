@@ -3016,6 +3016,7 @@ class TestPrinter(BaseTest):
             ("toStartOfQuarter",),
             ("toStartOfMonth",),
             ("toLastDayOfMonth",),
+            ("toLastDayOfWeek",),
             ("toMonday",),
             ("toStartOfWeek",),
         ]
