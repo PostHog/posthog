@@ -204,6 +204,12 @@ says nothing about what the consumer does with it. Two rules cover that:
   function is what the move leaves behind, and the consumer keeps orchestration
   and ids.
 
+`apps.get_model('label', 'Class')` is counted too, and for **every** product model,
+not only the allowance ones. It leaves no import edge, so tach cannot refuse it.
+Test modules stay out of scope, so the fixture escape hatch this skill recommends
+for core tests still works. Migrations stay out too: the historical registry is the
+only way a migration can reach a model. Production code may not add a call.
+
 `hogli product:crossings <product>` lists a product's crossing classes with every
 consumer use bucketed by kind, disallowed first. Disallowed uses are frozen in
 `products/model_crossing_uses_baseline.txt` and guarded by a repo-invariant test;
@@ -255,7 +261,8 @@ records the decrease. See `products/architecture.md` § Wiring couplings.
      under the branch.
    - Core test fixtures that need product models: use `apps.get_model("<app_label>",
 "Model")` at runtime plus a `TYPE_CHECKING` import for annotations — tach ignores
-     type-only imports.
+     type-only imports. Fixtures only: the same call in production code is a
+     ratcheted `get_model` crossing (see above).
    - Compatibility shims exist to bridge between serial PRs — the one-pass shape rarely
      needs them. If one is unavoidable, it dies in the final cleanup PR, not "later".
    - Exception: callers with subtle behavior (transaction boundaries, write-path
