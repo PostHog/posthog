@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
+from django.contrib.postgres.indexes import HashIndex
 from django.core.cache import cache
 from django.core.validators import MaxValueValidator, MinLengthValidator, MinValueValidator
 from django.db import connection, models, transaction
@@ -276,7 +277,7 @@ class Team(UUIDTClassicModel):
         # taxonomy columns on every such fetch — on the hot path that's every authenticated request.
         base_manager_name = "objects"
         indexes = [
-            models.Index(
+            HashIndex(
                 KeyTransform("widget_public_token", "conversations_settings"),
                 condition=models.Q(conversations_enabled=True),
                 name="posthog_team_widget_token_idx",
