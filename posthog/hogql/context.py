@@ -38,8 +38,8 @@ class HogQLFieldAccess:
     sql: str
 
 
-@dataclass
-class HogQLContext:  # nosemgrep: prefer-frozen-dataclasses -- mutable by design: the printer and resolver write to it during a query
+@dataclass  # nosemgrep: prefer-frozen-dataclasses -- mutable by design: the printer and resolver write to it during a query
+class HogQLContext:
     """Context given to a HogQL expression printer"""
 
     # Team making the queries
