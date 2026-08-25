@@ -5,9 +5,9 @@ from rest_framework.exceptions import PermissionDenied
 
 from posthog.auth import IDJagAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.personal_api_key import PersonalAPIKey
-from posthog.rbac.user_access_control import AccessControlLevel, UserAccessControl
 from posthog.scopes import APIScopeObject
 
+from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.dashboards.backend.widget_access import (
     check_widget_tile_product_access,

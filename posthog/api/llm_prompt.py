@@ -65,9 +65,9 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import User
 from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import BurstRateThrottle, LLMPromptPublishBurstRateThrottle, SustainedRateThrottle
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.storage.llm_prompt_cache import get_prompt_by_name_from_cache
 
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.ai_observability.backend.activity_logging import log_llm_prompt_activity
 from products.ai_observability.backend.api.metrics import llma_track_latency
 from products.ai_observability.backend.models.llm_prompt import LLMPrompt, LLMPromptLabel, get_prompt_outline
