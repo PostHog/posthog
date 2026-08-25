@@ -5,7 +5,7 @@ from django.db.models import JSONField, Q
 from django.db.models.signals import pre_save
 from django.dispatch import receiver
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, ValidationInfo, field_validator
 
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
@@ -32,7 +32,9 @@ class AccountProperties(BaseModel):
 
     @field_validator("website_domain")
     @classmethod
-    def normalize_website_domain(cls, raw_domain: str | None) -> str | None:
+    def normalize_website_domain(cls, raw_domain: str | None, info: ValidationInfo) -> str | None:
+        if not info.context or not info.context.get("normalize_website_domain"):
+            return raw_domain
         if raw_domain is None or not raw_domain.strip():
             return None
         domain = parse_company_domain(raw_domain)
@@ -66,7 +68,7 @@ class AccountProperties(BaseModel):
     def from_input(cls, data: "dict | AccountProperties") -> "AccountProperties":
         if isinstance(data, AccountProperties):
             data = data.model_dump(mode="json", exclude_unset=True)
-        return cls.model_validate(data)
+        return cls.model_validate(data, context={"normalize_website_domain": True})
 
 
 class Account(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
@@ -96,7 +98,7 @@ class Account(TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFiel
 
     @properties.setter
     def properties(self, value: "dict | AccountProperties") -> None:
-        validated = value if isinstance(value, AccountProperties) else AccountProperties.model_validate(value)
+        validated = AccountProperties.from_input(value)
         self._properties = validated.model_dump(mode="json")
 
 
