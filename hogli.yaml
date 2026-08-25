@@ -1226,3 +1226,7 @@ environment:
         bin_script: report-jest-timings
         description: 'Render a Jest test-speed report from timing artifacts'
         hidden: true
+    render:jest:timings:example:
+        bin_script: render-jest-timings-example
+        description: 'Render or refresh the checked-in Jest timing report example'
+        hidden: true

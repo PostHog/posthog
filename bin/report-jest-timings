@@ -14,7 +14,7 @@
 #                    invokes the python script for you
 #   --stdin          read timings JSON from stdin
 #
-# Options: --runner jest|pytest (default jest), --top N (default 12), --suite NAME
+# Options: --runner jest|pytest (default jest), --top N (default all), --suite NAME
 # (filter to one suite), --markdown (GitHub-friendly output, no ANSI), --uv PATH.
 
 set -euo pipefail
@@ -52,7 +52,11 @@ if [[ -z "$MODE" ]]; then
 fi
 
 TMP_JSON=""
-cleanup() { [[ -n "$TMP_JSON" ]] && rm -f "$TMP_JSON"; }
+cleanup() {
+    if [[ -n "$TMP_JSON" ]]; then
+        rm -f "$TMP_JSON"
+    fi
+}
 trap cleanup EXIT
 
 if [[ "$MODE" == "timings" ]]; then
@@ -92,98 +96,148 @@ if not shards:
 
 
 def fmt(seconds: float) -> str:
-    seconds = round(seconds)
+    seconds = max(0.0, seconds)
     if seconds < 60:
-        return f"{seconds}s"
+        return f"{seconds:.2f}s".rstrip("0").rstrip(".")
     if seconds < 3600:
-        return f"{seconds // 60}m{seconds % 60:02d}s"
-    return f"{seconds // 3600}h{seconds % 3600 // 60:02d}m"
+        minutes, remainder = divmod(round(seconds), 60)
+        return f"{minutes}m{remainder:02d}s"
+    hours, remainder = divmod(round(seconds), 3600)
+    return f"{hours}h{remainder // 60:02d}m"
 
 
 def name_width(entries, key, cap=68):
     return min(cap, max((len(str(e[key])) for e in entries), default=8))
 
 
-print(f"{BOLD}Jest test-speed report{RST}  runner={report.get('runner')}  suites={','.join(report.get('suites', []))}")
-print()
-
-print(f"{BOLD}Shards{RST}")
 total_wall = sum(s["wall_seconds"] for s in shards)
 total_test = sum(s["testcase_seconds"] for s in shards)
 total_launch = sum(s.get("launch_seconds", 0.0) for s in shards)
-summary = f"  {len(shards)} shard(s) | wall {fmt(total_wall)} | test bodies {fmt(total_test)}"
-if total_launch:
-    summary += f" | launch+teardown {fmt(total_launch)} ({total_launch / total_wall * 100:.0f}% of wall)"
-print(summary)
-width = name_width(shards, "junit_filename")
-for s in sorted(shards, key=lambda x: x["wall_seconds"], reverse=True):
-    extras = []
-    if s.get("launch_seconds"):
-        extras.append(f"launch+teardown {fmt(s['launch_seconds'])}")
-    extra = ("  " + ", ".join(extras)) if extras else ""
-    print(
-        f"  {DIM}{s['junit_filename']:<{width}}{RST}  wall {fmt(s['wall_seconds']):>7}  "
-        f"tests {s['test_count']:>4}  bodies {fmt(s['testcase_seconds']):>7}{extra}"
-    )
-print()
-
-# ---- aggregate slowdown distribution ----------------------------------------
-print(f"{BOLD}Suite-wide test-time distribution{RST}")
 all_counts = sum(s["test_count"] for s in shards)
 sum_median = sorted(s["median_test_seconds"] for s in shards)
 sum_p90 = sorted(s["p90_test_seconds"] for s in shards)
 sum_max = sorted(s["max_test_seconds"] for s in shards)
-print(f"  tests {all_counts} | shard medians {fmt(sum_median[0])}–{fmt(sum_median[-1])}"
-      f" | shard p90 {fmt(sum_p90[0])}–{fmt(sum_p90[-1])}"
-      f" | slowest test {fmt(sum_max[-1])}")
-print()
-
-# ---- slowest individual tests ----------------------------------------------
-print(f"{BOLD}Individual tests, slowest first{RST}")
 rows = []
 for s in shards:
     for t in s.get("slowest_tests", []):
         rows.append({"shard": s["junit_filename"], "name": t["name"], "file": t["file"],
                      "d": t["duration_seconds"], "offset": t.get("start_offset_seconds")})
 rows.sort(key=lambda r: r["d"], reverse=True)
-width = name_width(rows, "name", cap=56)
-for row in rows[:TOP]:
-    offset = f"  @{fmt(row['offset'])}" if row["offset"] is not None else ""
-    print(f"  {row['d']:>7.2f}s{offset}  {DIM}{row['name'][:width]:<{width}}{RST}  {DIM}{row['file']}{RST}")
-print()
-
-# ---- per-file launch+teardown ----------------------------------------------
 launch_rows = []
 for s in shards:
     for file, launch in (s.get("per_file_launch_overhead_seconds") or {}).items():
         launch_rows.append({"file": file, "launch": launch, "shard": s["junit_filename"]})
-if launch_rows:
-    print(f"{BOLD}Slowest per-file launch + teardown{RST}")
-    width = name_width(launch_rows, "file")
-    for row in sorted(launch_rows, key=lambda r: r["launch"], reverse=True)[:TOP]:
-        print(f"  {row['launch']:>6.2f}s  {DIM}{row['file'][:width]:<{width}}{RST}")
-    print("  " + DIM + "module import + setupFilesAfterEnv + worker boot + teardown per "
-          "file; time no test in the file is billed for." + RST)
-    print()
-
-# ---- sharding analysis ------------------------------------------------------
-print(f"{BOLD}Sharding analysis{RST}")
 walls = [s["wall_seconds"] for s in shards]
-total_wall = sum(walls)
 mean_wall = total_wall / len(walls)
-print(f"  {len(shards)} shard(s): total {fmt(total_wall)} | mean {fmt(mean_wall)} | "
-      f"min {fmt(min(walls))} | max {fmt(max(walls))} | spread {fmt(max(walls)-min(walls))}")
 fixed = 240  # CI-observed per-shard fixed cost: services boot + schema restore + addon build.
-variable = total_wall
-print(f"  adding shards splits the {fmt(variable)} runtime but re-pays the ~{fmt(fixed)} "
-      "per-shard setup (services + schema restore + addon build):")
-for n in range(len(shards), 11):
-    marker = "  <- current" if n == len(shards) else ""
-    print(f"    {n:>2} shards -> ~{fmt(fixed + variable / n)}{marker}")
-print()
 
-print(
-    DIM + "Full per-test history lives in the OTLP traces this same pipeline emits "
-    "(service.name=ci-nodejs / ci-frontend) and in the weekly-slow-tests workflow." + RST
-)
+def markdown_cell(value: object) -> str:
+    return str(value).replace("\\", "\\\\").replace("|", "\\|").replace("\n", "<br>")
+
+
+def markdown_table(headers: list[str], values: list[list[str]]) -> None:
+    print("| " + " | ".join(headers) + " |")
+    print("| " + " | ".join("---:" if index == 0 else "---" for index in range(len(headers))) + " |")
+    for value in values:
+        print("| " + " | ".join(value) + " |")
+
+
+if MARKDOWN:
+    slowest_shard = max(shards, key=lambda shard: shard["wall_seconds"])
+    print("# Jest test-speed report")
+    print(f"`{report.get('runner')}` · {len(shards)} shards · {all_counts} tests · suites: {', '.join(report.get('suites', []))}")
+    print()
+    print("## At a glance")
+    markdown_table(
+        ["Metric", "Time"],
+        [
+            ["Jest runner time (sum of shards)", fmt(total_wall)],
+            ["Test-body time (sum)", fmt(total_test)],
+            ["Startup + teardown (sum)", fmt(total_launch)],
+            ["Slowest individual test", fmt(sum_max[-1])],
+            ["Longest shard", f"{markdown_cell(slowest_shard['junit_filename'])} ({fmt(slowest_shard['wall_seconds'])})"],
+        ],
+    )
+    print()
+    print("## All individual tests — slowest first")
+    print("Every Jest testcase from this run, ordered by duration.")
+    markdown_table(
+        ["Duration", "Test", "File", "Shard", "Started"],
+        [
+            [
+                fmt(row["d"]),
+                markdown_cell(row["name"]),
+                f"`{markdown_cell(row['file'])}`",
+                f"`{markdown_cell(row['shard'])}`",
+                f"+{fmt(row['offset'])}" if row["offset"] is not None else "—",
+            ]
+            for row in rows[:TOP]
+        ],
+    )
+    print()
+    print("## Shard balance")
+    markdown_table(
+        ["Shard", "Tests", "Jest runner", "Test bodies", "Startup + teardown"],
+        [
+            [
+                f"`{markdown_cell(shard['junit_filename'])}`",
+                str(shard["test_count"]),
+                fmt(shard["wall_seconds"]),
+                fmt(shard["testcase_seconds"]),
+                fmt(shard.get("launch_seconds", 0.0)),
+            ]
+            for shard in sorted(shards, key=lambda shard: shard["wall_seconds"], reverse=True)
+        ],
+    )
+    print()
+    print("## Test-time distribution")
+    markdown_table(
+        ["Tests", "Shard median range", "Shard p90 range", "Slowest test"],
+        [[str(all_counts), f"{fmt(sum_median[0])} – {fmt(sum_median[-1])}", f"{fmt(sum_p90[0])} – {fmt(sum_p90[-1])}", fmt(sum_max[-1])]],
+    )
+    print()
+    if launch_rows:
+        print("<details>")
+        print("<summary><strong>Per-file startup + teardown</strong></summary>")
+        print()
+        print("Time not billed to an individual test: module imports, setup files, worker boot, and teardown.")
+        print()
+        markdown_table(
+            ["Overhead", "File", "Shard"],
+            [
+                [fmt(row["launch"]), f"`{markdown_cell(row['file'])}`", f"`{markdown_cell(row['shard'])}`"]
+                for row in sorted(launch_rows, key=lambda row: row["launch"], reverse=True)[:TOP]
+            ],
+        )
+        print()
+        print("</details>")
+        print()
+    print("<details>")
+    print("<summary><strong>Shard scaling estimate</strong></summary>")
+    print()
+    print(f"Current shard spread: {fmt(min(walls))} – {fmt(max(walls))} (mean {fmt(mean_wall)}).")
+    print()
+    markdown_table(
+        ["Shards", "Estimated CI time"],
+        [[str(count), fmt(fixed + total_wall / count)] for count in range(len(shards), 11)],
+    )
+    print()
+    print("Estimate includes the ~4 minute per-shard services, schema, and build cost.")
+    print()
+    print("</details>")
+    print()
+    print("> Full per-test history is also emitted to OTLP traces (`ci-nodejs` / `ci-frontend`) and the weekly slow-tests report.")
+else:
+    print(f"{BOLD}Jest test-speed report{RST}  runner={report.get('runner')}  suites={','.join(report.get('suites', []))}")
+    print()
+    print(f"{BOLD}Shards{RST}")
+    print(f"  {len(shards)} shard(s) | runner {fmt(total_wall)} | test bodies {fmt(total_test)} | startup + teardown {fmt(total_launch)}")
+    width = name_width(shards, "junit_filename")
+    for shard in sorted(shards, key=lambda shard: shard["wall_seconds"], reverse=True):
+        print(f"  {DIM}{shard['junit_filename']:<{width}}{RST}  runner {fmt(shard['wall_seconds']):>8}  tests {shard['test_count']:>4}  bodies {fmt(shard['testcase_seconds']):>8}")
+    print()
+    print(f"{BOLD}Individual tests, slowest first{RST}")
+    width = name_width(rows, "name", cap=56)
+    for row in rows[:TOP]:
+        print(f"  {fmt(row['d']):>8}  {DIM}{row['name'][:width]:<{width}}{RST}  {DIM}{row['file']}{RST}")
 PY

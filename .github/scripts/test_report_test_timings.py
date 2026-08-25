@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import json
 import textwrap
+import subprocess
 import importlib.util
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -14,12 +15,28 @@ import pytest
 from defusedxml import ElementTree
 
 SCRIPT_PATH = Path(__file__).with_name("report_test_timings.py")
+REPO_ROOT = SCRIPT_PATH.parents[2]
 SPEC = importlib.util.spec_from_file_location("report_test_timings", SCRIPT_PATH)
 assert SPEC is not None and SPEC.loader is not None
 report_test_timings = importlib.util.module_from_spec(SPEC)
 # Register before exec so @dataclass can resolve the module via sys.modules.
 sys.modules["report_test_timings"] = report_test_timings
 SPEC.loader.exec_module(report_test_timings)
+
+
+def test_jest_timing_markdown_matches_checked_in_example() -> None:
+    fixture = SCRIPT_PATH.parent / "fixtures/jest-timings-example.json"
+    expected = fixture.with_suffix(".md").read_text()
+
+    result = subprocess.run(
+        [REPO_ROOT / "bin/render-jest-timings-example"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.stderr == ""
+    assert result.stdout == expected
 
 
 def _testcase(
