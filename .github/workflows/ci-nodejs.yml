@@ -531,10 +531,15 @@ jobs:
                   # Attempt-suffixed so a same-run re-run keeps attempt 1's artifact available
                   # for the recovery/failure correlation the signal job does. Retention 1 day:
                   # these are inputs to the signal and slow-test jobs, nothing long-lived.
+                  # jest-junit's outputDir resolves against the jest process cwd, which is the
+                  # workspace root for the turbo invocation but `nodejs/` if a shard ever runs
+                  # jest directly; cover both.
                   name: junit-results-nodejs-${{ matrix.shard }}${{ github.run_attempt != '1' && format('-attempt{0}', github.run_attempt) || '' }}
                   path: |
                       junit-results/junit-nodejs-*.xml
                       junit-results/posthog-jest-quarantine-*.jsonl
+                      nodejs/junit-results/junit-nodejs-*.xml
+                      nodejs/junit-results/posthog-jest-quarantine-*.jsonl
                   if-no-files-found: ignore
                   retention-days: 1
 
