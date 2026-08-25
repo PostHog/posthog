@@ -52,6 +52,9 @@ class ResolvedLevel:
     level: str
     source: str
     source_subject: Optional[str]
+    # Name of the member or role whose row decided, so the explanation can say which role's
+    # grant applies today. None when the everyone-row or a built-in default decided.
+    subject_name: Optional[str] = None
 
 
 @frozen
@@ -73,8 +76,46 @@ class _Subject:
     member_user_id: Optional[int]
 
 
-def _resolved_level(access: ResolvedAccess) -> ResolvedLevel:
-    return ResolvedLevel(level=access.access_level, source=access.source, source_subject=access.source_subject)
+def _resolved_level(access: ResolvedAccess, subject_name: Optional[str] = None) -> ResolvedLevel:
+    return ResolvedLevel(
+        level=access.access_level,
+        source=access.source,
+        source_subject=access.source_subject,
+        subject_name=subject_name,
+    )
+
+
+def _deciding_subject_name(
+    subject: SubjectAccessControl,
+    access: ResolvedAccess,
+    role_names: dict[str, str],
+    member_names: dict[str, str],
+) -> Optional[str]:
+    """Name of the member or role whose row decided `access`.
+
+    The walks report which kind of subject decided (`source_subject`) but not which row. The
+    deciding row is re-picked from the same cached pool: the highest row of that kind in the
+    scope the walk reported.
+    """
+    if access.source_subject not in ("role", "member"):
+        return None
+    if access.source in ("object", "parent_object"):
+        if access.source_resource_id is None:
+            return None
+        filters = subject._access_controls_filters_for_object(access.source_resource, access.source_resource_id)
+    elif access.source in ("resource", "parent_resource"):
+        filters = subject._access_controls_filters_for_resource(access.source_resource)
+    else:
+        return None
+    rows = [row for row in subject._get_access_controls(filters) if subject._row_subject(row) == access.source_subject]
+    if not rows:
+        return None
+    row = subject._highest_access_from_rows(access.source_resource, rows)
+    if row.role_id is not None:
+        return role_names.get(str(row.role_id))
+    if row.organization_member_id is not None:
+        return member_names.get(str(row.organization_member_id))
+    return None
 
 
 def _enforced_object_access(subject: SubjectAccessControl, obj: Model, resource: APIScopeObject) -> ResolvedAccess:
@@ -101,15 +142,18 @@ def _subject_key(row: AccessControl) -> tuple:
     return ("everyone",)
 
 
-def _build_subjects(team: Team, user_access_control: UserAccessControl, rows: list[AccessControl]) -> list[_Subject]:
-    """One subject per distinct rule target in `rows`, plus the everyone-default.
+def _build_subjects(
+    team: Team, user_access_control: UserAccessControl, rows: list[AccessControl]
+) -> tuple[list[_Subject], dict[str, str], dict[str, str]]:
+    """One subject per distinct rule target in `rows`, plus the everyone-default, and the
+    role and member display names keyed by id.
 
     Org-admin members are excluded: both resolutions give them the highest level. Role ids of
     each member subject are prefetched here, so subjects do not query per member.
     """
     acting_membership = user_access_control._organization_membership
     if acting_membership is None:
-        return []
+        return [], {}, {}
 
     member_ids = {row.organization_member_id for row in rows if row.organization_member_id is not None}
     role_ids = {row.role_id for row in rows if row.role_id is not None}
@@ -165,7 +209,10 @@ def _build_subjects(team: Team, user_access_control: UserAccessControl, rows: li
             role_ids_by_user.get(subject.member_user_id, []) if subject.member_user_id is not None else None
         )
         subject.access.preload_access_controls(rows, subject_role_ids=subject_role_ids)
-    return subjects
+
+    role_names = {str(role.id): role.name for role in roles}
+    member_names = {subject.ref.id or "": subject.ref.name for subject in subjects if subject.ref.type == "member"}
+    return subjects, role_names, member_names
 
 
 def _load_objects(team: Team, resource: str, object_ids: list[str]) -> dict[str, tuple[Model, Optional[str]]]:
@@ -212,7 +259,7 @@ def build_resolution_preview(team: Team, user_access_control: UserAccessControl)
     if not rows:
         return []
 
-    subjects = _build_subjects(team, user_access_control, rows)
+    subjects, role_names, member_names = _build_subjects(team, user_access_control, rows)
     changes: list[ResolutionChange] = []
 
     def compare(
@@ -237,8 +284,12 @@ def build_resolution_preview(team: Team, user_access_control: UserAccessControl)
                 resource=resource,
                 object_id=object_id,
                 object_name=object_name,
-                current=_resolved_level(current),
-                proposed=_resolved_level(proposed),
+                current=_resolved_level(
+                    current, _deciding_subject_name(subject.access, current, role_names, member_names)
+                ),
+                proposed=_resolved_level(
+                    proposed, _deciding_subject_name(subject.access, proposed, role_names, member_names)
+                ),
                 direction=direction,
             )
         )

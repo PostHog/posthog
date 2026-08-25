@@ -13,6 +13,8 @@ export interface ResolutionChangeLevel {
     level: string
     source: string
     source_subject: string | null
+    /** Name of the member or role whose row decides, when one does */
+    subject_name: string | null
 }
 
 export interface ResolutionChange {

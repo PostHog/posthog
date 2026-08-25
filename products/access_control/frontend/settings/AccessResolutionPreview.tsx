@@ -37,10 +37,6 @@ function WhyExplainer(): JSX.Element {
                                 set the default to No access and grant access back to everyone else. Once the most
                                 specific rule applies, you set No access for that one role and keep the open default.
                             </p>
-                            <p className="mb-0">
-                                Each change listed below applies to the members it reaches who have no more specific
-                                rule of their own.
-                            </p>
                         </div>
                     ),
                 },
@@ -51,13 +47,15 @@ function WhyExplainer(): JSX.Element {
 
 function SubjectCell({ change }: { change: ResolutionChange }): JSX.Element {
     return (
-        <div className="flex items-center gap-2">
-            <span className="font-semibold">{change.subject.name}</span>
-            {change.subject.type !== 'everyone' ? (
-                <LemonTag size="small">{change.subject.type}</LemonTag>
-            ) : (
+        <div className="flex items-center gap-2 whitespace-nowrap">
+            <span className="font-semibold max-w-60 truncate" title={change.subject.name}>
+                {change.subject.name}
+            </span>
+            {change.subject.type === 'role' ? (
+                <LemonTag size="small">role</LemonTag>
+            ) : change.subject.type === 'everyone' ? (
                 <span className="text-muted">(default access)</span>
-            )}
+            ) : null}
         </div>
     )
 }
@@ -78,6 +76,7 @@ const sharedColumns: LemonTableColumns<ResolutionChange> = [
     {
         title: 'Applies to',
         key: 'subject',
+        width: 0,
         render: (_, change) => <SubjectCell change={change} />,
     },
     {
@@ -129,8 +128,9 @@ export function AccessResolutionPreview(): JSX.Element {
         {
             title: 'Setting',
             key: 'resource',
+            width: 0,
             render: (_, change) => (
-                <span className="font-semibold capitalize">{change.resource.replace(/_/g, ' ')}</span>
+                <span className="font-semibold capitalize whitespace-nowrap">{change.resource.replace(/_/g, ' ')}</span>
             ),
         },
         ...sharedColumns,
@@ -139,9 +139,12 @@ export function AccessResolutionPreview(): JSX.Element {
         {
             title: 'Object',
             key: 'object',
+            width: 0,
             render: (_, change) => (
-                <div>
-                    <div className="font-semibold">{change.object_name ?? change.object_id}</div>
+                <div className="whitespace-nowrap max-w-80">
+                    <div className="font-semibold truncate" title={change.object_name ?? change.object_id ?? undefined}>
+                        {change.object_name ?? change.object_id}
+                    </div>
                     <div className="text-muted text-xs">{change.resource.replace(/_/g, ' ')}</div>
                 </div>
             ),

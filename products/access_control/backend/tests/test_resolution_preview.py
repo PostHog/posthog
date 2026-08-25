@@ -147,8 +147,18 @@ class TestResolutionPreviewAPI(BaseUserAccessControlTest):
         change = data["changes"][0]
         assert change["subject"] == {"type": "everyone", "id": None, "name": "Everyone"}
         assert change["object_name"] == "Growth KPIs"
-        assert change["current"] == {"level": "editor", "source": "resource", "source_subject": "default"}
-        assert change["proposed"] == {"level": "viewer", "source": "object", "source_subject": "default"}
+        assert change["current"] == {
+            "level": "editor",
+            "source": "resource",
+            "source_subject": "default",
+            "subject_name": None,
+        }
+        assert change["proposed"] == {
+            "level": "viewer",
+            "source": "object",
+            "source_subject": "default",
+            "subject_name": None,
+        }
 
 
 @pytest.mark.ee
