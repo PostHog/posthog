@@ -10,9 +10,8 @@ import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import {
     createOrganization,
     createTeam,
-    getFirstTeam,
+    createTestTeamFixture,
     getTeam,
-    resetTestDatabase,
     updateOrganizationAvailableFeatures,
 } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
@@ -51,9 +50,12 @@ describe('CdpEventsConsumer', () => {
     }
 
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub.postgres) // This team has data_pipelines feature by default (legacy addon)
+        const fixture = await createTestTeamFixture(hub.postgres)
+        team = fixture.team
+        await updateOrganizationAvailableFeatures(hub.postgres, fixture.organizationId, [
+            { key: 'data_pipelines', name: 'Data Pipelines' },
+        ])
 
         // Create second organization without data_pipelines for testing quota limiting
         const otherOrganizationId = await createOrganization(hub.postgres)
@@ -219,7 +221,7 @@ describe('CdpEventsConsumer', () => {
                         instance_id: globals.event.uuid,
                         metric_kind: 'billing',
                         metric_name: 'billable_invocation',
-                        team_id: 2,
+                        team_id: team.id,
                     })
                 }
             })
@@ -248,7 +250,7 @@ describe('CdpEventsConsumer', () => {
                             count: 1,
                             metric_kind: 'other',
                             metric_name: 'filtered',
-                            team_id: 2,
+                            team_id: team.id,
                             timestamp: expect.any(String),
                         },
                     },
@@ -261,7 +263,7 @@ describe('CdpEventsConsumer', () => {
                             count: 1,
                             metric_kind: 'other',
                             metric_name: 'triggered',
-                            team_id: 2,
+                            team_id: team.id,
                             timestamp: expect.any(String),
                         },
                     },
@@ -276,7 +278,7 @@ describe('CdpEventsConsumer', () => {
                             count: 1,
                             metric_kind: 'billing',
                             metric_name: 'billable_invocation',
-                            team_id: 2,
+                            team_id: team.id,
                             timestamp: expect.any(String),
                         },
                     },
@@ -301,7 +303,7 @@ describe('CdpEventsConsumer', () => {
                             count: 1,
                             metric_kind: 'failure',
                             metric_name: 'disabled_permanently',
-                            team_id: 2,
+                            team_id: team.id,
                         },
                     },
                     {
@@ -312,7 +314,7 @@ describe('CdpEventsConsumer', () => {
                             count: 1,
                             metric_kind: 'failure',
                             metric_name: 'disabled_permanently',
-                            team_id: 2,
+                            team_id: team.id,
                         },
                     },
                 ])
@@ -527,7 +529,7 @@ describe('CdpEventsConsumer', () => {
                             count: 1,
                             metric_kind: 'other',
                             metric_name: 'filtering_failed',
-                            team_id: 2,
+                            team_id: team.id,
                             timestamp: expect.any(String),
                         },
                     },
@@ -559,9 +561,12 @@ describe('hog flow processing', () => {
     }
 
     beforeEach(async () => {
-        await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub.postgres)
+        const fixture = await createTestTeamFixture(hub.postgres)
+        team = fixture.team
+        await updateOrganizationAvailableFeatures(hub.postgres, fixture.organizationId, [
+            { key: 'data_pipelines', name: 'Data Pipelines' },
+        ])
         const mockQueue = createMockJobQueue()
 
         processor = new CdpEventsConsumer(hub, createCdpConsumerDeps(hub), {
@@ -667,7 +672,7 @@ describe('hog flow processing', () => {
                     event: globals.event,
                     actionStepCount: 0,
                 },
-                teamId: 2,
+                teamId: team.id,
             })
         })
 

@@ -11,7 +11,7 @@ import { template as geoipTemplate } from '../../../src/cdp/templates/_transform
 import { compileHog } from '../../../src/cdp/templates/compiler'
 import { createTestMonitoringOutputs } from '../../../tests/helpers/ingestion-outputs'
 import { forSnapshot } from '../../../tests/helpers/snapshots'
-import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
+import { createTestTeamFixture } from '../../../tests/helpers/sql'
 import { Hub } from '../../types'
 import { createHogFunction, insertHogFunction } from '../_tests/fixtures'
 import { posthogPluginGeoip } from '../legacy-plugins/_transformations/posthog-plugin-geoip/template'
@@ -50,13 +50,12 @@ describe('HogTransformer', () => {
 
     beforeEach(async () => {
         hub = await createHub()
-        await resetTestDatabase()
 
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
 
         // Create a team first before inserting hog functions
-        const team = await getFirstTeam(hub.postgres)
+        const { team } = await createTestTeamFixture(hub.postgres)
         teamId = team.id
 
         hogTransformer = createHogTransformerService(hub, {
