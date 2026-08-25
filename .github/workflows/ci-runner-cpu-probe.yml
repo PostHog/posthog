@@ -7,11 +7,17 @@
 # benchmark. If the label is homogeneous the scores cluster; if it is not, they
 # separate by CPU model.
 #
-# Dispatch only — it must never spend a PR workflow-run dispatch.
+# The pull_request arm is scoped to this probe's own files, so it fires only on a PR
+# that edits the probe and never spends a dispatch on ordinary PRs. It is not a
+# required check, so gating it on trigger paths cannot leave a PR unmergeable.
 #
 name: Runner CPU probe
 
 on:
+    pull_request:
+        paths:
+            - '.github/actions/runner-cpu-probe/**'
+            - '.github/workflows/ci-runner-cpu-probe.yml'
     workflow_dispatch:
         inputs:
             samples:
@@ -59,7 +65,8 @@ jobs:
     probe:
         name: Probe runner ${{ matrix.sample }}
         needs: plan
-        runs-on: ${{ inputs.runner_label }}
+        # inputs.* is empty on the pull_request arm, so the label needs a literal fallback.
+        runs-on: ${{ inputs.runner_label || 'depot-ubuntu-24.04-8' }}
         timeout-minutes: 10
         strategy:
             fail-fast: false
