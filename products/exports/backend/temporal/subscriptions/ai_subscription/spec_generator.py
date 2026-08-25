@@ -88,7 +88,8 @@ WINDOW_PLACEHOLDERS = (
     WINDOW_START_PLACEHOLDER,
     WINDOW_END_PLACEHOLDER,
 )
-# Bump to re-plan frozen subscriptions.
+# Bumping invalidates every frozen plan (they lazily re-plan on next delivery), so prompt/harness
+# improvements reach existing subscriptions instead of only new ones.
 AI_QUERY_PLAN_VERSION = 5
 
 
