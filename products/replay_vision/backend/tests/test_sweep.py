@@ -1207,9 +1207,8 @@ def test_limit_notification_excludes_users_denied_on_the_scanner() -> None:
     from posthog.constants import AvailableFeature
     from posthog.models import OrganizationMembership, User
 
+    from products.access_control.backend.models.access_control import AccessControl
     from products.notifications.backend.facade.enums import TargetType
-
-    from ee.models.rbac.access_control import AccessControl
 
     limit = 20 * _OBSERVATION_CREDITS
     scanner = _make_scanner(credit_limit=limit)

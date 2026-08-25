@@ -20,12 +20,11 @@ from posthog.models.team.team_caching import set_team_in_cache
 from posthog.models.user import User
 from posthog.test.persons import create_person
 
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, flag_payload_codec
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-
-from ee.models.rbac.access_control import AccessControl
-from ee.models.rbac.role import Role
 
 if TYPE_CHECKING:
     from products.surveys.backend.models import Survey as SurveyModel

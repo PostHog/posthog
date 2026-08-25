@@ -7,6 +7,7 @@ import {
   POSTHOG_NOTIFICATIONS,
 } from "@posthog/agent/acp-extensions";
 import { extractPromptDisplayContent } from "@posthog/core/sessions/promptContent";
+import { isSteerPromptParams } from "@posthog/core/sessions/sessionEvents";
 import {
   type AcpMessage,
   type AgentConversationEvent,
@@ -359,7 +360,11 @@ export function processEvent(
   }
 
   if (isJsonRpcRequest(msg) && msg.method === "session/prompt") {
-    handlePromptRequest(b, msg, event.ts);
+    if (isSteerPromptParams(msg.params)) {
+      handleSteerPromptRequest(b, msg, event.ts);
+    } else {
+      handlePromptRequest(b, msg, event.ts);
+    }
     return;
   }
 
@@ -538,6 +543,29 @@ export function readLastTurnInfo(b: ItemBuilder): LastTurnInfo | null {
         stopReason: b.currentTurn.stopReason,
       }
     : null;
+}
+
+function handleSteerPromptRequest(
+  b: ItemBuilder,
+  msg: { id: number | string; params?: unknown },
+  ts: number,
+) {
+  const userPrompt = extractUserPrompt(msg.params);
+
+  if (
+    userPrompt.content.trim().length === 0 &&
+    userPrompt.attachments.length === 0
+  ) {
+    return;
+  }
+
+  b.items.push({
+    type: "user_message",
+    id: `steer-${ts}-${msg.id}`,
+    content: userPrompt.content,
+    timestamp: ts,
+    attachments: userPrompt.attachments,
+  });
 }
 
 function handlePromptRequest(

@@ -60,7 +60,11 @@ class SCIMBearerTokenAuthentication(BaseAuthentication):
         # SCIM stays gated behind domain verification, which the config API doesn't check. Any of the
         # config's verified domains admits the request — it names a config, not one of the domains
         # behind it — so the config, and its organization, is what scopes the request from here.
-        if not config.has_scim or not hashed_token or not config.domains.filter(verified_at__isnull=False).exists():
+        if (
+            not config.has_scim
+            or not hashed_token
+            or not config.organization_domains.filter(verified_at__isnull=False).exists()
+        ):
             raise exceptions.AuthenticationFailed("SCIM is not enabled on a verified domain for this configuration")
 
         if not config.organization.is_feature_available(AvailableFeature.SCIM):
