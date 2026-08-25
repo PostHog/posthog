@@ -27,7 +27,10 @@ from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.slack_thread import SlackThreadContext
 from products.tasks.backend.facade import contracts
 from products.tasks.backend.logic.services.code_usage_gate import usage_limit_response
-from products.tasks.backend.logic.services.run_actor import loop_owner_eligible_for_credentials
+from products.tasks.backend.logic.services.run_actor import (
+    loop_owner_eligible_for_credentials,
+    user_has_current_team_access,
+)
 from products.tasks.backend.metrics import observe_workflow_task_create
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.constants import WORKFLOW_RUN_IDLE_TIMEOUT_SECONDS
@@ -146,14 +149,34 @@ def create_workflow_task(
 
     validate_connectors(team.id, owner_id, mcp_installation_ids)
 
-    # Usage gate before the transaction: it calls the LLM gateway (short timeout and
-    # fails open), and holding the advisory locks across an external call would stall
-    # every workflow fire for the team. Replays never reach it, so engine retries of
-    # an already-created task succeed even for a blocked owner.
     gate_owner = User.objects.filter(id=owner_id).first()
     if gate_owner is None:
         observe_workflow_task_create(reason="owner_ineligible")
         raise WorkflowTaskOwnerIneligible()
+
+    # Fast, unlocked pre-checks before the gate call below. The gate mints an
+    # OAuthAccessToken for gate_owner and makes a blocking request to the LLM gateway, so
+    # an owner who already lost team access, or a workflow that's already past its daily
+    # cap, must not reach it: checking first means neither pays for that mint-and-call on
+    # every trigger event. These reads are not authoritative, since nothing holds the
+    # advisory locks here yet, so a concurrent write can move the counts after this check
+    # runs. The same checks run again under the locks below, and that locked run is the
+    # one that decides.
+    if not user_has_current_team_access(gate_owner, team):
+        observe_workflow_task_create(reason="owner_ineligible")
+        raise WorkflowTaskOwnerIneligible()
+    workflow_day_count, team_day_count = _daily_task_counts(team.id, hog_flow_id)
+    if workflow_day_count >= WORKFLOW_TASK_RATE_CAP_PER_DAY:
+        observe_workflow_task_create(reason="rate_capped")
+        raise WorkflowTaskRateCapped(WORKFLOW_TASK_RATE_CAP_PER_DAY)
+    if team_day_count >= WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY:
+        observe_workflow_task_create(reason="team_rate_capped")
+        raise WorkflowTaskTeamRateCapped(WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY)
+
+    # The gate stays outside the transaction: it calls the LLM gateway (short timeout,
+    # fails open), and holding the advisory locks across an external call would stall
+    # every workflow fire for the team. Replays never reach it, so engine retries of an
+    # already-created task succeed even for a blocked owner.
     if usage_limit_response(gate_owner, team.id) is not None:
         observe_workflow_task_create(reason="gate_blocked")
         raise WorkflowTaskUsageLimited()
@@ -210,17 +233,14 @@ def create_workflow_task(
             # The daily caps count created Task rows in the trailing 24h. A capped attempt
             # raises and rolls back, writing no row, so rejections can't consume the
             # budget: the Task table is the "created" ledger, like loops'
-            # outcome_reason="created" fires.
-            since = django_timezone.now() - timedelta(hours=24)
-            workflow_day_count = Task.objects.filter(
-                team_id=team.id, hog_flow_id=hog_flow_id, created_at__gte=since
-            ).count()
+            # outcome_reason="created" fires. Read again here even though the pre-check
+            # above already ran the same query: that read was unlocked, so a concurrent
+            # create could have pushed the count over the cap since then. This locked
+            # read is the one that decides.
+            workflow_day_count, team_day_count = _daily_task_counts(team.id, hog_flow_id)
             if workflow_day_count >= WORKFLOW_TASK_RATE_CAP_PER_DAY:
                 observe_workflow_task_create(reason="rate_capped")
                 raise WorkflowTaskRateCapped(WORKFLOW_TASK_RATE_CAP_PER_DAY)
-            team_day_count = Task.objects.filter(
-                team_id=team.id, origin_product=Task.OriginProduct.WORKFLOW, created_at__gte=since
-            ).count()
             if team_day_count >= WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY:
                 observe_workflow_task_create(reason="team_rate_capped")
                 raise WorkflowTaskTeamRateCapped(WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY)
@@ -299,6 +319,18 @@ def _find_replayed_task(
     if existing.hog_flow_id != hog_flow_id:
         raise WorkflowTaskOriginKeyConflict(origin_key)
     return _task_dto(existing, created=False)
+
+
+def _daily_task_counts(team_id: int, hog_flow_id: uuid.UUID) -> tuple[int, int]:
+    """(workflow_count, team_count) of Task rows created in the trailing 24h, checked
+    against the two daily caps. One function so the unlocked pre-check and the
+    authoritative locked recheck run the identical query and can't drift apart."""
+    since = django_timezone.now() - timedelta(hours=24)
+    workflow_count = Task.objects.filter(team_id=team_id, hog_flow_id=hog_flow_id, created_at__gte=since).count()
+    team_count = Task.objects.filter(
+        team_id=team_id, origin_product=Task.OriginProduct.WORKFLOW, created_at__gte=since
+    ).count()
+    return workflow_count, team_count
 
 
 def validate_connectors(team_id: int, owner_id: int, mcp_installation_ids: list[str] | None) -> None:

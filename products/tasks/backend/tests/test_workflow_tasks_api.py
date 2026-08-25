@@ -239,7 +239,8 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert response.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
         assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
 
-    def test_refuses_a_workflow_whose_owner_is_deactivated(self) -> None:
+    @patch("products.tasks.backend.logic.services.workflow_tasks.usage_limit_response")
+    def test_refuses_a_workflow_whose_owner_is_deactivated(self, usage_limit_response_mock) -> None:
         self.user.is_active = False
         self.user.save()
 
@@ -247,8 +248,12 @@ class TestWorkflowTasksAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
         assert not Task.objects.filter(hog_flow_id=self.hog_flow.id).exists()
+        # A deactivated owner must never reach the gate: it would mint an OAuth token
+        # scoped to this owner and team before anything has confirmed they still belong.
+        usage_limit_response_mock.assert_not_called()
 
-    def test_refuses_an_owner_removed_from_the_organization(self) -> None:
+    @patch("products.tasks.backend.logic.services.workflow_tasks.usage_limit_response")
+    def test_refuses_an_owner_removed_from_the_organization(self, usage_limit_response_mock) -> None:
         former_member = self._create_user("former@posthog.com")
         flow = HogFlow.objects.create(team=self.team, name="Orphaned", created_by=former_member)
         OrganizationMembership.objects.filter(user=former_member, organization=self.organization).delete()
@@ -257,6 +262,7 @@ class TestWorkflowTasksAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
         assert not Task.objects.filter(hog_flow_id=flow.id).exists()
+        usage_limit_response_mock.assert_not_called()
 
     @parameterized.expand([("unknown_workflow",), ("another_teams_workflow",)])
     def test_refuses_a_workflow_it_cannot_find_in_the_tokens_team(self, case: str) -> None:
@@ -287,7 +293,8 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.json()
 
     @parameterized.expand(["per_workflow", "team_wide"])
-    def test_skips_creation_at_the_daily_cap(self, scope: str) -> None:
+    @patch("products.tasks.backend.logic.services.workflow_tasks.usage_limit_response")
+    def test_skips_creation_at_the_daily_cap(self, scope: str, usage_limit_response_mock) -> None:
         if scope == "per_workflow":
             self._seed_created_tasks(WORKFLOW_TASK_RATE_CAP_PER_DAY, hog_flow_id=self.hog_flow.id)
             expected_fragment = "This workflow reached its daily limit"
@@ -303,6 +310,10 @@ class TestWorkflowTasksAPI(APIBaseTest):
         assert response.status_code == status.HTTP_409_CONFLICT, response.json()
         assert expected_fragment in response.json()["detail"]
         assert Task.objects.count() == seeded
+        # A workflow or team already at its cap must never reach the gate, or every
+        # remaining event that day would still pay for an OAuth mint and a gateway
+        # round trip only to be rejected anyway.
+        usage_limit_response_mock.assert_not_called()
 
     @parameterized.expand(["older_than_24h", "non_workflow_origin"])
     def test_old_and_foreign_tasks_do_not_consume_the_daily_caps(self, case: str) -> None:
