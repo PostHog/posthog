@@ -52,6 +52,15 @@ describe('postmark metadata chunking', () => {
     })
 })
 
+describe('webhook URL token', () => {
+    it('is scoped to one integration, so a token minted for another sender is rejected', () => {
+        const token = signer.webhookToken(123)
+        expect(signer.verifyWebhookToken(123, token)).toBe(true)
+        expect(signer.verifyWebhookToken(124, token)).toBe(false)
+        expect(signer.verifyWebhookToken(123, 'forged')).toBe(false)
+    })
+})
+
 describe('PostmarkWebhookHandler', () => {
     const handler = new PostmarkWebhookHandler(signer)
     const metadataFor = (code: string): Record<string, string> => toWebhookMetadata(buildPostmarkMetadataHeaders(code)!)
