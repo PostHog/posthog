@@ -160,7 +160,12 @@ export class RequestStateResolver {
         const [allFlags, _apiKey, distinctId] = await Promise.all([
             this.resolveAllFlags(reqCtx, allFlagKeys, flagGroups),
             context.stateManager.getApiKey(),
-            reqCtx.getDistinctId(),
+            // Distinct-id resolution only feeds analytics attribution here, so a transient
+            // failure fetching the user must not fail the whole request. Fall back to the
+            // token hash — attribution degrades but the tool still runs. A later call can
+            // still resolve the real id once the network recovers (the rejection is not
+            // memoized).
+            reqCtx.getDistinctId().catch(() => props.userHash),
         ])
 
         // Dev/test-only overrides win over evaluated values (no-op in production).

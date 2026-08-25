@@ -136,7 +136,13 @@ export class RequestContext {
 
     getDistinctId(): Promise<string> {
         if (!this.distinctIdPromise) {
-            this.distinctIdPromise = this.resolveDistinctId()
+            // Don't memoize a rejection: a transient failure resolving the distinct id
+            // must not poison every later call in the same request. Clearing the cached
+            // promise lets a subsequent call try again once the network recovers.
+            this.distinctIdPromise = this.resolveDistinctId().catch((error) => {
+                this.distinctIdPromise = undefined
+                throw error
+            })
         }
         return this.distinctIdPromise
     }

@@ -163,6 +163,18 @@ describe('RequestContext', () => {
 
             await expect(ctx.getDistinctId()).rejects.toThrow('Failed to get user')
         })
+
+        it('does not memoize a rejection, so a later call retries', async () => {
+            // A dropped socket must not poison every later call in the same request.
+            mockMe.mockReset()
+            mockMe.mockResolvedValueOnce({ success: false, error: { message: 'fetch failed' } })
+            mockMe.mockResolvedValueOnce({ success: true, data: { distinct_id: 'recovered-id' } })
+            const ctx = new RequestContext(fakeRedis(), env, makeProps())
+
+            await expect(ctx.getDistinctId()).rejects.toThrow('Failed to get user')
+            await expect(ctx.getDistinctId()).resolves.toBe('recovered-id')
+            expect(mockMe).toHaveBeenCalledTimes(2)
+        })
     })
 
     describe('getSessionUuid', () => {

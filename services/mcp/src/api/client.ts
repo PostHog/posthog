@@ -29,14 +29,47 @@ import { isShortId } from '@/tools/insights/utils'
 
 import type { Schemas } from './generated.js'
 
-// Outbound 429 retry policy. The API is the source of truth for rate limits
+// Outbound retry policy. The API is the source of truth for rate limits
 // (per-scope, with per-team overrides), so we honor its Retry-After signal and
 // fall back to jittered exponential backoff when the header is missing or
-// invalid. The total wait budget bounds how long a throttled tool call can
-// hold the MCP client's request open across all retries combined.
+// invalid. The same budget also covers retries of transient transport faults on
+// idempotent GETs (see `isTransientNetworkError`). The total wait budget bounds
+// how long one tool call can hold the MCP client's request open across all
+// retries combined.
 const RATE_LIMIT_MAX_RETRIES = 3
 const RATE_LIMIT_BASE_BACKOFF_MS = 2000
 const RATE_LIMIT_TOTAL_WAIT_BUDGET_MS = 30_000
+
+// undici transport faults that a bounded retry can absorb — a dropped socket, a
+// connect/read timeout, or a transient DNS failure. These are mid-flight blips a
+// second attempt often clears. A refused or unreachable destination is excluded:
+// it usually means the service is down, so retrying only adds latency.
+const TRANSIENT_NETWORK_ERROR_CODES = new Set([
+    'ECONNRESET',
+    'ETIMEDOUT',
+    'EPIPE',
+    'EAI_AGAIN',
+    'UND_ERR_CONNECT_TIMEOUT',
+    'UND_ERR_HEADERS_TIMEOUT',
+    'UND_ERR_BODY_TIMEOUT',
+    'UND_ERR_SOCKET',
+])
+
+// undici wraps the real transport error as the `cause` of a `TypeError('fetch
+// failed')`, so walk the cause chain and match its `code`.
+function isTransientNetworkError(error: unknown): boolean {
+    let current: unknown = error
+    const seen = new Set<unknown>()
+    while (current && !seen.has(current)) {
+        seen.add(current)
+        const code = (current as { code?: unknown }).code
+        if (typeof code === 'string' && TRANSIENT_NETWORK_ERROR_CODES.has(code)) {
+            return true
+        }
+        current = (current as { cause?: unknown }).cause
+    }
+    return false
+}
 
 // Default overall timeout for an SSE stream (wall-clock cap from connect to close).
 // Sized to comfortably cover the slowest known caller (session summarization, ~5 min
@@ -455,6 +488,10 @@ export class ApiClient {
 
     private async fetchJson<T>(url: string, options?: RequestInit): Promise<Result<T>> {
         const method = options?.method ?? 'GET'
+        // GET is idempotent, so a dropped socket can be retried without risking a
+        // duplicate write. A mutation might already have reached the API, so it is
+        // never retried on a transport fault.
+        const retryNetworkErrors = method === 'GET'
         let waitBudgetMs = RATE_LIMIT_TOTAL_WAIT_BUDGET_MS
 
         for (let attempt = 0; attempt <= RATE_LIMIT_MAX_RETRIES; attempt++) {
@@ -533,13 +570,30 @@ export class ApiClient {
                     return { success: true, data: rawText as T }
                 }
             } catch (error) {
+                // A transient transport fault on an idempotent GET is retried with
+                // jittered backoff from the same wait budget the 429 branch draws on.
+                // Anything else — a genuine failure, or a fault on a mutation — is
+                // returned so the caller sees it on the first attempt.
+                if (retryNetworkErrors && attempt < RATE_LIMIT_MAX_RETRIES && isTransientNetworkError(error)) {
+                    const backoffMs = RATE_LIMIT_BASE_BACKOFF_MS * 2 ** attempt
+                    // Equal jitter so concurrent faults don't retry in lockstep.
+                    const delayMs = backoffMs / 2 + Math.random() * (backoffMs / 2)
+                    if (delayMs <= waitBudgetMs) {
+                        waitBudgetMs -= delayMs
+                        console.warn(
+                            `[API] Network error on ${method} ${url}: ${(error as Error).message}. Retrying in ${Math.round(delayMs)}ms (attempt ${attempt + 1}/${RATE_LIMIT_MAX_RETRIES})`
+                        )
+                        await new Promise((resolve) => setTimeout(resolve, delayMs))
+                        continue
+                    }
+                }
                 return { success: false, error: error as Error }
             }
         }
 
         // Unreachable: the final attempt always returns above, but TypeScript
         // can't prove the loop is exhaustive.
-        return { success: false, error: new Error('Unexpected rate limit retry state') }
+        return { success: false, error: new Error('Unexpected retry state') }
     }
 
     organizations(): Endpoint {

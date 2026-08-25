@@ -167,6 +167,64 @@ describe('outbound 429 handling', () => {
         })
     })
 
+    describe('transient network retry', () => {
+        // undici throws a TypeError('fetch failed') whose `cause` carries the real
+        // transport error and its `code`.
+        const networkError = (code: string): Error => {
+            const err = new TypeError('fetch failed') as Error & { cause?: unknown }
+            err.cause = Object.assign(new Error(`read ${code}`), { code })
+            return err
+        }
+
+        const buildClient = (): ApiClient => new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
+
+        beforeEach(() => {
+            vi.useFakeTimers()
+        })
+
+        afterEach(() => {
+            vi.useRealTimers()
+        })
+
+        it('retries a dropped-socket GET and succeeds', async () => {
+            const mockFetch = vi.fn()
+            mockFetch.mockRejectedValueOnce(networkError('ECONNRESET'))
+            mockFetch.mockResolvedValueOnce(new Response('{}', { status: 200 }))
+            vi.stubGlobal('fetch', mockFetch)
+
+            const resultPromise = buildClient().users().me()
+            await vi.advanceTimersByTimeAsync(2000)
+            const result = await resultPromise
+
+            expect(result.success).toBe(true)
+            expect(mockFetch).toHaveBeenCalledTimes(2)
+        })
+
+        it('does not retry a mutation on a transport fault', async () => {
+            const mockFetch = vi.fn().mockRejectedValue(networkError('ECONNRESET'))
+            vi.stubGlobal('fetch', mockFetch)
+
+            // A POST might already have reached the API, so retrying could duplicate the write.
+            await expect(buildClient().request({ method: 'POST', path: '/api/environments/1/query/' })).rejects.toThrow(
+                'fetch failed'
+            )
+            expect(mockFetch).toHaveBeenCalledTimes(1)
+        })
+
+        it('gives up and returns the error after exhausting GET retries', async () => {
+            const mockFetch = vi.fn().mockRejectedValue(networkError('UND_ERR_CONNECT_TIMEOUT'))
+            vi.stubGlobal('fetch', mockFetch)
+
+            const resultPromise = buildClient().users().me()
+            await vi.runAllTimersAsync()
+            const result = await resultPromise
+
+            expect(result.success).toBe(false)
+            // Initial attempt plus three retries.
+            expect(mockFetch).toHaveBeenCalledTimes(4)
+        })
+    })
+
     describe('handleToolError on PostHogRateLimitError', () => {
         it('returns the retry hint to the agent without capturing an exception', () => {
             const error = new PostHogRateLimitError({
