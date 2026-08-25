@@ -173,6 +173,14 @@ def _merge_ineligible(
     return merged
 
 
+# The outcomes the product calls a "skip": a session we chose not to spend a credit on. Kept in step
+# with the serializer's "Skipped, ..." labels and the chat summary, where `already_scanned`,
+# `already_running`, and `failed` read as their own outcomes, not skips.
+SKIPPED_OUTCOMES: frozenset[str] = frozenset(
+    {"skipped_limit", "skipped_quota", "skipped_scanner_limit", "no_replay_data"}
+)
+
+
 def inline_scan_event_properties(
     *, scan: InlineScanResult, scanner_type: str, model: str, requested: int, trigger: str
 ) -> dict[str, Any]:
@@ -184,6 +192,7 @@ def inline_scan_event_properties(
     `properties.scan_outcomes.no_replay_data`.
     """
     scanner = scan.scanner
+    outcomes = Counter(result["scan_outcome"] for result in scan.results)
     return {
         "scan_id": str(scanner.id) if scanner is not None else None,
         "scanner_type": scanner.scanner_type if scanner is not None else scanner_type,
@@ -191,8 +200,10 @@ def inline_scan_event_properties(
         "trigger": trigger,
         "requested": requested,
         "started": scan.started,
-        "skipped_count": len(scan.results) - scan.started,
-        "scan_outcomes": dict(Counter(result["scan_outcome"] for result in scan.results)),
+        # A cached batch settles as `already_scanned`, not a skip, so count only the skip outcomes
+        # rather than everything that did not start.
+        "skipped_count": sum(count for outcome, count in outcomes.items() if outcome in SKIPPED_OUTCOMES),
+        "scan_outcomes": dict(outcomes),
     }
 
 

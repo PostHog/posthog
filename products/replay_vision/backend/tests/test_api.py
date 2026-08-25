@@ -3534,12 +3534,19 @@ class TestInlineScanAction(_VisionAPITestCase):
         self._finished_observation(scan_id, "sess-1")
         start_workflow.reset_mock()
 
-        resp = self._scan(session_ids=["sess-1", "sess-3"])
+        with patch("products.replay_vision.backend.api.scanners.report_user_action") as report:
+            resp = self._scan(session_ids=["sess-1", "sess-3"])
 
         outcomes = {r["session_id"]: r["scan_outcome"] for r in resp.json()["results"]}
         self.assertEqual(outcomes["sess-1"], "already_scanned")
         self.assertEqual(outcomes["sess-3"], "started")
         self.assertEqual(start_workflow.call_count, 1)
+        # A cached answer is reused at no charge, not skipped, so it stays out of skipped_count.
+        props = next(
+            call.args[2] for call in report.call_args_list if call.args[1] == "replay_vision_inline_scan_requested"
+        )
+        self.assertEqual(props["skipped_count"], 0)
+        self.assertEqual(props["scan_outcomes"], {"already_scanned": 1, "started": 1})
 
     def test_results_are_readable_through_the_scan_id(
         self, mock_sync_connect: MagicMock, mock_async_to_sync: MagicMock
