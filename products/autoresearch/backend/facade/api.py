@@ -25,6 +25,7 @@ from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.sandbox import get_sandbox_class
 
 from ..dataset import templates as templates_module
+from ..dataset.labeling import POPULATION_KINDS as _POPULATION_KINDS
 from ..dataset.validation import validate_pipeline_definition as _validate_pipeline_definition
 from ..evaluation.online_validation import run_online_validation_for_pipeline
 from ..inference.sandbox import SandboxInferenceError, features_parquet, labels_parquet, materialize_training_data
@@ -39,7 +40,7 @@ from ..models import (
 )
 from ..training import artifacts as artifact_store
 from ..training.promotion import PromotionError, complete_training_run
-from ..training.recipe_validation import RecipeValidationError, validate_feature_sql
+from ..training.recipe_validation import RecipeValidationError, validate_feature_sql, validate_recipe
 from ..training.runner import run_training
 from .contracts import (
     ArtifactContent,
@@ -897,3 +898,35 @@ def respond_to_suggestion(
         row.agent_response = agent_response
     row.save(update_fields=["status", "agent_response", "updated_at"])
     return _suggestion_to_contract(row)
+
+
+# ── Recipe validation surface for the presentation layer ───────────────────
+
+# The semantic population kinds the labeler can compile. Presentation validates a submitted
+# spec against this so an uncompilable population is refused at creation, not at query time.
+POPULATION_KINDS = _POPULATION_KINDS
+
+
+def validate_iteration_recipe(*, model_spec: dict[str, Any], recipe_snapshot: dict[str, Any]) -> None:
+    """Raise ``AutoresearchConflict`` if an agent-submitted recipe is outside the allowlist."""
+    try:
+        validate_recipe(model_spec=model_spec, recipe_snapshot=recipe_snapshot)
+    except RecipeValidationError as exc:
+        raise AutoresearchConflict(str(exc)) from exc
+
+
+# ── Choice vocabularies for the presentation layer ─────────────────────────
+
+# The (value, label) pairs behind each status-like field. Presentation declares its
+# ChoiceFields from these so the generated enum components keep the names and labels the
+# model-bound serializers produced — including the one shared with another product, which
+# `ENUM_NAME_OVERRIDES` pins by value set.
+PIPELINE_STATUS_CHOICES = AutoresearchPipeline.Status.choices
+MODEL_ROLE_CHOICES = AutoresearchModel.Role.choices
+TRAINING_RUN_STATUS_CHOICES = AutoresearchTrainingRun.Status.choices
+ITERATION_STATUS_CHOICES = AutoresearchIteration.Status.choices
+SUGGESTION_PRIORITY_CHOICES = AutoresearchSuggestion.Priority.choices
+SUGGESTION_STATUS_CHOICES = AutoresearchSuggestion.Status.choices
+SUGGESTION_SOURCE_CHOICES = AutoresearchSuggestion.Source.choices
+RUN_TYPE_CHOICES = AutoresearchRun.RunType.choices
+RUN_STATUS_CHOICES = AutoresearchRun.Status.choices

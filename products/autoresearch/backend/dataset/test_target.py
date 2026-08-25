@@ -8,8 +8,8 @@ from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Organization, Team
 
 from products.actions.backend.models.action import Action
-from products.autoresearch.backend.api.serializers import resolve_target
 from products.autoresearch.backend.dataset.labeling import build_target_condition
+from products.autoresearch.backend.presentation.views.serializers import resolve_target
 from products.autoresearch.backend.query import run_hogql_rows
 from products.autoresearch.backend.testing import TeamScopedTestMixin
 

@@ -99,9 +99,9 @@ class TestMaterializeFeatures(TeamScopedTestMixin, APIBaseTest):
         )
         assert resp.status_code in (status.HTTP_404_NOT_FOUND, status.HTTP_400_BAD_REQUEST)
 
-    @patch("products.autoresearch.backend.api.views.get_sandbox_class")
-    @patch("products.autoresearch.backend.api.views.materialize_training_data")
-    @patch("products.autoresearch.backend.api.views.tasks_facade.get_task_run")
+    @patch("products.autoresearch.backend.presentation.views.views.get_sandbox_class")
+    @patch("products.autoresearch.backend.presentation.views.views.materialize_training_data")
+    @patch("products.autoresearch.backend.presentation.views.views.tasks_facade.get_task_run")
     def test_writes_parquet_and_returns_paths(self, mock_task_get, mock_materialize, mock_get_sandbox_cls):
         run = self._run(task_run_id=uuid.uuid4())
         mock_task_get.return_value = self._fake_task_run(run)
@@ -126,9 +126,9 @@ class TestMaterializeFeatures(TeamScopedTestMixin, APIBaseTest):
         assert body["train_features_path"] == "/tmp/workspace/autoresearch/data/train_features.parquet"
         mock_get_sandbox_cls.return_value.get_by_id.assert_called_once_with("sb-123")
 
-    @patch("products.autoresearch.backend.api.views.get_sandbox_class")
-    @patch("products.autoresearch.backend.api.views.materialize_training_data")
-    @patch("products.autoresearch.backend.api.views.tasks_facade.get_task_run")
+    @patch("products.autoresearch.backend.presentation.views.views.get_sandbox_class")
+    @patch("products.autoresearch.backend.presentation.views.views.materialize_training_data")
+    @patch("products.autoresearch.backend.presentation.views.views.tasks_facade.get_task_run")
     def test_rejects_sandbox_not_owned_by_run(self, mock_task_get, mock_materialize, mock_get_sandbox_cls):
         run = self._run(task_run_id=uuid.uuid4())
         # TaskRun state points at a DIFFERENT training run — must be rejected.

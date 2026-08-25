@@ -13,10 +13,6 @@ from rest_framework import status
 from posthog.models import Organization, Team
 
 from products.actions.backend.models.action import Action
-from products.autoresearch.backend.api.serializers import (
-    AutoresearchPipelineCreateSerializer,
-    PopulationDefinitionField,
-)
 from products.autoresearch.backend.dataset.validation import ValidationResult, ValidationWarning
 from products.autoresearch.backend.models import (
     AutoresearchModel,
@@ -24,6 +20,10 @@ from products.autoresearch.backend.models import (
     AutoresearchRun,
     AutoresearchSuggestion,
     AutoresearchTrainingRun,
+)
+from products.autoresearch.backend.presentation.views.serializers import (
+    AutoresearchPipelineCreateSerializer,
+    PopulationDefinitionField,
 )
 from products.autoresearch.backend.testing import TeamScopedTestMixin
 
@@ -207,7 +207,10 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
 
     # ─────────────────────────────────────── validate action ──────────────────────────────────────
 
-    @patch("products.autoresearch.backend.api.views.validate_pipeline_definition", return_value=MOCK_VALIDATION_OK)
+    @patch(
+        "products.autoresearch.backend.presentation.views.views.validate_pipeline_definition",
+        return_value=MOCK_VALIDATION_OK,
+    )
     def test_validate_pipeline_success(self, _mock: MagicMock):
         resp = self.client.post(
             f"{self.base_url}/validate/",
@@ -220,7 +223,10 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert data["base_rate"] == pytest.approx(0.2)
         assert data["warnings"] == []
 
-    @patch("products.autoresearch.backend.api.views.validate_pipeline_definition", return_value=MOCK_VALIDATION_ERROR)
+    @patch(
+        "products.autoresearch.backend.presentation.views.views.validate_pipeline_definition",
+        return_value=MOCK_VALIDATION_ERROR,
+    )
     def test_validate_pipeline_with_errors(self, _mock: MagicMock):
         resp = self.client.post(
             f"{self.base_url}/validate/",
@@ -251,7 +257,9 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
                 iteration_budget=iteration_budget,
             )
 
-        with patch("products.autoresearch.backend.api.views.run_training", side_effect=_fake_run_training):
+        with patch(
+            "products.autoresearch.backend.presentation.views.views.run_training", side_effect=_fake_run_training
+        ):
             resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
 
         assert resp.status_code == status.HTTP_200_OK
@@ -265,7 +273,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
             status=AutoresearchTrainingRun.Status.RUNNING,
             iteration_budget=50,
         )
-        with patch("products.autoresearch.backend.api.views.run_training") as mock_run_training:
+        with patch("products.autoresearch.backend.presentation.views.views.run_training") as mock_run_training:
             resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
 
         assert resp.status_code == status.HTTP_400_BAD_REQUEST

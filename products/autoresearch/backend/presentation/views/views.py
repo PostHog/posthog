@@ -1,15 +1,19 @@
-import json
-import base64
-import hashlib
-import binascii
-from typing import Any, cast
+"""
+DRF views for autoresearch.
 
-from django.db import transaction
-from django.utils import timezone as django_timezone
+Responsibilities:
+- Validate incoming JSON (via serializers)
+- Call facade functions
+- Convert contracts to JSON responses
+
+No business logic here — that lives behind ``facade/api.py``.
+"""
+
+from typing import Any, cast
 
 import structlog
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema
-from rest_framework import mixins, viewsets
+from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.permissions import BasePermission
@@ -17,12 +21,23 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
 
-from products.autoresearch.backend.access import has_autoresearch_access
-from products.autoresearch.backend.api.serializers import (
+from products.autoresearch.backend.facade import api
+from products.autoresearch.backend.facade.access import has_autoresearch_access
+from products.autoresearch.backend.facade.contracts import (
+    ArtifactNotFound,
+    AutoresearchConflict,
+    InvalidArtifactPath,
+    PipelineNotFound,
+    SuggestionNotFound,
+    TrainingRunNotFound,
+)
+
+from .serializers import (
     ArtifactContentSerializer,
     ArtifactDeleteResultSerializer,
     ArtifactListSerializer,
@@ -52,39 +67,41 @@ from products.autoresearch.backend.api.serializers import (
     ValidatePipelineResponseSerializer,
     resolve_target,
 )
-from products.autoresearch.backend.dataset.templates import (
-    TEMPLATES,
-    resolve_template as resolve_template_def,
-)
-from products.autoresearch.backend.dataset.validation import validate_pipeline_definition
-from products.autoresearch.backend.evaluation.online_validation import run_online_validation_for_pipeline
-from products.autoresearch.backend.inference.sandbox import (
-    SandboxInferenceError,
-    features_parquet,
-    labels_parquet,
-    materialize_training_data,
-)
-from products.autoresearch.backend.inference.scoring import run_inference_for_pipeline
-from products.autoresearch.backend.models import (
-    AutoresearchIteration,
-    AutoresearchModel,
-    AutoresearchPipeline,
-    AutoresearchRun,
-    AutoresearchSuggestion,
-    AutoresearchTrainingRun,
-)
-from products.autoresearch.backend.training import artifacts as artifact_store
-from products.autoresearch.backend.training.promotion import PromotionError, complete_training_run
-from products.autoresearch.backend.training.recipe_validation import RecipeValidationError, validate_feature_sql
-from products.autoresearch.backend.training.runner import run_training
-from products.tasks.backend.facade import api as tasks_facade
-from products.tasks.backend.facade.sandbox import get_sandbox_class
 
 logger = structlog.get_logger(__name__)
 
-# Where materialized training parquet lands inside the agent's sandbox. The agent reads
-# these paths with pd.read_parquet — the rows never transit the model's context.
-_AGENT_FEATURE_DIR = "/tmp/workspace/autoresearch/data"
+
+class FacadePathParamSchema(PostHogAutoSchema):
+    """Types a facade-backed viewset's UUID path parameters.
+
+    drf-spectacular reads a path parameter's type off the viewset's ``queryset`` model. These
+    viewsets reach their data through the facade and declare no queryset, so each id is spelled
+    out here instead. Declaring them through ``@extend_schema`` would not work: that appends the
+    parameter to every operation in the viewset, including the collection routes whose path has
+    no id in it. This hook only ever sees variables the path actually contains.
+    """
+
+    def _resolve_path_parameters(self, variables: Any) -> Any:
+        declared = getattr(self.view, "uuid_path_parameters", {})
+        resolved = []
+        for parameter in super()._resolve_path_parameters(variables):
+            description = declared.get(parameter["name"])
+            if parameter["name"] not in declared:
+                resolved.append(parameter)
+                continue
+            # Rebuilt rather than mutated, so the keys keep the order drf-spectacular emits.
+            rebuilt: dict[str, Any] = {}
+            for key, value in parameter.items():
+                if key == "schema":
+                    rebuilt["schema"] = {"type": "string", "format": "uuid"}
+                    if description:
+                        rebuilt["description"] = description
+                elif key == "description" and description:
+                    continue
+                else:
+                    rebuilt[key] = value
+            resolved.append(rebuilt)
+        return resolved
 
 
 class AutoresearchAccessPermission(BasePermission):
@@ -97,8 +114,46 @@ class AutoresearchAccessPermission(BasePermission):
         return has_autoresearch_access(request.user, team_id=team_id)
 
 
+class _FacadePaginationMixin:
+    # Drives the standard ``LimitOffsetPagination`` envelope from a facade ``(page, count)``
+    # result. The facade does the slicing, so the paginator's state is set directly rather than
+    # handed a queryset — keeping the param names, default page size, and ``count`` / ``next`` /
+    # ``previous`` shape identical to the model-backed viewsets.
+    def _paginate_via_facade(self, request: Request, fetch: Any, serializer_class: Any) -> Response:
+        paginator = self.paginator  # type: ignore[attr-defined]
+        limit = paginator.get_limit(request)
+        offset = paginator.get_offset(request)
+        page, count = fetch(offset=offset, limit=limit)
+        paginator.request = request
+        paginator.limit = limit
+        paginator.offset = offset
+        paginator.count = count
+        serializer = serializer_class(instance=page, many=True)
+        return paginator.get_paginated_response(serializer.data)
+
+
+def _parent_pipeline_id(view: Any) -> str | None:
+    pipeline_id = view.kwargs.get("parent_lookup_pipeline_id")
+    return str(pipeline_id) if pipeline_id else None
+
+
+def _pipeline_write_fields(validated: Any, raw_data: dict, *, creating: bool) -> dict[str, Any]:
+    """The fields to persist, keyed on what the request body actually carried.
+
+    A PATCH must not write a serializer default over a field the caller left alone, so on update
+    only keys present in the raw body are applied. ``validate()`` can add derived values, so those
+    are carried through whenever it set them.
+    """
+    derived = ("target_event", "target_definition", "output_person_property", "inference_population")
+    fields: dict[str, Any] = {}
+    for key, value in validated.items():
+        if creating or key in raw_data or key in derived:
+            fields[key] = value
+    return fields
+
+
 @extend_schema(tags=["autoresearch"])
-class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, viewsets.ModelViewSet):
     """
     Manage autoresearch prediction pipelines.
 
@@ -107,6 +162,8 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
     users daily and emits autoresearch_prediction events.
     """
 
+    schema = FacadePathParamSchema()
+    uuid_path_parameters = {"id": "A UUID string identifying this autoresearch pipeline."}
     scope_object = "autoresearch"
     scope_object_read_actions = ["list", "retrieve", "validate_definition", "list_templates", "resolve_template"]
     scope_object_write_actions = [
@@ -123,24 +180,26 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
     ]
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchPipelineSerializer
-    # unscoped() because a class attribute is evaluated at import time, when no team
-    # context exists. The per-request team filter is applied in safely_get_queryset.
-    queryset = AutoresearchPipeline.objects.unscoped()
-
-    def safely_get_queryset(self, queryset: Any) -> Any:
-        return queryset.filter(team=self.team).exclude(status=AutoresearchPipeline.Status.ARCHIVED)
+    queryset = None  # data is reached through the facade; declared for router/schema only
 
     def get_serializer_class(self) -> type[AutoresearchPipelineSerializer | AutoresearchPipelineCreateSerializer]:
         if self.action in ("create", "partial_update", "update"):
             return AutoresearchPipelineCreateSerializer
         return AutoresearchPipelineSerializer
 
-    def perform_create(self, serializer: Any) -> None:
-        serializer.save(
-            team=self.team,
-            created_by=self.request.user,
-            iteration_budget_remaining=serializer.validated_data.get("iteration_budget", 50),
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._paginate_via_facade(
+            request,
+            lambda offset, limit: api.list_pipelines(self.team_id, offset=offset, limit=limit),
+            AutoresearchPipelineSerializer,
         )
+
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        try:
+            pipeline = api.get_pipeline(self.team_id, self.kwargs["pk"])
+        except PipelineNotFound:
+            raise NotFound("Pipeline not found.")
+        return Response(AutoresearchPipelineSerializer(instance=pipeline).data)
 
     @extend_schema(
         request=AutoresearchPipelineCreateSerializer,
@@ -150,13 +209,42 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
         responses={201: AutoresearchPipelineSerializer},
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        serializer = self.get_serializer(data=request.data)
+        serializer = AutoresearchPipelineCreateSerializer(data=request.data, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
-        self.perform_create(serializer)
-        # Return full representation using the read serializer
-        output = AutoresearchPipelineSerializer(serializer.instance, context=self.get_serializer_context())
+        pipeline = api.create_pipeline(
+            self.team_id,
+            fields=_pipeline_write_fields(serializer.validated_data, request.data, creating=True),
+            created_by=cast(User, request.user),
+        )
+        output = AutoresearchPipelineSerializer(instance=pipeline)
         headers = self.get_success_headers(output.data)
         return Response(output.data, status=201, headers=headers)
+
+    def update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        partial = kwargs.pop("partial", False)
+        context = {**self.get_serializer_context(), "pipeline_id": self.kwargs["pk"]}
+        serializer = AutoresearchPipelineCreateSerializer(data=request.data, partial=partial, context=context)
+        serializer.is_valid(raise_exception=True)
+        try:
+            pipeline = api.update_pipeline(
+                self.team_id,
+                self.kwargs["pk"],
+                fields=_pipeline_write_fields(serializer.validated_data, request.data, creating=False),
+            )
+        except PipelineNotFound:
+            raise NotFound("Pipeline not found.")
+        return Response(AutoresearchPipelineSerializer(instance=pipeline).data)
+
+    def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        try:
+            api.delete_pipeline(self.team_id, self.kwargs["pk"])
+        except PipelineNotFound:
+            raise NotFound("Pipeline not found.")
+        return Response(status=204)
 
     @extend_schema(
         responses={200: TemplateInfoSerializer(many=True)},
@@ -171,22 +259,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
     )
     @action(detail=False, methods=["get"], url_path="templates")
     def list_templates(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        serializer = TemplateInfoSerializer(
-            [
-                {
-                    "key": t.key,
-                    "display_name": t.display_name,
-                    "description": t.description,
-                    "default_horizon_days": t.default_horizon_days,
-                    "requires_user_event": t.requires_user_event,
-                    "requires_activity_resolution": t.requires_activity_resolution,
-                    "notes": t.notes,
-                }
-                for t in TEMPLATES.values()
-            ],
-            many=True,
-        )
-        return Response(serializer.data)
+        return Response(TemplateInfoSerializer(instance=api.list_templates(), many=True).data)
 
     @validated_request(
         request_serializer=ResolveTemplateRequestSerializer,
@@ -219,32 +292,15 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
     def resolve_template(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         data = request.validated_data
         try:
-            resolved = resolve_template_def(
-                team=self.team,
+            resolved = api.resolve_template(
+                self.team_id,
                 template_key=data["template_key"],
                 target_event_override=data.get("target_event"),
                 horizon_days_override=data.get("horizon_days"),
             )
-        except ValueError as exc:
+        except AutoresearchConflict as exc:
             raise ValidationError(str(exc)) from exc
-
-        response_serializer = ResolvedTemplateSerializer(
-            {
-                "template_key": resolved.template_key,
-                "display_name": resolved.display_name,
-                "description": resolved.description,
-                "suggested_name": resolved.suggested_name,
-                "target_event": resolved.target_event,
-                "resolved_activity_event": resolved.resolved_activity_event,
-                "activity_event_alternatives": resolved.activity_event_alternatives,
-                "horizon_days": resolved.horizon_days,
-                "training_population": resolved.training_population,
-                "inference_population": resolved.inference_population,
-                "output_person_property": resolved.output_person_property,
-                "notes": resolved.notes,
-            }
-        )
-        return Response(response_serializer.data)
+        return Response(ResolvedTemplateSerializer(instance=resolved).data)
 
     @validated_request(
         request_serializer=ValidatePipelineRequestSerializer,
@@ -270,8 +326,8 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
             target_event=data.get("target_event", ""),
             target_definition=data.get("target_definition"),
         )
-        result = validate_pipeline_definition(
-            team=self.team,
+        result = api.validate_definition(
+            self.team_id,
             target_event=target_event,
             target_definition=target_definition,
             horizon_days=data.get("horizon_days", 7),
@@ -279,20 +335,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
             training_population=data.get("training_population", {}),
             inference_population=data.get("inference_population", {}),
         )
-        response_serializer = ValidatePipelineResponseSerializer(
-            {
-                "can_proceed": result.can_proceed,
-                "requires_acknowledgement": result.requires_acknowledgement,
-                "estimated_training_rows": result.estimated_training_rows,
-                "positive_count": result.positive_count,
-                "negative_count": result.negative_count,
-                "base_rate": result.base_rate,
-                "inference_population_size": result.inference_population_size,
-                "warnings": [{"code": w.code, "message": w.message, "severity": w.severity} for w in result.warnings],
-                "error": result.error,
-            }
-        )
-        return Response(response_serializer.data)
+        return Response(ValidatePipelineResponseSerializer(instance=result).data)
 
     @validated_request(
         request_serializer=StartTrainingRequestSerializer,
@@ -313,26 +356,18 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
     )
     @action(detail=True, methods=["post"], url_path="train")
     def start_training(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        pipeline = self.get_object()
-        data = request.validated_data
-
-        # Mirror the scheduled coordinator's kickoff guard: lock the pipeline row so concurrent
-        # manual and scheduled starts serialize, and refuse to stack a second live run. run_training
-        # stays inside the lock so the new run row commits before a waiting request re-checks.
-        with transaction.atomic():
-            pipeline = AutoresearchPipeline.objects.select_for_update().get(pk=pipeline.pk)
-            if pipeline.status == AutoresearchPipeline.Status.ARCHIVED:
-                raise ValidationError("Cannot start training on an archived pipeline.")
-            if AutoresearchTrainingRun.objects.filter(
-                pipeline=pipeline, status=AutoresearchTrainingRun.Status.RUNNING
-            ).exists():
-                raise ValidationError(
-                    "A training run is already in progress for this pipeline. "
-                    "Wait for it to finish, or check its status in the training runs list."
-                )
-            budget = data.get("iteration_budget") or pipeline.iteration_budget
-            training_run = run_training(pipeline=pipeline, iteration_budget=budget, user_id=request.user.id)
-        return Response(AutoresearchTrainingRunSerializer(training_run).data)
+        try:
+            training_run = api.start_training(
+                self.team_id,
+                self.kwargs["pk"],
+                iteration_budget=request.validated_data.get("iteration_budget"),
+                user_id=request.user.id,
+            )
+        except PipelineNotFound:
+            raise NotFound("Pipeline not found.")
+        except AutoresearchConflict as exc:
+            raise ValidationError(str(exc)) from exc
+        return Response(AutoresearchTrainingRunSerializer(instance=training_run).data)
 
     @validated_request(
         responses={
@@ -351,20 +386,13 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
     )
     @action(detail=True, methods=["post"], url_path="score")
     def run_inference(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        pipeline = self.get_object()
-        if pipeline.status == AutoresearchPipeline.Status.ARCHIVED:
-            raise ValidationError("Cannot score an archived pipeline.")
-
-        champion = (
-            AutoresearchModel.objects.filter(pipeline=pipeline, role=AutoresearchModel.Role.CHAMPION)
-            .order_by("-created_at")
-            .first()
-        )
-        if not champion:
-            raise ValidationError("No champion model found. Run training first.")
-
-        run = run_inference_for_pipeline(pipeline=pipeline, model=champion)
-        return Response(AutoresearchRunSerializer(run).data)
+        try:
+            run = api.score_pipeline(self.team_id, self.kwargs["pk"])
+        except PipelineNotFound:
+            raise NotFound("Pipeline not found.")
+        except AutoresearchConflict as exc:
+            raise ValidationError(str(exc)) from exc
+        return Response(AutoresearchRunSerializer(instance=run).data)
 
     @extend_schema(
         request=None,
@@ -392,12 +420,13 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
     # (matching what this returns) rather than a paginated envelope.
     @action(detail=True, methods=["post"], url_path="validate-online", pagination_class=None)
     def run_validation(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        pipeline = self.get_object()
-        if pipeline.status == AutoresearchPipeline.Status.ARCHIVED:
-            raise ValidationError("Cannot validate an archived pipeline.")
-
-        runs = run_online_validation_for_pipeline(pipeline=pipeline)
-        return Response(AutoresearchRunSerializer(runs, many=True).data)
+        try:
+            runs = api.validate_pipeline_online(self.team_id, self.kwargs["pk"])
+        except PipelineNotFound:
+            raise NotFound("Pipeline not found.")
+        except AutoresearchConflict as exc:
+            raise ValidationError(str(exc)) from exc
+        return Response(AutoresearchRunSerializer(instance=runs, many=True).data)
 
     @extend_schema(
         request=None,
@@ -412,10 +441,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
     )
     @action(detail=True, methods=["post"], url_path="archive")
     def archive(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        pipeline = self.get_object()
-        pipeline.status = AutoresearchPipeline.Status.ARCHIVED
-        pipeline.save(update_fields=["status", "updated_at"])
-        return Response(AutoresearchPipelineSerializer(pipeline).data)
+        return self._set_status("archived")
 
     @extend_schema(
         request=None,
@@ -430,10 +456,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
     )
     @action(detail=True, methods=["post"], url_path="pause")
     def pause(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        pipeline = self.get_object()
-        pipeline.status = AutoresearchPipeline.Status.PAUSED
-        pipeline.save(update_fields=["status", "updated_at"])
-        return Response(AutoresearchPipelineSerializer(pipeline).data)
+        return self._set_status("paused")
 
     @extend_schema(
         request=None,
@@ -448,16 +471,20 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
     )
     @action(detail=True, methods=["post"], url_path="resume")
     def resume(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        pipeline = self.get_object()
-        if pipeline.status != AutoresearchPipeline.Status.PAUSED:
-            raise ValidationError("Pipeline is not paused.")
-        pipeline.status = AutoresearchPipeline.Status.RUNNING
-        pipeline.save(update_fields=["status", "updated_at"])
-        return Response(AutoresearchPipelineSerializer(pipeline).data)
+        return self._set_status("running")
+
+    def _set_status(self, status: str) -> Response:
+        try:
+            pipeline = api.set_pipeline_status(self.team_id, self.kwargs["pk"], status=status)
+        except PipelineNotFound:
+            raise NotFound("Pipeline not found.")
+        except AutoresearchConflict as exc:
+            raise ValidationError(str(exc)) from exc
+        return Response(AutoresearchPipelineSerializer(instance=pipeline).data)
 
 
 @extend_schema(tags=["autoresearch"])
-class AutoresearchModelViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
+class AutoresearchModelViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, viewsets.ReadOnlyModelViewSet):
     """
     List and retrieve champion/challenger models for a pipeline.
 
@@ -466,50 +493,66 @@ class AutoresearchModelViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelVie
     the daily inference workflow compiles to score users.
     """
 
+    schema = FacadePathParamSchema()
+    uuid_path_parameters = {"id": "A UUID string identifying this autoresearch model.", "pipeline_id": None}
     scope_object = "autoresearch"
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchModelSerializer
-    # unscoped() because a class attribute is evaluated at import time, when no team
-    # context exists. The per-request team filter is applied in safely_get_queryset.
-    queryset = AutoresearchModel.objects.unscoped()
+    queryset = None  # data is reached through the facade; declared for router/schema only
 
     def _should_skip_parents_filter(self) -> bool:
         return True
 
-    def safely_get_queryset(self, queryset: Any) -> Any:
-        pipeline_id = self.kwargs.get("parent_lookup_pipeline_id")
-        qs = queryset.filter(pipeline__team=self.team).select_related("pipeline")
-        if pipeline_id:
-            qs = qs.filter(pipeline_id=pipeline_id)
-        return qs.order_by("-created_at")
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._paginate_via_facade(
+            request,
+            lambda offset, limit: api.list_models(
+                self.team_id, pipeline_id=_parent_pipeline_id(self), offset=offset, limit=limit
+            ),
+            AutoresearchModelSerializer,
+        )
+
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        model = api.get_model(self.team_id, self.kwargs["pk"])
+        if model is None:
+            raise NotFound("Model not found.")
+        return Response(AutoresearchModelSerializer(instance=model).data)
 
 
 @extend_schema(tags=["autoresearch"])
-class AutoresearchRunViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
+class AutoresearchRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, viewsets.ReadOnlyModelViewSet):
     """
     List and retrieve inference and validation runs for a pipeline.
     """
 
+    schema = FacadePathParamSchema()
+    uuid_path_parameters = {"id": "A UUID string identifying this autoresearch run.", "pipeline_id": None}
     scope_object = "autoresearch"
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchRunSerializer
-    # unscoped() because a class attribute is evaluated at import time, when no team
-    # context exists. The per-request team filter is applied in safely_get_queryset.
-    queryset = AutoresearchRun.objects.unscoped()
+    queryset = None  # data is reached through the facade; declared for router/schema only
 
     def _should_skip_parents_filter(self) -> bool:
         return True
 
-    def safely_get_queryset(self, queryset: Any) -> Any:
-        pipeline_id = self.kwargs.get("parent_lookup_pipeline_id")
-        qs = queryset.filter(pipeline__team=self.team).select_related("pipeline", "model")
-        if pipeline_id:
-            qs = qs.filter(pipeline_id=pipeline_id)
-        return qs.order_by("-created_at")
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._paginate_via_facade(
+            request,
+            lambda offset, limit: api.list_runs(
+                self.team_id, pipeline_id=_parent_pipeline_id(self), offset=offset, limit=limit
+            ),
+            AutoresearchRunSerializer,
+        )
+
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        run = api.get_run(self.team_id, self.kwargs["pk"])
+        if run is None:
+            raise NotFound("Run not found.")
+        return Response(AutoresearchRunSerializer(instance=run).data)
 
 
 @extend_schema(tags=["autoresearch"])
-class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelMixin, viewsets.ReadOnlyModelViewSet):
+class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, viewsets.ModelViewSet):
     """
     List, retrieve, open, record iterations into, and complete training runs for a pipeline.
 
@@ -518,6 +561,8 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelM
     terminal sandbox output. Recipe validation and champion promotion stay server-side.
     """
 
+    schema = FacadePathParamSchema()
+    uuid_path_parameters = {"id": "A UUID string identifying this autoresearch training run.", "pipeline_id": None}
     scope_object = "autoresearch"
     scope_object_read_actions = ["list", "retrieve", "list_artifacts", "get_artifact", "history"]
     scope_object_write_actions = [
@@ -530,26 +575,28 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelM
     ]
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchTrainingRunSerializer
-    # unscoped() because a class attribute is evaluated at import time, when no team
-    # context exists. The per-request team filter is applied in safely_get_queryset.
-    queryset = AutoresearchTrainingRun.objects.unscoped()
+    queryset = None  # data is reached through the facade; declared for router/schema only
+    # A training run is opened and appended to, never edited or deleted — same surface the
+    # CreateModelMixin + ReadOnlyModelViewSet pairing exposed before the facade move.
+    http_method_names = ["get", "post", "head", "options"]
 
     def _should_skip_parents_filter(self) -> bool:
         return True
 
-    def safely_get_queryset(self, queryset: Any) -> Any:
-        pipeline_id = self.kwargs.get("parent_lookup_pipeline_id")
-        qs = queryset.filter(pipeline__team=self.team).select_related("pipeline").prefetch_related("iterations")
-        if pipeline_id:
-            qs = qs.filter(pipeline_id=pipeline_id)
-        return qs.order_by("-created_at")
+    def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        return self._paginate_via_facade(
+            request,
+            lambda offset, limit: api.list_training_runs(
+                self.team_id, pipeline_id=_parent_pipeline_id(self), offset=offset, limit=limit
+            ),
+            AutoresearchTrainingRunSerializer,
+        )
 
-    def _get_pipeline(self) -> AutoresearchPipeline:
-        pipeline_id = self.kwargs.get("parent_lookup_pipeline_id")
-        try:
-            return AutoresearchPipeline.objects.get(pk=str(pipeline_id), team=self.team)
-        except AutoresearchPipeline.DoesNotExist:
-            raise ValidationError("Pipeline not found.")
+    def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        training_run = api.get_training_run(self.team_id, self.kwargs["pk"])
+        if training_run is None:
+            raise NotFound("Training run not found.")
+        return Response(AutoresearchTrainingRunSerializer(instance=training_run).data)
 
     @validated_request(
         request_serializer=OpenTrainingRunSerializer,
@@ -568,17 +615,15 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelM
         ),
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        pipeline = self._get_pipeline()
-        if pipeline.status == AutoresearchPipeline.Status.ARCHIVED:
-            raise ValidationError("Cannot open a training run on an archived pipeline.")
-        data = request.validated_data
-        training_run = AutoresearchTrainingRun.objects.create(
-            pipeline=pipeline,
-            status=AutoresearchTrainingRun.Status.RUNNING,
-            iteration_budget=data.get("iteration_budget") or pipeline.iteration_budget,
-            started_at=django_timezone.now(),
-        )
-        return Response(AutoresearchTrainingRunSerializer(training_run).data, status=201)
+        try:
+            training_run = api.open_training_run(
+                self.team_id,
+                _parent_pipeline_id(self),
+                iteration_budget=request.validated_data.get("iteration_budget"),
+            )
+        except (PipelineNotFound, AutoresearchConflict) as exc:
+            raise ValidationError(str(exc)) from exc
+        return Response(AutoresearchTrainingRunSerializer(instance=training_run).data, status=201)
 
     @validated_request(
         request_serializer=RecordIterationSerializer,
@@ -600,55 +645,13 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelM
     )
     @action(detail=True, methods=["post"], url_path="iterations")
     def record_iteration(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        training_run = self.get_object()
-        if training_run.status != AutoresearchTrainingRun.Status.RUNNING:
-            raise ValidationError("Can only record iterations on a running training run.")
-        data = request.validated_data
-        recipe_snapshot = data["recipe_snapshot"]
-        model_spec = data["model_spec"]
-        recipe_hash = hashlib.sha256(
-            json.dumps({"recipe": recipe_snapshot, "spec": model_spec}, sort_keys=True).encode()
-        ).hexdigest()
-
-        # Link the iteration to the suggestion that spawned it, if any. Scope the lookup to this
-        # run's pipeline so a foreign suggestion id can't be attached across tenants.
-        parent_suggestion = None
-        parent_suggestion_id = data.get("parent_suggestion")
-        if parent_suggestion_id:
-            try:
-                parent_suggestion = AutoresearchSuggestion.objects.get(
-                    id=parent_suggestion_id, pipeline=training_run.pipeline
-                )
-            except AutoresearchSuggestion.DoesNotExist:
-                raise ValidationError("parent_suggestion not found on this pipeline.")
-
-        iteration, _ = AutoresearchIteration.objects.update_or_create(
-            training_run=training_run,
-            iteration_number=data["iteration_number"],
-            defaults={
-                "pipeline": training_run.pipeline,
-                "recipe_hash": recipe_hash,
-                "recipe_snapshot": recipe_snapshot,
-                "model_spec": model_spec,
-                "train_score": data.get("train_score"),
-                "holdout_score": data.get("holdout_score"),
-                "status": data["status"],
-                "agent_description": data.get("agent_description", ""),
-                "agent_confidence": data.get("agent_confidence"),
-                "parent_suggestion": parent_suggestion,
-            },
-        )
-
-        # Spawning an iteration from a suggestion is itself acting on it — advance the suggestion so
-        # the UI reflects the pickup even if the agent never calls the respond endpoint.
-        if parent_suggestion and parent_suggestion.status in (
-            AutoresearchSuggestion.Status.QUEUED,
-            AutoresearchSuggestion.Status.PICKED_UP,
-        ):
-            parent_suggestion.status = AutoresearchSuggestion.Status.ACTED_ON
-            parent_suggestion.save(update_fields=["status", "updated_at"])
-
-        return Response(AutoresearchIterationSerializer(iteration).data, status=201)
+        try:
+            iteration = api.record_iteration(self.team_id, self.kwargs["pk"], fields=dict(request.validated_data))
+        except TrainingRunNotFound:
+            raise NotFound("Training run not found.")
+        except AutoresearchConflict as exc:
+            raise ValidationError(str(exc)) from exc
+        return Response(AutoresearchIterationSerializer(instance=iteration).data, status=201)
 
     @validated_request(
         request_serializer=MaterializeFeaturesRequestSerializer,
@@ -671,93 +674,22 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelM
     )
     @action(detail=True, methods=["post"], url_path="materialize-features")
     def materialize_features(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        training_run = self.get_object()
-        if training_run.status != AutoresearchTrainingRun.Status.RUNNING:
-            raise ValidationError("Can only materialize features for a running training run.")
-        features_sql = request.validated_data["features_sql"]
         try:
-            validate_feature_sql(features_sql)
-        except RecipeValidationError as exc:
-            raise ValidationError(str(exc))
-
-        sandbox_id = self._resolve_run_sandbox_id(training_run)
-        try:
-            data = materialize_training_data(team=self.team, pipeline=training_run.pipeline, feature_sql=features_sql)
-        except (SandboxInferenceError, RecipeValidationError) as exc:
-            raise ValidationError(f"Feature materialization failed: {exc}")
-        if not data.train_rows:
-            raise ValidationError("features_sql produced no training rows.")
-        if not data.feature_cols:
-            raise ValidationError("features_sql produced no numeric feature columns.")
-
-        paths = self._write_feature_parquets(sandbox_id, data)
-        response = {
-            **paths,
-            "n_train": len(data.train_rows),
-            "n_holdout": len(data.holdout_rows),
-            "n_features": len(data.feature_cols),
-            "feature_cols": data.feature_cols,
-        }
+            result = api.materialize_features(
+                self.team_id, self.kwargs["pk"], features_sql=request.validated_data["features_sql"]
+            )
+        except TrainingRunNotFound:
+            raise NotFound("Training run not found.")
+        except AutoresearchConflict as exc:
+            raise ValidationError(str(exc)) from exc
         logger.info(
             "autoresearch_features_materialized_to_sandbox",
-            pipeline_id=str(training_run.pipeline_id),
-            training_run_id=str(training_run.id),
-            n_train=len(data.train_rows),
-            n_holdout=len(data.holdout_rows),
-            n_features=len(data.feature_cols),
+            training_run_id=str(self.kwargs["pk"]),
+            n_train=result.n_train,
+            n_holdout=result.n_holdout,
+            n_features=result.n_features,
         )
-        return Response(MaterializeFeaturesResponseSerializer(response).data)
-
-    def _resolve_run_sandbox_id(self, training_run: AutoresearchTrainingRun) -> str:
-        """
-        Resolve the live sandbox for this training run from its TaskRun state.
-
-        The sandbox id is derived from the team-scoped run record — never from the
-        client — and verified to belong to this training run. Raises ValidationError
-        if the run has no live sandbox.
-        """
-        if not training_run.task_run_id:
-            raise ValidationError("This training run has no sandbox (e.g. a stub run). Cannot materialize features.")
-        task_run = tasks_facade.get_task_run(training_run.task_run_id)
-        if task_run is None:
-            raise ValidationError("Sandbox task run not found for this training run.")
-        state = task_run.state or {}
-        if str(state.get("autoresearch_training_run_id")) != str(training_run.id):
-            raise ValidationError("Sandbox does not belong to this training run.")
-        sandbox_id = state.get("sandbox_id")
-        if not sandbox_id:
-            raise ValidationError("Sandbox is not ready yet — try again once the agent has started.")
-        return str(sandbox_id)
-
-    def _write_feature_parquets(self, sandbox_id: str, data: Any) -> dict[str, str]:
-        """Serialize train/holdout matrices to parquet and write them into the agent's sandbox."""
-        try:
-            sandbox = get_sandbox_class().get_by_id(sandbox_id)
-        except Exception as exc:
-            raise ValidationError(f"Could not connect to the run's sandbox: {exc}")
-        # Paths are hardcoded by the framework — the agent supplies the query, never the destination.
-        files = {
-            "train_features_path": (
-                f"{_AGENT_FEATURE_DIR}/train_features.parquet",
-                features_parquet(data.train_rows, data.feature_cols),
-            ),
-            "train_labels_path": (f"{_AGENT_FEATURE_DIR}/train_labels.parquet", labels_parquet(data.train_rows)),
-            "holdout_features_path": (
-                f"{_AGENT_FEATURE_DIR}/holdout_features.parquet",
-                features_parquet(data.holdout_rows, data.feature_cols),
-            ),
-            "holdout_labels_path": (
-                f"{_AGENT_FEATURE_DIR}/holdout_labels.parquet",
-                labels_parquet(data.holdout_rows),
-            ),
-        }
-        paths: dict[str, str] = {}
-        for key, (path, content) in files.items():
-            result = sandbox.write_file(path, content)
-            if result.exit_code != 0:
-                raise ValidationError(f"Failed to write {path} into the sandbox: {result.stderr[:300]}")
-            paths[key] = path
-        return paths
+        return Response(MaterializeFeaturesResponseSerializer(instance=result).data)
 
     @validated_request(
         request_serializer=CompleteTrainingRunSerializer,
@@ -779,25 +711,21 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelM
     )
     @action(detail=True, methods=["post"], url_path="complete")
     def complete(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        training_run = self.get_object()
-        if training_run.status not in (
-            AutoresearchTrainingRun.Status.RUNNING,
-            AutoresearchTrainingRun.Status.PENDING,
-        ):
-            raise ValidationError("Training run is already completed or failed.")
         data = request.validated_data
         try:
-            complete_training_run(
-                training_run,
+            training_run = api.complete_run(
+                self.team_id,
+                self.kwargs["pk"],
                 best_iteration_id=data.get("best_iteration_id"),
                 model_explanation=data.get("model_explanation") or {},
                 recommended_next=data.get("recommended_next") or "",
                 distillation=data.get("distillation") or "",
             )
-        except PromotionError as exc:
-            raise ValidationError(str(exc))
-        training_run.refresh_from_db()
-        return Response(AutoresearchTrainingRunSerializer(training_run).data)
+        except TrainingRunNotFound:
+            raise NotFound("Training run not found.")
+        except AutoresearchConflict as exc:
+            raise ValidationError(str(exc)) from exc
+        return Response(AutoresearchTrainingRunSerializer(instance=training_run).data)
 
     @extend_schema(
         parameters=[
@@ -825,55 +753,15 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelM
     )
     @action(detail=False, methods=["get"], url_path="history", pagination_class=None)
     def history(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        pipeline = self._get_pipeline()
         try:
             limit = int(request.query_params.get("limit", 5))
         except (TypeError, ValueError):
             limit = 5
-        limit = max(1, min(limit, 20))
-
-        completed = (
-            AutoresearchTrainingRun.objects.filter(
-                status=AutoresearchTrainingRun.Status.COMPLETED,
-                pipeline__team=self.team,
-            )
-            .select_related("pipeline")
-            .prefetch_related("iterations")
-        )
-
-        # This pipeline's own history first; backfill with same-target sibling pipelines on the team.
-        runs = list(completed.filter(pipeline=pipeline).order_by("-completed_at")[:limit])
-        remaining = limit - len(runs)
-        if remaining > 0:
-            runs += list(
-                completed.filter(pipeline__target_event=pipeline.target_event)
-                .exclude(pipeline=pipeline)
-                .order_by("-completed_at")[:remaining]
-            )
-
-        entries = [
-            {
-                "run_id": run.id,
-                "pipeline_id": run.pipeline_id,
-                "is_current_pipeline": run.pipeline_id == pipeline.id,
-                "target_event": run.pipeline.target_event,
-                "horizon_days": run.pipeline.horizon_days,
-                "best_holdout_score": run.best_holdout_score,
-                "iteration_count": run.iteration_count,
-                "completed_at": run.completed_at,
-                "summary": run.summary or None,
-                "iterations": list(run.iterations.all()),
-            }
-            for run in runs
-        ]
-        return Response(TrainingRunHistorySerializer({"runs": entries}).data)
-
-    def _bundle_prefix(self, training_run: AutoresearchTrainingRun) -> str:
-        return artifact_store.bundle_prefix(
-            team_id=self.team_id,
-            pipeline_id=str(training_run.pipeline_id),
-            training_run_id=str(training_run.id),
-        )
+        try:
+            history = api.training_run_history(self.team_id, _parent_pipeline_id(self), limit=limit)
+        except PipelineNotFound as exc:
+            raise ValidationError(str(exc)) from exc
+        return Response(TrainingRunHistorySerializer(instance=history).data)
 
     @extend_schema(
         responses={
@@ -890,9 +778,11 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelM
     )
     @action(detail=True, methods=["get"], url_path="artifacts")
     def list_artifacts(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        training_run = self.get_object()
-        paths = artifact_store.list_artifacts(self._bundle_prefix(training_run))
-        return Response(ArtifactListSerializer({"paths": paths, "count": len(paths)}).data)
+        try:
+            listing = api.list_artifacts(self.team_id, self.kwargs["pk"])
+        except TrainingRunNotFound:
+            raise NotFound("Training run not found.")
+        return Response(ArtifactListSerializer(instance=listing).data)
 
     @validated_request(
         request_serializer=ArtifactUploadSerializer,
@@ -917,19 +807,16 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelM
     )
     @action(detail=True, methods=["post"], url_path="artifacts/upload")
     def upload_artifact(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        training_run = self.get_object()
-        if training_run.status != AutoresearchTrainingRun.Status.RUNNING:
-            raise ValidationError("Can only upload artifacts on a running training run.")
         data = request.validated_data
         try:
-            content = base64.b64decode(data["content_base64"], validate=True)
-        except (binascii.Error, ValueError) as exc:
-            raise ValidationError("content_base64 is not valid base64.") from exc
-        try:
-            stored = artifact_store.write_artifact(self._bundle_prefix(training_run), data["path"], content)
-        except artifact_store.InvalidArtifactPath as exc:
+            stored = api.write_artifact(
+                self.team_id, self.kwargs["pk"], path=data["path"], content_base64=data["content_base64"]
+            )
+        except TrainingRunNotFound:
+            raise NotFound("Training run not found.")
+        except (AutoresearchConflict, InvalidArtifactPath) as exc:
             raise ValidationError(str(exc)) from exc
-        return Response(StoredArtifactSerializer(stored).data, status=201)
+        return Response(StoredArtifactSerializer(instance=stored).data, status=201)
 
     @validated_request(
         request_serializer=ArtifactPathSerializer,
@@ -945,24 +832,15 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelM
     )
     @action(detail=True, methods=["post"], url_path="artifacts/get")
     def get_artifact(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        training_run = self.get_object()
-        path = request.validated_data["path"]
         try:
-            content = artifact_store.read_artifact(self._bundle_prefix(training_run), path)
-        except artifact_store.InvalidArtifactPath as exc:
+            content = api.read_artifact(self.team_id, self.kwargs["pk"], path=request.validated_data["path"])
+        except TrainingRunNotFound:
+            raise NotFound("Training run not found.")
+        except InvalidArtifactPath as exc:
             raise ValidationError(str(exc)) from exc
-        except artifact_store.BundleNotFound as exc:
+        except ArtifactNotFound as exc:
             raise NotFound(str(exc)) from exc
-        return Response(
-            ArtifactContentSerializer(
-                {
-                    "path": artifact_store.normalize_artifact_path(path),
-                    "size_bytes": len(content),
-                    "sha256": hashlib.sha256(content).hexdigest(),
-                    "content_base64": base64.b64encode(content).decode("ascii"),
-                }
-            ).data
-        )
+        return Response(ArtifactContentSerializer(instance=content).data)
 
     @validated_request(
         request_serializer=ArtifactPathSerializer,
@@ -981,20 +859,17 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, mixins.CreateModelM
     )
     @action(detail=True, methods=["post"], url_path="artifacts/delete")
     def delete_artifact(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        training_run = self.get_object()
-        if training_run.status != AutoresearchTrainingRun.Status.RUNNING:
-            raise ValidationError("Can only delete artifacts on a running training run.")
-        path = request.validated_data["path"]
         try:
-            deleted = artifact_store.delete_artifact(self._bundle_prefix(training_run), path)
-            normalized = artifact_store.normalize_artifact_path(path)
-        except artifact_store.InvalidArtifactPath as exc:
+            result = api.delete_artifact(self.team_id, self.kwargs["pk"], path=request.validated_data["path"])
+        except TrainingRunNotFound:
+            raise NotFound("Training run not found.")
+        except (AutoresearchConflict, InvalidArtifactPath) as exc:
             raise ValidationError(str(exc)) from exc
-        return Response(ArtifactDeleteResultSerializer({"path": normalized, "deleted": deleted}).data)
+        return Response(ArtifactDeleteResultSerializer(instance=result).data)
 
 
 @extend_schema(tags=["autoresearch"])
-class AutoresearchSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
+class AutoresearchSuggestionViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin, viewsets.GenericViewSet):
     """
     Submit and list steering suggestions for a running pipeline.
 
@@ -1004,24 +879,17 @@ class AutoresearchSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
     search constraint, or dismiss it with rationale.
     """
 
+    schema = FacadePathParamSchema()
+    uuid_path_parameters = {"id": "A UUID string identifying this autoresearch suggestion.", "pipeline_id": None}
     scope_object = "autoresearch"
     scope_object_read_actions = ["list", "retrieve"]
     scope_object_write_actions = ["create", "respond"]
     permission_classes = [AutoresearchAccessPermission]
     serializer_class = AutoresearchSuggestionSerializer
-    # unscoped() because a class attribute is evaluated at import time, when no team
-    # context exists. The per-request team filter is applied in safely_get_queryset.
-    queryset = AutoresearchSuggestion.objects.unscoped()
+    queryset = None  # data is reached through the facade; declared for router/schema only
 
     def _should_skip_parents_filter(self) -> bool:
         return True
-
-    def safely_get_queryset(self, queryset: Any) -> Any:
-        pipeline_id = self.kwargs.get("parent_lookup_pipeline_id")
-        qs = queryset.filter(pipeline__team=self.team).select_related("pipeline", "created_by")
-        if pipeline_id:
-            qs = qs.filter(pipeline_id=pipeline_id)
-        return qs.order_by("-created_at")
 
     @extend_schema(
         responses={200: AutoresearchSuggestionSerializer(many=True)},
@@ -1032,13 +900,13 @@ class AutoresearchSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         ),
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        qs = self.safely_get_queryset(self.get_queryset())
-        page = self.paginate_queryset(qs)
-        if page is not None:
-            serializer = AutoresearchSuggestionSerializer(page, many=True)
-            return self.get_paginated_response(serializer.data)
-        serializer = AutoresearchSuggestionSerializer(qs, many=True)
-        return Response(serializer.data)
+        return self._paginate_via_facade(
+            request,
+            lambda offset, limit: api.list_suggestions(
+                self.team_id, pipeline_id=_parent_pipeline_id(self), offset=offset, limit=limit
+            ),
+            AutoresearchSuggestionSerializer,
+        )
 
     @extend_schema(
         responses={200: AutoresearchSuggestionSerializer},
@@ -1046,8 +914,10 @@ class AutoresearchSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         description="Get details for a specific suggestion including its status and agent_response.",
     )
     def retrieve(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        instance = self.get_object()
-        return Response(AutoresearchSuggestionSerializer(instance).data)
+        suggestion = api.get_suggestion(self.team_id, self.kwargs["pk"])
+        if suggestion is None:
+            raise NotFound("Suggestion not found.")
+        return Response(AutoresearchSuggestionSerializer(instance=suggestion).data)
 
     @validated_request(
         request_serializer=CreateSuggestionSerializer,
@@ -1069,25 +939,19 @@ class AutoresearchSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
         ),
     )
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        pipeline_id = self.kwargs.get("parent_lookup_pipeline_id")
-        try:
-            pipeline = AutoresearchPipeline.objects.get(pk=str(pipeline_id), team=self.team)
-        except AutoresearchPipeline.DoesNotExist:
-            raise ValidationError("Pipeline not found.")
-
-        if pipeline.status == AutoresearchPipeline.Status.ARCHIVED:
-            raise ValidationError("Cannot submit suggestions to an archived pipeline.")
-
         data = request.validated_data
-        suggestion = AutoresearchSuggestion.objects.create(
-            pipeline=pipeline,
-            # The permission class rejects anonymous callers, so this is always a real user.
-            created_by=cast(User, request.user),
-            prompt=data["prompt"],
-            priority=data.get("priority", AutoresearchSuggestion.Priority.CONSIDER),
-            source=AutoresearchSuggestion.Source.USER,
-        )
-        return Response(AutoresearchSuggestionSerializer(suggestion).data, status=201)
+        try:
+            suggestion = api.create_suggestion(
+                self.team_id,
+                _parent_pipeline_id(self),
+                prompt=data["prompt"],
+                priority=data.get("priority", "consider"),
+                # The permission class rejects anonymous callers, so this is always a real user.
+                created_by=cast(User, request.user),
+            )
+        except (PipelineNotFound, AutoresearchConflict) as exc:
+            raise ValidationError(str(exc)) from exc
+        return Response(AutoresearchSuggestionSerializer(instance=suggestion).data, status=201)
 
     @validated_request(
         request_serializer=RespondToSuggestionSerializer,
@@ -1109,10 +973,14 @@ class AutoresearchSuggestionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
     )
     @action(detail=True, methods=["post"], url_path="respond")
     def respond(self, request: Request, *args: Any, **kwargs: Any) -> Response:
-        suggestion = self.get_object()
         data = request.validated_data
-        suggestion.status = data["status"]
-        if data.get("agent_response"):
-            suggestion.agent_response = data["agent_response"]
-        suggestion.save(update_fields=["status", "agent_response", "updated_at"])
-        return Response(AutoresearchSuggestionSerializer(suggestion).data)
+        try:
+            suggestion = api.respond_to_suggestion(
+                self.team_id,
+                self.kwargs["pk"],
+                status=data["status"],
+                agent_response=data.get("agent_response"),
+            )
+        except SuggestionNotFound:
+            raise NotFound("Suggestion not found.")
+        return Response(AutoresearchSuggestionSerializer(instance=suggestion).data)
