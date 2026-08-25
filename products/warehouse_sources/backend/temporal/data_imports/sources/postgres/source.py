@@ -7,6 +7,7 @@ from psycopg.errors import SqlclientUnableToEstablishSqlconnection
 from sshtunnel import BaseSSHTunnelForwarderError
 
 if TYPE_CHECKING:
+    from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 from posthog.schema import (
@@ -1309,6 +1310,59 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             finally:
                 conn.close()
 
+    def _buffered_cdc_source(self, schema: "ExternalDataSchema", inputs: SourceInputs) -> SourceResponse | None:
+        """A `SourceResponse` reading this schema's S3 change buffer, or None if it isn't flipped.
+
+        Returning None keeps the caller on the legacy `CDCHandledExternally` path, so a source that
+        was never flipped — or a lane the buffer doesn't serve — behaves exactly as before.
+        """
+        from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
+            CONSOLIDATED_WRITE_MODE,
+            CDCSourceManager,
+            consolidated_resource_name,
+            has_pending_legacy_backlog,
+            is_buffered_consolidated,
+        )
+        from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.config import (
+            PostgresCDCConfig,
+        )
+
+        ingest_mode = PostgresCDCConfig.from_source(schema.source).ingest_mode
+        if not is_buffered_consolidated(schema, ingest_mode=ingest_mode):
+            return None
+
+        # A CDC reset must travel through snapshot mode (which purges the buffer and re-seeds the
+        # table); every reset writer does that. Standing down here instead would route into
+        # CDCHandledExternally, whose handler pauses this schedule — and nothing on a buffered
+        # source ever unpauses it, so the buffer would age to the S3 TTL unconsumed.
+        if inputs.reset_pipeline:
+            raise ValueError(
+                f"reset_pipeline is set on buffered CDC schema {schema.name} while cdc_mode is still "
+                "'streaming'. Reset it to snapshot (cdc_mode='snapshot') so the re-snapshot path runs."
+            )
+
+        resource_name = consolidated_resource_name(schema)
+
+        if has_pending_legacy_backlog(schema):
+            # Legacy deliveries carry no position column, so merging buffered rows before they land
+            # lets an older row overwrite a newer one. No-op this run — an empty response keeps the
+            # schedule alive, unlike CDCHandledExternally, which would pause it for good.
+            inputs.logger.info("cdc_buffered_waiting_for_legacy_backlog", schema_name=schema.name)
+            return SourceResponse(
+                name=resource_name,
+                items=lambda: iter(()),
+                primary_keys=schema.primary_key_columns,
+                cdc_write_mode=CONSOLIDATED_WRITE_MODE,
+            )
+
+        manager = CDCSourceManager(inputs, inputs.logger)
+        return SourceResponse(
+            name=resource_name,
+            items=lambda: manager.get_items(resource_name),
+            primary_keys=schema.primary_key_columns,
+            cdc_write_mode=CONSOLIDATED_WRITE_MODE,
+        )
+
     def source_for_pipeline(self, config: PostgresSourceConfig, inputs: SourceInputs) -> SourceResponse:
         from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.exceptions import (
@@ -1341,8 +1395,12 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             source_schema = source_schema or inferred_schema
             source_table_name = source_table_name or inferred_table
 
-        # CDC streaming schemas are handled by CDCExtractionWorkflow, not here
+        # A buffered source's changes are consumed here like any other source; every other CDC
+        # streaming schema is still dispatched by CDCExtractionWorkflow.
         if schema.is_cdc and schema.cdc_mode == "streaming":
+            buffered_response = self._buffered_cdc_source(schema, inputs)
+            if buffered_response is not None:
+                return buffered_response
             raise CDCHandledExternally(
                 f"Schema {schema.name} is in CDC streaming mode — handled by CDCExtractionWorkflow"
             )
