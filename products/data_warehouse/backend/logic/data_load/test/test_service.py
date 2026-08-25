@@ -359,6 +359,9 @@ def test_cdc_min_interval(intervals, expected):
 
 
 # --- CDC extraction schedule reads ---
+#
+# Both reads are , so the name is bound to a sync callable and these tests call it
+# without . Awaiting one would try to await the bool it returns.
 
 
 def _temporal_with_schedule(desc: MagicMock | None = None, describe_side: BaseException | None = None) -> Any:
