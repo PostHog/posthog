@@ -341,7 +341,7 @@ class TestAccountsTableQueryRunner(BaseTest):
             name="From email domains",
             _properties={"email_domains": ["globex.example"]},
         )
-        unresolved = create_account(team_id=self.team.id, name="Unresolved", external_id="not-a-domain")
+        from_external_id = create_account(team_id=self.team.id, name="From external ID", external_id="legacy.example")
 
         page = api.query_accounts_table(
             team_id=self.team.id,
@@ -356,7 +356,7 @@ class TestAccountsTableQueryRunner(BaseTest):
         logo_domains = {row.id: row.logo_domain for row in page.rows}
         assert logo_domains[from_website_domain.id] == "acme.example"
         assert logo_domains[from_email_domains.id] == "globex.example"
-        assert logo_domains[unresolved.id] is None
+        assert logo_domains[from_external_id.id] is None
 
     def test_caps_selected_columns_metrics_and_page_size(self) -> None:
         with self.assertRaises(ValidationError):

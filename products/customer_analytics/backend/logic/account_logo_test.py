@@ -41,35 +41,11 @@ class TestParseCompanyDomain:
 
 
 class TestResolveLogoDomain:
-    def test_prefers_the_website_domain_over_other_sources(self) -> None:
-        assert (
-            resolve_logo_domain(
-                website_domain="https://acme.example/",
-                email_domains=["mail.example"],
-                external_id="other.example",
-            )
-            == "acme.example"
-        )
+    def test_prefers_the_normalized_website_domain(self) -> None:
+        assert resolve_logo_domain(website_domain="acme.example", email_domains=["mail.example"]) == "acme.example"
 
-    def test_falls_back_through_sources_that_do_not_resolve(self) -> None:
-        assert (
-            resolve_logo_domain(
-                website_domain="not a domain",
-                email_domains=["gmail.com", "acme.example"],
-                external_id="0192d900-d620-0000-46a9-f9a712425410",
-            )
-            == "acme.example"
-        )
-
-    def test_uses_a_group_key_that_is_already_a_hostname(self) -> None:
-        assert resolve_logo_domain(website_domain=None, email_domains=[], external_id="acme.example") == "acme.example"
+    def test_falls_back_through_email_domains_that_do_not_resolve(self) -> None:
+        assert resolve_logo_domain(website_domain=None, email_domains=["gmail.com", "acme.example"]) == "acme.example"
 
     def test_returns_none_when_no_source_resolves(self) -> None:
-        assert (
-            resolve_logo_domain(
-                website_domain=None,
-                email_domains=[],
-                external_id="0192d900-d620-0000-46a9-f9a712425410",
-            )
-            is None
-        )
+        assert resolve_logo_domain(website_domain=None, email_domains=[]) is None

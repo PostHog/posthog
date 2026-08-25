@@ -78,8 +78,7 @@ Overview tiles run as a separate metrics-only `AccountsTableQuery` (`metrics` se
 The server selects the first valid hostname from:
 
 1. `account.properties.website_domain`, the account's primary company website;
-2. `account.properties.email_domains`, used for meeting and email attribution;
-3. `external_id`, for teams that use a hostname as the group key.
+2. `account.properties.email_domains`, used for meeting and email attribution.
 
 `website_domain` is a typed account property. `AccountProperties` normalizes it on write, and the Useful links editor saves it through the existing account PATCH endpoint. `parse_company_domain` accepts URLs and bare hostnames while rejecting UUIDs, free text, and mailbox providers.
 

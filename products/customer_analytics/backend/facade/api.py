@@ -2910,7 +2910,6 @@ def _resolve_account_logo_domain(account: Account) -> str | None:
     return resolve_logo_domain(
         website_domain=properties.website_domain,
         email_domains=properties.email_domains,
-        external_id=account.external_id,
     )
 
 
