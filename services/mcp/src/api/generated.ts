@@ -18354,6 +18354,20 @@ export namespace Schemas {
     }
 
     /**
+     * * `saml` - Saml
+     * * `scim` - Scim
+     * * `xaa` - Xaa
+     */
+    export type ConfigScopeEnum = typeof ConfigScopeEnum[keyof typeof ConfigScopeEnum];
+
+
+    export const ConfigScopeEnum = {
+      Saml: 'saml',
+      Scim: 'scim',
+      Xaa: 'xaa',
+    } as const;
+
+    /**
      * * `posthog_code` - posthog_code
      */
     export type ConnectFromEnum = typeof ConnectFromEnum[keyof typeof ConnectFromEnum];
@@ -23470,6 +23484,8 @@ export namespace Schemas {
      * * `Growi` - Growi
      * * `Clarify` - Clarify
      * * `DatoCMS` - DatoCMS
+     * * `WPSOffice` - WPSOffice
+     * * `TeraBox` - TeraBox
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -24784,6 +24800,8 @@ export namespace Schemas {
       Growi: 'Growi',
       Clarify: 'Clarify',
       DatoCMS: 'DatoCMS',
+      WPSOffice: 'WPSOffice',
+      TeraBox: 'TeraBox',
     } as const;
 
     /**
@@ -26111,7 +26129,9 @@ export namespace Schemas {
        * * `GooglePostmasterTools` - GooglePostmasterTools
        * * `Growi` - Growi
        * * `Clarify` - Clarify
-       * * `DatoCMS` - DatoCMS */
+       * * `DatoCMS` - DatoCMS
+       * * `WPSOffice` - WPSOffice
+       * * `TeraBox` - TeraBox */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -26763,50 +26783,6 @@ export namespace Schemas {
       OwnersContact: 'owners_contact',
     } as const;
 
-    export interface DigestChannel {
-      readonly id: string;
-      /** Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone. */
-      audience_key: string;
-      /** ID of the team's Slack integration used to post the digest. */
-      slack_integration_id: number;
-      /** Slack channel ID to post the digest to, e.g. 'C012AB3CD'. */
-      slack_channel_id: string;
-      /** Human-readable Slack channel name, for display only. */
-      slack_channel_name?: string;
-      /** How this row was created: 'manual' (via this API), 'slack_name_match' (auto-provisioned because the workspace has a channel named exactly like the audience_key), 'stamphog_config' (auto-provisioned from the channel the repo declared under 'digest:' in .stamphog/policy.yml), or 'owners_contact' (reserved for the future owners.yaml contact.slack step, not implemented yet).
-       *
-       * * `manual` - MANUAL
-       * * `slack_name_match` - SLACK_NAME_MATCH
-       * * `stamphog_config` - STAMPHOG_CONFIG
-       * * `owners_contact` - OWNERS_CONTACT */
-      readonly resolution_source: ResolutionSourceEnum;
-      /** Whether this channel is included in the daily digest fan-out. */
-      enabled: boolean;
-      /**
-         * When a digest was last posted to this channel.
-         * @nullable
-         */
-      readonly last_digest_at: string | null;
-      readonly created_at: string;
-      readonly updated_at: string;
-    }
-
-    /**
-     * Input shape for creating/updating a digest channel (see the repo-config write serializer).
-     */
-    export interface DigestChannelWrite {
-      /** Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone. */
-      audience_key: string;
-      /** ID of the team's Slack integration used to post the digest. */
-      slack_integration_id: number;
-      /** Slack channel ID to post the digest to, e.g. 'C012AB3CD'. */
-      slack_channel_id: string;
-      /** Human-readable Slack channel name, for display only. */
-      slack_channel_name?: string;
-      /** Whether this channel is included in the daily digest fan-out. */
-      enabled?: boolean;
-    }
-
     /**
      * * `pending` - PENDING
      * * `completed` - COMPLETED
@@ -26823,8 +26799,19 @@ export namespace Schemas {
 
     export interface DigestRun {
       readonly id: string;
-      /** ID of the digest channel this run belongs to. */
-      readonly digest_channel: string;
+      /** Digest bucket this run drained, e.g. a team slug or 'repo:PostHog/posthog'. */
+      readonly audience_key: string;
+      /** Slack channel this digest was posted to, e.g. 'C012AB3CD'. */
+      readonly slack_channel_id: string;
+      /** Human-readable name of that channel, for display. */
+      readonly slack_channel_name: string;
+      /** Why the digest went to this channel: 'slack_name_match' (no declaration anywhere, so the audience_key matched a same-named Slack channel), 'stamphog_config' (the channel the repo declared under 'digest:' in .stamphog/policy.yml), 'owners_contact' (a teams: entry in a root owners.yaml named it), or 'manual' (no longer produced).
+       *
+       * * `manual` - MANUAL
+       * * `slack_name_match` - SLACK_NAME_MATCH
+       * * `stamphog_config` - STAMPHOG_CONFIG
+       * * `owners_contact` - OWNERS_CONTACT */
+      readonly resolution_source: ResolutionSourceEnum;
       /** Current state of the digest run (pending, completed, failed).
        *
        * * `pending` - PENDING
@@ -28160,7 +28147,9 @@ export namespace Schemas {
        * * `GooglePostmasterTools` - GooglePostmasterTools
        * * `Growi` - Growi
        * * `Clarify` - Clarify
-       * * `DatoCMS` - DatoCMS */
+       * * `DatoCMS` - DatoCMS
+       * * `WPSOffice` - WPSOffice
+       * * `TeraBox` - TeraBox */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** Human-readable name to show in the picker (falls back to the source type). */
       readonly label: string;
@@ -28309,6 +28298,18 @@ export namespace Schemas {
       /** version of the node, used for schema migrations */
       version?: number | null;
     }
+
+    /**
+     * * `all` - All
+     * * `selected` - Selected
+     */
+    export type DomainScopeEnum = typeof DomainScopeEnum[keyof typeof DomainScopeEnum];
+
+
+    export const DomainScopeEnum = {
+      All: 'all',
+      Selected: 'selected',
+    } as const;
 
     export interface DraftCustomManifestRequest {
       /** Optional human name of the API being connected (e.g. 'Acme CRM'). Used only to orient the model. */
@@ -36185,7 +36186,9 @@ export namespace Schemas {
        * * `GooglePostmasterTools` - GooglePostmasterTools
        * * `Growi` - Growi
        * * `Clarify` - Clarify
-       * * `DatoCMS` - DatoCMS */
+       * * `DatoCMS` - DatoCMS
+       * * `WPSOffice` - WPSOffice
+       * * `TeraBox` - TeraBox */
       readonly source_type: ExternalDataSourceTypeEnum;
       /** 'direct' for pure live-query sources; 'warehouse' for synced sources with direct query enabled.
        *
@@ -37533,7 +37536,9 @@ export namespace Schemas {
        * * `GooglePostmasterTools` - GooglePostmasterTools
        * * `Growi` - Growi
        * * `Clarify` - Clarify
-       * * `DatoCMS` - DatoCMS */
+       * * `DatoCMS` - DatoCMS
+       * * `WPSOffice` - WPSOffice
+       * * `TeraBox` - TeraBox */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials. Keys depend on source_type. Add a 'schemas' array to pick which tables sync; omit it and every discovered table syncs with default settings. */
       payload: ExternalDataSourceCreatePayload;
@@ -44061,6 +44066,19 @@ export namespace Schemas {
          * @maxLength 255
          */
       name?: string;
+      /** Domains this configuration applies to. An unset value behaves like selected domains.
+       *
+       * * `all` - All
+       * * `selected` - Selected */
+      domain_scope?: DomainScopeEnum | BlankEnum | null;
+      /** Feature configured by this identity provider configuration.
+       *
+       * * `saml` - Saml
+       * * `scim` - Scim
+       * * `xaa` - Xaa */
+      config_scope?: ConfigScopeEnum | BlankEnum | null;
+      /** Organization domain IDs that this identity provider configuration applies to. */
+      organization_domain_ids?: string[];
       readonly created_at: string;
       readonly updated_at: string;
       /** Whether SAML is fully configured on this config. */
@@ -45992,6 +46010,21 @@ export namespace Schemas {
       trace_id: string;
       model?: string | null;
       provider?: string | null;
+    }
+
+    export interface LlmsTxtFetchRequest {
+      /**
+         * Public HTTP or HTTPS URL of the llms.txt file to load.
+         * @maxLength 2048
+         */
+      url: string;
+    }
+
+    export interface LlmsTxtFetchResponse {
+      /** UTF-8 contents of the fetched llms.txt file. */
+      content: string;
+      /** Final public URL after redirects. */
+      url: string;
     }
 
     export interface LogsAlertFilters {
@@ -50676,19 +50709,8 @@ export namespace Schemas {
       jit_provisioning_enabled?: boolean;
       /** @maxLength 28 */
       sso_enforcement?: string;
-      /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
-      readonly has_saml: boolean;
-      /** Returns whether SCIM is configured and enabled for this domain. */
-      readonly has_scim: boolean;
       /** @nullable */
       readonly scim_base_url: string | null;
-      /** Returns whether ID-JAG (XAA) is configured for this domain. */
-      readonly has_id_jag: boolean;
-      /**
-         * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
-         * @nullable
-         */
-      identity_provider_config?: string | null;
     }
 
     export interface OrganizationFeatureFlagRow {
@@ -51695,15 +51717,6 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: DatasetRevisionRead[];
-    }
-
-    export interface PaginatedDigestChannelList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: DigestChannel[];
     }
 
     export interface PaginatedDigestRunList {
@@ -58740,34 +58753,6 @@ export namespace Schemas {
       operations?: DesignOperation[];
     }
 
-    export interface PatchedDigestChannel {
-      readonly id?: string;
-      /** Opaque digest bucket this channel receives, e.g. 'repo:PostHog/posthog'. Immutable after creation — it anchors the audience and its opt-out tombstone. */
-      audience_key?: string;
-      /** ID of the team's Slack integration used to post the digest. */
-      slack_integration_id?: number;
-      /** Slack channel ID to post the digest to, e.g. 'C012AB3CD'. */
-      slack_channel_id?: string;
-      /** Human-readable Slack channel name, for display only. */
-      slack_channel_name?: string;
-      /** How this row was created: 'manual' (via this API), 'slack_name_match' (auto-provisioned because the workspace has a channel named exactly like the audience_key), 'stamphog_config' (auto-provisioned from the channel the repo declared under 'digest:' in .stamphog/policy.yml), or 'owners_contact' (reserved for the future owners.yaml contact.slack step, not implemented yet).
-       *
-       * * `manual` - MANUAL
-       * * `slack_name_match` - SLACK_NAME_MATCH
-       * * `stamphog_config` - STAMPHOG_CONFIG
-       * * `owners_contact` - OWNERS_CONTACT */
-      readonly resolution_source?: ResolutionSourceEnum;
-      /** Whether this channel is included in the daily digest fan-out. */
-      enabled?: boolean;
-      /**
-         * When a digest was last posted to this channel.
-         * @nullable
-         */
-      readonly last_digest_at?: string | null;
-      readonly created_at?: string;
-      readonly updated_at?: string;
-    }
-
     /**
      * Feature flag payload for this early access feature
      */
@@ -60560,6 +60545,19 @@ export namespace Schemas {
          * @maxLength 255
          */
       name?: string;
+      /** Domains this configuration applies to. An unset value behaves like selected domains.
+       *
+       * * `all` - All
+       * * `selected` - Selected */
+      domain_scope?: DomainScopeEnum | BlankEnum | null;
+      /** Feature configured by this identity provider configuration.
+       *
+       * * `saml` - Saml
+       * * `scim` - Scim
+       * * `xaa` - Xaa */
+      config_scope?: ConfigScopeEnum | BlankEnum | null;
+      /** Organization domain IDs that this identity provider configuration applies to. */
+      organization_domain_ids?: string[];
       readonly created_at?: string;
       readonly updated_at?: string;
       /** Whether SAML is fully configured on this config. */
@@ -61608,19 +61606,8 @@ export namespace Schemas {
       jit_provisioning_enabled?: boolean;
       /** @maxLength 28 */
       sso_enforcement?: string;
-      /** Returns whether SAML is configured for the instance. Does not validate the user has the required license (that check is performed in other places). */
-      readonly has_saml?: boolean;
-      /** Returns whether SCIM is configured and enabled for this domain. */
-      readonly has_scim?: boolean;
       /** @nullable */
       readonly scim_base_url?: string | null;
-      /** Returns whether ID-JAG (XAA) is configured for this domain. */
-      readonly has_id_jag?: boolean;
-      /**
-         * Linked IdP configuration (SAML/SCIM/XAA) that backs this domain. Must belong to the same organization.
-         * @nullable
-         */
-      identity_provider_config?: string | null;
     }
 
     /**
@@ -76078,7 +76065,9 @@ export namespace Schemas {
        * * `GooglePostmasterTools` - GooglePostmasterTools
        * * `Growi` - Growi
        * * `Clarify` - Clarify
-       * * `DatoCMS` - DatoCMS */
+       * * `DatoCMS` - DatoCMS
+       * * `WPSOffice` - WPSOffice
+       * * `TeraBox` - TeraBox */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -77434,7 +77423,9 @@ export namespace Schemas {
        * * `GooglePostmasterTools` - GooglePostmasterTools
        * * `Growi` - Growi
        * * `Clarify` - Clarify
-       * * `DatoCMS` - DatoCMS */
+       * * `DatoCMS` - DatoCMS
+       * * `WPSOffice` - WPSOffice
+       * * `TeraBox` - TeraBox */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -78780,7 +78771,9 @@ export namespace Schemas {
        * * `GooglePostmasterTools` - GooglePostmasterTools
        * * `Growi` - Growi
        * * `Clarify` - Clarify
-       * * `DatoCMS` - DatoCMS */
+       * * `DatoCMS` - DatoCMS
+       * * `WPSOffice` - WPSOffice
+       * * `TeraBox` - TeraBox */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -94468,23 +94461,8 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type StamphogDigestChannelsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
     export type StamphogDigestRunsListParams = {
     /**
-     * Filter by digest channel ID.
-     */
-    digest_channel?: string;
-    /**
      * Number of results to return per page.
      */
     limit?: number;
@@ -94492,6 +94470,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Filter by the Slack channel the digest was posted to, e.g. 'C012AB3CD'.
+     */
+    slack_channel_id?: string;
     };
 
     export type StamphogPullRequestsListParams = {
