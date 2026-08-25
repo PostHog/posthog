@@ -2304,6 +2304,24 @@ class TestSignalReportContentUpdateAPI(APIBaseTest):
         assert report.title == "Just the title"
         assert report.summary == "Original summary"
 
+    def test_rewriting_the_summary_takes_the_suggested_questions_down(self):
+        # The questions were written against the prose the rewrite replaces, so leaving them offers a
+        # reader questions the report no longer answers. The field is read-only on this endpoint, so
+        # nothing else could retract them. A title-only edit leaves the prose, and the questions with it.
+        report = self._create_report()
+        report.suggested_prompts = ["Which teams are affected?"]
+        report.save(update_fields=["suggested_prompts"])
+
+        self.client.patch(self._url(str(report.id)), data={"title": "Just the title"}, format="json")
+        report.refresh_from_db()
+        assert report.suggested_prompts == ["Which teams are affected?"]
+
+        response = self.client.patch(self._url(str(report.id)), data={"summary": "New summary"}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["suggested_prompts"] == []
+        report.refresh_from_db()
+        assert report.suggested_prompts == []
+
     def test_update_summary_trims_whitespace(self):
         report = self._create_report()
         response = self.client.patch(self._url(str(report.id)), data={"summary": "  padded  "}, format="json")

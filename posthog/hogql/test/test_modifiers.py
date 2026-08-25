@@ -60,6 +60,7 @@ class TestModifiers(BaseTest):
         )
         assert modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_team_modifiers_override(self):
         assert self.team.modifiers is None
         modifiers = create_default_modifiers_for_team(self.team)
@@ -303,7 +304,10 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             f"select event from events where person.properties.$browser ilike '%Chrome%'",
             team=self.team,
-            modifiers=HogQLQueryModifiers(optimizeJoinedFilters=False),
+            modifiers=HogQLQueryModifiers(
+                optimizeJoinedFilters=False,
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+            ),
         )
         # "ilike" shows up once in the response
         assert response is not None
@@ -314,7 +318,10 @@ class TestModifiers(BaseTest):
         response = execute_hogql_query(
             f"select event from events where person.properties.$browser ilike '%Chrome%'",
             team=self.team,
-            modifiers=HogQLQueryModifiers(optimizeJoinedFilters=True),
+            modifiers=HogQLQueryModifiers(
+                optimizeJoinedFilters=True,
+                personsOnEventsMode=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+            ),
         )
         # "ilike" shows up twice in the response
         assert response is not None

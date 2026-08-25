@@ -191,6 +191,8 @@ XMP is an opt-out for that image when it has one of these values:
 
 **3.22** The lane uses separate cache entries for robots.txt, tdmrep.json, and each URL crawl result. A robots.txt or tdmrep.json success, absence, or valid refusal has a 24-hour TTL. An unreachable result without a cached version has a 1-hour TTL. A terminal URL result has a minimum TTL of 30 days. If the response's explicit freshness lifetime is longer, the entry uses that longer TTL.
 
+**3.23** A retained configuration body must be valid UTF-8. If the 500KiB robots.txt prefix ends inside a UTF-8 code point, the lane discards that incomplete code point. Any other invalid UTF-8 makes the configuration file unreachable.
+
 ### 4. Web Bot Auth
 
 **4.1** Our User Agent starts with `PostHogImageFetcherBot` and contains a link to https://posthog.com/docs/ai-research/image-fetcher-bot. An example value is `PostHogImageFetcherBot/1.0 (+https://posthog.com/docs/ai-research/image-fetcher-bot)`
@@ -250,8 +252,8 @@ key at `https://us.posthog.com/.well-known/http-message-signatures-directory`, a
 | Redirects followed without republishing    | one fetch                                         | 3          |
 | Response bytes, compressed                 | one response                                      | 20 MiB     |
 | Request timeout                            | one URL, redirects included                       | 10 seconds |
-| Pass deadline                              | one pass                                          | 20 seconds |
-| Pass wall time, worst case                 | one pass                                          | 30 seconds |
+| Pass deadline                              | one pass                                          | 40 seconds |
+| Pass wall time, worst case                 | one pass                                          | 50 seconds |
 | Registrable domains tracked                | pod                                               | 20,000     |
 | Origins tracked                            | pod                                               | 20,000     |
 | Crawl history entry                        | one URL                                           | 30 days    |
@@ -376,7 +378,7 @@ built from a redirect target matches no recording.
 
 **10.3** The consumer completes durable work in this order:
 
-1. It publishes any image or delayed retry to its destination Kafka topic and waits for the delivery acknowledgement.
+1. It publishes each image and every frontier or delay record to its destination Kafka topic and waits for the delivery acknowledgement.
 2. It writes all required crawl-history changes to DynamoDB.
 3. It returns from the batch so that the input fetch-topic offset can be stored.
 
@@ -386,7 +388,7 @@ A terminal refusal has no destination Kafka record, so it starts at step 2. A de
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "jobs": [
     {
       "originalRef": "imageurl:<hash>",
@@ -402,7 +404,7 @@ A terminal refusal has no destination Kafka record, so it starts at step 2. A de
 }
 ```
 
-`v` is the integer `1`. `jobs` contains 1 to 1,000 entries, and the decoded JSON record cannot exceed 512 KiB. `originalRef` is the ref calculated for the URL first seen in the replay. `currentUrl` is the next URL to request after any redirects. `remainingHops`, `notBeforeMs`, `firstSeenAtMs`, `fetchCount`, and `republishCount` are non-negative safe integers. `firstSeenAtMs` is the Unix time when the producer first collected the URL. `fetchCount` counts image HTTP requests, and `republishCount` counts frontier and delay-topic republishes. `lastRepublishReason` is `null`, `redirect`, `retry`, `not_ready`, `pass_deadline`, `origin_map_full`, or `registrable_domain_map_full`.
+`v` is the integer `2`. The parser also accepts the two version `1` shapes that preceded this schema, so records already in a topic drain across an upgrade. `jobs` contains 1 to 1,000 entries, and the decoded JSON record cannot exceed 512 KiB. `originalRef` is the ref calculated for the URL first seen in the replay. `currentUrl` is the next URL to request after any redirects. `remainingHops`, `notBeforeMs`, `firstSeenAtMs`, `fetchCount`, and `republishCount` are non-negative safe integers. `firstSeenAtMs` is the Unix time when the producer first collected the URL. `fetchCount` counts image HTTP requests, and `republishCount` counts frontier and delay-topic republishes. `lastRepublishReason` is `null`, `redirect`, `retry`, `not_ready`, `pass_deadline`, `origin_map_full`, or `registrable_domain_map_full`.
 
 The parser ignores unknown fields so that a producer can add optional data without breaking an older consumer. It rejects a missing field, an invalid field type or value, an unsupported version, or a record whose jobs do not all match the Kafka key. It derives the current origin and registrable domain from `currentUrl` with the shared URL-policy implementation. It uses `originalRef` as the crawl-history key so that a redirect result completes the URL that the recording referenced.
 
@@ -410,6 +412,12 @@ The parser ignores unknown fields so that a producer can add optional data witho
 
 **10.6** A systematic error like not being able to reach Kafka or DynamoDB should throw. We should not drop messages in
 that scenario.
+
+**10.7** A redirect and a pass-deadline deferral have no required wait. The lane publishes them to the frontier with `notBeforeMs` set to `0`. A retry, an early `notBeforeMs`, or a full runtime-state map uses the smallest delay topic that satisfies its required wait.
+
+**10.8** Before Kafka delivery, the lane groups republished jobs by destination topic and the current URL's registrable domain. It packs each group into records of no more than 1,000 jobs and no more than 512 KiB. It sends records up to the configured pending-publish limit and waits for every started delivery acknowledgement. After one delivery fails, it starts no more records from that batch. It also stops starting deliveries 200 seconds after the poll batch began. This leaves time for in-flight delivery callbacks, the final crawl-history write, and offset handling before Kafka's 300-second poll limit. A record contains only one registrable domain and uses that registrable domain as its Kafka key.
+
+A fetch batch can publish more frontier records than it consumed. This can occur when URLs from one source-domain record redirect to several target registrable domains. It can also occur when the added durable state makes a republished record reach a wire limit earlier than its input record. The lane must preserve those target-domain keys and wire limits. It must not send a zero-wait redirect to a delay topic only to keep the record count unchanged.
 
 ### 11. Metrics
 
@@ -435,11 +443,13 @@ that scenario.
 
 **11.5** The provider domain is the effective top-level domain plus one when only the ICANN section is active. For example, it is `posthog.com` for `app.posthog.com` and `vercel.app` for `myapp.vercel.app`. This document does not use the ambiguous term `root domain`.
 
-**11.6** Every metric label defined by this lane uses a fixed set of values. HTTP responses use `2xx`, `3xx`, `4xx`, `5xx`, or `other`. Republish destinations use `frontier` or `delay`. Unexpected scrub source formats use `other`. No label defined by this lane contains a registrable domain, provider domain, origin, host, URL, image ref, team, project, Kafka topic, exception message, or other external value.
+**11.6** Every metric label defined by this lane uses a fixed set of values. HTTP responses use `2xx`, `3xx`, `4xx`, `5xx`, or `other`. Republish destination classes use `frontier` or `delay`. Republish topic classes use `frontier`, `retry_1m`, `retry_10m`, or `retry_1h`. Unexpected scrub source formats use `other`. No label defined by this lane contains a configured Kafka topic name, registrable domain, provider domain, origin, host, URL, image ref, team, project, exception message, or other external value.
 
-**11.7** The lane counts republishes by reason and bounded destination class. It counts transient retry causes as `timeout`, `error`, `rate_limited`, or `server_error`. It also counts republish failures, crawl-history keys affected by failed operations, and retry records by outcome.
+**11.7** The lane counts republished URLs by reason and bounded destination class. For each used topic class in a fetch batch, it observes the number of Kafka record delivery attempts, the number of attempted registrable-domain keys, and the wall time from topic-class scheduling until all started delivery attempts settle. It also observes total republish flush wall time and counts batches that reached the republish finalization deadline.
 
-**11.8** The lane observes completed poll batch duration, active batch age, crawl-history operation duration, scheduler waits by `origin_crawl_delay`, `registrable_domain_rate`, or `request_capacity`, and URL age at ingestion. The pass-budget saturation ratio is `pass_deadline` republishes divided by completed URLs plus all republishes.
+It counts transient retry causes as `timeout`, `error`, `rate_limited`, or `server_error`. It also counts republish failures, crawl-history keys affected by failed operations, and retry records by outcome.
+
+**11.8** The lane observes completed poll batch duration, active batch age, distinct origins and registrable domains per poll batch, crawl-history operation duration, scheduler waits by `origin_crawl_delay`, `registrable_domain_rate`, or `request_capacity`, and URL age at ingestion. The pass-budget saturation ratio is `pass_deadline` republishes divided by completed URLs plus all republishes.
 
 **11.9** Alerts use frontier-topic lag, pass-budget saturation, active batch age, delivery failures, and invalid frontier or retry input. Durable log alerts cover one-shot failures that can stop a pod before Prometheus scrapes its counters. Requirement 16.6 still prohibits alerts on delay-topic lag.
 

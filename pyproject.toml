@@ -63,7 +63,7 @@ dependencies = [
     "google-cloud-bigquery-storage==2.32.0",
     "google-cloud-iam==2.21",
     "google-genai==1.46.0",
-    "granian[uvloop,reload,pname]==2.7.6",
+    "granian[uvloop,reload,pname]==2.8.2",
     "grimp~=3.14",
     "grpcio~=1.71.0",
     "gspread==6.2.1",
@@ -295,7 +295,12 @@ hogql-parser-parity = [
 required-version = ">=0.10.2"
 add-bounds = "major"
 exclude-newer = "7 days"
-exclude-newer-package = { hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false }
+# TEMPORARY, remove before merging: granian 2.8.2 was published 2026-08-23 and
+# the rolling 7-day cutoff hides it until 2026-08-30. We need 2.8.2 rather than
+# 2.8.1 because it fixes a lost-wakeup race in workers shutdown, which our
+# multi-worker pools hit constantly via worker recycling. Drop this entry and
+# re-lock once the cutoff passes; the resolved version does not change.
+exclude-newer-package = { granian = false, hogql-parser = false, hogql-parser-rs = false, deltalite = false, posthoganalytics = false, pixelhog = false, django = false, modal = false, posthog-hogland = false, google-ads = false }
 
 [tool.uv.workspace]
 members = ["tools/hogli", "tools/owners"]
@@ -509,6 +514,7 @@ exclude = [
 
 [tool.importlinter]
 root_packages = ["products"]
+include_external_packages = true
 
 # Presentation must only reach product internals through the facade.
 # Forbid all backend imports, then allowlist facade + self-imports.
@@ -600,6 +606,7 @@ ignore_imports = [
     "products.logs.backend.presentation.views.sampling_api -> products.logs.backend.models",
     "products.logs.backend.presentation.views.views_api -> products.logs.backend.models",
     "products.logs.backend.presentation.views.anomalies_api -> products.logs.backend.anomaly_scan",
+    "products.logs.backend.presentation.views.anomalies_api -> products.logs.backend.series_bands",
     # logs presentation isolation (temporary): cross-product imports the moved viewsets
     # still make directly. These resolve once cdp/exports expose the needed facades, so
     # they outlive the in-product cleanup above.
@@ -741,6 +748,37 @@ ignore_imports = [
     "products.workflows.backend.routes -> products.workflows.backend.api.hog_flow",
     "products.workflows.backend.routes -> products.workflows.backend.api.hog_flow_template",
     "products.workflows.backend.routes -> products.workflows.backend.api.workflow_tasks",
+]
+
+# The facade is the layer below presentation. A facade that imports its product's presentation
+# inverts the layering (and drags DRF onto every consumer's import path); a facade that imports
+# DRF is presentation in disguise. Only direct imports are checked (allow_indirect_imports is
+# forced — without it import-linter rejects the wildcard modules as having shared descendants),
+# so DRF reached through an internal module stays green: this enforces the layering norm, not a
+# transitive guarantee. See products/architecture.md § Wiring couplings.
+[[tool.importlinter.contracts]]
+name = "facade must not import presentation or DRF"
+type = "forbidden"
+source_modules = ["products.*.backend.facade"]
+forbidden_modules = [
+    "products.*.backend.presentation",
+    "rest_framework",
+]
+allow_indirect_imports = true
+ignore_imports = [
+    # TODO: existing violations — move the presentation-shaped code out of the facade, or the
+    # facade-shaped code out of presentation, and drop the line
+    "products.alerts.backend.facade.api -> products.alerts.backend.presentation.views.alert",
+    "products.alerts.backend.facade.api -> products.alerts.backend.presentation.views.alert_schedule_restriction",
+    "products.managed_warehouse.backend.facade.api -> products.managed_warehouse.backend.presentation.views",
+    "products.stamphog.backend.facade.webhooks -> products.stamphog.backend.presentation.webhooks",
+    "products.tasks.backend.facade.api -> products.tasks.backend.presentation.serializers",
+    "products.billing_alerts.backend.facade.api -> rest_framework",
+    "products.dashboards.backend.facade.api -> rest_framework",
+    "products.experiments.backend.facade.api -> rest_framework",
+    "products.feature_flags.backend.facade.api -> rest_framework",
+    "products.tasks.backend.facade.api -> rest_framework",
+    "products.tasks.backend.facade.client_provenance -> rest_framework",
 ]
 
 [tool.ty.rules]

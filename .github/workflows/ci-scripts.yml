@@ -9,6 +9,14 @@ on:
             - .github/scripts/**
             - .github/auto-assign-labels.json
             - .github/workflows/ci-scripts.yml
+            # turbo-discover.test.js pins the Django segment table to these.
+            - .github/workflows/ci-backend.yml
+            - .depot/workflows/ci-backend.yml
+            # The backend test selector and its verdict script gate ci-backend.
+            - tools/snob_backend_test_selection_shadow.py
+            - tools/test_snob_backend_test_selection_shadow.py
+            - tools/test_selection_verdict.py
+            - tools/test_test_selection_verdict.py
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -37,7 +45,7 @@ jobs:
 
             # defusedxml + opentelemetry + tools/owners are report_test_timings.py's script deps.
             - name: Install pytest
-              run: python -m pip install --quiet pytest defusedxml==0.7.1 opentelemetry-sdk==1.33.1 opentelemetry-exporter-otlp-proto-http==1.33.1 ./tools/owners
+              run: python -m pip install --quiet pytest parameterized defusedxml==0.7.1 opentelemetry-sdk==1.33.1 opentelemetry-exporter-otlp-proto-http==1.33.1 ./tools/owners
 
             # `-c /dev/null` skips the repo pytest.ini (its --reuse-db addopt needs
             # pytest-django, which we don't install here). `--noconftest` skips the
@@ -50,10 +58,21 @@ jobs:
             - name: Test-timings reporter tests (Python)
               run: python -m pytest .github/scripts/test_report_test_timings.py -v -c /dev/null -p no:cacheprovider --noconftest
 
+            - name: Durations optimizer tests (Python)
+              if: ${{ hashFiles('.github/scripts/test_optimize_test_durations.py') != '' }}
+              run: python -m pytest .github/scripts/test_optimize_test_durations.py -v -c /dev/null -p no:cacheprovider --noconftest
+
             # hashFiles guard so an unrebased PR predating this script doesn't fail here.
             - name: Workflow-run trace reporter tests (Python)
               if: ${{ hashFiles('.github/scripts/test_report_workflow_run_traces.py') != '' }}
               run: python -m pytest .github/scripts/test_report_workflow_run_traces.py -v -c /dev/null -p no:cacheprovider --noconftest
+
+            # The Django test selector decides what ci-backend runs, and a wrong
+            # subset is silent: it reports green having skipped the test that would
+            # have failed. hashFiles guard for PRs that predate the selector tests.
+            - name: Backend test-selection tests (Python)
+              if: ${{ hashFiles('tools/test_snob_backend_test_selection_shadow.py') != '' }}
+              run: python -m pytest tools/test_snob_backend_test_selection_shadow.py tools/test_test_selection_verdict.py -v -c /dev/null -p no:cacheprovider --noconftest
 
             # Shells out to schema_usage_scan.py via python3 (preinstalled on ubuntu).
             - name: Schema-impact tests (Node)
@@ -88,6 +107,15 @@ jobs:
 
             - name: Turbo-discover dependent-cascade tests (Node)
               run: node --test .github/scripts/turbo-discover-cascade.test.js
+
+            # hashFiles guard so an unrebased PR predating these files doesn't fail here.
+            - name: Turbo-discover segment and staleness tests (Node)
+              if: ${{ hashFiles('.github/scripts/turbo-discover.test.js') != '' }}
+              run: node --test .github/scripts/turbo-discover.test.js .github/scripts/turbo-discover-staleness.test.js
+
+            - name: Turbo-discover sizing tests (Node)
+              if: ${{ hashFiles('.github/scripts/turbo-discover-sizing.test.js') != '' }}
+              run: node --test .github/scripts/turbo-discover-sizing.test.js
 
             - name: Selected Django shards tests (Node)
               run: node --test .github/scripts/selected-django-shards.test.js
