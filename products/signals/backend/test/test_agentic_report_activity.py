@@ -15,6 +15,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user_integration import UserIntegration
 from posthog.sync import database_sync_to_async
 
+from products.signals.backend.artefact_schemas import AddressedStatus
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.report_charts import ReportChart
 from products.signals.backend.report_generation.research import (
@@ -91,6 +92,7 @@ def _build_research_output() -> ReportResearchOutput:
                 explanation="The issue has a clear code path and supporting event-volume evidence.",
                 actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
                 already_addressed=False,
+                addressed_status=AddressedStatus.NOT_ADDRESSED,
             ),
             PriorityAssessment(
                 explanation="The regression affects a core onboarding flow and should be addressed quickly.",
@@ -395,6 +397,7 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
         assert result.choice == ActionabilityChoice.IMMEDIATELY_ACTIONABLE
         assert result.priority == Priority.P1
         assert result.already_addressed is False
+        assert result.human_input_question is None
         assert result.repository == "posthog/posthog"
 
         artefacts = await database_sync_to_async(
@@ -413,6 +416,8 @@ async def test_run_agentic_report_activity_persists_artefacts(monkeypatch, ateam
             "actionability": "immediately_actionable",
             "explanation": "The issue has a clear code path and supporting event-volume evidence.",
             "already_addressed": False,
+            "addressed_status": "not_addressed",
+            "human_input_question": None,
         }
 
         priority_content = json.loads(artefacts[1].content)
@@ -685,6 +690,18 @@ def test_resolve_actionability_response(response, previous, expected_explanation
     result, is_new = _resolve_actionability_response(response, previous)
     assert is_new is expected_is_new
     assert result.explanation == expected_explanation
+
+
+def test_resolve_actionability_response_rejects_vague_human_input_request():
+    with pytest.raises(ValueError, match="must include human_input_question"):
+        _resolve_actionability_response(
+            ActionabilityAssessment(
+                explanation="A product decision is needed.",
+                actionability=ActionabilityChoice.REQUIRES_HUMAN_INPUT,
+                already_addressed=False,
+            ),
+            None,
+        )
 
 
 @pytest.mark.parametrize(

@@ -512,6 +512,15 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "task) — from the actionability judgment artefact."
         ),
     )
+    addressed_status = serializers.SerializerMethodField(
+        help_text=(
+            "Verified work state from the latest actionability judgment: fixed, in_progress, "
+            "not_addressed, or null for legacy reports."
+        ),
+    )
+    human_input_question = serializers.SerializerMethodField(
+        help_text="Concrete question that must be answered to unblock the report, when present.",
+    )
     dismissal_reason = serializers.SerializerMethodField(
         help_text="Reason code from the latest dismissal artefact, set when the report was suppressed (when present).",
     )
@@ -557,6 +566,8 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "priority",
             "actionability",
             "already_addressed",
+            "addressed_status",
+            "human_input_question",
             "dismissal_reason",
             "dismissal_note",
             "is_suggested_reviewer",
@@ -631,6 +642,20 @@ class SignalReportSerializer(serializers.ModelSerializer):
             return None
         value = data.get("already_addressed")
         return value if isinstance(value, bool) else None
+
+    def get_addressed_status(self, obj: SignalReport) -> str | None:
+        data = self._get_actionability_artefact_data(obj)
+        if data is None:
+            return None
+        value = data.get("addressed_status")
+        return value if isinstance(value, str) else None
+
+    def get_human_input_question(self, obj: SignalReport) -> str | None:
+        data = self._get_actionability_artefact_data(obj)
+        if data is None:
+            return None
+        value = data.get("human_input_question")
+        return value if isinstance(value, str) else None
 
     def _get_dismissal_artefact_data(self, obj: SignalReport) -> dict | None:
         prefetched = getattr(obj, "prefetched_dismissal_artefacts", None)

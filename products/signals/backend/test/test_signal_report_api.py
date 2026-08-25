@@ -176,8 +176,21 @@ class TestSignalReportListAPI(APIBaseTest):
             art.save()
         return art
 
-    def _actionability_artefact(self, report: SignalReport, *, actionability: str) -> SignalReportArtefact:
-        payload = {"explanation": "x", "actionability": actionability, "already_addressed": False}
+    def _actionability_artefact(
+        self,
+        report: SignalReport,
+        *,
+        actionability: str,
+        addressed_status: str | None = None,
+        human_input_question: str | None = None,
+    ) -> SignalReportArtefact:
+        payload = {
+            "explanation": "x",
+            "actionability": actionability,
+            "already_addressed": addressed_status in {"fixed", "in_progress"},
+            "addressed_status": addressed_status,
+            "human_input_question": human_input_question,
+        }
         art = SignalReportArtefact(
             team=self.team,
             report=report,
@@ -205,6 +218,22 @@ class TestSignalReportListAPI(APIBaseTest):
         rows = response.json()["results"]
         row = next(r for r in rows if r["id"] == str(report.id))
         assert row["priority"] == "P2"
+
+    def test_list_includes_verified_work_state_and_blocking_question(self):
+        report = self._create_report(status=SignalReport.Status.PENDING_INPUT)
+        self._actionability_artefact(
+            report,
+            actionability="requires_human_input",
+            addressed_status="in_progress",
+            human_input_question="Should the open pull request preserve the existing fallback?",
+        )
+
+        response = self.client.get(self._list_url())
+
+        assert response.status_code == status.HTTP_200_OK
+        row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
+        assert row["addressed_status"] == "in_progress"
+        assert row["human_input_question"] == "Should the open pull request preserve the existing fallback?"
 
     def test_list_uses_latest_priority_artefact_by_created_at(self):
         report = self._create_report()

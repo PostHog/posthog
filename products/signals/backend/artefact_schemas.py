@@ -52,6 +52,12 @@ class ActionabilityChoice(str, Enum):
     NOT_ACTIONABLE = "not_actionable"
 
 
+class AddressedStatus(str, Enum):
+    NOT_ADDRESSED = "not_addressed"
+    IN_PROGRESS = "in_progress"
+    FIXED = "fixed"
+
+
 # Report priority scale (P0–P4). Aliased to the shared signal taxonomy enum so the product has a
 # single P0–P4 source; kept under the `Priority` name for existing callers.
 Priority = ReportPriority
@@ -121,6 +127,21 @@ class ActionabilityAssessment(BaseModel):
             "has going. Tracked separately from `actionability`."
         ),
     )
+    addressed_status: AddressedStatus | None = Field(
+        default=None,
+        description=(
+            "Verified state of the work: `fixed` only when the researched evidence confirms the fix has landed; "
+            "`in_progress` for an open PR, active branch, assigned issue, or active agent task; `not_addressed` "
+            "when neither exists. Legacy assessments may omit this field."
+        ),
+    )
+    human_input_question: str | None = Field(
+        default=None,
+        description=(
+            "The single concrete question a person must answer to unblock a code change. Required in new "
+            "assessments when actionability is `requires_human_input`; otherwise omit it."
+        ),
+    )
 
     @field_validator("explanation")
     @classmethod
@@ -128,6 +149,25 @@ class ActionabilityAssessment(BaseModel):
         if not v.strip():
             raise ValueError("Explanation must not be empty")
         return v
+
+    @field_validator("human_input_question")
+    @classmethod
+    def human_input_question_must_not_be_empty(cls, v: str | None) -> str | None:
+        if v is None:
+            return None
+        question = v.strip()
+        if not question:
+            raise ValueError("Human input question must not be empty")
+        return question
+
+    @model_validator(mode="after")
+    def addressed_status_matches_legacy_gate(self) -> ActionabilityAssessment:
+        if self.addressed_status is None:
+            return self
+        status_is_addressed = self.addressed_status != AddressedStatus.NOT_ADDRESSED
+        if status_is_addressed != self.already_addressed:
+            raise ValueError("addressed_status must agree with already_addressed")
+        return self
 
 
 class PriorityAssessment(BaseModel):

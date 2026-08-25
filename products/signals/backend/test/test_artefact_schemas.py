@@ -112,7 +112,13 @@ class TestValidateArtefactContent(SimpleTestCase):
             ("safety_judgment", {"choice": True, "explanation": None}),
             (
                 "actionability_judgment",
-                {"explanation": "Looked at it.", "actionability": "not_actionable", "already_addressed": False},
+                {
+                    "explanation": "An open pull request covers the affected path.",
+                    "actionability": "requires_human_input",
+                    "already_addressed": True,
+                    "addressed_status": "in_progress",
+                    "human_input_question": "Should the existing pull request change the rollout behavior?",
+                },
             ),
             ("priority_judgment", {"explanation": "It is bad.", "priority": "P1"}),
             (
@@ -166,6 +172,18 @@ class TestValidateArtefactContent(SimpleTestCase):
         # Enrichment and autostart look logins up with `login.lower()` and no strip, so a padded
         # login that survived to storage would count as suggested but never match a user.
         assert SuggestedReviewerEntry(github_login=" Octocat ").github_login == "Octocat"
+
+    def test_actionability_rejects_addressed_status_that_disagrees_with_legacy_gate(self):
+        with self.assertRaises(ArtefactContentValidationError):
+            parse_artefact_content(
+                "actionability_judgment",
+                {
+                    "explanation": "No work exists.",
+                    "actionability": "immediately_actionable",
+                    "already_addressed": False,
+                    "addressed_status": "fixed",
+                },
+            )
 
     def test_parsing_normalizes_to_the_schema(self):
         # Parsing into the typed model is the boundary: unknown keys are not persisted, and

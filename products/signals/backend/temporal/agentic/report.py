@@ -75,6 +75,7 @@ class RunAgenticReportOutput:
     # matching title/summary, so charts and their prose land in one transaction. Defaults to `None`
     # (the safe skip value) so an older workflow history that predates this field replays cleanly.
     charts: list[dict[str, Any]] | None = None
+    human_input_question: str | None = None
 
 
 _ArtefactContentT = TypeVar("_ArtefactContentT", bound=BaseModel)
@@ -588,6 +589,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
             already_addressed=actionability.already_addressed,
             repository=repository,
             charts=charts_payload,
+            human_input_question=actionability.human_input_question,
         )
     except Exception as error:
         logger.exception(

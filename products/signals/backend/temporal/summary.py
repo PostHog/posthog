@@ -393,6 +393,7 @@ class SignalReportSummaryWorkflow:
                     summary=f"Could not automatically select a repository: {repo_result.reason}",
                     choice=ActionabilityChoice.REQUIRES_HUMAN_INPUT,
                     explanation=repo_result.reason,
+                    suggested_prompts=["Which repository should Self-driving use for this report?"],
                     pending_reason="repo_selection_required",
                 )
             else:
@@ -422,6 +423,9 @@ class SignalReportSummaryWorkflow:
                     choice=agentic_result.choice,
                     explanation=agentic_result.explanation,
                     charts=agentic_result.charts,
+                    suggested_prompts=(
+                        [agentic_result.human_input_question] if agentic_result.human_input_question else []
+                    ),
                     pending_reason="agent_requested",
                 )
             if decision.choice == ActionabilityChoice.NOT_ACTIONABLE:

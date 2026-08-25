@@ -444,7 +444,7 @@ An **append-only, attributed, schema-validated log of the work done on a report*
 | ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `video_segment`          | Video segment data from session clustering                                                                                                                      |
 | `safety_judgment`        | `{"choice": bool, "explanation": "..."}` — true = safe                                                                                                          |
-| `actionability_judgment` | `{"actionability": "immediately_actionable" \| "requires_human_input" \| "not_actionable", "explanation": "...", "already_addressed": bool}`                    |
+| `actionability_judgment` | `{"actionability": "immediately_actionable" \| "requires_human_input" \| "not_actionable", "explanation": "...", "already_addressed": bool, "addressed_status": "fixed" \| "in_progress" \| "not_addressed" \| null, "human_input_question": string \| null}` |
 | `priority_judgment`      | `{"priority": "P0"\|"P1"\|"P2"\|"P3"\|"P4", "explanation": "..."}`                                                                                              |
 | `signal_finding`         | `{"signal_id": "...", "relevant_code_paths": [...], "relevant_commit_hashes": {"abc1234": "reason"}, "data_queried": "...", "verified": bool}`                  |
 | `repo_selection`         | `{"repository": "owner/repo" \| null, "reason": "...", "task_id"?: "..."}`                                                                                      |
@@ -947,10 +947,10 @@ Generated MCP tool names:
   - Plain Serializer for PUT requests on the user autonomy action
   - Accepts `autostart_priority` (optional, nullable)
 - **`SignalReportSerializer`**
-  - Exposes `id`, `title`, `summary`, `status`, `total_weight`, `signal_count`, `signals_at_run`, `created_at`, `updated_at`, `artefact_count`, `priority`, `actionability`, `already_addressed`, `is_suggested_reviewer`
+  - Exposes `id`, `title`, `summary`, `status`, `total_weight`, `signal_count`, `signals_at_run`, `created_at`, `updated_at`, `artefact_count`, `priority`, `actionability`, `already_addressed`, `addressed_status`, `human_input_question`, `is_suggested_reviewer`
   - `priority` comes from the latest `PRIORITY_JUDGMENT` artefact
   - `actionability` comes from the latest `ACTIONABILITY_JUDGMENT` artefact and supports both current (`actionability`) and legacy (`choice`) payloads
-  - `already_addressed` also comes from the latest actionability artefact
+  - `already_addressed`, `addressed_status`, and `human_input_question` also come from the latest actionability artefact
   - `is_suggested_reviewer`: list/detail annotate from the requesting user’s linked GitHub login against the `suggested_reviewers` artefact. Always **`false`** when there is nothing to review: `failed` reports, or `ready` with latest actionability `not_actionable` (even if the artefact names the user)
 - **`SignalReportArtefactSerializer`**
   - Exposes `id`, `type`, `content`, `created_at`
