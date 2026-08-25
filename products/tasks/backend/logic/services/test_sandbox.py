@@ -1,8 +1,29 @@
 import os
+import time
 
 import pytest
 
-from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxStatus, SandboxTemplate
+from products.tasks.backend.logic.services.sandbox import (
+    Sandbox,
+    SandboxBase,
+    SandboxConfig,
+    SandboxStatus,
+    SandboxTemplate,
+)
+
+SHUTDOWN_TIMEOUT_SECONDS = 120.0
+SHUTDOWN_POLL_SECONDS = 0.5
+
+
+def wait_for_shutdown(sandbox: SandboxBase) -> SandboxStatus:
+    # Modal returns from terminate() before the sandbox leaves the running state,
+    # so get_status() can still read RUNNING right after destroy().
+    deadline = time.monotonic() + SHUTDOWN_TIMEOUT_SECONDS
+    status = sandbox.get_status()
+    while status != SandboxStatus.SHUTDOWN and time.monotonic() < deadline:
+        time.sleep(SHUTDOWN_POLL_SECONDS)
+        status = sandbox.get_status()
+    return status
 
 
 class TestSandboxIntegration:
@@ -29,7 +50,7 @@ class TestSandboxIntegration:
         assert result.stderr == ""
 
         sandbox.destroy()
-        assert sandbox.get_status() == SandboxStatus.SHUTDOWN
+        assert wait_for_shutdown(sandbox) == SandboxStatus.SHUTDOWN
 
     @pytest.mark.parametrize(
         "command,expected_exit_code,expected_in_stdout",
@@ -97,4 +118,4 @@ class TestSandboxIntegration:
             assert result.exit_code == 0
             assert "context test" in result.stdout
 
-        assert sandbox.get_status() == SandboxStatus.SHUTDOWN
+        assert wait_for_shutdown(sandbox) == SandboxStatus.SHUTDOWN
