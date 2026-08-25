@@ -860,9 +860,9 @@ jobs:
 
                   # Partition selected files by the Django segment that owns them.
                   # Mirrors the positional path arguments in the Run Core / Run Temporal pytest invocations:
-                  #   Core (POE off): posthog ee/  (minus posthog/temporal, posthog/dags,
+                  #   Core (POE on):  posthog ee/  (minus posthog/temporal, posthog/dags,
                   #                   common/hogvm/python/test, posthog/test/repo_invariants)
-                  #   Core POE on:    posthog/clickhouse, posthog/queries, ee/clickhouse/,
+                  #   POE-off safeguard: posthog/clickhouse, posthog/queries, ee/clickhouse/,
                   #                   products/product_analytics/backend/tests/api,
                   #                   posthog/api/test/dashboards/test_dashboard.py
                   #   Temporal:       posthog/temporal, products/signals/backend/emission
@@ -1609,6 +1609,7 @@ jobs:
                   # at all. Not-draft makes the empty MODE fall through to the full
                   # matrix, which is what the queue has to run.
                   IS_DRAFT: ${{ github.event.pull_request.draft && !startsWith(github.head_ref, 'trunk-merge/') }}
+                  IS_PR_RUN: ${{ github.event_name == 'pull_request' && !startsWith(github.head_ref, 'trunk-merge/') }}
                   FORCE_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') }}
                   # Manual shadow runs compare with canonical master pushes, which run legacy schema only.
                   RUN_NEW_EVENTS_SCHEMA: ${{ contains(github.event.pull_request.labels.*.name, 'test-new-events-schema') }}
@@ -1672,7 +1673,7 @@ jobs:
                         }]
                       ')
                       poe_count=0
-                      [[ "$RUN_POE" == "true" ]] && poe_count=$(jq -r '.poe' <<< "$segment_shards")
+                      [[ "$IS_PR_RUN" != "true" && "$RUN_POE" == "true" ]] && poe_count=$(jq -r '.poe' <<< "$segment_shards")
                       core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$poe_count" '
                         [range(1; $n + 1) | {
                           segment: "Core",
@@ -1765,6 +1766,16 @@ jobs:
                         echo "Auto-sharding: Core=$CORE_SHARDS, CorePOE=$CORE_POE_SHARDS, Temporal=$TEMPORAL_SHARDS"
                       else
                         echo "::warning::Django shard auto-sizing unavailable, using defaults: Core=$CORE_SHARDS, CorePOE=$CORE_POE_SHARDS, Temporal=$TEMPORAL_SHARDS"
+                      fi
+
+                      # The legacy-mode safeguard leg runs only where a regression must not
+                      # land: merge queue and master. Ordinary PR lanes run the
+                      # customer-default mode only, so a PR pays no shards for the legacy
+                      # mode. The queue's trunk-merge/** run is a pull_request event as well,
+                      # so it is exempted by branch. Compat keeps its own legacy-mode rows in
+                      # every lane, because it guards old servers, not this.
+                      if [[ "$IS_PR_RUN" == "true" ]]; then
+                          CORE_POE_SHARDS=0
                       fi
 
                       core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$CORE_SHARDS" '
@@ -1909,7 +1920,7 @@ jobs:
         # increase for tmate testing
         # 45 to match canonical; the shadow is non-blocking so no deploy-gate coupling.
         timeout-minutes: 45
-        name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
+        name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }} (persons-on-events ${{ (matrix.segment == 'Core' && !matrix.person-on-events && !matrix.compat) && 'on' || 'off' }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         # Match canonical's runner size. The shadow restores the same master-primed
         # schema cache (turbo-discover key + check-migrations save), so shards skip
         # migrations exactly like canonical once Depot's cache is warmed by a master run.
@@ -2202,7 +2213,17 @@ jobs:
               id: run-core-tests
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
               env:
-                  PERSON_ON_EVENTS_V2_ENABLED: ${{ matrix.person-on-events && 'true' || 'false' }}
+                  # Person-on-events v2 reads are the production default for every
+                  # project created since 2024-06-14, so the full Core rows run with the
+                  # mode on. matrix.person-on-events marks the safeguard allowlist leg
+                  # that keeps the legacy joined mode covered, not the mode itself: every
+                  # other condition keyed on it (targets, snapshot ownership, timing
+                  # artifacts) selects the leg. Compat rows run the legacy mode as well,
+                  # as the old-server safeguard.
+                  # marker: person-on-events-default. The run block below greps the
+                  # checked-out workflow for this token to tell a head that carries the
+                  # flip from one that predates it.
+                  PERSON_ON_EVENTS_V2_ENABLED: ${{ !matrix.person-on-events && !matrix.compat && 'true' || 'false' }}
                   CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
                   MODE: ${{ needs.select-tests.outputs.mode }}
                   CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
@@ -2221,6 +2242,14 @@ jobs:
                   # pointing at a missing file is a hard error, so drop coverage rather than fail.
                   if [[ -n "$COV_ARGS" && ! -f .github/coverage-core.cfg ]]; then
                       COV_ARGS=""
+                  fi
+                  # The job checks out the PR head while this workflow runs merged with
+                  # master. A head that predates the person-on-events default lacks the
+                  # test pins that came with it, so keep it on the legacy mode until it
+                  # rebases. The marker sits on this step's env line in the checked-out copy.
+                  if [[ "$PERSON_ON_EVENTS_V2_ENABLED" == "true" ]] && ! grep -qF "marker: person-on-events-default" .github/workflows/ci-backend.yml; then
+                      echo "::notice::Checked-out revision predates the person-on-events default, running Core in legacy mode"
+                      export PERSON_ON_EVENTS_V2_ENABLED=false
                   fi
                   # Pick the split algorithm and granularity at runtime: optimal_chunks + file
                   # granularity only when the installed pytest-split offers them, else
@@ -2344,7 +2373,7 @@ jobs:
                       SPLITTING_ALGORITHM=optimal_chunks
                       SPLIT_GRANULARITY=(--split-granularity=file)
                       # Plan path disabled while the cached plan predates the temporal
-                      # routing move — see the .github workflow for the full note.
+                      # routing move, see the .github workflow for the full note.
                       :
                   fi
                   # Depot-only quarantine: the data-modeling materialize path (get_s3_client) 403s on
