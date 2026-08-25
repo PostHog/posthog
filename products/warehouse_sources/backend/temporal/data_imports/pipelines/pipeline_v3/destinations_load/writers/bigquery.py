@@ -17,13 +17,16 @@ from typing import ClassVar
 
 import pyarrow as pa
 import pyarrow.parquet as pq
-from asgiref.sync import sync_to_async
+from asgiref.sync import async_to_sync, sync_to_async
 from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
 
 from posthog.models.integration.google_cloud import GoogleCloudServiceAccountIntegration
 
-from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import BigQueryClient
+from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
+    BigQueryClient,
+    verify_impersonated_service_account_ownership,
+)
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
     BatchWriteOutcome,
     DestinationBatchContext,
@@ -74,7 +77,17 @@ class BigQueryDestinationWriter:
         from posthog.models.integration import Integration  # noqa: PLC0415 — avoids a model import cycle
 
         integration = Integration.objects.get(id=self._ctx.integration_id, team_id=self._ctx.team_id)
-        client = BigQueryClient.from_service_account_integration(GoogleCloudServiceAccountIntegration(integration))
+        google_cloud_integration = GoogleCloudServiceAccountIntegration(integration)
+        if not google_cloud_integration.has_key():
+            # Keyless means PostHog impersonates the team's service account instead of holding
+            # its credentials. Confirm the team actually owns that account first — otherwise a
+            # team that merely knows another org's service account email could have PostHog
+            # impersonate it, the confused-deputy problem batch exports guards against at the
+            # same call site.
+            async_to_sync(verify_impersonated_service_account_ownership)(
+                google_cloud_integration.service_account_email, self._ctx.team_id
+            )
+        client = BigQueryClient.from_service_account_integration(google_cloud_integration)
 
         self._client = client.sync_client
         self._project = self._project or self._client.project or ""
