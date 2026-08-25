@@ -793,7 +793,7 @@ snapshots:
     components-hogcharts-legend--vertical--light:
         hash: v1.k794b7964.2a05ac06ff596da5774c5e6ec7bb6029d634db4ecaf315628600c60819787c28.u8q-wm5x1b_jgTZO6XvOCYOZqyG18Gc5u3U8OkXo8EA
     components-hogcharts-linechart--combined-overlays--dark:
-        hash: v1.k794b7964.b6dc62cf3be492164e45d3674be93acb8fc3b014683093a4689814e3939c350c.nHIcLXX9MwGiKyvJMeJmMkoOt5Kek1jaWrfZ5FOHQHg
+        hash: v1.k794b7964.ff9d4456effb4eebdd9d60878b060633ae58ed58b558b5d0d5e405241c28606b.RTMz-PJjROcV40uqo2C8tcFS8Bti8amLf9T0vZtYUDc
     components-hogcharts-linechart--combined-overlays--light:
         hash: v1.k794b7964.0a00a06868199a28a3b61e75893cfa7847638084dae28fc246d55f584a041eb1.Q7DjiihtV5rDjY5m-Mv6lLWFEki5oZXiEA6PTB0ifeY
     components-hogcharts-linechart--confidence-band-below-zero--dark:
@@ -821,7 +821,7 @@ snapshots:
     components-hogcharts-linechart--hovering-multi-series--light:
         hash: v1.k794b7964.99cf475fb8474639a0e940a23d2c6a793e19cfa52378df226de026e1cb485d25.bYKdfZRKFctY8W_6YnxTP634u8OTnukFavzrgoNMPC4
     components-hogcharts-linechart--hovering-over-aux-series--dark:
-        hash: v1.k794b7964.9c93b5e086eafca3b7a328c23291b6438b50142ff4922f50f9e78205228549ba.tTwGgmDM62ZYmOcHGewO1ZB7nzxkS5TR4xKtrutiKDE
+        hash: v1.k794b7964.a0fc2a2b2fefc9808698c9059fdc3ef0de379d3f8031d71cfd426f3da0d323da.-2pgmEL4dEZhJmphkd9By8jScNo0_1DPBCPwXscbCqA
     components-hogcharts-linechart--hovering-over-aux-series--light:
         hash: v1.k794b7964.bc7a876bd03487b213da52e1f460dec775d0626198e6eb51b3c2ffd6d43276d7.X9PIgI5rFLNxeY8rTzoRzwFv1gjm043JzY9lUqXtjP4
     components-hogcharts-linechart--in-progress-tail--dark:
@@ -929,11 +929,11 @@ snapshots:
     components-hogcharts-piechart--with-legend--light:
         hash: v1.k794b7964.8bb46927c74f00a5579e78a238a28ae3b1c47017dd4d058c0ed3d46d66e95218.oR1c60kYOX2Uvf1l-aT1TcDUTpqAbQNFuJtRRPTQljI
     components-hogcharts-referenceline--fill-sides--dark:
-        hash: v1.k794b7964.488fd8bcdc78be71ba6f81188c318d9baaac6778b012cb35bf84b9b6c0c4012c.1fPxMDAR5eELQICsCzk7GIsq_yHA7YYJF7sYy_uLIg8
+        hash: v1.k794b7964.b41b2cebf82f249680d02283fefc807d117ae54b38745e5fb46c7d14390f2353.bs-zM7MFAJsKbP_eQF4IWfMhJEqDNrQbqDfExi_wgwY
     components-hogcharts-referenceline--fill-sides--light:
         hash: v1.k794b7964.e26a8ba8166f07b6fcdaea2d1c5bc6e46b8768d5ad7376d76f4c46abfb0b8388.Bes-3Rgztdimf7hTRFZsmVhv90MqeR1ee6pPed1mQSs
     components-hogcharts-referenceline--horizontal-goal--dark:
-        hash: v1.k794b7964.0e9bffb78d8774e0f331e804caa36ecf9afb66881b37fb3e08ef4937737213e3.u-I32L4V5_ewFp9oPZykgTcTOsGBm8O8NL8ayb503zA
+        hash: v1.k794b7964.a2ed3cf6087b7bf75dc7d1517dc39eed74dd36152e7f55e74c049320ac47c734.gt8D-YVKE99O-CSDE-E7vl6jAGyZGFHlj_Kk9pRj8K0
     components-hogcharts-referenceline--horizontal-goal--light:
         hash: v1.k794b7964.e373c110db9e4b427cf77b6892fe4a85fa9191882ea0e7e985fe819b6338f26b.TcKFdU2WCO_uxvffF3CkkAegU13ZXZTGAj9aQt2g0FE
     components-hogcharts-referenceline--horizontal-variants--dark:
@@ -941,7 +941,7 @@ snapshots:
     components-hogcharts-referenceline--horizontal-variants--light:
         hash: v1.k794b7964.a9a0445443c8e947c726655e69e74971194d62b1b399918a75fc18bf67758df4.FlA8Shp0BR5D62LvBiCSpc9Ww7AqvooyV9lLcF5NiW8
     components-hogcharts-referenceline--label-start-vs-end--dark:
-        hash: v1.k794b7964.65a06c9912d2795dfc14303f3af78efbdbd01b1ab73079faf6064a3aa09d34a2.7M0f4LSTCYSsCS3R7iXSDcpGseFDT_OgQpLZcaLQHRk
+        hash: v1.k794b7964.b9c760cc99f7800fbe3a78a4aeac773d50ff8378719f852b0e139afd17e7e78b.UnxshD1c7H_kFhrenHOl024qaZKxO25oOEdNMVM2B40
     components-hogcharts-referenceline--label-start-vs-end--light:
         hash: v1.k794b7964.551359c1cc60520de36398d4e2b11f96938e762c996fc4e8c4f1483011e84eb2.kcuCnRwpO6GAeCj4Je93i7xUIICAFJvksdfvfNy0UV4
     components-hogcharts-referenceline--vertical-reference-lines--dark:
@@ -1145,7 +1145,7 @@ snapshots:
     components-hogcharts-valuelabels--single-series--light:
         hash: v1.k794b7964.47fa0705c93c5a676cfd6f76483a700de7cc8f8daa233a91ecfb84358dcc70db.JWrkhLkBEfLrFy40TszEbehZGCfCTkZax0_QOS4srSg
     components-hogcharts-valuelabels--with-custom-formatter--dark:
-        hash: v1.k794b7964.0f1fb86ef58d920b9d5474dfb4dd89977a8c626ba3a4e12d060d480550907c2d.3UYwe2Bn-WU1y3dNGrLfsG7PphoCN8Q9Qp3mhrt_KQs
+        hash: v1.k794b7964.a191367547fd8c6c0d122caef5b9828b8a0b1e544cd747332a684c4ba5fd7e01.IwoAVQfoNWZcMXHHQjpToFUl1Jfld8LltxKistBO9GM
     components-hogcharts-valuelabels--with-custom-formatter--light:
         hash: v1.k794b7964.a73cde97d3f732e862b2aad0fec708017479e03358a929c5e90bd466d3ca3f82.MgYGFFN4pUn4VGBV8jtreDVbyxYb85OOpwyFwVR6FJM
     components-hogfetti--hogfetti--dark:
@@ -6355,7 +6355,7 @@ snapshots:
     scenes-app-events-mcp-tool-calls--mcp-tool-calls--dark:
         hash: v1.k794b7964.f556bb39a4acac2ba03a734739fe0a19b6aaa135b9aa50a4c45f0cda07005c32.AFd4VvCxhkVCB5HVysHoKvyqq56in_Owrl4n_dOlyMU
     scenes-app-events-mcp-tool-calls--mcp-tool-calls--light:
-        hash: v1.k794b7964.a3ac44acd481d94af4b46505f08e8289217cac51ea3ad8f0d7b7ab01599774c1.OKuFOul1hEuNHr4ELFZgBQP0KTGTm_OKbMTl7lF3Jxk
+        hash: v1.k794b7964.a70db27155e0ba6979890a1d3b328a91d7f2cae9e89d37cb7346fa2d79aaec6d.ybMAg6DfJ6iwBrtLWjqVo9qC-a412ihqd6H6KiAYkgc
     scenes-app-experiments--draft-experiment--dark:
         hash: v1.k794b7964.c54bc70ed3ef1f9da5493475a002cd1eb1effa331f8ccbb54dda180bbecb7507.Okif3ufUoD3KpD1568ZzpvAxTcJkFR7s6KZHUQmpc6Q
     scenes-app-experiments--draft-experiment--light:
@@ -6795,7 +6795,7 @@ snapshots:
     scenes-app-inbox-scoutsroster--roster--dark:
         hash: v1.k794b7964.1e60b96137099008eb0586a688a6e9778957d2bb22080717cb1b7e85b33914f2.hhm9E7xx3YoKpX0Q0OT_8p4RnX9DWaHcowqBSzbj6E4
     scenes-app-inbox-scoutsroster--roster--light:
-        hash: v1.k794b7964.43141512a651be54956bfc83ec43a719e32a20cd95f8ab36b618f5f13f2805d8.OKKyCevdY3MASfUtMhdnkY0ZCr2b8jB2cSdbGyFMY1I
+        hash: v1.k794b7964.9e173f8016fb6bee154b07d46ec4762027b2acfc0163a1e143363fe7b9b67b96.KJuuha1IW4YIej_UjUQr13km6Y03K1xrRzxC8Xm2e_k
     scenes-app-inbox-selfdrivingsection--daily-limit-reached--dark:
         hash: v1.k794b7964.6bb86cc044462ca9b5d59151d279fb763b8ffc1918c913a4ba5786e9714a9675.F8GMUyNcVBI5ASlEgXgZaNW4sL-8zvLioKKu0JVua34
     scenes-app-inbox-selfdrivingsection--daily-limit-reached--light:
