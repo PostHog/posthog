@@ -1070,6 +1070,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.timings is not None:
         # Metrics need the full unfiltered run, not the signal-trimmed emission set.
         full_shards = collect_shards(args.artifacts_root, args.runner)
+        if run_attempt > 1:
+            full_shards, _ = partition_run_attempt(full_shards, run_attempt)
         payload = json.dumps(build_timings_report(full_shards, args.artifacts_root, args.runner), indent=2)
         if str(args.timings) == "-":
             sys.stdout.write(payload + "\n")

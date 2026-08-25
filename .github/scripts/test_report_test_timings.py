@@ -597,7 +597,9 @@ def test_signals_only_threshold_keeps_failures_and_same_job_recovery() -> None:
 # ---------- re-run attempts ----------
 
 
-def test_rerun_attempt_emits_only_reexecuted_shards_and_same_leg_recovery_passes(tmp_path: Path) -> None:
+def test_rerun_attempt_emits_only_reexecuted_shards_and_same_leg_recovery_passes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _write_shard_xml(
         tmp_path / "junit-results-backend-core-1",
         filename="junit-core.xml",
@@ -647,6 +649,11 @@ def test_rerun_attempt_emits_only_reexecuted_shards_and_same_leg_recovery_passes
     # failed and the cross-leg pass are dropped.
     assert [test.name for test in filtered[0].tests] == ["test_flaky"]
     assert filtered[1].tests == []
+
+    monkeypatch.setenv("GITHUB_RUN_ATTEMPT", "2")
+    timings = tmp_path / "timings.json"
+    assert report_test_timings.main(["--runner", "jest", "--timings", str(timings), str(tmp_path)]) == 0
+    assert [shard["group"] for shard in json.loads(timings.read_text())["shards"]] == [1, 3]
 
 
 class _FakeSpan:
