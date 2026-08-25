@@ -8,6 +8,7 @@ Coverage:
 - `needs_decision` fires on the three ways an open quarantine stops fitting.
 - The activity strip is dense and positions the baseline divider.
 - Recency comes from runs that matched a variant, not from when it was minted.
+- The history scan is bounded to identifiers that can produce a row.
 """
 
 from datetime import timedelta
@@ -15,10 +16,13 @@ from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
 
+from django.db import connections
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from parameterized import parameterized
 
+from products.visual_review.backend.db import WRITER_DB
 from products.visual_review.backend.facade import api as vr_api
 from products.visual_review.backend.facade.contracts import (
     FLAKINESS_EXPIRY_SOON_DAYS,
@@ -216,6 +220,23 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         assert entry is not None
         assert entry.variant_count == 3
         assert entry.flakiness_state == FlakinessState.UNSTABLE
+
+    def test_the_history_scan_skips_identifiers_that_cannot_produce_a_row(self):
+        # The era query reaches over the repo's whole default-branch history,
+        # so the identifier list is the only thing bounding it. Widening it back
+        # to the universe would scan every quiet snapshot to throw the result
+        # away, which is most of them on a healthy repo.
+        _mk_snapshot(self.master_run, identifier="quiet")
+        _mk_snapshot(self.master_run, identifier="flaky")
+        self._mk_variant(identifier="flaky", alternate_hash="a")
+
+        with CaptureQueriesContext(connections[WRITER_DB]) as captured:
+            vr_api.get_flakiness_overview(self.repo.id)
+
+        era_queries = [q["sql"] for q in captured.captured_queries if "MIN(" in q["sql"].upper()]
+        assert len(era_queries) == 1
+        assert "flaky" in era_queries[0]
+        assert "quiet" not in era_queries[0]
 
     def test_snapshots_with_nothing_to_report_are_not_listed(self):
         _mk_snapshot(self.master_run, identifier="stable")
