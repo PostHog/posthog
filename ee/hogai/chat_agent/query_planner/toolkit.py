@@ -3,9 +3,6 @@ from collections.abc import Iterable
 from functools import cached_property
 from typing import Literal, Optional, Union, cast
 
-from django.db.models import BigIntegerField, F
-from django.db.models.functions import Coalesce
-
 from pydantic import BaseModel, field_validator
 
 from posthog.schema import (
@@ -28,7 +25,11 @@ from posthog.taxonomy.property_access import restricted_property_names
 from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, CoreFilterDefinition
 
 from products.actions.backend.models.action import Action
-from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
+from products.event_definitions.backend.models.property_definition import (
+    PropertyDefinition,
+    PropertyType,
+    effective_project_id_expr,
+)
 
 from ee.hogai.chat_agent.taxonomy.format import enrich_props_with_descriptions
 from ee.hogai.chat_agent.taxonomy.tools import (
@@ -326,9 +327,7 @@ class TaxonomyAgentToolkit:
         one row and the dict build below cannot drop a value.
         """
         return dict(
-            PropertyDefinition.objects.alias(
-                effective_project_id=Coalesce(F("project_id"), F("team_id"), output_field=BigIntegerField())
-            )
+            PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr())
             .filter(
                 effective_project_id=self._team.project_id,
                 type=PropertyDefinition.Type.EVENT,
