@@ -51,6 +51,22 @@ jobs:
                       exit 1
                   fi
 
+            - name: Extract release notes from the changelog
+              shell: bash
+              env:
+                  TAG_REF: ${{ github.ref_name }}
+              run: |
+                  tag_version="${TAG_REF#hogli-v}"
+                  awk -v heading="## $tag_version" '
+                      $0 == heading { in_section = 1; next }
+                      in_section && /^## / { exit }
+                      in_section { print }
+                  ' tools/hogli/CHANGELOG.md > /tmp/hogli-release-notes.md
+                  if [[ ! -s /tmp/hogli-release-notes.md ]]; then
+                      echo "::error::tools/hogli/CHANGELOG.md has no '## $tag_version' section"
+                      exit 1
+                  fi
+
             - name: Build sdist and wheel
               run: uv build tools/hogli --out-dir dist
 
@@ -79,5 +95,5 @@ jobs:
               uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
               with:
                   files: dist/*
-                  generate_release_notes: true
+                  body_path: /tmp/hogli-release-notes.md
                   prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
