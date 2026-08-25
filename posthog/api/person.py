@@ -659,41 +659,44 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             # insight-caching wrapper. With an id-only select there's no actor-column hydration, so
             # we still hydrate the person objects ourselves via get_serialized_people.
             actors_runner = ActorsQueryRunner(team=team, query=actors_query)
+            # A cancel kills every ClickHouse query the request has in flight, so both queries below
+            # sit inside one handler. Anything that is not a cancellation is re-raised untouched.
             try:
                 actor_ids = [row[0] for row in actors_runner.calculate().results]
+
+                with personhog_caller_tag("persons/list"):
+                    serialized_actors = get_serialized_people(team, actor_ids)
+
+                restricted_person_properties = self.get_serializer_context().get("restricted_person_properties")
+                if restricted_person_properties:
+                    for person_dict in serialized_actors:
+                        properties = person_dict.get("properties")
+                        if isinstance(properties, dict):
+                            person_dict["properties"] = {
+                                k: v for k, v in properties.items() if k not in restricted_person_properties
+                            }
+
+                _should_paginate = len(actor_ids) >= filter.limit
+
+                # If the undocumented include_total param is set to true, we'll return the total count of people
+                # This is extra time and DB load, so we only do this when necessary, which is in PostHog 3000 navigation
+                # TODO: Use a more scalable solution before PostHog 3000 navigation is released, and remove this param
+                total_count: Optional[int] = None
+                if include_total:
+                    count_inner = actors_runner.to_query()
+                    count_inner.limit = None
+                    count_inner.offset = None
+                    count_query = ast.SelectQuery(
+                        select=[ast.Call(name="count", args=[])],
+                        select_from=ast.JoinExpr(table=count_inner),
+                    )
+                    total_count = execute_hogql_query(count_query, team=team).results[0][0]
             except Exception as err:
                 if classify_query_error(err) is not QueryErrorCategory.CANCELLED:
                     raise
                 # The caller killed this search, so there is no body to return and nothing went wrong.
                 # Raising would report a server error for every cancelled search.
                 return Response(status=HTTP_CLIENT_CLOSED_REQUEST)
-            with personhog_caller_tag("persons/list"):
-                serialized_actors = get_serialized_people(team, actor_ids)
-
-            restricted_person_properties = self.get_serializer_context().get("restricted_person_properties")
-            if restricted_person_properties:
-                for person_dict in serialized_actors:
-                    properties = person_dict.get("properties")
-                    if isinstance(properties, dict):
-                        person_dict["properties"] = {
-                            k: v for k, v in properties.items() if k not in restricted_person_properties
-                        }
-
-            _should_paginate = len(actor_ids) >= filter.limit
-
-            # If the undocumented include_total param is set to true, we'll return the total count of people
-            # This is extra time and DB load, so we only do this when necessary, which is in PostHog 3000 navigation
-            # TODO: Use a more scalable solution before PostHog 3000 navigation is released, and remove this param
-            total_count: Optional[int] = None
-            if include_total:
-                count_inner = actors_runner.to_query()
-                count_inner.limit = None
-                count_inner.offset = None
-                count_query = ast.SelectQuery(
-                    select=[ast.Call(name="count", args=[])],
-                    select_from=ast.JoinExpr(table=count_inner),
-                )
-                total_count = execute_hogql_query(count_query, team=team).results[0][0]
 
             slo.tag(result_count=len(actor_ids))
 

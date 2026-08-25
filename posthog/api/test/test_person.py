@@ -126,12 +126,17 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         response = self.client.get(f"/api/person/?search=someone&client_query_id={client_query_id}")
         self.assertEqual(response.status_code, expected_status)
 
-    def test_search_answers_499_when_the_query_was_cancelled(self) -> None:
-        with mock.patch(
-            "posthog.hogql_queries.actors_query_runner.ActorsQueryRunner.calculate",
-            side_effect=ServerException("Query was cancelled", code=394),
-        ):
-            response = self.client.get("/api/person/?search=someone")
+    @parameterized.expand(
+        [
+            ("actors query", "posthog.hogql_queries.actors_query_runner.ActorsQueryRunner.calculate", ""),
+            ("total count query", "posthog.hogql.query.execute_hogql_query", "&include_total=true"),
+        ]
+    )
+    def test_search_answers_499_when_the_query_was_cancelled(
+        self, _name: str, patch_target: str, extra_params: str
+    ) -> None:
+        with mock.patch(patch_target, side_effect=ServerException("Query was cancelled", code=394)):
+            response = self.client.get(f"/api/person/?search=someone{extra_params}")
         self.assertEqual(response.status_code, 499)
 
     def test_search_still_fails_on_a_query_error_that_is_not_a_cancellation(self) -> None:
