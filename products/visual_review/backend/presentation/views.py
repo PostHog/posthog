@@ -183,6 +183,16 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         parameters=[
             OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH),
             OpenApiParameter("identifier", OpenApiTypes.STR, OpenApiParameter.PATH),
+            OpenApiParameter(
+                "run_type",
+                OpenApiTypes.STR,
+                OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Narrow the lookup to one run type. The same identifier under two run types is "
+                    "two different images, so omit this only when the caller shows one run type."
+                ),
+            ),
         ],
         responses={200: OpenApiResponse(description="WebP thumbnail image")},
     )
@@ -197,7 +207,9 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             patch_cache_control(resp, no_store=True)
             return resp
 
-        thumb_hash = api.get_thumbnail_hash_for_identifier(repo_id, identifier)
+        thumb_hash = api.get_thumbnail_hash_for_identifier(
+            repo_id, identifier, request.query_params.get("run_type") or None
+        )
         if thumb_hash is None:
             resp = HttpResponse(status=404)
             patch_cache_control(resp, no_store=True)

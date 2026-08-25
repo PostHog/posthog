@@ -38,6 +38,7 @@ import type {
     VisualReviewReposQuarantineListParams,
     VisualReviewReposRunsListParams,
     VisualReviewReposSnapshotsListParams,
+    VisualReviewReposThumbnailsRetrieveParams,
     VisualReviewRunsListParams,
     VisualReviewRunsSnapshotHistoryListParams,
     VisualReviewRunsSnapshotsListParams,
@@ -251,8 +252,25 @@ export const visualReviewReposQuarantineExpireCreate = async (
     })
 }
 
-export const getVisualReviewReposThumbnailsRetrieveUrl = (projectId: string, id: string, identifier: string) => {
-    return `/api/projects/${projectId}/visual_review/repos/${id}/thumbnails/${identifier}/`
+export const getVisualReviewReposThumbnailsRetrieveUrl = (
+    projectId: string,
+    id: string,
+    identifier: string,
+    params?: VisualReviewReposThumbnailsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/visual_review/repos/${id}/thumbnails/${identifier}/?${stringifiedParams}`
+        : `/api/projects/${projectId}/visual_review/repos/${id}/thumbnails/${identifier}/`
 }
 
 /**
@@ -262,9 +280,10 @@ export const visualReviewReposThumbnailsRetrieve = async (
     projectId: string,
     id: string,
     identifier: string,
+    params?: VisualReviewReposThumbnailsRetrieveParams,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getVisualReviewReposThumbnailsRetrieveUrl(projectId, id, identifier), {
+    return apiMutator<void>(getVisualReviewReposThumbnailsRetrieveUrl(projectId, id, identifier, params), {
         ...options,
         method: 'GET',
     })

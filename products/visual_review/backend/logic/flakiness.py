@@ -141,7 +141,12 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
         .only("id", "run_type", "created_at")
     )
     if not universe_runs:
-        return _quarantine_only_raw(active_quarantines_by_key, generated_at=now, strip_days=FLAKINESS_STRIP_DAYS)
+        return _quarantine_only_raw(
+            active_quarantines_by_key,
+            generated_at=now,
+            strip_days=FLAKINESS_STRIP_DAYS,
+            max_entries=FLAKINESS_MAX_ENTRIES,
+        )
 
     # `universe_runs` holds one run per branch and run type, so a repo with runs
     # on both master and main has two per run type. The row identity carries no
@@ -259,7 +264,10 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
             source_run__status=RunStatus.COMPLETED,
         )
         .values("source_run__run_type", "identifier", "baseline_hash")
-        .annotate(minted_at=Max("created_at"))
+        # The run's timestamp, not the row's. `created_at` is when the toleration
+        # was written, which can lag or be retried, and the repeat-match half
+        # already reports when the run happened.
+        .annotate(minted_at=Max("source_run__created_at"))
         .values_list("source_run__run_type", "identifier", "baseline_hash", "minted_at")
     ):
         if minted_at is not None:
@@ -384,6 +392,7 @@ def _quarantine_only_raw(
     *,
     generated_at: datetime,
     strip_days: int,
+    max_entries: int,
 ) -> _FlakinessRaw:
     """The page for a repo with no completed default-branch run yet.
 
@@ -407,16 +416,19 @@ def _quarantine_only_raw(
         for key, quarantine in active_quarantines_by_key.items()
     ]
     rows.sort(key=lambda row: (row.run_type, row.identifier))
+    listed = rows[:max_entries]
     return _FlakinessRaw(
-        rows=rows,
+        rows=listed,
         snapshots_by_key={},
         tracked_total=0,
         totals_unstable=0,
         totals_settled=0,
+        # Totals count the whole population, as they do on the normal path, so
+        # the tiles stay right when the list is capped.
         totals_quarantined=len(rows),
         totals_needs_decision=len(rows),
         by_run_type=dict(Counter(row.run_type for row in rows)),
-        truncated=False,
+        truncated=len(listed) < len(rows),
         generated_at=generated_at,
     )
 

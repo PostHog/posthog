@@ -95984,6 +95984,13 @@ export namespace Schemas {
     run_type?: string;
     };
 
+    export type VisualReviewReposThumbnailsRetrieveParams = {
+    /**
+     * Narrow the lookup to one run type. The same identifier under two run types is two different images, so omit this only when the caller shows one run type.
+     */
+    run_type?: string;
+    };
+
     export type VisualReviewReposRunsListParams = {
     /**
      * Number of results to return per page.

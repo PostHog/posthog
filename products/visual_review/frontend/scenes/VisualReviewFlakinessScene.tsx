@@ -306,7 +306,7 @@ export function VisualReviewFlakinessScene(): JSX.Element {
                                                 <img
                                                     src={`${thumbnailBasePath}/${encodeURIComponent(
                                                         entry.identifier
-                                                    )}/`}
+                                                    )}/?run_type=${encodeURIComponent(entry.run_type)}`}
                                                     alt=""
                                                     loading="lazy"
                                                     className="w-10 h-7 object-cover rounded border border-border shrink-0"

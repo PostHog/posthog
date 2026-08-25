@@ -12,6 +12,7 @@ Coverage:
 - A variant's first occurrence counts, not just later matches of it.
 - A quarantine without a current baseline is still listed.
 - Recency is scoped to the default branch and to the row's own run type.
+- Recency reports the run's time, not when the toleration row was written.
 """
 
 from datetime import timedelta
@@ -365,6 +366,20 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         assert [e.identifier for e in result.entries] == ["muted-early"]
         assert result.totals.tracked == 0
         assert result.totals.quarantined == 1
+
+    def test_recency_reports_when_the_run_happened_not_when_the_row_was_written(self):
+        # ToleratedHash.created_at is when the row was written, which can lag or
+        # be retried. Reporting that would call an old capture newly unstable.
+        _mk_snapshot(self.master_run, identifier="delayed")
+        stale_run = self._mk_default_branch_run(age=timedelta(days=FLAKINESS_RECENT_DAYS + 5))
+        _mk_snapshot(stale_run, identifier="delayed")
+        row = self._mk_variant(identifier="delayed", alternate_hash="a", source_run=stale_run)
+        ToleratedHash.objects.filter(id=row.id).update(created_at=timezone.now())
+
+        entry = self._entry("delayed")
+
+        assert entry is not None
+        assert entry.flakiness_state == FlakinessState.SETTLED
 
     def test_snapshots_with_nothing_to_report_are_not_listed(self):
         _mk_snapshot(self.master_run, identifier="stable")
