@@ -279,6 +279,25 @@ def score_candidates_by_stack_paths(
     return hits
 
 
+def prefer_explicit_repo_mention(context: str, candidate_repos: list[str]) -> str | None:
+    """If the context names exactly one connected owner/repo, return it.
+
+    Stronger than architecture similarity: a concrete `owner/repo` (or github.com link)
+    already in the candidate list is deterministic evidence (#86091).
+    """
+    if not context or not candidate_repos:
+        return None
+    ctx = context.lower()
+    hits: list[str] = []
+    for repo in candidate_repos:
+        key = repo.lower()
+        if key in ctx or f"github.com/{key}" in ctx:
+            hits.append(repo)
+    if len(hits) == 1:
+        return hits[0]
+    return None
+
+
 def apply_stack_path_disambiguation(
     result: RepoSelectionResult,
     *,
@@ -584,7 +603,21 @@ async def select_repository(
             reason=f"Single eligible repository: {candidate_repos[0]}",
         )
 
-    # Deterministic stack-path evidence before paying for the sandbox agent (#86091).
+    # Deterministic evidence before paying for the sandbox agent (#86091).
+    # 1) Explicit owner/repo (or github.com link) naming exactly one candidate.
+    explicit = prefer_explicit_repo_mention(context, candidate_repos)
+    if explicit is not None:
+        if output_fn:
+            output_fn(f"Selected {explicit} from explicit repository mention (skipped agent).")
+        return RepoSelectionResult(
+            repository=explicit,
+            reason=(
+                f"Deterministic mention: context names connected repository `{explicit}` "
+                f"and no other candidate."
+            ),
+        )
+
+    # 2) Stack/context file paths present in exactly one candidate tree.
     stack_paths = extract_code_paths_from_context(context)
     path_hits = await database_sync_to_async(score_candidates_by_stack_paths, thread_sensitive=False)(
         team_id, github, candidate_repos, stack_paths

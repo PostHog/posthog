@@ -24,8 +24,14 @@ from products.signals.backend.temporal.agentic import (
     get_or_create_signals_sandbox_env,
     resolve_user_id_for_team,
 )
-from products.signals.backend.temporal.types import SignalData
+from products.signals.backend.temporal.types import SignalData, render_signals_to_text
 from products.tasks.backend.facade import api as tasks_facade
+from products.tasks.backend.logic.repo_selection.agent import (
+    apply_stack_path_disambiguation,
+    extract_code_paths_from_context,
+    score_candidates_by_stack_paths,
+    _list_candidate_repos,
+)
 
 # Repo discovery only runs `gh` CLI commands — limit egress to GitHub hosts.
 GITHUB_ONLY_DOMAINS = [
@@ -109,24 +115,80 @@ async def select_repository_activity(input: SelectRepositoryInput) -> RepoSelect
     )
     try:
         async with Heartbeater():
-            # Check for a previous selection from an earlier run, if any
+            # Check for a previous selection from an earlier run, if any.
+            # Do not blindly reuse: a wrong first pick used to stick across reports (#86091).
+            # Re-validate against current signal stack paths; if they disqualify the prior
+            # repo, fall through to a fresh selection.
             previous = await aretry_on_db_connection_drop(
                 lambda: database_sync_to_async(persisted_repo_selection, thread_sensitive=False)(input.report_id)
             )
             if previous is not None and previous.repository is not None:
-                logger.info(
-                    "signals repo selection reused from previous run",
-                    report_id=input.report_id,
-                    repository=previous.repository,
-                )
-                _capture_repo_research_event(
-                    "signals_repo_research_completed",
-                    team,
-                    team.organization,
-                    input.report_id,
-                    result="reused",
-                )
-                return previous
+                context_text = render_signals_to_text(input.signals)
+                stack_paths = extract_code_paths_from_context(context_text)
+                if stack_paths:
+                    github = await database_sync_to_async(resolve_team_github_integration, thread_sensitive=False)(
+                        input.team_id
+                    )
+                    if github is not None:
+                        candidates = await database_sync_to_async(_list_candidate_repos, thread_sensitive=False)(
+                            github, input.team_id
+                        )
+                        path_hits = await database_sync_to_async(
+                            score_candidates_by_stack_paths, thread_sensitive=False
+                        )(input.team_id, github, candidates, stack_paths)
+                        revalidated = apply_stack_path_disambiguation(
+                            previous, paths=stack_paths, path_hits=path_hits
+                        )
+                        if revalidated.repository != previous.repository:
+                            logger.info(
+                                "signals repo selection discarded stale previous pick",
+                                report_id=input.report_id,
+                                previous=previous.repository,
+                                revalidated=revalidated.repository,
+                            )
+                            # Fall through to full selection / human input
+                        else:
+                            logger.info(
+                                "signals repo selection reused from previous run",
+                                report_id=input.report_id,
+                                repository=previous.repository,
+                            )
+                            _capture_repo_research_event(
+                                "signals_repo_research_completed",
+                                team,
+                                team.organization,
+                                input.report_id,
+                                result="reused",
+                            )
+                            return previous
+                    else:
+                        logger.info(
+                            "signals repo selection reused from previous run",
+                            report_id=input.report_id,
+                            repository=previous.repository,
+                        )
+                        _capture_repo_research_event(
+                            "signals_repo_research_completed",
+                            team,
+                            team.organization,
+                            input.report_id,
+                            result="reused",
+                        )
+                        return previous
+                else:
+                    logger.info(
+                        "signals repo selection reused from previous run",
+                        report_id=input.report_id,
+                        repository=previous.repository,
+                    )
+                    _capture_repo_research_event(
+                        "signals_repo_research_completed",
+                        team,
+                        team.organization,
+                        input.report_id,
+                        result="reused",
+                    )
+                    return previous
 
             user_id = await database_sync_to_async(_resolve_sandbox_user_id, thread_sensitive=False)(input.team_id)
             if user_id is None:

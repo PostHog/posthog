@@ -3,6 +3,7 @@
 from products.tasks.backend.logic.repo_selection.agent import (
     apply_stack_path_disambiguation,
     extract_code_paths_from_context,
+    prefer_explicit_repo_mention,
     _tree_contains_path,
 )
 from products.tasks.backend.logic.repo_selection.types import RepoSelectionResult
@@ -39,6 +40,35 @@ class TestTreeContainsPath:
         assert _tree_contains_path(tree, "src/routes/+page.svelte")
         assert _tree_contains_path(tree, "lib/utils.ts")
         assert not _tree_contains_path(tree, "src/missing.ts")
+
+
+class TestPreferExplicitRepoMention:
+    def test_single_owner_repo_mention(self):
+        assert (
+            prefer_explicit_repo_mention(
+                "Please fix acme/instrumented-app session bugs",
+                ["acme/instrumented-app", "acme/other-app"],
+            )
+            == "acme/instrumented-app"
+        )
+
+    def test_github_url_mention(self):
+        assert (
+            prefer_explicit_repo_mention(
+                "See https://github.com/acme/instrumented-app/issues/1",
+                ["acme/instrumented-app", "acme/other-app"],
+            )
+            == "acme/instrumented-app"
+        )
+
+    def test_ambiguous_mentions_return_none(self):
+        assert (
+            prefer_explicit_repo_mention(
+                "Compare acme/instrumented-app and acme/other-app",
+                ["acme/instrumented-app", "acme/other-app"],
+            )
+            is None
+        )
 
 
 class TestApplyStackPathDisambiguation:
