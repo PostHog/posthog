@@ -9,12 +9,7 @@ from posthog.hogql.errors import ExposedHogQLError, ResolutionError
 from posthog.slo.types import SloConfig
 
 
-class QueryErrorDetails(typing.TypedDict):
-    code: str
-    message: str
-
-
-def safe_query_error_details(exc: BaseException) -> QueryErrorDetails | None:
+def safe_query_error_details(exc: BaseException) -> dict[str, str] | None:
     """Returns the same safe code and message exposed by query APIs."""
     seen: set[int] = set()
     current: BaseException | None = exc
@@ -261,7 +256,7 @@ class GenerateAIReportResult:
     failed_step_count: int = 0
     total_step_count: int = 0
     query_error_types: list[str] = dataclasses.field(default_factory=list)
-    query_errors: list[QueryErrorDetails] = dataclasses.field(default_factory=list)
+    query_errors: list[dict[str, str]] = dataclasses.field(default_factory=list)
     target_type: str = ""
 
     @property
