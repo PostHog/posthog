@@ -1,7 +1,7 @@
 import time
 from typing import Any
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, OperationalError, transaction
 from django.utils import timezone
 
 import psycopg.errors
@@ -174,8 +174,17 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
             # the cap; uncapped scanners keep the lock-free path. The limit is re-read under the lock.
             if scanner.credit_limit is not None:
                 lock_started = time.monotonic()
+                # nowait: a contended admission fails fast and retries via the activity's backoff
+                # (1s..10s, jittered) instead of camping on the scanner row. Queueing here is what
+                # convoyed the writer during the 2026-08 lock storms: dozens of admissions parked on
+                # one row, each holding its own locks while waiting, and activities killed at
+                # start_to_close (30s) left their statements waiting server-side. Failing fast keeps
+                # cap enforcement fully serialized while letting Temporal spread the herd.
                 locked = (
-                    ReplayScanner.objects.select_for_update().filter(pk=scanner.pk).only("pk", "credit_limit").first()
+                    ReplayScanner.objects.select_for_update(nowait=True)
+                    .filter(pk=scanner.pk)
+                    .only("pk", "credit_limit")
+                    .first()
                 )
                 # Admissions on a busy capped scanner serialize here; the wait is visible, not guessed at.
                 record_scanner_admission_lock_wait(time.monotonic() - lock_started)
@@ -222,6 +231,17 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
                 session_id=inputs.session_id,
                 **row_fields,
             )
+    except OperationalError as e:
+        if not isinstance(e.__cause__, psycopg.errors.LockNotAvailable):
+            raise
+        activity.logger.info(
+            "Scanner admission lock busy; deferring to activity retry",
+            extra={"scanner_id": str(inputs.scanner_id), "team_id": inputs.team_id},
+        )
+        raise ApplicationError(
+            "Scanner admission lock busy; retried with backoff",
+            type="ScannerAdmissionBusy",
+        ) from e
     except IntegrityError as e:
         # Only swallow the dedup case; FK / CHECK violations should fail the activity.
         if not isinstance(e.__cause__, psycopg.errors.UniqueViolation):
