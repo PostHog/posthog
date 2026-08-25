@@ -29,7 +29,6 @@ import { Experiment } from '~/types'
 import { experimentScannerParams } from 'products/replay_vision/frontend/replay_scanners/experimentTargeting'
 import { scannerTypeLabel } from 'products/replay_vision/frontend/replay_scanners/types'
 
-import { SummarizeSessionReplaysButton } from '../components/SummarizeSessionReplaysButton'
 import { isLaunched } from '../experimentStatus'
 import { NOT_A_FUNNEL_REASON } from '../utils'
 import { ExperimentBehaviorComparison, ExperimentBehaviorComparisonToggle } from './ExperimentBehaviorComparison'
@@ -413,9 +412,6 @@ export function ExperimentReplayTab({ experiment }: { experiment: Experiment }):
                     </DropdownMenu>
                 )}
                 <ExperimentBehaviorComparisonToggle experiment={experiment} />
-                <div className="ml-auto">
-                    <SummarizeSessionReplaysButton experiment={experiment} />
-                </div>
             </div>
             {/* The default mode also uses the endpoint for a single multi-source metric, so the
                 caption follows the request, not the mode. */}

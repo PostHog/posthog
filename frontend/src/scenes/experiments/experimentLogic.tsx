@@ -736,9 +736,6 @@ export interface experimentLogicActions {
     reportExperimentResultsLoadingTimeout: (experimentId: ExperimentIdType) => {
         experimentId: ExperimentIdType
     } // eventUsageLogic
-    reportExperimentSessionReplaySummaryRequested: (experiment: Experiment) => {
-        experiment: Experiment
-    } // eventUsageLogic
     reportExperimentSharedMetricAssigned: (
         experimentId: ExperimentIdType,
         sharedMetric: SharedMetric
@@ -1508,7 +1505,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 'reportExperimentTimeseriesViewed',
                 'reportExperimentTimeseriesRecalculated',
                 'reportExperimentAiSummaryRequested',
-                'reportExperimentSessionReplaySummaryRequested',
                 'reportExperimentMetricsRefreshed',
                 'reportExperimentAutoRefreshToggled',
                 'reportExperimentMetricBreakdownAdded',

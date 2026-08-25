@@ -1339,9 +1339,6 @@ export interface eventUsageLogicActions {
         experimentId: ExperimentIdType
         teamId: number | null | undefined
     }
-    reportExperimentSessionReplaySummaryRequested: (experiment: Experiment) => {
-        experiment: Experiment
-    }
     reportExperimentSharedMetricAssigned: (
         experimentId: ExperimentIdType,
         sharedMetric: SharedMetric
@@ -2711,7 +2708,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             metric,
         }),
         reportExperimentAiSummaryRequested: (experiment: Experiment) => ({ experiment }),
-        reportExperimentSessionReplaySummaryRequested: (experiment: Experiment) => ({ experiment }),
         reportExperimentTabViewed: (experimentId: ExperimentIdType, tab: string) => ({ experimentId, tab }),
         reportExperimentRecordingsTabViewed: (
             experimentId: ExperimentIdType,
@@ -3922,11 +3918,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportExperimentAiSummaryRequested: ({ experiment }) => {
             posthog.capture('experiment ai summary requested', {
-                ...getEventPropertiesForExperiment(experiment),
-            })
-        },
-        reportExperimentSessionReplaySummaryRequested: ({ experiment }) => {
-            posthog.capture('experiment session replay summary requested', {
                 ...getEventPropertiesForExperiment(experiment),
             })
         },
