@@ -17,6 +17,7 @@ from posthog.models import Integration, Organization, OrganizationMembership, Te
 from posthog.models.scoping import team_scope
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import SignalTeamConfig
 from products.tasks.backend.facade import (
     api as facade,
@@ -33,8 +34,6 @@ from products.tasks.backend.models import (
     TaskWorkflowDispatch,
 )
 from products.tasks.backend.prompts import WIZARD_HEAD_BRANCH_PLACEHOLDER, build_wizard_pr_agent_prompt
-
-from ee.models.rbac.access_control import AccessControl
 
 FACADE_MODULES = [
     "products.tasks.backend.facade.api",
@@ -222,6 +221,28 @@ class TestFacadeReadsAndMappers(TestCase):
         }
         defaults.update(kwargs)
         return Task.objects.create(**defaults)
+
+    @parameterized.expand([("the_sandbox", True), ("a_human_reader", False)])
+    def test_run_detail_serves_the_boot_prompt_to_the_sandbox_only(self, _name, include_agent_state):
+        # The agent reads initial_prompt_override off this payload to build its first
+        # message; dropping it strips it silently and the run falls back to
+        # task.description. But it embeds the triggering event wholesale (for a Slack
+        # trigger, a private channel's content) and workflow tasks are team-readable,
+        # so human readers must not receive it.
+        task = self._make_task()
+        run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.QUEUED,
+            state={"initial_prompt_override": "framed prompt", "sandbox_jwt_kid": "secret"},
+        )
+
+        detail = facade.get_task_run_detail(run.id, task.id, self.team.id, include_agent_state=include_agent_state)
+
+        assert detail is not None
+        expected = "framed prompt" if include_agent_state else None
+        assert detail.state.get("initial_prompt_override") == expected
+        assert "sandbox_jwt_kid" not in detail.state
 
     def test_get_task_run_maps_all_fields(self):
         task = self._make_task()

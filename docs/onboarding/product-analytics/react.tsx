@@ -3,10 +3,8 @@ import { OnboardingComponentsContext, createInstallation } from 'scenes/onboardi
 import { StepDefinition } from '../steps'
 import { SDK_DEFAULTS_DATE } from './_snippets/sdkDefaults'
 
-export const getReactSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { CodeBlock, Markdown, CalloutBox, dedent, snippets } = ctx
-
-    const JSEventCapture = snippets?.JSEventCapture
+export const getReactInstallSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
+    const { CodeBlock, Markdown, CalloutBox, dedent } = ctx
 
     return [
         {
@@ -166,12 +164,22 @@ export const getReactSteps = (ctx: OnboardingComponentsContext): StepDefinition[
                 </>
             ),
         },
-        {
-            title: 'Send events',
-            badge: 'recommended',
-            content: <>{JSEventCapture && <JSEventCapture />}</>,
-        },
     ]
 }
+
+export const getReactEventStep = (ctx: OnboardingComponentsContext): StepDefinition => {
+    const JSEventCapture = ctx.snippets?.JSEventCapture
+
+    return {
+        title: 'Send events',
+        badge: 'recommended',
+        content: <>{JSEventCapture && <JSEventCapture />}</>,
+    }
+}
+
+export const getReactSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getReactInstallSteps(ctx),
+    getReactEventStep(ctx),
+]
 
 export const ReactInstallation = createInstallation(getReactSteps)
