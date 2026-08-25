@@ -62,7 +62,6 @@ from posthog.api.utils import log_activity_from_viewset
 from posthog.auth import InternalAPIAuthentication
 from posthog.cdp.filters import compile_filters_expr
 from posthog.cdp.flag_gated_templates import FLAG_GATED_TEMPLATE_IDS, gated_template_enabled
-from posthog.cdp.internal_events import is_managed_alert_internal_event
 from posthog.cdp.validation import (
     DATA_WAREHOUSE_SOURCES,
     HogFunctionFiltersSerializer,
@@ -123,6 +122,7 @@ from products.workflows.backend.models.hog_flow.hog_flow import (
     ROW_SCOPED_TRIGGER_TYPES,
     SUPPORTED_ACTION_TYPES,
     TRIGGER_TYPES,
+    WORKFLOW_SAFE_INTERNAL_EVENTS,
     HogFlow,
 )
 from products.workflows.backend.models.hog_flow_batch_job import HogFlowBatchJob
@@ -1426,15 +1426,25 @@ class HogFlowActionSerializer(serializers.Serializer):
                 # scan so a malformed value (null, a number) reaches that check instead of raising
                 # TypeError here, which would escape DRF and 500 the request.
                 events = filters.get("events")
-                # Alert-owned events carry one alert's payload and are scoped to that alert by an
-                # alert_id filter the alert API writes. A workflow trigger has no such binding, so
-                # matching on the event name alone would forward every alert in the project.
-                # HogFunctionSerializer refuses these for the same reason.
-                if isinstance(events, list) and any(
-                    isinstance(event, dict) and is_managed_alert_internal_event(event.get("id")) for event in events
-                ):
+                # Starting a workflow needs only hog_flow:write, while the events on this stream
+                # carry data their own products gate behind narrower scopes. Allowlist rather than
+                # blocklist, so a newly emitted internal event is unreachable until someone decides
+                # it is safe to expose.
+                disallowed = sorted(
+                    {
+                        event["id"]
+                        for event in (events if isinstance(events, list) else [])
+                        if isinstance(event, dict)
+                        and isinstance(event.get("id"), str)
+                        and event["id"] not in WORKFLOW_SAFE_INTERNAL_EVENTS
+                    }
+                )
+                if disallowed:
                     raise serializers.ValidationError(
-                        {"filters": "Alert events are managed through the alert API and cannot trigger a workflow."}
+                        {
+                            "filters": f"These events cannot trigger a workflow: {', '.join(disallowed)}. "
+                            "They belong to another product, which controls who can read them."
+                        }
                     )
                 is_slack_message = isinstance(events, list) and any(
                     isinstance(event, dict) and event.get("id") == "$slack_message_received" for event in events
