@@ -21,7 +21,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { FlakinessStatRow, RECENT_VARIANT_WINDOW_DAYS } from '../components/FlakinessStatRow'
+import { FlakinessStatRow } from '../components/FlakinessStatRow'
 import { QuarantineAction } from '../components/QuarantineAction'
 import { RepoSwitcher } from '../components/RepoSwitcher'
 import { SnapshotFacetSidebar } from '../components/SnapshotFacetSidebar'
@@ -42,15 +42,12 @@ export const scene: SceneExport = {
     }),
 }
 
-function formatLastSeen(lastVariantAt: string | null | undefined): { label: string; isRecent: boolean } {
-    if (!lastVariantAt) {
-        return { label: 'never', isRecent: false }
+function formatLastSeen(lastFlakedAt: string | null | undefined): string {
+    if (!lastFlakedAt) {
+        return 'never'
     }
-    const days = dayjs().diff(dayjs(lastVariantAt), 'day')
-    if (days === 0) {
-        return { label: 'today', isRecent: true }
-    }
-    return { label: `${days}d ago`, isRecent: days <= RECENT_VARIANT_WINDOW_DAYS }
+    const days = dayjs().diff(dayjs(lastFlakedAt), 'day')
+    return days === 0 ? 'today' : `${days}d ago`
 }
 
 // Sub-pixel jitter and a small real change both round to tiny percentages, so
@@ -153,6 +150,7 @@ export function VisualReviewFlakinessScene(): JSX.Element {
         filters,
         thumbnailBasePath,
         loadError,
+        pendingQuarantineKey,
     } = useValues(visualReviewFlakinessSceneLogic)
     const {
         loadOverview,
@@ -306,7 +304,9 @@ export function VisualReviewFlakinessScene(): JSX.Element {
                                         <div className="flex gap-2 items-start min-w-0">
                                             {entry.thumbnail_hash && thumbnailBasePath && (
                                                 <img
-                                                    src={`${thumbnailBasePath}/${entry.thumbnail_hash}`}
+                                                    src={`${thumbnailBasePath}/${encodeURIComponent(
+                                                        entry.identifier
+                                                    )}/`}
                                                     alt=""
                                                     loading="lazy"
                                                     className="w-10 h-7 object-cover rounded border border-border shrink-0"
@@ -348,18 +348,21 @@ export function VisualReviewFlakinessScene(): JSX.Element {
                                     key: 'last_seen',
                                     align: 'right',
                                     width: 100,
-                                    render: (_, entry: DecoratedEntry) => {
-                                        const lastSeen = formatLastSeen(entry.last_flaked_at)
-                                        return (
-                                            <span
-                                                className={`font-mono text-xs ${
-                                                    lastSeen.isRecent ? 'text-danger font-semibold' : 'text-muted'
-                                                }`}
-                                            >
-                                                {lastSeen.label}
-                                            </span>
-                                        )
-                                    },
+                                    render: (_, entry: DecoratedEntry) => (
+                                        // Highlight follows the server's verdict. Deriving it from
+                                        // the day count here drifts at the window edge, because
+                                        // dayjs truncates to whole days and the server compares
+                                        // exact timestamps.
+                                        <span
+                                            className={`font-mono text-xs ${
+                                                entry.flakiness_state === 'unstable'
+                                                    ? 'text-danger font-semibold'
+                                                    : 'text-muted'
+                                            }`}
+                                        >
+                                            {formatLastSeen(entry.last_flaked_at)}
+                                        </span>
+                                    ),
                                 },
                                 {
                                     title: 'Quarantine',
@@ -370,39 +373,48 @@ export function VisualReviewFlakinessScene(): JSX.Element {
                                     title: '',
                                     key: 'actions',
                                     width: 150,
-                                    render: (_, entry: DecoratedEntry) => (
-                                        <div className="flex gap-1 justify-end">
-                                            <QuarantineAction
-                                                identifier={entry.identifier}
-                                                mode={entry.is_quarantined ? 'extend' : 'create'}
-                                                triggerLabel={entry.is_quarantined ? 'Extend' : 'Quarantine'}
-                                                initialReason={entry.quarantine?.reason}
-                                                initialExpiresAt={entry.quarantine?.expires_at}
-                                                sourceRunId={entry.quarantine?.source_run?.id ?? null}
-                                                onQuarantine={(reason, identifiers, expiresAt, sourceRunId) => {
-                                                    identifiers.forEach((identifier) =>
-                                                        quarantineIdentifier(
-                                                            identifier,
-                                                            entry.run_type,
-                                                            reason,
-                                                            expiresAt,
-                                                            sourceRunId
+                                    render: (_, entry: DecoratedEntry) => {
+                                        const pending =
+                                            pendingQuarantineKey === `${entry.run_type}::${entry.identifier}`
+                                                ? 'Saving…'
+                                                : null
+                                        return (
+                                            <div className="flex gap-1 justify-end">
+                                                <QuarantineAction
+                                                    pendingReason={pending}
+                                                    identifier={entry.identifier}
+                                                    mode={entry.is_quarantined ? 'extend' : 'create'}
+                                                    triggerLabel={entry.is_quarantined ? 'Extend' : 'Quarantine'}
+                                                    initialReason={entry.quarantine?.reason}
+                                                    initialExpiresAt={entry.quarantine?.expires_at}
+                                                    sourceRunId={entry.quarantine?.source_run?.id ?? null}
+                                                    onQuarantine={(reason, identifiers, expiresAt, sourceRunId) => {
+                                                        identifiers.forEach((identifier) =>
+                                                            quarantineIdentifier(
+                                                                identifier,
+                                                                entry.run_type,
+                                                                reason,
+                                                                expiresAt,
+                                                                sourceRunId
+                                                            )
                                                         )
-                                                    )
-                                                }}
-                                            />
-                                            {entry.is_quarantined && (
-                                                <LemonButton
-                                                    size="xsmall"
-                                                    type="secondary"
-                                                    data-attr="visual-review-flakiness-lift"
-                                                    onClick={() => confirmLift(entry)}
-                                                >
-                                                    Lift
-                                                </LemonButton>
-                                            )}
-                                        </div>
-                                    ),
+                                                    }}
+                                                />
+                                                {entry.is_quarantined && (
+                                                    <LemonButton
+                                                        size="xsmall"
+                                                        type="secondary"
+                                                        data-attr="visual-review-flakiness-lift"
+                                                        onClick={() => confirmLift(entry)}
+                                                        loading={!!pending}
+                                                        disabledReason={pending ?? undefined}
+                                                    >
+                                                        Lift
+                                                    </LemonButton>
+                                                )}
+                                            </div>
+                                        )
+                                    },
                                 },
                             ]}
                         />

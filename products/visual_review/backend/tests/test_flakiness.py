@@ -9,6 +9,8 @@ Coverage:
 - The activity strip is dense and positions the baseline divider.
 - Recency comes from runs that matched a variant, not from when it was minted.
 - The history scan is bounded to identifiers that can produce a row.
+- A variant's first occurrence counts, not just later matches of it.
+- A quarantine without a current baseline is still listed.
 """
 
 from datetime import timedelta
@@ -233,10 +235,73 @@ class TestFlakinessOverview(VisualReviewTeamScopedTestMixin, APIBaseTest):
         with CaptureQueriesContext(connections[WRITER_DB]) as captured:
             vr_api.get_flakiness_overview(self.repo.id)
 
-        era_queries = [q["sql"] for q in captured.captured_queries if "MIN(" in q["sql"].upper()]
-        assert len(era_queries) == 1
-        assert "flaky" in era_queries[0]
-        assert "quiet" not in era_queries[0]
+        # The history queries are the ones that join RunSnapshot to Run and
+        # aggregate over run timestamps.
+        history_queries = [
+            q["sql"]
+            for q in captured.captured_queries
+            if "visual_review_run" in q["sql"]
+            and "MAX(" in q["sql"].upper()
+            and "visual_review_runsnapshot" in q["sql"]
+        ]
+        assert history_queries
+        for sql in history_queries:
+            assert "flaky" in sql
+            assert "quiet" not in sql
+
+    def test_a_first_time_variant_counts_as_a_flake(self):
+        # The run that mints a variant is classified BELOW_THRESHOLD and never
+        # linked to the row it created, so run matches alone miss every first
+        # occurrence. That would report a snapshot that started flaking today
+        # as settled, which is the opposite of what the tile promises.
+        _mk_snapshot(self.master_run, identifier="just-started")
+        row = ToleratedHash.objects.create(
+            repo=self.repo,
+            team_id=self.team.id,
+            identifier="just-started",
+            baseline_hash=CURRENT_BASELINE,
+            alternate_hash="first",
+            reason=ToleratedReason.AUTO_THRESHOLD,
+        )
+        assert not RunSnapshot.objects.filter(tolerated_hash_match=row).exists()
+
+        entry = self._entry("just-started")
+
+        assert entry is not None
+        assert entry.variant_count == 1
+        assert entry.flakiness_state == FlakinessState.UNSTABLE
+
+    def test_a_quarantine_on_a_snapshot_without_a_baseline_is_still_listed(self):
+        # Quarantining does not require a baseline, and the empty state promises
+        # that quarantining alone puts a snapshot on this page.
+        _mk_snapshot(self.master_run, identifier="brand-new", baseline_hash="")
+        QuarantinedIdentifier.objects.create(
+            repo=self.repo,
+            team_id=self.team.id,
+            identifier="brand-new",
+            run_type=RunType.STORYBOOK,
+            reason="Flaky from the first run",
+        )
+
+        result = vr_api.get_flakiness_overview(self.repo.id)
+
+        assert [e.identifier for e in result.entries] == ["brand-new"]
+        assert result.totals.quarantined == 1
+
+    def test_the_baseline_for_a_run_type_does_not_depend_on_branch_order(self):
+        # One run per branch and run type means a repo on both master and main
+        # has two, and the row identity carries no branch. Without picking the
+        # newest, two identical requests could report different baselines.
+        main_run = _mk_run(self.repo, branch="main")
+        Run.objects.filter(id=main_run.id).update(created_at=timezone.now() - timedelta(days=3))
+        _mk_snapshot(main_run, identifier="shared", baseline_hash="baseline-stale")
+        _mk_snapshot(self.master_run, identifier="shared")
+        self._mk_variant(identifier="shared", alternate_hash="a")
+
+        entry = self._entry("shared")
+
+        assert entry is not None
+        assert entry.variant_count == 1
 
     def test_snapshots_with_nothing_to_report_are_not_listed(self):
         _mk_snapshot(self.master_run, identifier="stable")

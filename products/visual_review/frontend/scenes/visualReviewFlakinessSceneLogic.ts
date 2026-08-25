@@ -171,6 +171,7 @@ export interface visualReviewFlakinessSceneLogicValues {
     loadError: string | null
     overview: FlakinessOverviewApi | null
     overviewLoading: boolean
+    pendingQuarantineKey: string | null
     repoId: string
     statCounts: Record<FlakinessPreset, number>
     thumbnailBasePath: string | null
@@ -208,6 +209,9 @@ export interface visualReviewFlakinessSceneLogicActions {
         reason: string
         runType: string
         sourceRunId: string | null
+    }
+    quarantineSettled: () => {
+        value: true
     }
     setPreset: (preset: FlakinessPreset) => {
         preset: FlakinessPreset
@@ -284,11 +288,20 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
             sourceRunId,
         }),
         unquarantineIdentifier: (identifier: string, runType: string) => ({ identifier, runType }),
+        quarantineSettled: true,
     }),
     reducers({
         // The loader resets `overview` to null on failure, which is
         // indistinguishable from an empty repo. Hold the error so the scene can
         // tell "nothing to show" from "we could not look".
+        pendingQuarantineKey: [
+            null as string | null,
+            {
+                quarantineIdentifier: (_state, { identifier, runType }) => `${runType}::${identifier}`,
+                unquarantineIdentifier: (_state, { identifier, runType }) => `${runType}::${identifier}`,
+                quarantineSettled: () => null,
+            },
+        ],
         loadError: [
             null as string | null,
             {
@@ -410,6 +423,8 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
                 actions.loadOverview()
             } catch (e: any) {
                 lemonToast.error(e?.detail || e?.message || 'Could not quarantine that snapshot. Try again.')
+            } finally {
+                actions.quarantineSettled()
             }
         },
         unquarantineIdentifier: async ({ identifier, runType }) => {
@@ -422,6 +437,8 @@ export const visualReviewFlakinessSceneLogic = kea<visualReviewFlakinessSceneLog
                 actions.loadOverview()
             } catch (e: any) {
                 lemonToast.error(e?.detail || e?.message || 'Could not lift that quarantine. Try again.')
+            } finally {
+                actions.quarantineSettled()
             }
         },
     })),

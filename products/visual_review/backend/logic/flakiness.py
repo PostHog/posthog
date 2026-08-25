@@ -11,7 +11,7 @@ from collections import Counter, defaultdict
 from datetime import UTC, date, datetime, timedelta
 from uuid import UUID
 
-from django.db.models import Avg, Count, Max, Min, Q
+from django.db.models import Avg, Count, Max, Q
 from django.db.models.functions import TruncDate
 from django.utils import timezone
 
@@ -23,7 +23,7 @@ from ..facade.contracts import (
     FLAKINESS_RECENT_DAYS,
     FLAKINESS_STRIP_DAYS,
 )
-from ..facade.enums import ClassificationReason, RunStatus, ToleratedReason
+from ..facade.enums import ClassificationReason, RunStatus, SnapshotResult, ToleratedReason
 from ..models import QuarantinedIdentifier, Run, RunSnapshot, ToleratedHash
 from . import run_queries
 
@@ -44,15 +44,6 @@ class _VariantKey:
     rows up by identifier and baseline hash alone.
     """
 
-    identifier: str
-    baseline_hash: str
-
-
-@frozen
-class _EraKey:
-    """One snapshot identity during one baseline."""
-
-    run_type: str
     identifier: str
     baseline_hash: str
 
@@ -109,12 +100,21 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
         )
         .order_by("repo_id", "branch", "run_type", "-created_at")
         .distinct("repo_id", "branch", "run_type")
-        .only("id", "run_type")
+        .only("id", "run_type", "created_at")
     )
     if not universe_runs:
         return _FlakinessRaw.empty(generated_at=now)
 
-    run_type_by_run_id = {run.id: run.run_type for run in universe_runs}
+    # `universe_runs` holds one run per branch and run type, so a repo with runs
+    # on both master and main has two per run type. The row identity carries no
+    # branch, so keep only the newest run per run type. Otherwise whichever
+    # branch happened to be read last decided the baseline, and two identical
+    # requests could disagree.
+    newest_run_by_type: dict[str, Run] = {}
+    for run in sorted(universe_runs, key=lambda r: r.created_at, reverse=True):
+        newest_run_by_type.setdefault(run.run_type, run)
+
+    run_type_by_run_id = {run.id: run_type for run_type, run in newest_run_by_type.items()}
     universe_run_ids = list(run_type_by_run_id)
 
     # The baseline hash each identifier would be compared against right now.
@@ -134,7 +134,31 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
     # repeat an identity when a repo runs on both master and main.
     tracked_total = len(baseline_hash_by_key)
 
-    if not baseline_hash_by_key:
+    live = Q(expires_at__isnull=True) | Q(expires_at__gt=now)
+
+    # Every active quarantine in the repo, not only the ones whose snapshot has
+    # a baseline. Quarantining does not require one, and the empty state
+    # promises that quarantining alone puts a snapshot on this page. The set is
+    # small by nature, so no identifier filter is needed to bound it.
+    #
+    # Hydrated so each row can render reason, expiry, who and the source run
+    # without a per-row fetch. `Run.metadata` and `Run.error_message` can be
+    # large and are not needed for the summary.
+    active_quarantines_by_key: dict[_SnapshotKey, QuarantinedIdentifier] = {}
+    for active_quarantine in (
+        QuarantinedIdentifier.objects.filter(repo_id=repo_id)
+        .filter(live)
+        .select_related("source_run")
+        .defer("source_run__metadata", "source_run__error_message")
+        .order_by("-created_at")
+    ):
+        quarantine_key = _SnapshotKey(run_type=active_quarantine.run_type, identifier=active_quarantine.identifier)
+        # Creating a quarantine supersedes the prior active row, so duplicates
+        # should not exist. Keep the newest if one ever does.
+        if quarantine_key not in active_quarantines_by_key:
+            active_quarantines_by_key[quarantine_key] = active_quarantine
+
+    if not baseline_hash_by_key and not active_quarantines_by_key:
         return _FlakinessRaw.empty(generated_at=now)
 
     universe_identifiers = list({key.identifier for key in baseline_hash_by_key})
@@ -143,7 +167,6 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
     # Only rows the classifier could still match: auto-minted, and live.
     # Mirrors the `expires_at` filter in `runs.complete_run` so this count
     # equals what a run would actually match.
-    live = Q(expires_at__isnull=True) | Q(expires_at__gt=now)
     auto_tolerations = ToleratedHash.objects.filter(
         repo_id=repo_id,
         reason=ToleratedReason.AUTO_THRESHOLD,
@@ -156,16 +179,18 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
     # another identifier's name. Content hashes make that vanishingly unlikely,
     # and the exact pair is verified when entries are assembled below.
     variants_by_pair: dict[_VariantKey, _VariantStats] = {}
-    for identifier, baseline_hash, variant_count, avg_diff in (
+    for identifier, baseline_hash, variant_count, last_minted_at, avg_diff in (
         auto_tolerations.values("identifier", "baseline_hash")
         .annotate(
             variant_count=Count("alternate_hash", distinct=True),
+            last_minted_at=Max("created_at"),
             avg_diff=Avg("diff_percentage"),
         )
-        .values_list("identifier", "baseline_hash", "variant_count", "avg_diff")
+        .values_list("identifier", "baseline_hash", "variant_count", "last_minted_at", "avg_diff")
     ):
         variants_by_pair[_VariantKey(identifier=identifier, baseline_hash=baseline_hash)] = _VariantStats(
             count=variant_count,
+            last_minted_at=last_minted_at,
             avg_diff_percentage=avg_diff,
         )
 
@@ -183,91 +208,98 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
     ):
         daily_by_pair[_VariantKey(identifier=identifier, baseline_hash=baseline_hash)][day] = count
 
-    # Hydrated so each row can render reason, expiry, who and the source run
-    # without a per-row fetch. `Run.metadata` and `Run.error_message` can be
-    # large and are not needed for the summary.
-    active_quarantines_by_key: dict[_SnapshotKey, QuarantinedIdentifier] = {}
-    for active_quarantine in (
-        QuarantinedIdentifier.objects.filter(repo_id=repo_id, identifier__in=universe_identifiers)
-        .filter(live)
-        .select_related("source_run")
-        .defer("source_run__metadata", "source_run__error_message")
-        .order_by("-created_at")
-    ):
-        quarantine_key = _SnapshotKey(run_type=active_quarantine.run_type, identifier=active_quarantine.identifier)
-        # Creating a quarantine supersedes the prior active row, so duplicates
-        # should not exist. Keep the newest if one ever does.
-        if quarantine_key not in active_quarantines_by_key:
-            active_quarantines_by_key[quarantine_key] = active_quarantine
-
-    # Two facts per baseline era, from the runs that lived through it.
-    #
-    # `baseline_started_at` is the first default-branch run that compared
-    # against this exact baseline hash, which is when the baseline took effect.
-    # Grouping on `baseline_hash` rather than reading `CHANGED` results is what
-    # makes it a baseline transition: a `CHANGED` row says the capture differs
-    # from its baseline, which also happens for an unapproved regression that
-    # moves nothing, and a genuine baseline update can land as `UNCHANGED`.
-    # Keying on the hash also measures the age over exactly the era the variant
-    # count is scoped to.
-    #
-    # `last_flaked_at` is the last run that actually rendered a tolerated
-    # variant. It cannot come from `ToleratedHash.created_at`, because the mint
-    # site uses `get_or_create` and the classifier only links the matching
-    # `RunSnapshot` back to the row. So a snapshot that keeps cycling through
-    # variants it has already recorded never refreshes `created_at`, and would
-    # read as settled while it still fails to render the same way twice.
-    tolerated_match = Q(
-        classification_reason=ClassificationReason.TOLERATED_HASH,
-        tolerated_hash_match__reason=ToleratedReason.AUTO_THRESHOLD,
-    )
-    #
-    # Scanned only for identifiers that can produce a row, not for the whole
-    # universe. This query reaches back over the repo's entire default-branch
-    # history, because a baseline can be arbitrarily old, so the identifier list
-    # is the only thing that bounds it. The assembly loop below drops every
-    # other identifier anyway.
+    # Only identifiers that can produce a row. Everything else is dropped by the
+    # assembly loop below, so scanning it buys nothing.
     reportable_identifiers = list(
         {key.identifier for key in variants_by_pair} | {key.identifier for key in active_quarantines_by_key}
     )
     if not reportable_identifiers:
         return _FlakinessRaw.empty(generated_at=now, tracked_total=tracked_total)
 
-    era_by_key: dict[_EraKey, _BaselineEra] = {}
-    for identifier, run_type, baseline_hash, started_at, last_flaked_at in (
+    # When each baseline last moved. A real flip on the default branch leaves a
+    # CHANGED or REMOVED row in the run that introduced it, because later runs
+    # compare against the new committed baseline and see UNCHANGED. That makes
+    # `Max` the most recent flip, which stays right when a baseline is reverted
+    # to a hash it held before.
+    #
+    # Grouping the whole history by `baseline_hash` instead would read more
+    # precisely, but it admits every historical row rather than the rare event
+    # rows, which is the shape `baseline_overview` documents as ~7s and an OOM
+    # on the web pod. This uses the `snapshot_run_result` index the same way its
+    # neighbour does.
+    baseline_moved_at_by_key: dict[_SnapshotKey, datetime] = {}
+    for identifier, run_type, moved_at in (
         RunSnapshot.objects.filter(
             run__repo_id=repo_id,
             run__branch__in=run_queries._DEFAULT_BRANCHES,
             run__status=RunStatus.COMPLETED,
+            result__in=(SnapshotResult.CHANGED, SnapshotResult.REMOVED),
             identifier__in=reportable_identifiers,
-            baseline_hash__in=universe_baseline_hashes,
         )
-        .values("identifier", "run__run_type", "baseline_hash")
-        .annotate(
-            started_at=Min("run__created_at"),
-            last_flaked_at=Max("run__created_at", filter=tolerated_match),
-        )
-        .values_list("identifier", "run__run_type", "baseline_hash", "started_at", "last_flaked_at")
+        .values("identifier", "run__run_type")
+        .annotate(moved_at=Max("run__created_at"))
+        .values_list("identifier", "run__run_type", "moved_at")
     ):
-        era_by_key[_EraKey(run_type=run_type, identifier=identifier, baseline_hash=baseline_hash)] = _BaselineEra(
-            started_at=started_at,
-            last_flaked_at=last_flaked_at,
+        if moved_at is not None:
+            baseline_moved_at_by_key[_SnapshotKey(run_type=run_type, identifier=identifier)] = moved_at
+
+    # When each snapshot last rendered one of its variants, from the runs that
+    # matched. Bounded to the recency window on purpose: this decides `unstable`
+    # against `settled`, and that decision only looks that far back. Beyond the
+    # window the mint time below is the answer, and it is older or equal, which
+    # keeps the state correct.
+    #
+    # The mint time alone is not enough, because `diffing.py` mints with
+    # `get_or_create` and the classifier only links the matching `RunSnapshot`
+    # back to the row. A snapshot cycling through variants it already recorded
+    # never refreshes `created_at`, so it would read as settled while it still
+    # fails to render the same way twice.
+    live_match = Q(tolerated_hash_match__expires_at__isnull=True) | Q(tolerated_hash_match__expires_at__gt=now)
+    matched_recently_by_pair: dict[_VariantKey, datetime] = {}
+    for identifier, baseline_hash, matched_at in (
+        RunSnapshot.objects.filter(
+            run__repo_id=repo_id,
+            run__branch__in=run_queries._DEFAULT_BRANCHES,
+            run__status=RunStatus.COMPLETED,
+            run__created_at__gte=now - timedelta(days=FLAKINESS_RECENT_DAYS),
+            identifier__in=reportable_identifiers,
+            classification_reason=ClassificationReason.TOLERATED_HASH,
+            tolerated_hash_match__reason=ToleratedReason.AUTO_THRESHOLD,
         )
+        .filter(live_match)
+        .values("identifier", "baseline_hash")
+        .annotate(matched_at=Max("run__created_at"))
+        .values_list("identifier", "baseline_hash", "matched_at")
+    ):
+        if matched_at is not None:
+            matched_recently_by_pair[_VariantKey(identifier=identifier, baseline_hash=baseline_hash)] = matched_at
 
     recency_cutoff = now - timedelta(days=FLAKINESS_RECENT_DAYS)
     expiry_soon_cutoff = now + timedelta(days=FLAKINESS_EXPIRY_SOON_DAYS)
 
+    # A quarantine can cover a snapshot that has no current baseline: one added
+    # in this run, or one that dropped out of the latest default-branch run.
+    # Those keys are absent from `baseline_hash_by_key`, so walk them too rather
+    # than hide a quarantine somebody is relying on.
+    quarantine_only_keys = active_quarantines_by_key.keys() - baseline_hash_by_key.keys()
+    scored_keys: list[tuple[_SnapshotKey, str]] = [
+        *baseline_hash_by_key.items(),
+        *((key, "") for key in quarantine_only_keys),
+    ]
+
     rows: list[_FlakinessRow] = []
-    for key, baseline_hash in baseline_hash_by_key.items():
+    for key, baseline_hash in scored_keys:
         variant_key = _VariantKey(identifier=key.identifier, baseline_hash=baseline_hash)
-        stats = variants_by_pair.get(variant_key)
+        stats = variants_by_pair.get(variant_key) if baseline_hash else None
         quarantine = active_quarantines_by_key.get(key)
         if stats is None and quarantine is None:
             continue
 
-        era = era_by_key.get(_EraKey(run_type=key.run_type, identifier=key.identifier, baseline_hash=baseline_hash))
         variant_count = stats.count if stats is not None else 0
-        last_flaked_at = era.last_flaked_at if era is not None else None
+        last_flaked_at = _latest(
+            stats.last_minted_at if stats is not None else None,
+            matched_recently_by_pair.get(variant_key),
+        )
         is_unstable = last_flaked_at is not None and last_flaked_at >= recency_cutoff
         rows.append(
             _FlakinessRow(
@@ -281,7 +313,7 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
                     strip_start=strip_start,
                     length=FLAKINESS_STRIP_DAYS,
                 ),
-                baseline_moved_at=era.started_at if era is not None else None,
+                baseline_moved_at=baseline_moved_at_by_key.get(key),
                 is_unstable=is_unstable,
                 quarantine=quarantine,
                 needs_decision=_needs_decision(
@@ -318,6 +350,12 @@ def get_flakiness_overview(repo_id: UUID) -> _FlakinessRaw:
         truncated=len(listed) < len(rows),
         generated_at=now,
     )
+
+
+def _latest(*moments: datetime | None) -> datetime | None:
+    """The most recent of several optional timestamps, or None when all are unset."""
+    known = [moment for moment in moments if moment is not None]
+    return max(known) if known else None
 
 
 def snapshot_key(row: _FlakinessRow) -> _SnapshotKey:
@@ -384,15 +422,8 @@ class _VariantStats:
     """Grouped toleration stats for one `(identifier, baseline_hash)` pair."""
 
     count: int
+    last_minted_at: datetime | None
     avg_diff_percentage: float | None
-
-
-@frozen
-class _BaselineEra:
-    """What the default-branch runs say about one baseline hash of one snapshot."""
-
-    started_at: datetime | None
-    last_flaked_at: datetime | None
 
 
 @frozen
