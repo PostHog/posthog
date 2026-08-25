@@ -10,7 +10,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { GROUPS_LIST_DEFAULT_QUERY } from 'scenes/groups/groupsListLogic'
 import { PERSON_EVENTS_CONTEXT_KEY } from 'scenes/persons/personsLogic'
-import { PEOPLE_LIST_CONTEXT_KEY, PEOPLE_LIST_DEFAULT_QUERY } from 'scenes/persons/personsSceneLogic'
+import { PEOPLE_LIST_CONTEXT_KEY, isPeopleListDefaultQuerySource } from 'scenes/persons/personsSceneLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
@@ -553,7 +553,7 @@ export const tableViewLogic = kea<tableViewLogicType>([
 
         switch (props.contextKey) {
             case PEOPLE_LIST_CONTEXT_KEY:
-                if (equal(props.query, PEOPLE_LIST_DEFAULT_QUERY.source)) {
+                if (isPeopleListDefaultQuerySource(props.query)) {
                     actions.applyView(values.currentView)
                 }
                 break
