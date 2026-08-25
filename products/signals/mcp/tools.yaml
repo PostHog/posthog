@@ -814,9 +814,9 @@ tools:
             defeats dedupe). For run state, use one fixed key and keep the timestamp in `content`. Write `content` as
             Markdown — humans read these entries directly, so structured Markdown (headings, bullets, inline code for
             ids) is far easier to skim than a wall of prose. Optionally pass `run_id` to record which run wrote it.
-            Optionally pass `expires_at` when the memory is only true for a while (a cooldown, a window you're
-            watching) so it retires itself instead of waiting for a `scout-scratchpad-forget` you may never make. Each
-            write carries the whole entry, so omitting `expires_at` on a later write clears an expiry set earlier.
+            Optionally pass `expires_at` when the memory is only true for a while (a cooldown, a window you're watching)
+            so it retires itself instead of waiting for a `scout-scratchpad-forget` you may never make. Each write
+            carries the whole entry, so omitting `expires_at` on a later write clears an expiry set earlier.
     scout-scratchpad-search:
         operation: signals_scout_scratchpad_search
         enabled: true
