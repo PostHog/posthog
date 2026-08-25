@@ -4,7 +4,6 @@ import { KAFKA_COHORT_MEMBERSHIP_CHANGED } from '~/common/config/kafka-topics'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
 import { UUIDT } from '~/common/utils/utils'
-import { resetKafka } from '~/tests/helpers/kafka'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import { resetBehavioralCohortsDatabase } from '../../../tests/helpers/sql'
@@ -19,15 +18,12 @@ describe('CdpCohortMembershipConsumer', () => {
     let consumer: CdpCohortMembershipConsumer
 
     beforeEach(async () => {
-        await resetKafka()
         hub = await createHub()
         consumer = new CdpCohortMembershipConsumer(hub, createCdpConsumerDeps(hub))
-        await consumer.start()
         await resetBehavioralCohortsDatabase(hub.postgres)
     })
 
     afterEach(async () => {
-        await consumer.stop()
         await closeHub(hub)
     })
 
