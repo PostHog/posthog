@@ -93,7 +93,7 @@ def summarize_survey_responses(
         prepared_data = [x[0] for x in query_response.results if x[0]]
 
     with timer("openai_completion"):
-        result = OpenAI(posthog_client=posthoganalytics.default_client).chat.completions.create(  # type: ignore[call-overload]
+        result = OpenAI(posthog_client=posthoganalytics.default_client).chat.completions.create(
             model="gpt-4.1-mini",  # allows 128k tokens
             temperature=0.7,
             messages=[

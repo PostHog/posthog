@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { logger } from '~/common/utils/logger'
+import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
@@ -21,6 +22,8 @@ const PRODUCED_REF_CACHE_MAX = 500_000
 const DEFAULT_PRODUCED_REF_CACHE_WINDOW_MS = 15 * 24 * 60 * 60 * 1000
 
 const MAX_RECORD_BYTES = 512 * 1024
+const TOP_REGISTRABLE_DOMAINS = 10
+const MAX_TRACKED_REGISTRABLE_DOMAINS = 1_000
 
 /**
  * The URL count one record may carry. Without it the collector's cap in another crate decides the
@@ -92,6 +95,7 @@ export function createProduceCollectedUrlsStep<
     T extends { collectedUrls?: CollectedUrl[]; message: { timestamp?: number } },
 >(
     outputs: IngestionOutputs<MlImageFetchOutput>,
+    topHog: TopHogRegistry,
     producedRefCacheMax: number = PRODUCED_REF_CACHE_MAX,
     producedRefCacheWindowMs: number = DEFAULT_PRODUCED_REF_CACHE_WINDOW_MS
 ): ProcessingStep<T, T> {
@@ -99,6 +103,11 @@ export function createProduceCollectedUrlsStep<
         throw new Error(`produced URL cache window must be a positive safe integer, got ${producedRefCacheWindowMs}`)
     }
     const producedTransportUrls = new RefDedupCache('image_fetch_producer', producedRefCacheMax)
+    const producedUrlsByRegistrableDomain = topHog.registerSum('ml_image_fetch_produced_urls_by_registrable_domain', {
+        topN: TOP_REGISTRABLE_DOMAINS,
+        maxKeys: MAX_TRACKED_REGISTRABLE_DOMAINS,
+    })
+    const producedUrlsTotal = topHog.registerSum('ml_image_fetch_produced_urls_total', { topN: 1, maxKeys: 1 })
 
     return function produceCollectedUrlsStep(input) {
         const collected = input.collectedUrls
@@ -196,6 +205,10 @@ export function createProduceCollectedUrlsStep<
             .then(() => {
                 // queueMessages resolves on the delivery acks, so `produced` counts what landed.
                 SessionRecordingIngesterMetrics.incrementMlUrlsCollected('produced', producedCacheKeys.length)
+                for (const [registrableDomain, jobs] of byDomain) {
+                    producedUrlsByRegistrableDomain.record({ registrable_domain: registrableDomain }, jobs.length)
+                }
+                producedUrlsTotal.record({}, producedCacheKeys.length)
             })
             .catch((error) => {
                 // A dangling ref renders as a placeholder, so a failed produce is logged and never
