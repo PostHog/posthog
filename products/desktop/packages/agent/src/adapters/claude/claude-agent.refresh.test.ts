@@ -29,6 +29,18 @@ let nextInitPromise: Promise<InitResult> = Promise.resolve({
   models: [],
 });
 
+/** Points nextInitPromise at a deferred the test settles once the refresh has
+ *  reached its init await (after `vi.waitFor` on createdQueries). */
+function deferInit() {
+  let resolve!: (result: InitResult) => void;
+  let reject!: (error: Error) => void;
+  nextInitPromise = new Promise<InitResult>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { resolve, reject };
+}
+
 function makeQueryHandle(): SdkQueryHandle {
   return {
     interrupt: vi.fn().mockResolvedValue(undefined),
@@ -69,12 +81,31 @@ vi.mock("./mcp/tool-metadata", () => ({
 const { ClaudeAcpAgent } = await import("./claude-agent");
 type Agent = InstanceType<typeof ClaudeAcpAgent>;
 
-function makeAgent(): Agent {
-  const client = {
+interface ClientMocks {
+  sessionUpdate: ReturnType<typeof vi.fn>;
+  extNotification: ReturnType<typeof vi.fn>;
+}
+
+function makeAgent(): { agent: Agent; client: ClientMocks } {
+  const client: ClientMocks = {
     sessionUpdate: vi.fn().mockResolvedValue(undefined),
     extNotification: vi.fn().mockResolvedValue(undefined),
-  } as unknown as AgentSideConnection;
-  return new ClaudeAcpAgent(client);
+  };
+  const agent = new ClaudeAcpAgent(client as unknown as AgentSideConnection);
+  return { agent, client };
+}
+
+function findUpdate(
+  client: ClientMocks,
+  sessionUpdate: string,
+): Record<string, unknown> | undefined {
+  const match = client.sessionUpdate.mock.calls.find(
+    ([call]) =>
+      (call as { update?: { sessionUpdate?: string } }).update
+        ?.sessionUpdate === sessionUpdate,
+  );
+  return (match?.[0] as { update: Record<string, unknown> } | undefined)
+    ?.update;
 }
 
 function installFakeSession(
@@ -145,6 +176,7 @@ function installFakeSession(
   return {
     session,
     oldQuery,
+    input,
     endSpy,
     abortController,
     buildInProcessMcpServers,
@@ -174,14 +206,14 @@ describe("ClaudeAcpAgent.extMethod refresh_session", () => {
   });
 
   it("returns methodNotFound for unknown extension methods", async () => {
-    const agent = makeAgent();
+    const { agent } = makeAgent();
     await expect(agent.extMethod("_posthog/nope", {})).rejects.toThrow(
       /Method not found/i,
     );
   });
 
   it("rejects when payload has no refreshable fields", async () => {
-    const agent = makeAgent();
+    const { agent } = makeAgent();
     installFakeSession(agent, "s-empty");
 
     await expect(
@@ -190,7 +222,7 @@ describe("ClaudeAcpAgent.extMethod refresh_session", () => {
   });
 
   it("rejects when mcpServers is not an array", async () => {
-    const agent = makeAgent();
+    const { agent } = makeAgent();
     installFakeSession(agent, "s-malformed");
 
     await expect(
@@ -201,7 +233,7 @@ describe("ClaudeAcpAgent.extMethod refresh_session", () => {
   });
 
   it("rejects refresh while a prompt is in flight", async () => {
-    const agent = makeAgent();
+    const { agent } = makeAgent();
     const { session } = installFakeSession(agent, "s-1");
     (session as unknown as { turnQueue: unknown[] }).turnQueue = [
       { promptUuid: "u-1", settled: false },
@@ -215,7 +247,7 @@ describe("ClaudeAcpAgent.extMethod refresh_session", () => {
   });
 
   it("rejects when session model does not support MCP injection", async () => {
-    const agent = makeAgent();
+    const { agent } = makeAgent();
     installFakeSession(agent, "s-haiku", { modelId: "claude-haiku-4-5" });
 
     await expect(
@@ -228,8 +260,8 @@ describe("ClaudeAcpAgent.extMethod refresh_session", () => {
   it("throws a RequestError and closes the timed-out query so it cannot leak", async () => {
     vi.useFakeTimers();
     try {
-      const agent = makeAgent();
-      installFakeSession(agent, "s-timeout");
+      const { agent } = makeAgent();
+      const { session } = installFakeSession(agent, "s-timeout");
       // Never resolves — withTimeout must win the race.
       nextInitPromise = new Promise<InitResult>(() => {});
 
@@ -248,13 +280,179 @@ describe("ClaudeAcpAgent.extMethod refresh_session", () => {
       await expect(promise).rejects.toThrow(/Session refresh timed out after/);
       // The new query is closed so its CLI subprocess does not leak.
       expect(createdQueries[0]?.close).toHaveBeenCalledTimes(1);
+      // The session is closed too, so a later prompt rejects SESSION_ENDED
+      // instead of pushing into the retired input stream.
+      expect((session as unknown as { queryClosed: boolean }).queryClosed).toBe(
+        true,
+      );
     } finally {
       vi.useRealTimers();
     }
   });
 
+  it("refuses a second refresh while one is already in progress", async () => {
+    // ACP handlers are not serialized, so a second refresh can arrive at any
+    // await point of the first. Racing two swaps against the same session
+    // would orphan a live SDK query; the second must be refused.
+    const { agent } = makeAgent();
+    installFakeSession(agent, "s-concurrent-refresh");
+    const init = deferInit();
+
+    const first = agent.extMethod(POSTHOG_METHODS.REFRESH_SESSION, {
+      mcpServers: freshMcpServers,
+    });
+    // Let the first refresh reach its init await (one replacement query live).
+    await vi.waitFor(() => expect(createdQueries).toHaveLength(1));
+
+    await expect(
+      agent.extMethod(POSTHOG_METHODS.REFRESH_SESSION, {
+        mcpServers: freshMcpServers,
+      }),
+    ).rejects.toThrow(/query swap \(refresh or \/clear\) is in progress/);
+
+    // The refused refresh started no second swap.
+    expect(createdQueries).toHaveLength(1);
+
+    init.resolve({ result: "success", commands: [], models: [] });
+    await expect(first).resolves.toEqual({ refreshed: true });
+  });
+
+  it("ignores a cancel that arrives while a refresh is in progress", async () => {
+    // cancel() → interrupt() targets session.query, which mid-refresh is the
+    // half-initialized replacement; interrupting it would corrupt the swap.
+    const { agent } = makeAgent();
+    const { oldQuery } = installFakeSession(agent, "s-cancel-mid-refresh");
+    const init = deferInit();
+
+    const refreshPromise = agent.extMethod(POSTHOG_METHODS.REFRESH_SESSION, {
+      mcpServers: freshMcpServers,
+    });
+    await vi.waitFor(() => expect(createdQueries).toHaveLength(1));
+
+    await agent.cancel({ sessionId: "s-cancel-mid-refresh" });
+
+    // Neither the retired query nor the booting replacement is interrupted:
+    // the replacement's interrupt would corrupt the swap, and the retired
+    // query already had its one interrupt from retireQuery (count frozen
+    // here while the cancel could add another).
+    expect(createdQueries[0].interrupt).not.toHaveBeenCalled();
+    expect(oldQuery.interrupt).toHaveBeenCalledTimes(1);
+
+    init.resolve({ result: "success", commands: [], models: [] });
+    await expect(refreshPromise).resolves.toEqual({ refreshed: true });
+  });
+
+  it("holds a prompt that arrives mid-refresh and lands it on the fresh input stream", async () => {
+    // A prompt racing the swap must wait for the refresh to settle instead of
+    // pushing into the retired input stream, where it would be silently lost.
+    // Watching every Pushable instance's push tells the streams apart without
+    // touching Pushable's private queue.
+    const { agent } = makeAgent();
+    const { session, input: oldInput } = installFakeSession(
+      agent,
+      "s-prompt-mid-refresh",
+    );
+    const pushSpy = vi.spyOn(Pushable.prototype, "push");
+    const init = deferInit();
+
+    const refreshPromise = agent.extMethod(POSTHOG_METHODS.REFRESH_SESSION, {
+      mcpServers: freshMcpServers,
+    });
+    await vi.waitFor(() => expect(createdQueries).toHaveLength(1));
+    // Only the prompt's push is of interest; anything the swap itself pushed
+    // would already have happened.
+    pushSpy.mockClear();
+
+    const promptPromise = agent.prompt({
+      sessionId: "s-prompt-mid-refresh",
+      prompt: [{ type: "text", text: "hello" }],
+    });
+    // The turn it queues never settles (the mocked query yields nothing);
+    // swallow that so the test doesn't end on an unhandled rejection.
+    promptPromise.catch(() => {});
+    // Wait out a macrotask: the prompt's swap-gate await must NOT have run
+    // its push yet.
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(pushSpy).not.toHaveBeenCalled();
+
+    init.resolve({ result: "success", commands: [], models: [] });
+    await expect(refreshPromise).resolves.toEqual({ refreshed: true });
+
+    await vi.waitFor(() => expect(pushSpy).toHaveBeenCalledTimes(1));
+    // The released prompt pushed into the fresh stream, not the retired one.
+    expect((session as unknown as { input: Pushable<unknown> }).input).not.toBe(
+      oldInput,
+    );
+    expect(pushSpy.mock.instances[0]).toBe(
+      (session as unknown as { input: Pushable<unknown> }).input,
+    );
+    pushSpy.mockRestore();
+  });
+
+  it("refuses a /clear that arrives while a refresh is in progress", async () => {
+    const { agent, client } = makeAgent();
+    installFakeSession(agent, "s-clear-mid-refresh");
+    const init = deferInit();
+
+    const refreshPromise = agent.extMethod(POSTHOG_METHODS.REFRESH_SESSION, {
+      mcpServers: freshMcpServers,
+    });
+    await vi.waitFor(() => expect(createdQueries).toHaveLength(1));
+
+    const result = await agent.prompt({
+      sessionId: "s-clear-mid-refresh",
+      prompt: [{ type: "text", text: "/clear" }],
+    });
+
+    expect(result.stopReason).toBe("end_turn");
+    const chunk = findUpdate(client, "agent_message_chunk");
+    expect((chunk?.content as { text?: string })?.text).toMatch(
+      /already in progress/,
+    );
+    // The refused /clear started no second swap.
+    expect(createdQueries).toHaveLength(1);
+
+    init.resolve({ result: "success", commands: [], models: [] });
+    await expect(refreshPromise).resolves.toEqual({ refreshed: true });
+  });
+
+  it("closes the session when the fresh session fails to initialize", async () => {
+    // A non-timeout failure (SDK subprocess crash) must get the same
+    // treatment as a timeout: terminate the unproven replacement and close
+    // the session, so queryClosed gates every later prompt into SESSION_ENDED
+    // instead of pushing into the retired input stream.
+    const { agent } = makeAgent();
+    const { session } = installFakeSession(agent, "s-init-crash");
+    const init = deferInit();
+
+    const refreshPromise = agent.extMethod(POSTHOG_METHODS.REFRESH_SESSION, {
+      mcpServers: freshMcpServers,
+    });
+    const rejection = expect(refreshPromise).rejects.toThrow(
+      /SDK subprocess crashed/,
+    );
+    await vi.waitFor(() => expect(createdQueries).toHaveLength(1));
+    init.reject(new Error("SDK subprocess crashed"));
+    await rejection;
+
+    expect((session as unknown as { queryClosed: boolean }).queryClosed).toBe(
+      true,
+    );
+    // The failed replacement query is torn down, not leaked.
+    expect(createdQueries).toHaveLength(1);
+    expect(createdQueries[0].close).toHaveBeenCalled();
+
+    // A prompt after the failed swap gets a clean session-ended rejection.
+    await expect(
+      agent.prompt({
+        sessionId: "s-init-crash",
+        prompt: [{ type: "text", text: "hello" }],
+      }),
+    ).rejects.toThrow(/session has ended/);
+  });
+
   it("swaps query/input/options and preserves session state", async () => {
-    const agent = makeAgent();
+    const { agent } = makeAgent();
     const { session, oldQuery, endSpy } = installFakeSession(agent, "s-2");
 
     const result = await agent.extMethod(POSTHOG_METHODS.REFRESH_SESSION, {
@@ -304,7 +502,7 @@ describe("ClaudeAcpAgent.extMethod refresh_session", () => {
   });
 
   it("aborts the old controller and allocates a fresh one for the new query", async () => {
-    const agent = makeAgent();
+    const { agent } = makeAgent();
     const { session, abortController: oldController } = installFakeSession(
       agent,
       "s-abort",
@@ -329,7 +527,7 @@ describe("ClaudeAcpAgent.extMethod refresh_session", () => {
   });
 
   it("recovers when interrupting the old query throws Operation aborted", async () => {
-    const agent = makeAgent();
+    const { agent } = makeAgent();
     const { session, oldQuery, endSpy } = installFakeSession(
       agent,
       "s-interrupt-throws",
@@ -352,7 +550,7 @@ describe("ClaudeAcpAgent.extMethod refresh_session", () => {
   });
 
   it("re-fetches MCP tool metadata for the new query", async () => {
-    const agent = makeAgent();
+    const { agent } = makeAgent();
     installFakeSession(agent, "s-metadata");
 
     await agent.extMethod(POSTHOG_METHODS.REFRESH_SESSION, {
@@ -382,7 +580,7 @@ describe("ClaudeAcpAgent.extMethod refresh_session", () => {
       expected: "claude-sonnet-4-6",
     },
   ])("$name", async ({ modelId, expected }) => {
-    const agent = makeAgent();
+    const { agent } = makeAgent();
     installFakeSession(agent, "s-model", { modelId });
 
     await agent.extMethod(POSTHOG_METHODS.REFRESH_SESSION, {
@@ -393,7 +591,7 @@ describe("ClaudeAcpAgent.extMethod refresh_session", () => {
   });
 
   it("rebuilds a FRESH in-process local-tools server across refresh", async () => {
-    const agent = makeAgent();
+    const { agent } = makeAgent();
     const { session, buildInProcessMcpServers } = installFakeSession(
       agent,
       "s-inprocess",
@@ -424,7 +622,7 @@ describe("ClaudeAcpAgent.extMethod refresh_session", () => {
   });
 
   it("clears the MCP tool metadata cache on refresh", async () => {
-    const agent = makeAgent();
+    const { agent } = makeAgent();
     installFakeSession(agent, "s-cache");
 
     await agent.extMethod(POSTHOG_METHODS.REFRESH_SESSION, {
@@ -452,7 +650,7 @@ describe("ClaudeAcpAgent self-heal: ensureLocalToolsConnected", () => {
   }
 
   it("is a no-op when the signed-commit server is connected", async () => {
-    const agent = makeAgent();
+    const { agent } = makeAgent();
     const { oldQuery } = installFakeSession(agent, "s-healthy");
     oldQuery.mcpServerStatus.mockResolvedValue([
       { name: "posthog-code-tools", status: "connected" },
@@ -463,7 +661,7 @@ describe("ClaudeAcpAgent self-heal: ensureLocalToolsConnected", () => {
   });
 
   it("rebuilds and reconnects a fresh server when disconnected", async () => {
-    const agent = makeAgent();
+    const { agent } = makeAgent();
     const { session, oldQuery, buildInProcessMcpServers } = installFakeSession(
       agent,
       "s-down",
@@ -491,7 +689,7 @@ describe("ClaudeAcpAgent self-heal: ensureLocalToolsConnected", () => {
   });
 
   it("passes every external server through when reconnecting", async () => {
-    const agent = makeAgent();
+    const { agent } = makeAgent();
     const { session, oldQuery } = installFakeSession(agent, "s-multi");
     (
       session as unknown as {
@@ -525,7 +723,7 @@ describe("ClaudeAcpAgent self-heal: ensureLocalToolsConnected", () => {
   });
 
   it("treats a server missing from status as disconnected", async () => {
-    const agent = makeAgent();
+    const { agent } = makeAgent();
     const { oldQuery } = installFakeSession(agent, "s-missing");
     oldQuery.mcpServerStatus.mockResolvedValue([
       { name: "some-other", status: "connected" },
@@ -536,7 +734,7 @@ describe("ClaudeAcpAgent self-heal: ensureLocalToolsConnected", () => {
   });
 
   it("does not block the turn when the status RPC fails", async () => {
-    const agent = makeAgent();
+    const { agent } = makeAgent();
     const { oldQuery } = installFakeSession(agent, "s-statuserr");
     oldQuery.mcpServerStatus.mockRejectedValue(new Error("rpc down"));
 
@@ -547,7 +745,7 @@ describe("ClaudeAcpAgent self-heal: ensureLocalToolsConnected", () => {
   it("does not block the turn when the status RPC hangs", async () => {
     vi.useFakeTimers();
     try {
-      const agent = makeAgent();
+      const { agent } = makeAgent();
       const { oldQuery } = installFakeSession(agent, "s-statushang");
       oldQuery.mcpServerStatus.mockReturnValue(new Promise(() => {}));
 
@@ -562,7 +760,7 @@ describe("ClaudeAcpAgent self-heal: ensureLocalToolsConnected", () => {
   });
 
   it("returns false when reconnect fails", async () => {
-    const agent = makeAgent();
+    const { agent } = makeAgent();
     const { oldQuery } = installFakeSession(agent, "s-reconnect-fail");
     oldQuery.mcpServerStatus.mockResolvedValue(DISCONNECTED_STATUS);
     oldQuery.setMcpServers.mockRejectedValue(new Error("connect boom"));
@@ -571,7 +769,7 @@ describe("ClaudeAcpAgent self-heal: ensureLocalToolsConnected", () => {
   });
 
   it("is a no-op when no in-process server is enabled", async () => {
-    const agent = makeAgent();
+    const { agent } = makeAgent();
     const { session, oldQuery } = installFakeSession(agent, "s-none");
     (
       session as unknown as { localToolsServerNames: string[] }
