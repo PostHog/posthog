@@ -58,6 +58,10 @@ jobs:
             - name: Test-timings reporter tests (Python)
               run: python -m pytest .github/scripts/test_report_test_timings.py -v -c /dev/null -p no:cacheprovider --noconftest
 
+            - name: Durations optimizer tests (Python)
+              if: ${{ hashFiles('.github/scripts/test_optimize_test_durations.py') != '' }}
+              run: python -m pytest .github/scripts/test_optimize_test_durations.py -v -c /dev/null -p no:cacheprovider --noconftest
+
             # hashFiles guard so an unrebased PR predating this script doesn't fail here.
             - name: Workflow-run trace reporter tests (Python)
               if: ${{ hashFiles('.github/scripts/test_report_workflow_run_traces.py') != '' }}
@@ -108,6 +112,10 @@ jobs:
             - name: Turbo-discover segment and staleness tests (Node)
               if: ${{ hashFiles('.github/scripts/turbo-discover.test.js') != '' }}
               run: node --test .github/scripts/turbo-discover.test.js .github/scripts/turbo-discover-staleness.test.js
+
+            - name: Turbo-discover sizing tests (Node)
+              if: ${{ hashFiles('.github/scripts/turbo-discover-sizing.test.js') != '' }}
+              run: node --test .github/scripts/turbo-discover-sizing.test.js
 
             - name: Backend test selection decision tests (Node)
               run: node --test .github/scripts/turbo-discover-selection.test.js
