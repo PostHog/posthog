@@ -795,7 +795,6 @@ jobs:
         name: Node.js test-speed report
         needs: [tests]
         runs-on: ubuntu-latest
-        continue-on-error: true
         timeout-minutes: 10
         permissions:
             actions: read

@@ -977,7 +977,6 @@ jobs:
         name: Frontend test-speed report
         needs: [jest, jest-replay-shared]
         runs-on: ubuntu-latest
-        continue-on-error: true
         timeout-minutes: 10
         permissions:
             actions: read
