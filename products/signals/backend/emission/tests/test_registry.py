@@ -195,6 +195,6 @@ class TestAutoRegistered:
         _REGISTERED_IDENTITIES,
         ids=[f"{product}-{source_type}" for product, source_type in _REGISTERED_IDENTITIES],
     )
-    def test_registered_identity_is_an_enableable_config_choice(self, source_product, source_type):
+    def test_registered_identity_is_an_enableable_config_choice(self, source_product: str, source_type: str) -> None:
         assert source_product in _field_choices("source_product")
         assert source_type in _field_choices("source_type")
