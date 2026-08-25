@@ -3728,8 +3728,11 @@ const api = {
                     },
                 })
         },
-        async list(params: PersonListParams = {}): Promise<CountedPaginatedResponse<PersonType>> {
-            return await new ApiRequest().persons().withQueryString(toParams(params)).get()
+        async list(
+            params: PersonListParams = {},
+            options?: ApiMethodOptions
+        ): Promise<CountedPaginatedResponse<PersonType>> {
+            return await new ApiRequest().persons().withQueryString(toParams(params)).get(options)
         },
         determineListUrl(params: PersonListParams = {}): string {
             return new ApiRequest().persons().withQueryString(toParams(params)).assembleFullUrl()
@@ -3804,8 +3807,8 @@ const api = {
     },
 
     search: {
-        async list(params: SearchListParams): Promise<SearchResponse> {
-            return await new ApiRequest().search().withQueryString(toParams(params, true)).get()
+        async list(params: SearchListParams, options?: ApiMethodOptions): Promise<SearchResponse> {
+            return await new ApiRequest().search().withQueryString(toParams(params, true)).get(options)
         },
     },
 
