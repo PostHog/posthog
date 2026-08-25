@@ -9,6 +9,7 @@ from django.db.models import F, Q, Sum
 from django.db.utils import InternalError, OperationalError
 
 import requests
+import structlog
 from dateutil import parser
 from redis import exceptions as redis_exceptions
 from structlog.types import FilteringBoundLogger
@@ -27,6 +28,9 @@ if TYPE_CHECKING:
     from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 
+logger = structlog.get_logger(__name__)
+
+
 def _get_hash_key(team_id: int) -> str:
     return f"posthog:data_warehouse_row_tracking:{team_id}"
 
@@ -43,6 +47,14 @@ async def _get_redis():
 
         redis = get_async_client(f"redis://{settings.DATA_WAREHOUSE_REDIS_HOST}:{settings.DATA_WAREHOUSE_REDIS_PORT}/")
         await redis.ping()
+    except redis_exceptions.RedisError as e:
+        # Row tracking already fails open when redis is unavailable (every caller
+        # checks `if not redis: return`), so a Redis-side blip - unreachable, refusing
+        # writes because RDB snapshotting failed, loading, etc. - isn't a bug, and
+        # shouldn't be reported to error tracking. Same rationale as the RedisError
+        # handling in will_hit_billing_limit below.
+        await logger.awarning("Redis error while getting row tracking client, failing open", error=str(e))
+        redis = None
     except Exception as e:
         capture_exception(e)
         # get_async_client only builds a lazy client, so a failed ping means redis is
