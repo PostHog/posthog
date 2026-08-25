@@ -12,6 +12,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.parser import parse_select
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
@@ -156,20 +157,31 @@ class ErrorTrackingReleasesQueryRunner(
     def issue_fingerprints_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         # The tuple wrap keeps `argMax` from skipping a NULL issue_id at the latest version, so a
         # fingerprint unassigned after a split does not resolve to its previous issue.
+        latest_state = parse_select(
+            """
+            SELECT
+                fingerprint,
+                tupleElement(argMax(tuple(issue_id), version), 1) AS issue_id,
+                argMax(is_deleted, version) AS is_deleted
+            FROM raw_error_tracking_fingerprint_issue_state
+            GROUP BY fingerprint
+            """
+        )
+        # Aggregate in the table's (team_id, fingerprint) sort order so the per-team latest-state
+        # GROUP BY streams instead of building a full-team hash table, which has no disk fallback and
+        # can hit MEMORY_LIMIT_EXCEEDED. Matches the shared issue-state helper on the same table.
+        assert isinstance(latest_state, ast.SelectQuery)
+        latest_state.settings = HogQLQuerySettings(optimize_aggregation_in_order=True)
         return parse_select(
             """
             SELECT fingerprint
-            FROM (
-                SELECT
-                    fingerprint,
-                    tupleElement(argMax(tuple(issue_id), version), 1) AS issue_id,
-                    argMax(is_deleted, version) AS is_deleted
-                FROM raw_error_tracking_fingerprint_issue_state
-                GROUP BY fingerprint
-            )
+            FROM {latest_state}
             WHERE issue_id = {issue_id} AND is_deleted = 0
             """,
-            placeholders={"issue_id": ast.Constant(value=self.query.issueId)},
+            placeholders={
+                "latest_state": latest_state,
+                "issue_id": ast.Constant(value=self.query.issueId),
+            },
         )
 
     def _calculate(self) -> ErrorTrackingReleasesQueryResponse:
