@@ -607,9 +607,6 @@ describe('CDP API', () => {
                   "now": "",
                   "properties": {
                     "$lib_version": "1.0.0",
-                    "$transformations_succeeded": [
-                      "Filter Out Plugin (<REPLACED-UUID-1>)",
-                    ],
                   },
                   "site_url": "http://localhost:8000/project/2",
                   "team_id": 2,
