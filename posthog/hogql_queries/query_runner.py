@@ -153,7 +153,6 @@ from posthog.query_cache.failures import (
     Budget,
     QueryFailureRecord,
 )
-from posthog.rbac.user_access_control import WAREHOUSE_ACCESS_SCOPES, UserAccessControl, UserAccessControlError
 from posthog.schema_helpers import to_dict
 from posthog.scopes import APIScopeObject
 from posthog.shared_link_user import SharedLinkUser
@@ -162,6 +161,11 @@ from posthog.slo.types import SloArea, SloOperation, SloOutcome
 from posthog.synthetic_user import SyntheticUser
 from posthog.utils import generate_cache_key, get_from_dict_or_attr, to_json
 
+from products.access_control.backend.facade.user_access_control import (
+    WAREHOUSE_ACCESS_SCOPES,
+    UserAccessControl,
+    UserAccessControlError,
+)
 from products.web_analytics.backend.hogql_queries.first_pageview_flag import resolve_first_pageview_filters_modifier
 
 logger = structlog.get_logger(__name__)
@@ -2666,7 +2670,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         Example:
         ```
-        from posthog.rbac.user_access_control import UserAccessControl
+        from products.access_control.backend.facade.user_access_control import UserAccessControl
 
         def validate_query_runner_access(self, user: User) -> bool:
             user_access_control = UserAccessControl(user=user, team=self.team)
@@ -2676,7 +2680,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
         Example using `assert_access_level_for_resource`:
         ```
-        from posthog.rbac.user_access_control import UserAccessControl
+        from products.access_control.backend.facade.user_access_control import UserAccessControl
 
         def validate_query_runner_access(self, user: User) -> bool:
             user_access_control = UserAccessControl(user=user, team=self.team)
