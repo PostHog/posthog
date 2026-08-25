@@ -1,4 +1,3 @@
-import re
 import json
 import uuid
 import builtins
@@ -95,9 +94,11 @@ tracer = trace.get_tracer(__name__)
 
 DEFAULT_PAGE_LIMIT = 100
 
-# The cancel path matches on `query_id LIKE '<team_id>_<client_query_id>%'`, so `_` and `%` would
-# make one id match other queries in the same team. This charset excludes both.
-CLIENT_QUERY_ID_PATTERN = re.compile(r"[A-Za-z0-9-]{1,64}")
+# The id reaches the ClickHouse query id and every query_log row for the request, so bound it.
+# Cancelling matches on `query_id LIKE '<team_id>_<client_query_id>%'`, which makes an id holding
+# `%` or `_` reach the team's other queries. The cancel endpoint takes any id with or without this
+# param, so restricting the charset here would buy nothing and would reject ids like `req_1`.
+CLIENT_QUERY_ID_MAX_LENGTH = 128
 
 # Nginx's "Client Closed Request". Django and DRF have no name for it.
 HTTP_CLIENT_CLOSED_REQUEST = 499
@@ -107,8 +108,8 @@ def tag_client_query_id(client_query_id: str | None) -> None:
     """Name this request's ClickHouse queries so the caller can cancel them by that id."""
     if not client_query_id:
         return
-    if not CLIENT_QUERY_ID_PATTERN.fullmatch(client_query_id):
-        raise ValidationError({"client_query_id": "Must be 1 to 64 characters from [A-Za-z0-9-]."})
+    if len(client_query_id) > CLIENT_QUERY_ID_MAX_LENGTH:
+        raise ValidationError({"client_query_id": f"Must be at most {CLIENT_QUERY_ID_MAX_LENGTH} characters."})
     tag_queries(client_query_id=client_query_id)
 
 
@@ -569,7 +570,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 description=(
                     "Names the ClickHouse query this request runs. Send the same id to "
                     "`DELETE /api/projects/:project_id/query/:client_query_id/` to stop a search that is still "
-                    "running. Up to 64 characters from [A-Za-z0-9-]."
+                    "running. Up to 128 characters."
                 ),
             ),
             PersonPropertiesSerializer(required=False),

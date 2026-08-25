@@ -119,7 +119,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     @parameterized.expand(
         [
             ("accepts a uuid", "5d92fb51-5088-45e8-91b2-843aef3d69bd", status.HTTP_200_OK),
-            ("rejects a like wildcard", "%25", status.HTTP_400_BAD_REQUEST),
+            ("rejects an over long id", "a" * 129, status.HTTP_400_BAD_REQUEST),
         ]
     )
     def test_search_with_client_query_id(self, _name: str, client_query_id: str, expected_status: int) -> None:
@@ -2221,7 +2221,13 @@ class TestTagClientQueryId(SimpleTestCase):
         super().setUp()
         reset_query_tags()
 
-    @parameterized.expand([("uuid", "5d92fb51-5088-45e8-91b2-843aef3d69bd"), ("short id", "abc123")])
+    @parameterized.expand(
+        [
+            ("uuid", "5d92fb51-5088-45e8-91b2-843aef3d69bd"),
+            ("underscores", "req_1_alice"),
+            ("at the length limit", "a" * 128),
+        ]
+    )
     def test_names_the_clickhouse_query(self, _name: str, client_query_id: str) -> None:
         tag_client_query_id(client_query_id)
         self.assertEqual(get_query_tag_value("client_query_id"), client_query_id)
@@ -2230,17 +2236,9 @@ class TestTagClientQueryId(SimpleTestCase):
         tag_client_query_id(None)
         self.assertIsNone(get_query_tag_value("client_query_id"))
 
-    @parameterized.expand(
-        [
-            ("like wildcard", "%"),
-            ("like single character wildcard", "a_b"),
-            ("longer than 64 characters", "a" * 65),
-            ("quote", "a'b"),
-        ]
-    )
-    def test_rejects_an_unsafe_id(self, _name: str, client_query_id: str) -> None:
+    def test_rejects_an_id_past_the_length_limit(self) -> None:
         with self.assertRaises(ValidationError):
-            tag_client_query_id(client_query_id)
+            tag_client_query_id("a" * 129)
         self.assertIsNone(get_query_tag_value("client_query_id"))
 
 
