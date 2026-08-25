@@ -165,7 +165,14 @@ export class RequestStateResolver {
             // token hash — attribution degrades but the tool still runs. A later call can
             // still resolve the real id once the network recovers (the rejection is not
             // memoized).
-            reqCtx.getDistinctId().catch(() => props.userHash),
+            reqCtx.getDistinctId().catch((error) => {
+                // Warn before falling back. The retries already absorb transient blips, so a
+                // rejection here is a persistent failure (a non-transient HTTP error, or a
+                // transport fault the retries did not clear). Without this line it degrades
+                // attribution silently, hiding whether the user endpoint is still failing.
+                console.warn('[request-state-resolver] distinct-id resolution failed; using token hash:', error)
+                return props.userHash
+            }),
         ])
 
         // Dev/test-only overrides win over evaluated values (no-op in production).
