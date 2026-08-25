@@ -143,6 +143,11 @@ TASKS_CREDENTIAL_REFRESH_INITIAL_DELAY_SECONDS: int = get_from_env(
     "TASKS_CREDENTIAL_REFRESH_INITIAL_DELAY_SECONDS", 0, type_cast=int
 )
 
+# CI follow-up cadence after the agent has been idle. Set this low (e.g. 30)
+# for local testing so the babysit wake-up fires quickly instead of waiting
+# out the full 15 minutes. 0 keeps the default cadence.
+TASKS_CI_FOLLOW_UP_DELAY_SECONDS: int = get_from_env("TASKS_CI_FOLLOW_UP_DELAY_SECONDS", 0, type_cast=int)
+
 # Mirror persisted task-run logs into the PostHog Logs product (dogfooding).
 # Entries appended to a run's S3 JSONL log are also emitted as structured stdout log lines;
 # the per-cluster OTel collector already ships container stdout into the region's internal
