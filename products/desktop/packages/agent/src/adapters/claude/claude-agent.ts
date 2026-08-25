@@ -1791,7 +1791,7 @@ export class ClaudeAcpAgent extends BaseAcpAgent {
     // (query/input/abortController) and orphan a live SDK query; a clear
     // mid-turn would rip the query out from under the active prompt.
     const refusal = session.querySwap
-      ? "A conversation clear is already in progress."
+      ? "A session refresh or conversation clear is already in progress. Wait for it to finish and try again."
       : session.activeTurn !== null || session.turnQueue.length > 0
         ? "Cannot clear the conversation while a turn is in progress. Wait for it to finish (or cancel it) and try again."
         : null;
