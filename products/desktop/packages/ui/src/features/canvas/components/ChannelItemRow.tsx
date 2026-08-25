@@ -304,8 +304,8 @@ export function ChannelItemRow({
     currentUser.data?.id === item.authorUser.id;
   const canFileCanvas =
     item.kind === "canvas" &&
-    item.authorUser?.id != null &&
-    currentUser.data?.id === item.authorUser.id;
+    item.authorUuid != null &&
+    currentUser.data?.uuid === item.authorUuid;
   const handleDragStart = useCallback(
     (event: DragEvent) => {
       if (item.kind === "canvas") {
@@ -363,7 +363,7 @@ export function ChannelItemRow({
             onArchive: () => actions.archive(item),
             ...(canHandoff ? { onHandoff: () => setHandoffOpen(true) } : {}),
           },
-    // canHandoff rides on the currentUser query, so it belongs in deps for a
+    // Ownership rides on the currentUser query, so these belong in deps for a
     // sign-in refresh to re-evaluate.
     [
       item,
