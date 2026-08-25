@@ -1,3 +1,4 @@
+// Serial: deletes and recreates a shared DynamoDB table and uses a shared S3 prefix.
 /**
  * Integration tests for the Recording API
  *

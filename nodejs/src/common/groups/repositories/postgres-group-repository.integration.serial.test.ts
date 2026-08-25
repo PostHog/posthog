@@ -1,3 +1,4 @@
+// Serial: resets shared Postgres and Redis while fixtures use fixed team, project, and organization IDs.
 import { DateTime } from 'luxon'
 
 import { closeHub, createHub } from '~/common/utils/db/hub'

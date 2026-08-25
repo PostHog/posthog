@@ -1,3 +1,4 @@
+// Serial: resets shared Postgres and relies on the reset-created default team.
 import { mockProducer, mockProducerObserver } from '~/tests/helpers/mocks/producer.mock'
 
 import { DecodedKafkaMessage } from '~/tests/helpers/mocks/producer.spy'

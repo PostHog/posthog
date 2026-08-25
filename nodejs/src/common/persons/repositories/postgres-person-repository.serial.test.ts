@@ -1,3 +1,4 @@
+// Serial: resets shared Postgres and Redis while tests depend on the reset-created default team.
 import { mockProducer } from '~/tests/helpers/mocks/producer.mock'
 
 import { DateTime } from 'luxon'

@@ -1,3 +1,4 @@
+// Serial: truncates shared ClickHouse lifecycle data and uses a shared Kafka-to-ClickHouse materialized view.
 import { MockKafkaProducerWrapper } from '~/tests/helpers/mocks/producer.mock'
 
 import { ClickHouseClient } from '@clickhouse/client'

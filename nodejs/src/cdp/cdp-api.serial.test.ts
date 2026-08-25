@@ -1,3 +1,4 @@
+// Serial: resets shared Postgres and relies on the reset-created default team.
 import { createMockJobQueue } from '../../tests/helpers/mocks/job-queue.mock'
 import { mockFetch } from '../../tests/helpers/mocks/request.mock'
 

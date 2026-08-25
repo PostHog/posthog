@@ -1,3 +1,4 @@
+// Serial: resets shared Postgres while fixtures use fixed team, project, and organization IDs.
 import { create } from '@bufbuild/protobuf'
 import { type ServiceImpl, createRouterTransport } from '@connectrpc/connect'
 import { DateTime } from 'luxon'
