@@ -126,6 +126,28 @@ describe("resolveCodexMode", () => {
 });
 
 describe("SessionConfigState", () => {
+  it("carries the pinned reasoning effort in the per-turn collaboration mode", () => {
+    const pinned = new SessionConfigState("gpt-5.6-sol", "xhigh");
+    expect(pinned.collaborationModeForTurn()).toEqual({
+      mode: "default",
+      settings: { model: "gpt-5.6-sol", reasoning_effort: "xhigh" },
+    });
+
+    pinned.setOption("effort", "max");
+    expect(pinned.collaborationModeForTurn()).toEqual({
+      mode: "default",
+      settings: { model: "gpt-5.6-sol", reasoning_effort: "max" },
+    });
+
+    // No pin: leave the effort to codex's model default rather than sending null.
+    expect(
+      new SessionConfigState("gpt-5.5").collaborationModeForTurn(),
+    ).toEqual({
+      mode: "default",
+      settings: { model: "gpt-5.5" },
+    });
+  });
+
   it("canonicalizes bypassPermissions during a live mode update", () => {
     const config = new SessionConfigState("gpt-5.5");
 
