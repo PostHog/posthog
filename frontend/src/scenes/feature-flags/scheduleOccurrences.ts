@@ -24,6 +24,8 @@ export interface ScheduleOccurrence {
     operation: ScheduledChangeOperationType
     schedule: ScheduledChangeType
     projected: ScheduleProjectedState
+    /** Max rollout of the condition this occurrence adds; null for other operations. */
+    addedRolloutPercentage: number | null
     /** The occurrence will be skipped at fire time unless its approval request is approved first. */
     needsApproval: boolean
 }
@@ -46,14 +48,15 @@ export function maxRolloutPercentage(groups: FeatureFlagGroupType[] | undefined)
     return Math.max(...groups.map((group) => group.rollout_percentage ?? 100))
 }
 
-function isPaused(sc: ScheduledChangeType): boolean {
+/** A paused recurring schedule keeps its recurrence config but has is_recurring=false. */
+export function isSchedulePaused(sc: ScheduledChangeType): boolean {
     return !sc.is_recurring && (!!sc.recurrence_interval || !!sc.cron_expression)
 }
 
 // A bound approval request that was rejected or expired means its current occurrence will not
 // apply: apply_gated_scheduled_change skips it. A one-time change is then dropped entirely; a
 // recurring one loses only this occurrence — the backend advances scheduled_at and re-gates the next.
-function hasDeniedRequest(sc: ScheduledChangeType): boolean {
+export function hasDeniedApprovalRequest(sc: ScheduledChangeType): boolean {
     return (
         sc.change_request?.state === ScheduledChangeRequestState.Rejected ||
         sc.change_request?.state === ScheduledChangeRequestState.Expired
@@ -65,9 +68,10 @@ function hasDeniedRequest(sc: ScheduledChangeType): boolean {
  * the flag state projected after it applies (starting from the flag's current state).
  *
  * Every schedule contributes its `scheduled_at` occurrence. Cron schedules contribute only that one:
- * the backend keeps `scheduled_at` pointed at the next cron run, and cron expansion is not
- * replicated client-side. Fixed-interval recurring schedules expand further with date arithmetic,
- * bounded by their end date, the horizon, and the overall cap.
+ * the backend keeps `scheduled_at` pointed at the next cron run, and further runs are deliberately
+ * not expanded here (lib/cron could compute them; one next-run point is enough for this panel).
+ * Fixed-interval recurring schedules expand further with date arithmetic, bounded by their end
+ * date, the horizon, and the overall cap.
  */
 export function expandScheduleOccurrences(
     schedules: ScheduledChangeType[],
@@ -78,14 +82,12 @@ export function expandScheduleOccurrences(
     const raw: { at: Dayjs; schedule: ScheduledChangeType }[] = []
 
     for (const schedule of schedules) {
-        if (schedule.executed_at || isPaused(schedule)) {
+        if (schedule.executed_at || isSchedulePaused(schedule)) {
             continue
         }
-        const denied = hasDeniedRequest(schedule)
-        // A denied one-time change never applies, so drop the whole schedule.
-        if (denied && !schedule.is_recurring) {
-            continue
-        }
+        // Denied one-time schedules end up with no occurrence at all: the push below is skipped
+        // and the recurrence expansion requires is_recurring.
+        const denied = hasDeniedApprovalRequest(schedule)
         // Parse in UTC so recurrence arithmetic below adds fixed 24h days/weeks, matching the
         // backend's relativedelta on the stored UTC instant. Browser-local .add() would preserve
         // wall-clock across a DST transition and drift the projected fire time by an hour.
@@ -126,12 +128,16 @@ export function expandScheduleOccurrences(
 
     return raw.slice(0, OCCURRENCE_CAP).map(({ at, schedule }) => {
         const { payload } = schedule
+        let addedRolloutPercentage: number | null = null
         if (payload.operation === ScheduledChangeOperationType.UpdateStatus) {
             active = payload.value
         } else if (payload.operation === ScheduledChangeOperationType.AddReleaseCondition) {
-            const added = maxRolloutPercentage(payload.value.groups)
-            if (added !== null) {
-                rolloutPercentage = rolloutPercentage === null ? added : Math.max(rolloutPercentage, added)
+            addedRolloutPercentage = maxRolloutPercentage(payload.value.groups)
+            if (addedRolloutPercentage !== null) {
+                rolloutPercentage =
+                    rolloutPercentage === null
+                        ? addedRolloutPercentage
+                        : Math.max(rolloutPercentage, addedRolloutPercentage)
             }
         } else if (payload.operation === ScheduledChangeOperationType.UpdateVariants) {
             variantCount = payload.value.variants.length
@@ -141,6 +147,7 @@ export function expandScheduleOccurrences(
             operation: payload.operation,
             schedule,
             projected: { active, rolloutPercentage, variantCount },
+            addedRolloutPercentage,
             needsApproval: schedule.change_request?.state === ScheduledChangeRequestState.Pending,
         }
     })

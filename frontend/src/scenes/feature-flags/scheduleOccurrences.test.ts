@@ -1,42 +1,21 @@
-import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
-
 import { dayjs } from 'lib/dayjs'
 
 import {
     FeatureFlagType,
     RecurrenceInterval,
-    ScheduledChangeModels,
     ScheduledChangeOperationType,
     ScheduledChangePayload,
     ScheduledChangeRequestState,
     ScheduledChangeType,
 } from '~/types'
 
+import { makeScheduledChange, resetScheduledChangeIds } from './makeScheduledChange'
 import { OCCURRENCE_CAP, expandScheduleOccurrences } from './scheduleOccurrences'
 
 const NOW = dayjs('2026-01-01T00:00:00Z')
 
-let nextId = 1
-
 function change(overrides: Partial<ScheduledChangeType> & { payload: ScheduledChangePayload }): ScheduledChangeType {
-    return {
-        id: nextId++,
-        team_id: 1,
-        record_id: 1,
-        model_name: ScheduledChangeModels.FeatureFlag,
-        scheduled_at: NOW.add(1, 'day').toISOString(),
-        executed_at: null,
-        failure_reason: null,
-        created_at: null,
-        created_by: MOCK_DEFAULT_BASIC_USER,
-        is_recurring: false,
-        recurrence_interval: null,
-        cron_expression: null,
-        last_executed_at: null,
-        end_date: null,
-        change_request: null,
-        ...overrides,
-    }
+    return makeScheduledChange({ scheduled_at: NOW.add(1, 'day').toISOString(), ...overrides })
 }
 
 function conditionPayload(rolloutPercentage: number): ScheduledChangePayload {
@@ -63,7 +42,7 @@ function flag(
 
 describe('expandScheduleOccurrences', () => {
     beforeEach(() => {
-        nextId = 1
+        resetScheduledChangeIds()
     })
 
     it('projects a rollout ramp cumulatively and in chronological order', () => {
@@ -78,6 +57,7 @@ describe('expandScheduleOccurrences', () => {
         const occurrences = expandScheduleOccurrences(schedules, flag(), NOW)
 
         expect(occurrences.map((o) => o.projected.rolloutPercentage)).toEqual([25, 50, 75, 100])
+        expect(occurrences.map((o) => o.addedRolloutPercentage)).toEqual([25, 50, 75, 100])
         expect(occurrences.map((o) => o.timestamp)).toEqual([
             NOW.add(1, 'day').toISOString(),
             NOW.add(2, 'day').toISOString(),

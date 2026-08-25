@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
+import { MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
@@ -12,7 +12,6 @@ import { initKeaTests } from '~/test/init'
 import {
     FeatureFlagType,
     RecurrenceInterval,
-    ScheduledChangeModels,
     ScheduledChangeOperationType,
     ScheduledChangeRequestState,
     ScheduledChangeType,
@@ -20,6 +19,7 @@ import {
 
 import { NEW_FLAG, featureFlagLogic } from './featureFlagLogic'
 import FeatureFlagSchedule from './FeatureFlagSchedule'
+import { makeScheduledChange } from './makeScheduledChange'
 
 jest.mock('./FeatureFlagReleaseConditionsCollapsible', () => ({
     FeatureFlagReleaseConditionsCollapsible: () => null,
@@ -157,26 +157,6 @@ describe('FeatureFlagSchedule', () => {
         renderSchedule(featureFlag, ScheduledChangeOperationType.UpdateVariants)
 
         expect(screen.getByText(new RegExp(expectedText))).toBeInTheDocument()
-    })
-
-    const makeScheduledChange = (overrides: Partial<ScheduledChangeType>): ScheduledChangeType => ({
-        id: 1,
-        team_id: MOCK_DEFAULT_PROJECT.id,
-        record_id: 1,
-        model_name: ScheduledChangeModels.FeatureFlag,
-        payload: { operation: ScheduledChangeOperationType.UpdateStatus, value: true },
-        scheduled_at: '2030-01-01T00:00:00Z',
-        executed_at: null,
-        failure_reason: null,
-        created_at: '2026-01-01T00:00:00Z',
-        created_by: MOCK_DEFAULT_BASIC_USER,
-        is_recurring: false,
-        recurrence_interval: null,
-        cron_expression: null,
-        last_executed_at: null,
-        end_date: null,
-        change_request: null,
-        ...overrides,
     })
 
     // useMocks trips the hooks naming lint inside named helpers, so each test registers

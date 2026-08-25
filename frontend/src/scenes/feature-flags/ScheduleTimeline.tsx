@@ -1,8 +1,11 @@
+import { memo } from 'react'
+
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { pluralize } from 'lib/utils/strings'
 
 import { ScheduledChangeOperationType } from '~/types'
 
-import { maxRolloutPercentage, ScheduleOccurrence } from './scheduleOccurrences'
+import { ScheduleOccurrence } from './scheduleOccurrences'
 
 const WIDTH = 600
 const HEIGHT = 140
@@ -10,28 +13,29 @@ const MARGIN = { top: 26, right: 14, bottom: 24, left: 34 }
 const PLOT_WIDTH = WIDTH - MARGIN.left - MARGIN.right
 const PLOT_HEIGHT = HEIGHT - MARGIN.top - MARGIN.bottom
 const BASELINE_Y = MARGIN.top + PLOT_HEIGHT
-/** Minimum viewBox-unit gap between time labels before the later one is dropped. */
-const TIME_LABEL_MIN_GAP = 40
+/** Minimum viewBox-unit gap between labels before the later one is dropped (time axis) or moved to the second lane (top labels). */
+const LABEL_MIN_GAP = 40
 
 function describeOccurrence(occurrence: ScheduleOccurrence): string {
-    const { payload } = occurrence.schedule
-    if (payload.operation === ScheduledChangeOperationType.UpdateStatus) {
-        return occurrence.projected.active ? 'enabled' : 'disabled'
+    const { operation, projected, addedRolloutPercentage } = occurrence
+    if (operation === ScheduledChangeOperationType.UpdateStatus) {
+        return projected.active ? 'enabled' : 'disabled'
     }
-    if (payload.operation === ScheduledChangeOperationType.AddReleaseCondition) {
+    if (operation === ScheduledChangeOperationType.AddReleaseCondition) {
         // Describe the condition this change adds, not the flag's projected max rollout: the change
         // appends a condition set, so an existing higher one would otherwise be misreported here.
-        const added = maxRolloutPercentage(payload.value.groups)
-        return added !== null ? `add a condition at ${added}% rollout` : 'add a condition'
+        return addedRolloutPercentage !== null
+            ? `add a condition at ${addedRolloutPercentage}% rollout`
+            : 'add a condition'
     }
-    return `${occurrence.projected.variantCount} variant${occurrence.projected.variantCount === 1 ? '' : 's'}`
+    return pluralize(occurrence.projected.variantCount ?? 0, 'variant')
 }
 
 function markerLabel(occurrence: ScheduleOccurrence): string {
     if (occurrence.operation === ScheduledChangeOperationType.UpdateStatus) {
         return occurrence.projected.active ? 'On' : 'Off'
     }
-    return `${occurrence.projected.variantCount} variant${occurrence.projected.variantCount === 1 ? '' : 's'}`
+    return pluralize(occurrence.projected.variantCount ?? 0, 'variant')
 }
 
 function formatOccurrenceTime(timestamp: string, timezone: string): string {
@@ -59,11 +63,20 @@ function yForRollout(rollout: number): number {
     return MARGIN.top + ((100 - rollout) * PLOT_HEIGHT) / 100
 }
 
+/** Where each occurrence's marks and labels land, resolved before render so the JSX map stays pure. */
+interface OccurrenceLayout {
+    x: number
+    /** Null when the previous time label is too close. */
+    timeLabel: string | null
+    /** Alternates between two heights when top-lane markers land near the same x. */
+    topLabelY: number
+}
+
 /**
  * Compact projection of upcoming scheduled changes: rollout percentage as a step line over time,
  * with status flips and variant updates as labeled markers on the same time axis.
  */
-export function ScheduleTimeline({
+export const ScheduleTimeline = memo(function ScheduleTimeline({
     occurrences,
     currentRolloutPercentage,
     timezone,
@@ -95,6 +108,28 @@ export function ScheduleTimeline({
         return MARGIN.left + fraction * PLOT_WIDTH
     }
 
+    const layouts: OccurrenceLayout[] = []
+    let lastTimeLabelX = -Infinity
+    let lastTopLabelX = -Infinity
+    let topLabelLane = 0
+    occurrences.forEach((occurrence, index) => {
+        const x = xFor(times[index])
+        const timeLabel = x - lastTimeLabelX >= LABEL_MIN_GAP ? relativeLabel(times[index], now) : null
+        if (timeLabel) {
+            lastTimeLabelX = x
+        }
+        let topLabelY = MARGIN.top - 8
+        const onStepLine =
+            occurrence.operation === ScheduledChangeOperationType.AddReleaseCondition &&
+            occurrence.projected.rolloutPercentage !== null
+        if (!onStepLine) {
+            topLabelLane = x - lastTopLabelX < LABEL_MIN_GAP ? 1 - topLabelLane : 0
+            lastTopLabelX = x
+            topLabelY -= topLabelLane * 10
+        }
+        layouts.push({ x, timeLabel, topLabelY })
+    })
+
     // Step-line segments, one per occurrence so approval-blocked steps can render dashed.
     let previousX = MARGIN.left
     let previousRollout = currentRolloutPercentage
@@ -104,7 +139,7 @@ export function ScheduleTimeline({
         if (rollout === null) {
             return
         }
-        const x = xFor(times[index])
+        const x = layouts[index].x
         const path =
             previousRollout === null
                 ? `M ${x} ${yForRollout(rollout)}`
@@ -119,10 +154,6 @@ export function ScheduleTimeline({
             blocked: false,
         })
     }
-
-    let lastTimeLabelX = -Infinity
-    let lastTopLabelX = -Infinity
-    let topLabelLane = 0
 
     return (
         // The chart keeps a minimum width and scrolls horizontally instead of scaling its
@@ -169,23 +200,10 @@ export function ScheduleTimeline({
                 ))}
 
                 {occurrences.map((occurrence, index) => {
-                    const x = xFor(times[index])
+                    const { x, timeLabel, topLabelY } = layouts[index]
                     const blocked = occurrence.needsApproval
                     const isRolloutStep = occurrence.operation === ScheduledChangeOperationType.AddReleaseCondition
                     const rollout = occurrence.projected.rolloutPercentage
-                    const timeLabel = x - lastTimeLabelX >= TIME_LABEL_MIN_GAP ? relativeLabel(times[index], now) : null
-                    if (timeLabel) {
-                        lastTimeLabelX = x
-                    }
-                    // Status and variant labels share the top lane; alternate between two
-                    // heights when markers land at (or near) the same x so neither label
-                    // renders on top of the other.
-                    let topLabelY = MARGIN.top - 8
-                    if (!(isRolloutStep && rollout !== null)) {
-                        topLabelLane = x - lastTopLabelX < TIME_LABEL_MIN_GAP ? 1 - topLabelLane : 0
-                        lastTopLabelX = x
-                        topLabelY -= topLabelLane * 10
-                    }
                     return (
                         <g key={`${occurrence.schedule.id}-${occurrence.timestamp}`} opacity={blocked ? 0.5 : 1}>
                             {blocked && <title>Needs approval</title>}
@@ -256,4 +274,4 @@ export function ScheduleTimeline({
             </svg>
         </div>
     )
-}
+})

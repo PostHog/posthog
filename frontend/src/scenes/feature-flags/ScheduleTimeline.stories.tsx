@@ -2,15 +2,9 @@ import { Meta } from '@storybook/react'
 
 import { dayjs } from 'lib/dayjs'
 
-import {
-    ScheduledChangeModels,
-    ScheduledChangeOperationType,
-    ScheduledChangePayload,
-    ScheduledChangeRequestState,
-    ScheduledChangeType,
-    UserBasicType,
-} from '~/types'
+import { ScheduledChangeOperationType, ScheduledChangePayload, ScheduledChangeRequestState } from '~/types'
 
+import { makeScheduledChange } from './makeScheduledChange'
 import { ScheduleOccurrence, ScheduleProjectedState } from './scheduleOccurrences'
 import { ScheduleTimeline } from './ScheduleTimeline'
 
@@ -23,16 +17,6 @@ const meta: Meta<typeof ScheduleTimeline> = {
 }
 export default meta
 
-const STORY_USER: UserBasicType = {
-    id: 1,
-    uuid: 'user-1',
-    distinct_id: 'user-1',
-    first_name: 'Story',
-    email: 'story@example.com',
-}
-
-let nextId = 1
-
 function occurrence(
     daysFromNow: number,
     payload: ScheduledChangePayload,
@@ -40,25 +24,19 @@ function occurrence(
     needsApproval = false
 ): ScheduleOccurrence {
     const timestamp = dayjs(MOCK_NOW).add(daysFromNow, 'day').toISOString()
-    const schedule: ScheduledChangeType = {
-        id: nextId++,
-        team_id: 1,
-        record_id: 1,
-        model_name: ScheduledChangeModels.FeatureFlag,
-        payload,
-        scheduled_at: timestamp,
-        executed_at: null,
-        failure_reason: null,
-        created_at: null,
-        created_by: STORY_USER,
-        is_recurring: false,
-        recurrence_interval: null,
-        cron_expression: null,
-        last_executed_at: null,
-        end_date: null,
-        change_request: needsApproval ? { id: 'cr-1', state: ScheduledChangeRequestState.Pending } : null,
+    return {
+        timestamp,
+        operation: payload.operation,
+        schedule: makeScheduledChange({
+            payload,
+            scheduled_at: timestamp,
+            change_request: needsApproval ? { id: 'cr-1', state: ScheduledChangeRequestState.Pending } : null,
+        }),
+        projected,
+        addedRolloutPercentage:
+            payload.operation === ScheduledChangeOperationType.AddReleaseCondition ? projected.rolloutPercentage : null,
+        needsApproval,
     }
-    return { timestamp, operation: payload.operation, schedule, projected, needsApproval }
 }
 
 function rolloutStep(daysFromNow: number, rollout: number, needsApproval = false): ScheduleOccurrence {
