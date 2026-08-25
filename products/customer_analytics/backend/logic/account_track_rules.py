@@ -11,6 +11,7 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.dataclasses import frozen
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
@@ -77,10 +78,11 @@ class AccountTrackRuleBatchResult:
     processed: int
 
 
-@dataclass(frozen=True)
+@frozen
 class EnabledAccountTrackRuleConfig:
     team_id: int
     config_version: int
+    enabled_at: datetime | None
     first_run_at: datetime | None
     last_success_at: datetime | None
 
@@ -355,9 +357,10 @@ def update_account_track_rules(
                 enabled=candidate.enabled,
                 groups=candidate.groups,
             )
+        was_enabled = bool(row.account_track_rules.get("enabled", False))
         previous_summary = {
             "version": current_version,
-            "enabled": bool(row.account_track_rules.get("enabled", False)),
+            "enabled": was_enabled,
             "group_count": len(row.account_track_rules.get("groups", [])),
             "condition_count": sum(
                 len(group.get("conditions", [])) for group in row.account_track_rules.get("groups", [])
@@ -370,7 +373,11 @@ def update_account_track_rules(
             "condition_count": sum(len(group.conditions) for group in candidate.groups),
         }
         row.account_track_rules = candidate_json
-        row.save(update_fields=["account_track_rules"])
+        if candidate.enabled and not was_enabled:
+            row.account_track_rules_enabled_at = timezone.now()
+        elif not candidate.enabled:
+            row.account_track_rules_enabled_at = None
+        row.save(update_fields=["account_track_rules", "account_track_rules_enabled_at"])
 
         try:
             log_activity(
@@ -559,12 +566,19 @@ def list_enabled_account_track_rule_configs(
             last_success_at=Subquery(latest_success),
         )
         .order_by("team_id")
-        .values("team_id", "account_track_rules", "first_run_at", "last_success_at")[:limit]
+        .values(
+            "team_id",
+            "account_track_rules",
+            "account_track_rules_enabled_at",
+            "first_run_at",
+            "last_success_at",
+        )[:limit]
     )
     configs = tuple(
         EnabledAccountTrackRuleConfig(
             team_id=row["team_id"],
             config_version=row["account_track_rules"].get("version", 0),
+            enabled_at=row["account_track_rules_enabled_at"],
             first_run_at=row["first_run_at"],
             last_success_at=row["last_success_at"],
         )

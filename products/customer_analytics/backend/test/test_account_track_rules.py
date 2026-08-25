@@ -24,11 +24,14 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.customer_analytics.backend.logic.account_track_rules import (
     AccountTrackRuleValidationError,
+    EnabledAccountTrackRuleConfig,
+    EnabledAccountTrackRuleConfigPage,
     create_account_track_rule_run,
     get_account_track_rules,
     list_enabled_account_track_rule_configs,
     preview_account_track_rules,
     process_next_account_track_rule_batch,
+    update_account_track_rules,
 )
 from products.customer_analytics.backend.models import (
     AccountTrackRuleRun,
@@ -46,6 +49,7 @@ from products.customer_analytics.backend.temporal.account_track_rules import (
     ACCOUNT_TRACK_RULE_WORKFLOW_NAME,
     AccountTrackRuleCoordinatorInput,
     AccountTrackRuleCoordinatorPage,
+    AccountTrackRuleCoordinatorPageInput,
     AccountTrackRuleCoordinatorTeam,
     AccountTrackRuleCoordinatorWorkflow,
     AccountTrackRuleEvaluationInput,
@@ -115,6 +119,41 @@ async def test_workflow_marks_the_run_failed_when_cancelled() -> None:
 
     assert execute_activity.await_count == 2
     assert execute_activity.await_args_list[1].args[0] is account_track_rule_fail_run_activity
+
+
+@freeze_time("2026-08-20T12:00:00Z")
+@pytest.mark.parametrize(
+    ("enabled_at", "expected_overdue", "expected_age_seconds"),
+    [
+        (datetime(2026, 8, 18, 23, 0, tzinfo=UTC), 1, 37 * 60 * 60),
+        (datetime(2026, 8, 20, 11, 0, tzinfo=UTC), 0, 60 * 60),
+    ],
+)
+@pytest.mark.asyncio
+async def test_coordinator_uses_enablement_age_for_teams_without_runs(
+    enabled_at: datetime, expected_overdue: int, expected_age_seconds: float
+) -> None:
+    config_page = EnabledAccountTrackRuleConfigPage(
+        configs=(
+            EnabledAccountTrackRuleConfig(
+                team_id=11,
+                config_version=3,
+                enabled_at=enabled_at,
+                first_run_at=None,
+                last_success_at=None,
+            ),
+        ),
+        next_team_id=None,
+    )
+
+    with patch(
+        "products.customer_analytics.backend.temporal.account_track_rules.list_enabled_account_track_rule_configs",
+        return_value=config_page,
+    ):
+        page = await account_track_rule_collect_configs_activity(AccountTrackRuleCoordinatorPageInput())
+
+    assert page.overdue_teams == expected_overdue
+    assert page.oldest_success_age_seconds == expected_age_seconds
 
 
 @pytest.mark.asyncio
@@ -343,6 +382,40 @@ class TestAccountTrackRuleLogic(AccountTrackRulesTestMixin, BaseTest):
         config = TeamCustomerAnalyticsConfig.objects.get(team_id=self.team.id).account_track_rules
 
         assert config == {"schema_version": 1, "version": 0, "enabled": False, "groups": []}
+
+    def test_enablement_timestamp_tracks_the_current_enabled_period(self) -> None:
+        update_account_track_rules(
+            team_id=self.team.id,
+            raw_config=account_name_track_rules_config(version=0),
+            user=self.user,
+            organization_id=self.organization.id,
+            was_impersonated=False,
+        )
+        config_row = TeamCustomerAnalyticsConfig.objects.get(team_id=self.team.id)
+        enabled_at = datetime(2026, 8, 20, 12, 0, tzinfo=UTC)
+        assert config_row.account_track_rules_enabled_at == enabled_at
+
+        edited_config = account_name_track_rules_config(version=1)
+        edited_config["groups"][0]["conditions"][0]["values"] = ["VIP"]
+        update_account_track_rules(
+            team_id=self.team.id,
+            raw_config=edited_config,
+            user=self.user,
+            organization_id=self.organization.id,
+            was_impersonated=False,
+        )
+        config_row.refresh_from_db()
+        assert config_row.account_track_rules_enabled_at == enabled_at
+
+        update_account_track_rules(
+            team_id=self.team.id,
+            raw_config=account_name_track_rules_config(version=2, enabled=False),
+            user=self.user,
+            organization_id=self.organization.id,
+            was_impersonated=False,
+        )
+        config_row.refresh_from_db()
+        assert config_row.account_track_rules_enabled_at is None
 
     def test_preview_uses_or_groups_and_skips_churned_accounts(self) -> None:
         definition, paying, vip, unmatched, ignored, churned = self.create_rule_fixtures()

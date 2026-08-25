@@ -196,12 +196,15 @@ async def account_track_rule_collect_configs_activity(
                 config_version=config.config_version,
             )
         )
-        freshness_anchor = config.last_success_at or config.first_run_at
-        success_age_seconds = (
-            max(0.0, (now - freshness_anchor).total_seconds()) if freshness_anchor is not None else 0.0
-        )
-        oldest_success_age_seconds = max(oldest_success_age_seconds, success_age_seconds)
-        if success_age_seconds > ACCOUNT_TRACK_RULE_RECENT_SUCCESS_MAX_AGE.total_seconds():
+        freshness_anchors = [
+            ("enabled", config.enabled_at),
+            ("first_run", config.first_run_at),
+            ("success", config.last_success_at),
+        ]
+        available_anchors: list[tuple[str, datetime]] = [
+            (source, timestamp) for source, timestamp in freshness_anchors if timestamp is not None
+        ]
+        if not available_anchors:
             overdue_teams += 1
             logger.error(
                 "account_track_rule_enabled_team_overdue",
@@ -209,8 +212,24 @@ async def account_track_rule_collect_configs_activity(
                 config_version=config.config_version,
                 trigger=AccountTrackRuleRunTrigger.SCHEDULED,
                 status="overdue",
-                success_age_seconds=success_age_seconds if config.last_success_at is not None else None,
-                first_run_age_seconds=success_age_seconds if config.last_success_at is None else None,
+                freshness_source="missing",
+                freshness_age_seconds=None,
+            )
+            continue
+
+        freshness_source, freshness_anchor = max(available_anchors, key=lambda anchor: anchor[1])
+        freshness_age_seconds = max(0.0, (now - freshness_anchor).total_seconds())
+        oldest_success_age_seconds = max(oldest_success_age_seconds, freshness_age_seconds)
+        if freshness_age_seconds > ACCOUNT_TRACK_RULE_RECENT_SUCCESS_MAX_AGE.total_seconds():
+            overdue_teams += 1
+            logger.error(
+                "account_track_rule_enabled_team_overdue",
+                team_id=config.team_id,
+                config_version=config.config_version,
+                trigger=AccountTrackRuleRunTrigger.SCHEDULED,
+                status="overdue",
+                freshness_source=freshness_source,
+                freshness_age_seconds=freshness_age_seconds,
             )
 
     logger.info(

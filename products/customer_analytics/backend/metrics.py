@@ -44,7 +44,7 @@ _ACCOUNT_TRACK_RULE_OVERDUE_TEAMS = Gauge(
 )
 _ACCOUNT_TRACK_RULE_OLDEST_SUCCESS_AGE_SECONDS = Gauge(
     "customer_analytics_account_track_rule_oldest_success_age_seconds",
-    "Oldest success or first-attempt age among enabled Account Track Rule teams",
+    "Oldest success, first-attempt, or enablement age among enabled Account Track Rule teams",
 )
 
 _otel = OtelInstrumentFactory("customer-analytics-account-track-rules")
