@@ -1,4 +1,5 @@
 import io
+import re
 import uuid
 from types import SimpleNamespace
 
@@ -15,6 +16,9 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.schema import QueryStatus
+
+from posthog.hogql.database.database import Database
+from posthog.hogql.parser import parse_select
 
 from posthog.clickhouse.client.execute import _KILL_SWITCH_SETTINGS, KillSwitchLevel
 from posthog.clickhouse.client.execute_async import QueryStatusManager
@@ -463,7 +467,13 @@ class TestFrameMaterializeKillSwitchCaps(APIBaseTest):
     )
     def test_printed_sql_carries_kill_switch_ceilings(self, _name: str, overrides: dict[str, int]):
         with patch.object(frame_materialize, "kill_switch_overrides", return_value=overrides):
-            sql = frame_materialize._generate_sql(self.team, self.user, "select 1", output_format=None).sql
+            sql = frame_materialize._generate_sql(
+                self.team,
+                self.user,
+                parse_select("select 1"),
+                output_format=None,
+                context=frame_materialize._printing_context(self.team, self.user),
+            ).sql
 
         memory_ceiling = overrides.get("max_memory_usage")
         if memory_ceiling is None:
@@ -494,6 +504,39 @@ class TestFrameMaterializePrintPasses(APIBaseTest):
 
         assert printed.passes == expected_passes
         assert ("toString" in printed.sql) is (expected_passes == 2)
+
+    def test_both_print_passes_share_one_database(self):
+        # The executor keeps the database it builds on a private copy of the context, so the
+        # shared context only carries one if it is handed back. Getting that wrong is
+        # invisible in the output — identical SQL, built twice — so assert on the build.
+        with patch.object(Database, "create_for", wraps=Database.create_for) as create_for:
+            printed = frame_materialize._print_clickhouse_sql(
+                lambda _sql, _values: [("uuid", "UUID")],
+                self.team,
+                self.user,
+                "select 1 as uuid",
+                output_format=None,
+            )
+
+        assert printed.passes == 2
+        assert create_for.call_count == 1
+
+    def test_each_pass_numbers_its_own_placeholders(self):
+        # The executor shares the context's `values` dict by reference and never resets it, while
+        # a placeholder is named from that dict's length. Without a per-pass reset the wrapper pass
+        # numbers its placeholders from where the first pass stopped, and the first pass's dead
+        # values ride along to ClickHouse.
+        printed = frame_materialize._print_clickhouse_sql(
+            lambda _sql, _values: [("a", "String"), ("uuid", "UUID")],
+            self.team,
+            self.user,
+            "select 'alpha' as a, 1 as uuid",
+            output_format=None,
+        )
+
+        assert printed.passes == 2
+        assert set(re.findall(r"%\((hogql_val_\w+)\)s", printed.sql)) == set(printed.values)
+        assert "hogql_val_0" in printed.values
 
     def test_resolve_time_is_actually_recorded(self):
         # The reported split reads leaf keys out of HogQLQueryExecutor's own timings, so a
