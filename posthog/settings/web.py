@@ -1313,10 +1313,8 @@ AI_GATEWAY_INTERNAL_TOKEN = get_from_env("AI_GATEWAY_INTERNAL_TOKEN", "")
 AI_GATEWAY_URL = get_from_env("AI_GATEWAY_URL", "")
 AI_GATEWAY_API_KEY = get_from_env("AI_GATEWAY_API_KEY", "")
 
-# Internal-product posture projected into gateway_credential.json: team ids whose
-# spend is PostHog-funded (the gateway stamps $ai_billable=false), and a JSON
-# team_id -> tier map ("free"/"pro"/"enterprise") for its rate-limit bucket.
-AI_GATEWAY_NON_BILLABLE_TEAM_IDS = get_list(get_from_env("AI_GATEWAY_NON_BILLABLE_TEAM_IDS", ""))
+# Projected into gateway_credential.json: a JSON team_id -> tier map
+# ("free"/"pro"/"enterprise") for the gateway's rate-limit bucket.
 AI_GATEWAY_TEAM_TIER_OVERRIDES = get_from_env("AI_GATEWAY_TEAM_TIER_OVERRIDES", {}, type_cast=json.loads)
 
 # Wizard gateway-token mint. WIZARD_GATEWAY_MINT_KEY unset disables the endpoint

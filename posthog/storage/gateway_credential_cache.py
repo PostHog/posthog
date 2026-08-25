@@ -6,7 +6,7 @@ so the secret never sits in a Redis key. Public phc_ project tokens can't dispat
 
     Key: cache/team_tokens_hashed/<sha256$hex>/team_metadata/gateway_credential.json
     Body: {team_id, project_token, scopes, billing_mode, revoked_at,
-           overspend_allowance_usd?, billable?, tier?}
+           overspend_allowance_usd?, tier?}
 
 The hash matches Django's hash_key_value(token, mode="sha256") = "sha256$"+hex, which the
 gateway derives identically. A credential holding llm_gateway:read attributes to its team
@@ -69,11 +69,10 @@ GATEWAY_CREDENTIAL_FIELDS = [
     "revoked_at",
 ]
 
-# Internal-product posture (gateway-defined, internal/auth/gateway_credential.go):
-# billable:false marks PostHog-funded spend, tier feeds the rate-limit/shed bucket.
-# Settings-driven rather than Team columns: a handful of internal teams, and a
-# settings change lands on the hourly reprojection with no signal wiring.
-BILLABLE_KEY = "billable"
+# Tier (gateway-defined, internal/auth/gateway_credential.go) feeds the
+# rate-limit/shed bucket. Settings-driven rather than a Team column: a handful of
+# internal teams, and a settings change lands on the hourly reprojection with no
+# signal wiring.
 TIER_KEY = "tier"
 GATEWAY_KNOWN_TIERS = {"free", "pro", "enterprise"}
 
@@ -298,10 +297,8 @@ def _policy_for_credential(
     if allowance is not None:
         policy[OVERSPEND_ALLOWANCE_KEY] = format_overspend_allowance_usd(allowance)
 
-    # Absent means billable / tier-unknown on the gateway, so ordinary teams' blobs
-    # stay byte-identical.
-    if team.id in _non_billable_team_ids():
-        policy[BILLABLE_KEY] = False
+    # Absent means tier-unknown on the gateway, so ordinary teams' blobs stay
+    # byte-identical.
     tier = _team_tier_overrides().get(str(team.id))
     if tier is not None:
         # isinstance first: an unhashable value from the JSON setting would raise on
@@ -313,20 +310,6 @@ def _policy_for_credential(
             logger.warning("gateway_credential: unrecognized tier override, not projecting", team_id=team.id, tier=tier)
 
     return policy
-
-
-def _non_billable_team_ids() -> set[int]:
-    """Teams whose gateway spend is PostHog-funded (never customer-billable). A
-    non-numeric entry is skipped rather than raised: this runs inside every
-    credential projection, and an aborted refresh expires the whole cache.
-    """
-    ids: set[int] = set()
-    for team_id in getattr(settings, "AI_GATEWAY_NON_BILLABLE_TEAM_IDS", []) or []:
-        try:
-            ids.add(int(team_id))
-        except (TypeError, ValueError):
-            logger.warning("gateway_credential: non-numeric non-billable team id, skipping", team_id=team_id)
-    return ids
 
 
 def _team_tier_overrides() -> dict[str, str]:

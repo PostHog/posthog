@@ -23,7 +23,6 @@ from posthog.models.utils import SHA256_HASH_PREFIX, generate_random_token, gene
 from posthog.redis import get_client
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.storage.gateway_credential_cache import (
-    BILLABLE_KEY,
     GATEWAY_CREDENTIAL_FIELDS,
     GATEWAY_CREDENTIAL_LAST_USED_KEY,
     GATEWAY_CREDENTIAL_SECRET_KEY_CACHE_TTL,
@@ -198,26 +197,23 @@ class TestGatewayCredentialWireShape(GatewayCredentialTestMixin):
         self.assertEqual(blob[OVERSPEND_ALLOWANCE_KEY], expected)
         self.assertIsInstance(blob[OVERSPEND_ALLOWANCE_KEY], str)
 
-    def test_posture_fields_omitted_by_default(self):
-        # Absent means billable / tier-unknown on the gateway; ordinary teams'
-        # blobs must stay byte-identical to the pre-posture shape.
+    def test_tier_omitted_by_default(self):
+        # Absent means tier-unknown on the gateway; ordinary teams' blobs must
+        # stay byte-identical to the pre-tier shape.
         credential, _ = self._make_secret_key([GATEWAY_SCOPE])
         project_gateway_credential(credential)
         blob = self._read_blob(credential_hash(credential))
         assert blob is not None
-        self.assertNotIn(BILLABLE_KEY, blob)
         self.assertNotIn(TIER_KEY, blob)
 
-    def test_posture_fields_projected_for_configured_team(self):
+    def test_tier_projected_for_configured_team(self):
         credential, _ = self._make_secret_key([GATEWAY_SCOPE])
         with override_settings(
-            AI_GATEWAY_NON_BILLABLE_TEAM_IDS=[str(self.team.id)],
             AI_GATEWAY_TEAM_TIER_OVERRIDES={str(self.team.id): "enterprise"},
         ):
             project_gateway_credential(credential)
         blob = self._read_blob(credential_hash(credential))
         assert blob is not None
-        self.assertIs(blob[BILLABLE_KEY], False)
         self.assertEqual(blob[TIER_KEY], "enterprise")
 
     def test_unknown_tier_override_not_projected(self):
