@@ -11,18 +11,20 @@ import { analyzeQuery } from '../shared'
 
 const schema = InsightQueryInputSchema
 
+/** The insight kinds `alert-create` accepts. Anything else cannot carry an alert. */
+const ALERTABLE_QUERY_KINDS = new Set(['TrendsQuery', 'FunnelsQuery', 'HogQLQuery'])
+
 const ALERT_AGENT_NOTE =
-    "This response carries the insight's current value, so it is a good moment to offer an alert. Offer one only for " +
-    'Trends, SQL (HogQL) and Funnels insights, and only when the metric is one someone would act on if it moved ' +
-    'sharply (signups, active users, revenue, conversion rate, error or failure counts, latency). Anchor the offer on ' +
-    'the number you just read and state that number, such as "alert me if this drops below 400 a day". Never write a ' +
-    'placeholder such as X in place of the number. Then ask only for the cadence and use alert-create. A count that ' +
-    'sits at zero across the window, such as errors or failures, is one of the strongest cases rather than a reason ' +
-    'to stay quiet, so propose an upper bound just above it. Offer nothing when the insight returned no rows at all. ' +
-    'When the series is too noisy for a fixed bound, preview an anomaly detector with alert-simulate and say how ' +
-    'often it would have fired. Judge the metric, not the request: someone asking to see an insight is not a reason ' +
-    'to treat it as throwaway. Skip vanity metrics and metrics nobody would act on. If the user already declined an ' +
-    'alert earlier in this conversation, do not offer again.'
+    "This response carries the insight's current value, so it is a good moment to offer an alert when the metric " +
+    'is one someone would act on if it moved sharply (signups, active users, revenue, conversion rate, error or ' +
+    'failure counts, latency). Name an actual number, never a placeholder such as X, for example "want me to ' +
+    'alert you when daily signups drop below 400?". A count sitting at zero, such as errors or failures, is a ' +
+    'strong case, so offer an upper bound of 1. Offer nothing when the insight returned no rows. When no absolute ' +
+    'number fits, offer a relative-change alert, or preview an anomaly detector with alert-simulate and say how ' +
+    'often it would have fired. Skip metrics nobody acts on, such as raw pageview or event-volume counts, and ' +
+    'skip high-cardinality breakdowns. Judge the metric, not the request. A newly created insight, or one the ' +
+    'user just asked to see, is not throwaway for that reason. If the user already declined an alert in this ' +
+    'conversation, do not offer again.'
 
 type Params = z.infer<typeof schema>
 
@@ -136,9 +138,10 @@ export const queryHandler: ToolBase<typeof schema, Result>['handler'] = async (c
         path
     )
 
-    // The note offers an alert, so it is noise on an insight that already has one.
+    // The note offers an alert, so it is noise on an insight that already has one or cannot have one.
     const alerts = insightResult.data.alerts
-    if (Array.isArray(alerts) && alerts.length > 0) {
+    const hasAlert = Array.isArray(alerts) && alerts.length > 0
+    if (hasAlert || !ALERTABLE_QUERY_KINDS.has(queryInfo.innerKind)) {
         return payload
     }
     return withAgentNote(payload, ALERT_AGENT_NOTE)
