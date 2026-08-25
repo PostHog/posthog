@@ -21,6 +21,7 @@ import { useAuthStateValue } from "@posthog/ui/features/auth/store";
 import { showOfflineToast } from "@posthog/ui/features/connectivity/connectivityToast";
 import { isSignalReportTaskCapError } from "@posthog/ui/features/inbox/hooks/inboxCloudTaskErrors";
 import { resolveDefaultModel } from "@posthog/ui/features/inbox/hooks/resolveDefaultModel";
+import { reportKeys } from "@posthog/ui/features/inbox/hooks/useInboxReports";
 import { useUserRepositoryIntegration } from "@posthog/ui/features/integrations/useIntegrations";
 import { toastError } from "@posthog/ui/features/notifications/errorDetails";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
@@ -278,9 +279,14 @@ export function useInboxCloudTaskRunner({
             copy.existingImplementationTask &&
             isSignalReportTaskCapError(result.error)
           ) {
-            await queryClient.invalidateQueries({
-              queryKey: ["inbox", "report-tasks", reportId],
-            });
+            await Promise.all([
+              queryClient.invalidateQueries({
+                queryKey: ["inbox", "report-tasks", reportId],
+              }),
+              queryClient.invalidateQueries({
+                queryKey: reportKeys.artefacts(reportId),
+              }),
+            ]);
             toast.error(copy.errorTitle, {
               description: copy.existingImplementationTask,
             });
