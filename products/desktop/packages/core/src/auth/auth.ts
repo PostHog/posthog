@@ -815,13 +815,21 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
     const lastPrefs = accountKey
       ? this.authPreference.get(accountKey, options.cloudRegion)
       : null;
+    const preferredProjectId =
+      options.selectedProjectId ?? lastPrefs?.lastSelectedProjectId ?? null;
     const selection = this.reconcileInitialSelection({
       orgProjectsMap,
       currentOrgId,
-      preferredProjectId:
-        options.selectedProjectId ?? lastPrefs?.lastSelectedProjectId ?? null,
+      preferredProjectId,
       lastSelectedOrgId: lastPrefs?.lastSelectedOrgId ?? null,
     });
+    if (
+      orgProjectsIncomplete &&
+      preferredProjectId !== null &&
+      !flattenProjectIds(orgProjectsMap).includes(preferredProjectId)
+    ) {
+      selection.currentProjectId = null;
+    }
 
     const refreshToken =
       tokenResponse.refresh_token ?? options.fallbackRefreshToken ?? null;
