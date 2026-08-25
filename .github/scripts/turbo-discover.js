@@ -14,11 +14,23 @@
 // Durations come from .test_durations (maintained by pytest-split).
 // DEDICATED_BUCKET_PRODUCTS opt out of grouping and always run alone.
 //
+// Backend test selection: the selector's output (SELECTION_JSON) decides which
+// Django tests run and, on a legacy diff, which products stay in the matrix. One
+// verdict feeds both, so the two matrices can never disagree about whether the
+// selection is trustworthy.
+//
 // Input:  LEGACY_CHANGED env var ("true"/"false")
 //         SCHEMA_CHANGED env var ("true"/"false") — when set and LEGACY_CHANGED
 //         is false, schema-impact.js narrows the matrix to products that
 //         depend on the affected posthog.schema types.
-// Output: JSON on stdout: { matrix, run_legacy, django_shards }
+//         SELECTION_JSON — path to the backend test selector's output, empty when
+//         it did not run or failed.
+//         SELECTION_APPLIES ("true"/"false") — whether this run is one that selects
+//         at all; false leaves the Django matrix alone.
+//         SELECTION_DISABLED ("true"/"false") — the DISABLE_BACKEND_TEST_SELECTION
+//         kill switch.
+//         PR_DRAFT ("true"/"false") — what an untrusted selection falls back to.
+// Output: JSON on stdout: { matrix, run_legacy, django_shards, selection }
 //         Diagnostics on stderr
 
 const { execFileSync } = require('child_process')
@@ -470,24 +482,15 @@ function loadSelection(path) {
     try {
         return JSON.parse(fs.readFileSync(path, 'utf-8'))
     } catch (e) {
-        console.error(`::warning::Could not read the backend test selection at ${path} (${e.message}) — product matrix will not be narrowed`)
+        console.error(`::warning::Could not read the backend test selection at ${path} (${e.message}) — the full matrices will run`)
         return null
     }
 }
 
-// Products to test on a legacy diff once the selector's product list is known: the
-// must-run set plus the products the selector reached through the import graph. Null
-// when the selection cannot be trusted: missing, or carrying a full-run signal, which
-// is the same signal that puts ci-backend's Django matrix on a full run.
+// Products to test on a legacy diff once the selection is trusted: the must-run set
+// plus the products the selector reached through the import graph. Callers narrow only
+// on a `selected` verdict, so the trust rules live in decideSelection, not here.
 function narrowedProducts(products, mustRunProducts, selection) {
-    const fullRunReasons = selection && selection.ast ? selection.ast.full_run_reasons : null
-    if (!Array.isArray(fullRunReasons)) {
-        return null
-    }
-    if (fullRunReasons.length > 0) {
-        console.error(`Selector requested a full run — keeping the full product matrix:\n  ${fullRunReasons.join('\n  ')}`)
-        return null
-    }
     const selected = ((selection.combined && selection.combined.products) || []).map(moduleToProduct)
     const keep = new Set([...mustRunProducts, ...selected])
     console.error(`Products reached by the backend test selector: ${JSON.stringify(selected)}`)
@@ -696,6 +699,125 @@ function calculateShards(totalWorkSeconds, overheadSeconds, minShards = DJANGO_M
     return Math.max(minShards, Math.min(DJANGO_MAX_SHARDS, shards))
 }
 
+// Selector segment key -> Django matrix segment name.
+const MATRIX_NAME_BY_SEGMENT = { core: 'Core', poe: 'CorePOE', temporal: 'Temporal' }
+
+// Shards per segment for a narrowed run: the full matrix's per-shard budget applied to
+// the selected tests' recorded seconds, so a wide selection spreads over several jobs
+// instead of running to the job timeout in one. Sizing from the selection's own seconds
+// keeps a skewed selection honest — picking the heavy half of a segment costs more
+// shards than picking the light half. The floor is 1 rather than DJANGO_MIN_SHARDS: a
+// narrow selection should stay a single job. Anything missing degrades to 1.
+function selectedShards(selection) {
+    const seconds = selection?.durations?.selected_seconds_by_segment ?? {}
+    const shards = {}
+    for (const [segment, matrixName] of Object.entries(MATRIX_NAME_BY_SEGMENT)) {
+        const overhead = DJANGO_OVERHEAD_SECONDS_BY_SEGMENT[matrixName]
+        shards[segment] = calculateShards(Number(seconds[segment]) || 0, overhead, 1)
+    }
+    return shards
+}
+
+// Counts the telemetry reports, whether or not the selection was used. Null throughout
+// when the selector produced nothing to read.
+function selectionMetrics(selection) {
+    return {
+        changed_file_count: selection?.changed_file_count ?? null,
+        selected_test_count: selection?.combined?.count ?? null,
+        full_run_reasons_count: selection ? (selection.ast?.full_run_reasons ?? []).length : null,
+        selected_test_seconds: selection?.durations?.selected_seconds ?? null,
+        skipped_test_seconds: selection?.durations?.skipped_seconds ?? null,
+    }
+}
+
+// What a run with nothing selected hands each matrix leg.
+function emptySegments() {
+    return {
+        core_files: '',
+        poe_files: '',
+        temporal_files: '',
+        compat_files: '',
+        run_poe: false,
+        run_temporal: false,
+        segment_shards: null,
+    }
+}
+
+// An untrusted selection runs the full matrices on a ready PR and skips them on a draft,
+// which is the pre-selection draft behavior: a draft has a later ready run to defer to,
+// and skipping is the cheaper of the two mistakes.
+function fallbackSelection(fallbackMode, reason, selection) {
+    console.error(`Backend test selection not used (${reason}) — Django matrix mode=${fallbackMode}`)
+    return { mode: fallbackMode, narrowed: false, skip_reason: reason, ...emptySegments(), ...selectionMetrics(selection) }
+}
+
+// Which Django tests this run should execute, and whether the product matrix may narrow.
+// Pure: every input is an argument, so each branch is unit-tested rather than inferred
+// from a workflow run.
+//   applies        this run selects at all (a PR, off the merge queue, no force label)
+//   disabled       the DISABLE_BACKEND_TEST_SELECTION kill switch
+//   draft          fall back by skipping rather than by running everything
+//   legacyChanged  the paths filter saw an edit under posthog/ or ee/
+//   runLegacy      whether the Django suite runs, and why
+//   selection      the selector's parsed output, null when it did not produce one
+function decideSelection({ applies, disabled, draft, legacyChanged, runLegacy, runLegacyReason, selection }) {
+    if (!applies || runLegacy === false) {
+        // Nothing to narrow: either the event never selects, or the Django suite is
+        // skipped outright. An empty mode leaves every consumer on its own default.
+        return { mode: '', narrowed: null, skip_reason: '', ...emptySegments(), ...selectionMetrics(null) }
+    }
+    const fallbackMode = draft ? 'skip' : 'full'
+    if (disabled) {
+        // Its own reason string, so flipping the kill switch during an incident stays
+        // distinguishable from a genuine cascade in the selection telemetry.
+        return fallbackSelection(fallbackMode, 'disabled', selection)
+    }
+    if (runLegacy && runLegacyReason !== 'legacy_changed') {
+        // Legacy impact was inferred from a product, contract, or schema change rather
+        // than seen as a direct edit. The diff-based selector cannot see that cascade, so
+        // its subset would be incomplete. A direct legacy edit is the selector's home
+        // turf and is deliberately trusted — its own FULL_RUN_PATTERNS decide when a
+        // legacy change is too broad to narrow.
+        return fallbackSelection(fallbackMode, 'untrusted', selection)
+    }
+    if (!selection) {
+        return fallbackSelection(fallbackMode, 'selector_error', selection)
+    }
+    const fullRunReasons = selection.ast?.full_run_reasons ?? []
+    if (fullRunReasons.length > 0) {
+        console.error(`Selector requested a full run:\n  ${fullRunReasons.join('\n  ')}`)
+        return fallbackSelection(fallbackMode, 'full_run_requested', selection)
+    }
+    const segments = selection.combined?.segments ?? {}
+    const core = segments.core ?? []
+    const poe = segments.poe ?? []
+    const temporal = segments.temporal ?? []
+    const compat = segments.compat ?? []
+    if (legacyChanged && core.length === 0 && temporal.length === 0) {
+        // A diff that touched legacy code but selected no Django test at all means the
+        // selector had no rule for it, not that there is nothing to run — a non-Python
+        // legacy file (C++ parser sources, a JSON config) reaches no import edge.
+        // Narrowing to zero would silently gate on nothing. FULL_RUN_PATTERNS covers the
+        // known cases; this catches the ones added to the `legacy` paths filter and
+        // forgotten there. Products-only diffs legitimately select nothing and are not legacy.
+        return fallbackSelection(fallbackMode, 'empty_selection', selection)
+    }
+    console.error(`Selected: ${core.length} core, ${poe.length} POE-eligible, ${temporal.length} temporal, ${compat.length} compat`)
+    return {
+        mode: 'selected',
+        narrowed: true,
+        skip_reason: '',
+        core_files: core.join(' '),
+        poe_files: poe.join(' '),
+        temporal_files: temporal.join(' '),
+        compat_files: compat.join(' '),
+        run_poe: poe.length > 0,
+        run_temporal: temporal.length > 0,
+        segment_shards: selectedShards(selection),
+        ...selectionMetrics(selection),
+    }
+}
+
 function buildDjangoShards(durations) {
     const result = {}
     for (const [segment] of Object.entries(DJANGO_SEGMENTS)) {
@@ -790,10 +912,11 @@ function buildMatrix(products, durations) {
     return matrix
 }
 
-// Exported for unit tests, plus the Django sizing pieces that
-// selected-django-shards.js reuses so narrowed runs share one budget.
+// Exported for unit tests.
 module.exports = {
     narrowedProducts,
+    decideSelection,
+    selectedShards,
     calculateShards,
     DJANGO_OVERHEAD_SECONDS_BY_SEGMENT,
     DJANGO_SEGMENTS,
@@ -813,6 +936,7 @@ if (require.main === module) {
 
 const legacyChanged = process.env.LEGACY_CHANGED === 'true'
 const schemaChanged = process.env.SCHEMA_CHANGED === 'true'
+const selection = loadSelection(process.env.SELECTION_JSON)
 
 let allTestTasks, affectedTestTasks, affectedContractTasks, contractTasks
 try {
@@ -966,18 +1090,25 @@ if (process.env.TURBO_SCM_BASE) {
     products.sort()
 }
 
+const selectionDecision = decideSelection({
+    applies: process.env.SELECTION_APPLIES === 'true',
+    disabled: process.env.SELECTION_DISABLED === 'true',
+    draft: process.env.PR_DRAFT === 'true',
+    legacyChanged,
+    runLegacy,
+    runLegacyReason,
+    selection,
+})
+
 // Narrow the legacy-diff matrix after every drop and lift above, so narrowing can only
 // remove products. The matrix is then packed from the narrowed list.
 const productCountBeforeNarrowing = products.length
 let productMatrixNarrowed = false
-if (mustRunProducts !== null) {
+if (mustRunProducts !== null && selectionDecision.mode === 'selected') {
     const mustRun = [...new Set([...mustRunProducts, ...liftedProducts])].sort()
     console.error(`Products that must run if the matrix is narrowed: ${JSON.stringify(mustRun)}`)
-    const narrowed = narrowedProducts(products, mustRun, loadSelection(process.env.SELECTION_JSON))
-    if (narrowed !== null) {
-        products = narrowed
-        productMatrixNarrowed = true
-    }
+    products = narrowedProducts(products, mustRun, selection)
+    productMatrixNarrowed = true
 }
 
 console.error(`Products to test: ${JSON.stringify(products)}`)
@@ -997,6 +1128,7 @@ const result = {
     product_count: products.length,
     product_count_full: productCountBeforeNarrowing,
     django_shards: djangoShards,
+    selection: selectionDecision,
 }
 // eslint-disable-next-line no-console
 process.stdout.write(JSON.stringify(result) + '\n')
