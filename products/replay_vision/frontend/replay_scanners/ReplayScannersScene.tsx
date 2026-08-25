@@ -156,7 +156,7 @@ export function ReplayScannersScene(): JSX.Element {
             sorter: true,
         },
         {
-            title: 'Spend this billing period',
+            title: 'Spend this period',
             key: 'credits_this_month',
             render: (_, scanner) => (
                 <div className="text-sm tabular-nums">
