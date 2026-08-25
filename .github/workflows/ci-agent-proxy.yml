@@ -16,6 +16,8 @@ permissions:
 
 jobs:
     changes:
+        # The merge queue only waits on the required checks, and this workflow gates none.
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         runs-on: ubuntu-latest
         timeout-minutes: 5
         name: Determine need to run agent-proxy checks

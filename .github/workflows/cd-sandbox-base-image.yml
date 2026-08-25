@@ -31,7 +31,8 @@ jobs:
         # the skills build it would only pay for to fail at the push.
         if: |
             github.repository_owner == 'PostHog' &&
-            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+            (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) &&
+            !startsWith(github.head_ref, 'trunk-merge/')
         name: Determine if sandbox image needs to be built
         permissions:
             contents: read

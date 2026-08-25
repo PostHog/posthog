@@ -20,6 +20,8 @@ jobs:
     # Job to decide if we should run backend ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
+        # The merge queue only waits on the required checks, and this workflow gates none.
+        if: ${{ !startsWith(github.head_ref, 'trunk-merge/') }}
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run Hog checks
