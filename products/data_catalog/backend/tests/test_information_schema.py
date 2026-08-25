@@ -30,6 +30,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.constants import AvailableFeature
 from posthog.models.team import Team
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.data_catalog.backend.facade.enums import CertificationStatus
 from products.data_catalog.backend.logic import relationships
 from products.data_catalog.backend.logic.certifications import certify, deprecate, propose_certification
@@ -42,8 +43,6 @@ from products.data_tools.backend.facade.models import DataWarehouseJoin
 from products.product_analytics.backend.facade.models import Insight
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import DataWarehouseManagedViewSetKind, ExternalDataSourceType
-
-from ee.models.rbac.access_control import AccessControl
 
 _HOGQL = {"kind": "HogQLQuery", "query": "select count() from events"}
 _COLUMNS = {"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}}

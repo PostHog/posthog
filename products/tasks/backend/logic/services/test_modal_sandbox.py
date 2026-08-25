@@ -22,12 +22,25 @@ from products.tasks.backend.logic.services.modal_sandbox import (
 from products.tasks.backend.logic.services.sandbox import (
     SELF_DRIVING_ORIGIN_PRODUCTS,
     SandboxConfig,
+    SandboxStatus,
     SandboxTemplate,
     SandboxWorkload,
     get_sandbox_class_for_backend,
     workload_for_origin_product,
 )
 from products.tasks.backend.models import Task
+
+
+def test_destroy_updates_status_before_modal_termination_settles(mocker):
+    handle = MagicMock(object_id="sb-test")
+    handle.poll.return_value = None
+    mocker.patch.object(ModalSandbox, "_get_app_for_config", return_value=MagicMock())
+    sandbox = ModalSandbox(handle, SandboxConfig(name="test"))
+
+    sandbox.destroy()
+
+    assert sandbox.get_status() == SandboxStatus.SHUTDOWN
+    handle.terminate.assert_called_once_with()
 
 
 @pytest.fixture
