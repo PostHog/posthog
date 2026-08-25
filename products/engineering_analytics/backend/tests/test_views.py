@@ -42,9 +42,9 @@ class TestListGithubSourcesAccessControl(BaseTest):
         self.organization.save()
 
     def test_none_resource_access_fails_closed_to_self_created_sources(self) -> None:
-        # filter_queryset_by_access_level returns the queryset UNFILTERED for a user with "none"
-        # resource access and no object grants — without the guard, such a user enumerates every
-        # GitHub source on the team.
+        # Guards filter_queryset_by_access_level's fail-closed baseline through the product
+        # surface: "none" resource access with no object grants must not enumerate the team's
+        # sources (#70825).
         mine = create_github_source(self.team, prefix="mine_", source_id="gh-mine")
         mine.created_by = self.user
         mine.save()
