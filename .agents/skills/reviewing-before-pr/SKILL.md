@@ -25,7 +25,7 @@ A finding handled here is an ordinary pre-push edit; the same finding after the 
 2. Run `hogli review`.
 3. Verify each finding's premise against the code before acting on it. Findings carry severity and confidence, and they can be false positives — rejecting one, with a reason, is a valid outcome.
 4. Fix what you agree with and commit the fixes.
-5. Decide whether the PR-bot review would be a duplicate. Run `hogli review --check`: it exits 0 only when the current HEAD has a completed review, which happens only when the review came back clean (or every finding was rejected) — any fix commit moves HEAD past the reviewed commit. On exit 0, open the PR with `--label no-greptile` to skip the duplicate bot review. On any other exit (fix commits landed, review still running, signed out), omit the label and let the bot review the final state.
+5. Skip the duplicate bot review. Run `hogli review --check`: it exits 0 when any commit on the branch has a completed review — that is, the local loop ran, even if fix commits landed after it. On exit 0, open the PR with `--label no-greptile`. On a nonzero exit (no local review ever ran on this branch, or signed out), omit the label and let the bot review.
 6. Either way, record the local review in the PR description's Agent context section: the review ID and each finding's disposition (fixed, or rejected with the reason). The findings are otherwise invisible to reviewers — they only appeared in the terminal.
 7. Continue the normal PR-opening flow (`hogli ci:preflight`, `gh pr create`).
 

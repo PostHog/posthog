@@ -7,12 +7,13 @@ pre-push edits instead of bot comments, stale-thread cleanup, and CI re-runs.
     hogli review                        # review committed changes vs the repo default base
     hogli review --instructions "..."   # focus the reviewer, like an @greptile PR comment
     hogli review --force                # start a new review even when HEAD has one
-    hogli review --check                # exit 0 only when HEAD has a completed review
+    hogli review --check                # exit 0 when any branch commit has a completed review
 
-``--check`` gates the ``no-greptile`` PR label: a completed review for the
-exact HEAD commit means the bot review would duplicate it. Every other state
-(no review, review running, signed out, no CLI) exits nonzero so the PR bot
-stays the fail-safe reviewer of the final state.
+``--check`` gates the ``no-greptile`` PR label: a completed review anywhere on
+the branch means the local loop ran, and the label skips the duplicate bot
+pass even when fix commits landed after the review. Only a branch no review
+ever ran on (or a state where that cannot be told: signed out, no CLI) exits
+nonzero, leaving the PR bot as the reviewer.
 
 On top of ``greptile review`` itself, the wrapper:
 
@@ -67,12 +68,25 @@ def _signed_in(binary: str) -> bool:
     return "not signed in" not in (result.stdout + result.stderr).lower()
 
 
+# Newest-first probe cap: a branch this deep is stacked wrong long before the
+# cap matters, and each probe is a network call.
+_CHECK_COMMIT_LIMIT = 100
+
+
+def _branch_commits() -> list[str]:
+    result = _probe(["git", "rev-list", f"--max-count={_CHECK_COMMIT_LIMIT}", "origin/master..HEAD"])
+    if result is None or result.returncode != 0:
+        return ["HEAD"]
+    return result.stdout.split() or ["HEAD"]
+
+
 def check(binary: str) -> int:
-    status = _probe([binary, "review", "status", "--commit", "HEAD"])
-    if status is not None and status.returncode == _STATUS_COMPLETED:
-        click.secho("HEAD has a completed review.", fg="green", err=True)
-        return 0
-    click.secho("HEAD has no completed review.", fg="yellow", err=True)
+    for commit in _branch_commits():
+        status = _probe([binary, "review", "status", "--commit", commit])
+        if status is not None and status.returncode == _STATUS_COMPLETED:
+            click.secho(f"Commit {commit[:11]} has a completed review.", fg="green", err=True)
+            return 0
+    click.secho("No commit on this branch has a completed review.", fg="yellow", err=True)
     return 1
 
 
@@ -126,7 +140,7 @@ def run(branch: str | None, instructions: str | None, force: bool, as_json: bool
     "--check",
     "do_check",
     is_flag=True,
-    help="Only report whether HEAD has a completed review (exit 0 when it does); reviews nothing.",
+    help="Only report whether any commit on this branch has a completed review (exit 0 when one does); reviews nothing.",
 )
 def review(branch: str | None, instructions: str | None, force: bool, as_json: bool, do_check: bool) -> None:
     raise SystemExit(run(branch, instructions, force, as_json, do_check))
