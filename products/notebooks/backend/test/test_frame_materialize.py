@@ -1,4 +1,5 @@
 import io
+import re
 import uuid
 from types import SimpleNamespace
 
@@ -519,6 +520,23 @@ class TestFrameMaterializePrintPasses(APIBaseTest):
 
         assert printed.passes == 2
         assert create_for.call_count == 1
+
+    def test_each_pass_numbers_its_own_placeholders(self):
+        # The executor shares the context's `values` dict by reference and never resets it, while
+        # a placeholder is named from that dict's length. Without a per-pass reset the wrapper pass
+        # numbers its placeholders from where the first pass stopped, and the first pass's dead
+        # values ride along to ClickHouse.
+        printed = frame_materialize._print_clickhouse_sql(
+            lambda _sql, _values: [("a", "String"), ("uuid", "UUID")],
+            self.team,
+            self.user,
+            "select 'alpha' as a, 1 as uuid",
+            output_format=None,
+        )
+
+        assert printed.passes == 2
+        assert set(re.findall(r"%\((hogql_val_\w+)\)s", printed.sql)) == set(printed.values)
+        assert "hogql_val_0" in printed.values
 
     def test_resolve_time_is_actually_recorded(self):
         # The reported split reads leaf keys out of HogQLQueryExecutor's own timings, so a

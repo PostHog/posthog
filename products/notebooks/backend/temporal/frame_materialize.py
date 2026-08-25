@@ -424,6 +424,11 @@ def _generate_sql(
     if output_format:
         executor.context.output_format = output_format
     started = time.perf_counter()
+    # A placeholder is named `hogql_val_{len(values)}`, and the executor shares this dict by
+    # reference rather than resetting it. Carrying a previous pass's entries would number this
+    # pass's placeholders from where that one stopped and ship its dead values to ClickHouse, so
+    # each pass prints against an empty dict and keeps the numbering a single pass would produce.
+    context.values.clear()
     sql, resolved = executor.generate_clickhouse_sql()
     seconds = time.perf_counter() - started
     # The executor keeps the database it built on its own `dataclasses.replace` copy, so
@@ -435,7 +440,9 @@ def _generate_sql(
     recorded = executor.timings.to_dict()
     return _GeneratedSQL(
         sql=sql,
-        values=resolved.values,
+        # Copied because the shared dict is cleared for the next pass, and a caller holds this
+        # pass's SQL and values together (the DESCRIBE between the passes reads them).
+        values=dict(resolved.values),
         seconds=seconds,
         parse_seconds=_hogql_leaf_seconds(recorded, "query"),
         resolve_seconds=_hogql_leaf_seconds(recorded, "prepare_ast_for_printing"),
