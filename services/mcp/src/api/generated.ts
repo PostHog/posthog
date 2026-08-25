@@ -41875,25 +41875,7 @@ export namespace Schemas {
       values: MarketingAnalyticsRetentionCell[];
     }
 
-    export type MarketingAnalyticsRetentionReturningEvent = typeof MarketingAnalyticsRetentionReturningEvent[keyof typeof MarketingAnalyticsRetentionReturningEvent];
-
-
-    export const MarketingAnalyticsRetentionReturningEvent = {
-      Activity: 'activity',
-      ConversionGoal: 'conversion_goal',
-    } as const;
-
-    export type MarketingAnalyticsRetentionStartEvent = typeof MarketingAnalyticsRetentionStartEvent[keyof typeof MarketingAnalyticsRetentionStartEvent];
-
-
-    export const MarketingAnalyticsRetentionStartEvent = {
-      Arrival: 'arrival',
-      ConversionGoal: 'conversion_goal',
-    } as const;
-
     export interface MarketingAnalyticsRetentionQueryResponse {
-      /** Set only for conversion_goal returns, for the header copy. */
-      conversionGoalName?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -41914,10 +41896,6 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsRetentionRow[];
-      returningEvent: MarketingAnalyticsRetentionReturningEvent;
-      /** Set only for conversion_goal starts, for the header copy. */
-      startConversionGoalName?: string | null;
-      startEvent: MarketingAnalyticsRetentionStartEvent;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Distinct persons acquired across every cohort and breakdown value. */
@@ -41937,8 +41915,6 @@ export namespace Schemas {
       breakdownBy?: MarketingAnalyticsAttributionBreakdown | null;
       /** Breakdown values kept before the rest roll into 'Other'. Defaults to 20. */
       breakdownLimit?: number | null;
-      /** conversion_goal_id of the goal to count. Required when returningEvent is conversion_goal. */
-      conversionGoalId?: string | null;
       /** Colors used in the insight's visualization - not used in Web Analytics but required for type compatibility */
       dataColorTheme?: number | null;
       dateRange?: DateRange | null;
@@ -41959,12 +41935,6 @@ export namespace Schemas {
       response?: MarketingAnalyticsRetentionQueryResponse | null;
       /** Period for both the cohort rows and the return columns. Defaults to week. */
       retentionInterval?: MarketingAnalyticsRetentionInterval | null;
-      /** What counts as coming back. Defaults to activity. */
-      returningEvent?: MarketingAnalyticsRetentionReturningEvent | null;
-      /** conversion_goal_id of the goal that starts a cohort. Required when startEvent is conversion_goal. */
-      startConversionGoalId?: string | null;
-      /** What puts a person in a cohort, and which period they land in. Defaults to arrival. Persons are always acquired within the date range, whichever this is, so a person who converted in the range but arrived before it is not counted. */
-      startEvent?: MarketingAnalyticsRetentionStartEvent | null;
       tags?: QueryLogTags | null;
       /** Return columns, counting period 0. Defaults to 8, clamped to 40. */
       totalIntervals?: number | null;
@@ -69257,8 +69227,6 @@ export namespace Schemas {
     }
 
     export interface QueryResponseAlternative35 {
-      /** Set only for conversion_goal returns, for the header copy. */
-      conversionGoalName?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
       /** Generated HogQL query. */
@@ -69279,10 +69247,6 @@ export namespace Schemas {
       /** The date range used for the query */
       resolved_date_range?: ResolvedDateRangeResponse | null;
       results: MarketingAnalyticsRetentionRow[];
-      returningEvent: MarketingAnalyticsRetentionReturningEvent;
-      /** Set only for conversion_goal starts, for the header copy. */
-      startConversionGoalName?: string | null;
-      startEvent: MarketingAnalyticsRetentionStartEvent;
       /** Measured timings for different parts of the query generation process */
       timings?: QueryTiming[] | null;
       /** Distinct persons acquired across every cohort and breakdown value. */
