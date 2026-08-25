@@ -8,6 +8,7 @@ import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 import type { NotebookNodeRunTerminalStatus } from 'scenes/notebooks/Notebook/notebookNodeStalenessLogic'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
+import { NotebookCellOutputHeader } from './components/NotebookCellOutputHeader'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
 import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamBanner'
 import { NotebookStaleCellBanner } from './components/NotebookStaleCellBanner'
@@ -95,6 +96,9 @@ const Component = ({
         : (result?.has_more ?? (result?.first_page ?? []).length >= SQL_V2_DEFAULT_PAGE_SIZE)
 
     const hasStreamOutput = !!(result?.stdout || result?.stderr || result?.media?.length)
+    // Only results get the strip. A run that failed shows a traceback, which "Results" mislabels,
+    // and a cell that never ran keeps the plain hint.
+    const hasOutput = hasStreamOutput || !!dataframeResult
 
     // Grow a still-too-short node to fit the output each run lands, so it's readable without a
     // manual resize. Sized to what came back — a printed value stays compact, a table or figure
@@ -129,16 +133,16 @@ const Component = ({
     return (
         <div data-attr="notebook-node-python-v2" className="flex h-full min-h-0 flex-col">
             <div
-                className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto"
+                className="flex min-h-0 flex-1 flex-col overflow-y-auto"
                 onMouseDown={(event) => event.stopPropagation()}
                 onDragStart={(event) => event.stopPropagation()}
             >
                 {isStale ? (
-                    <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
+                    <div className="shrink-0 pb-2" onClick={(event) => event.stopPropagation()}>
                         <NotebookStaleCellBanner />
                     </div>
                 ) : staleDownstreamCount > 0 && !isChainRunning ? (
-                    <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
+                    <div className="shrink-0 pb-2" onClick={(event) => event.stopPropagation()}>
                         <NotebookRunDownstreamBanner
                             count={staleDownstreamCount}
                             onRun={() => runStaleChain(notebookLogic.values.content ?? null, nodeId)}
@@ -147,10 +151,11 @@ const Component = ({
                     </div>
                 ) : null}
                 {isRunning && pendingKernelStart ? (
-                    <div className="shrink-0 px-2 pt-1 text-xs text-muted">Starting compute sandbox…</div>
+                    <div className="shrink-0 px-2 pt-1 pb-2 text-xs text-muted">Starting compute sandbox…</div>
                 ) : null}
+                {hasOutput ? <NotebookCellOutputHeader>Results</NotebookCellOutputHeader> : null}
                 {hasStreamOutput ? (
-                    <div className="shrink-0 space-y-2 px-2 pt-1" onClick={(event) => event.stopPropagation()}>
+                    <div className="shrink-0 space-y-2 px-2 py-2" onClick={(event) => event.stopPropagation()}>
                         {result?.stdout ? (
                             <pre className="text-xs font-mono whitespace-pre-wrap select-text m-0">{result.stdout}</pre>
                         ) : null}
