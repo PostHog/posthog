@@ -1,19 +1,15 @@
 export type OnboardingStep =
-  | "welcome"
   | "project-select"
-  | "invite-code"
+  | "consent"
   | "connect-github"
   | "install-cli"
-  | "import-config"
   | "select-repo";
 
 export const ONBOARDING_STEPS: OnboardingStep[] = [
-  "welcome",
   "project-select",
-  "invite-code",
+  "consent",
   "connect-github",
   "install-cli",
-  "import-config",
   "select-repo",
 ];
 
@@ -25,13 +21,26 @@ export interface DetectedRepo {
   branch?: string;
 }
 
-export function computeActiveSteps(
-  hasCodeAccess: boolean | null | undefined,
-  hasImportableConfig: boolean,
-): OnboardingStep[] {
+export function computeActiveSteps(options: {
+  /** Undefined while the integrations query is loading; the step only drops on a confirmed connection. */
+  hasGithubIntegration: boolean | undefined;
+  /** Undefined while the local git and gh checks are loading. */
+  cliReady: boolean | undefined;
+  /** Undefined until the project list has loaded, so a slow list cannot skip a real choice. */
+  projectCount: number | undefined;
+  consentRequired: boolean | undefined;
+}): OnboardingStep[] {
   return ONBOARDING_STEPS.filter((step) => {
-    if (step === "invite-code" && hasCodeAccess === true) return false;
-    if (step === "import-config" && !hasImportableConfig) return false;
+    if (step === "project-select" && options.projectCount === 1) return false;
+    if (step === "consent" && options.consentRequired === false) return false;
+    // Two independent reasons to skip: a GitHub integration means tasks run in
+    // the cloud, and a ready local toolchain leaves the step nothing to offer.
+    if (
+      step === "install-cli" &&
+      (options.hasGithubIntegration === true || options.cliReady === true)
+    ) {
+      return false;
+    }
     return true;
   });
 }
@@ -50,7 +59,7 @@ export function stepIndexOf(
  * user was moving forward — and falls back to the closest earlier one, so a
  * vanishing step never resets progress to the start of the flow. Returns
  * `step` unchanged when it is still active, or when `activeSteps` is empty
- * (degenerate input: the flow always keeps at least the welcome step).
+ * (degenerate input: the flow always keeps at least the select-repo step).
  */
 export function nearestActiveStep(
   activeSteps: OnboardingStep[],

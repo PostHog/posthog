@@ -58,7 +58,7 @@ const BillingSpendGetSchema = BillingSpendRetrieveQueryParams.extend({
         "End date (YYYY-MM-DD), inclusive. Pass this whenever start_date is set; use today's date if the user did not name one."
     ),
     team_ids: BillingSpendRetrieveQueryParams.shape['team_ids'].describe(
-        'JSON-encoded array of numeric team (project) IDs to filter by, NOT a comma-separated string. Pass as e.g. `[1,2]`. Omit for all teams in the org.'
+        "JSON-encoded array of numeric team (project) IDs to filter by, NOT a comma-separated string. Pass as e.g. `[1,2]`. Omit for every project this request can see: all org teams for full billing-access callers, or the member's visible/project-scoped teams for member read-only callers."
     ),
     usage_types: BillingSpendRetrieveQueryParams.shape['usage_types'].describe(
         'JSON-encoded array of usage type identifiers to filter on, NOT a comma-separated string. Pass as e.g. `["event_count_in_period"]` or `["event_count_in_period","recording_count_in_period"]`. Omit for all usage types.'
@@ -106,7 +106,7 @@ const BillingUsageGetSchema = BillingUsageRetrieveQueryParams.extend({
         "End date (YYYY-MM-DD), inclusive. Pass this whenever start_date is set; use today's date if the user did not name one."
     ),
     team_ids: BillingUsageRetrieveQueryParams.shape['team_ids'].describe(
-        'JSON-encoded array of numeric team (project) IDs to filter by, NOT a comma-separated string. Pass as e.g. `[1,2]`. Omit for all teams in the org.'
+        "JSON-encoded array of numeric team (project) IDs to filter by, NOT a comma-separated string. Pass as e.g. `[1,2]`. Omit for every project this request can see: all org teams for full billing-access callers, or the member's visible/project-scoped teams for member read-only callers."
     ),
     usage_types: BillingUsageRetrieveQueryParams.shape['usage_types'].describe(
         'JSON-encoded array of usage type identifiers to filter on, NOT a comma-separated string. Pass as e.g. `["event_count_in_period"]` or `["event_count_in_period","recording_count_in_period"]`. Omit for all usage types.'

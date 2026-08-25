@@ -13,7 +13,7 @@ from products.tasks.backend.exceptions import RepositoryCloneError
 from products.tasks.backend.logic.services.docker_sandbox import DockerSandbox
 from products.tasks.backend.logic.services.sandbox import ExecutionResult, Sandbox
 from products.tasks.backend.models import Task
-from products.tasks.backend.temporal.metrics import modal_sandbox_backend_label
+from products.tasks.backend.temporal.metrics import modal_sandbox_backend_label, resume_mode_label
 from products.tasks.backend.temporal.process_task.activities import provision_sandbox as provision_sandbox_module
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.provision_sandbox import (
@@ -140,6 +140,19 @@ def test_modal_sandbox_backend_label(monkeypatch: pytest.MonkeyPatch, value: str
         monkeypatch.setenv("MODAL_SANDBOX_V2", value)
 
     assert modal_sandbox_backend_label() == expected
+
+
+@pytest.mark.parametrize(
+    ("handoff_resumed", "using_modal_snapshot", "expected"),
+    [
+        (True, False, "handoff"),
+        (True, True, "handoff_and_snapshot"),
+        (False, True, "snapshot_only"),
+        (False, False, "neither"),
+    ],
+)
+def test_resume_mode_label(handoff_resumed: bool, using_modal_snapshot: bool, expected: str) -> None:
+    assert resume_mode_label(handoff_resumed=handoff_resumed, using_modal_snapshot=using_modal_snapshot) == expected
 
 
 @pytest.mark.asyncio

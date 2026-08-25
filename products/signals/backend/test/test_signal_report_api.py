@@ -34,11 +34,14 @@ from products.signals.backend.implementation_pr import (
     fetch_implementation_pr_state_for_reports,
     fetch_implementation_pr_urls_for_reports,
 )
-from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportCanvas, SignalReportTask
+from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportTask
 from products.signals.backend.signal_metadata import ReportSignalMeta
 from products.signals.backend.task_run_artefacts import (
     TASK_RUN_TYPE_DISCUSSION,
     TASK_RUN_TYPE_IMPLEMENTATION,
+    TASK_RUN_TYPE_REPO_SELECTION,
+    TASK_RUN_TYPE_RESEARCH,
+    TASK_RUN_TYPE_SCOUT,
     append_task_run_artefact,
     record_implementation_task,
     record_report_task,
@@ -586,6 +589,7 @@ class TestSignalReportListAPI(APIBaseTest):
         pr_url: str | None = None,
         output: dict | None = None,
         relationship: str = TASK_RUN_TYPE_IMPLEMENTATION,
+        state: dict | None = None,
     ) -> "tuple[Task, TaskRun]":
         Task = apps.get_model("tasks", "Task")
         TaskRun = apps.get_model("tasks", "TaskRun")
@@ -607,6 +611,7 @@ class TestSignalReportListAPI(APIBaseTest):
             task=task,
             status=TaskRun.Status.COMPLETED,
             output=run_output,
+            state=state or {},
         )
         return task, run
 
@@ -618,31 +623,6 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         row = next(r for r in response.json()["results"] if r["id"] == str(report.id))
         assert row["implementation_pr_url"] == "https://github.com/org/repo/pull/42"
-
-    def test_report_includes_its_canvas_session(self):
-        report = self._create_report()
-        canvas_id = uuid.uuid4()
-        discussion_task_id = uuid.uuid4()
-        SignalReportCanvas.objects.create(
-            team=self.team,
-            report=report,
-            canvas_id=canvas_id,
-            discussion_task_id=discussion_task_id,
-            generation_status=SignalReportCanvas.GenerationStatus.GENERATING,
-        )
-
-        response = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/")
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["canvas_session"] == {
-            "canvas_id": str(canvas_id),
-            "discussion_task_id": str(discussion_task_id),
-            "generation_task_id": None,
-            "generation_status": "generating",
-            "collaboration_mode": "managed",
-            "failure_reason": "",
-            "updated_at": response.json()["canvas_session"]["updated_at"],
-        }
 
     def test_retrieve_implementation_pr_url_present_when_task_has_pr(self):
         report = self._create_report()
@@ -703,6 +683,51 @@ class TestSignalReportListAPI(APIBaseTest):
         row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
 
         assert row["implementation_pr_url"] == expected_url
+
+    @parameterized.expand(
+        [
+            ("research", TASK_RUN_TYPE_RESEARCH, "research"),
+            ("repo_selection", TASK_RUN_TYPE_REPO_SELECTION, "repo_selection"),
+            ("scout", TASK_RUN_TYPE_SCOUT, "scout:some-skill"),
+        ]
+    )
+    def test_implementation_pr_url_ignores_pr_recorded_on_non_code_run(self, _name, relationship, ai_stage):
+        # A research run checks GitHub for in-flight work and the agent-server can record a PR it
+        # merely read as the run's own. That must never surface as the report's PR, on the list, the
+        # detail view, or the "has PR" filter the Pull requests tab counts.
+        report = self._create_report()
+        self._create_implementation_task_with_run(
+            report,
+            pr_url="https://github.com/o/r/pull/99",
+            relationship=relationship,
+            state={"ai_stage": ai_stage},
+        )
+
+        row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
+        detail = self.client.get(f"/api/projects/{self.team.id}/signals/reports/{report.id}/").json()
+        with_pr = self.client.get(self._list_url(has_implementation_pr="true")).json()
+
+        assert row["implementation_pr_url"] is None
+        assert detail["implementation_pr_url"] is None
+        assert with_pr["count"] == 0
+
+    def test_implementation_pr_url_prefers_real_pr_over_one_read_by_research(self):
+        report = self._create_report()
+        self._create_implementation_task_with_run(
+            report,
+            pr_url="https://github.com/o/r/pull/99",
+            relationship=TASK_RUN_TYPE_RESEARCH,
+            state={"ai_stage": "research"},
+        )
+        self._create_implementation_task_with_run(
+            report, pr_url="https://github.com/o/r/pull/100", state={"ai_stage": "implementation"}
+        )
+
+        row = next(r for r in self.client.get(self._list_url()).json()["results"] if r["id"] == str(report.id))
+        with_pr = self.client.get(self._list_url(has_implementation_pr="true")).json()
+
+        assert row["implementation_pr_url"] == "https://github.com/o/r/pull/100"
+        assert with_pr["count"] == 1
 
     @parameterized.expand(
         [
@@ -2278,6 +2303,24 @@ class TestSignalReportContentUpdateAPI(APIBaseTest):
         report.refresh_from_db()
         assert report.title == "Just the title"
         assert report.summary == "Original summary"
+
+    def test_rewriting_the_summary_takes_the_suggested_questions_down(self):
+        # The questions were written against the prose the rewrite replaces, so leaving them offers a
+        # reader questions the report no longer answers. The field is read-only on this endpoint, so
+        # nothing else could retract them. A title-only edit leaves the prose, and the questions with it.
+        report = self._create_report()
+        report.suggested_prompts = ["Which teams are affected?"]
+        report.save(update_fields=["suggested_prompts"])
+
+        self.client.patch(self._url(str(report.id)), data={"title": "Just the title"}, format="json")
+        report.refresh_from_db()
+        assert report.suggested_prompts == ["Which teams are affected?"]
+
+        response = self.client.patch(self._url(str(report.id)), data={"summary": "New summary"}, format="json")
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["suggested_prompts"] == []
+        report.refresh_from_db()
+        assert report.suggested_prompts == []
 
     def test_update_summary_trims_whitespace(self):
         report = self._create_report()

@@ -44,10 +44,17 @@ export type HogFunctionMasking = {
     threshold: number | null
 }
 
+export type HogFunctionFilterDataWarehouse = {
+    table_name?: string
+}
+
 export interface HogFunctionFilters {
-    source?: 'events' | 'person-updates' | 'data-warehouse-table' // Special case to identify what kind of thing this filters on
+    source?: 'events' | 'person-updates' | 'data-warehouse-table' | 'data-warehouse-view' // Special case to identify what kind of thing this filters on
     events?: HogFunctionFilterEvent[]
     actions?: HogFunctionFilterAction[]
+    // Warehouse tables this function is subscribed to. Never compiled into bytecode, so the
+    // consumer has to match on it directly.
+    data_warehouse?: HogFunctionFilterDataWarehouse[]
     properties?: Record<string, any>[] // Global property filters that apply to all events
     filter_test_accounts?: boolean
     bytecode?: HogBytecode
@@ -360,6 +367,10 @@ export type CyclotronJobInvocationHogFlow = CyclotronJobInvocation & {
     person?: CyclotronPerson
     groups?: HogFunctionInvocationGlobals['groups']
     filterGlobals: HogFunctionFilterGlobals
+    // Re-reads the person uncached and rebuilds filterGlobals from it. The worker supplies this; a
+    // wait step calls it before its first evaluation, where a stale person parks the run for good.
+    // It returns the values rather than mutating, so it stays correct on a cloned invocation.
+    refreshPerson?: () => Promise<{ person?: CyclotronPerson; filterGlobals: HogFunctionFilterGlobals }>
 }
 
 export type HogFlowInvocationContext = {
@@ -391,6 +402,14 @@ export type HogFlowInvocationContext = {
     currentAction?: {
         id: string
         startedAtTimestamp: number
+        // The instant a delay_until step resolved to when it first parked, as an ISO string. A resumed
+        // invocation rebuilds its filter globals from stored state, which can arrive without the event
+        // properties the expression reads, so re-evaluating on wake is allowed to fail back to this.
+        delayUntilAt?: string
+        // Set when a delay_until step could not work out when to continue. The run aborts on it whatever
+        // on_error says, because "no date" is not an ambiguous failure to carry on from: continuing would
+        // run the next step immediately, which for a "N days before X" message is worse than not sending.
+        delayUntilUnresolved?: boolean
         hogFunctionState?: CyclotronJobInvocationHogFunctionContext
         // Set by the subscription matcher consumer when it wakes a wait_until_condition
         // job because a matching event arrived (as opposed to a scheduled timeout firing).
@@ -469,6 +488,9 @@ export type HogFunctionInputSchemaType = {
         | 'non_failure_status_codes'
         | 'customer_analytics_account_properties'
         | 'customer_analytics_account_relationships'
+        | 'task_model'
+        | 'task_repository'
+        | 'task_mcp_installations'
     key: string
     label?: string
     choices?: { value: string; label: string }[]

@@ -21,6 +21,20 @@ export const TrustTierEnumApi = {
 } as const
 
 /**
+ * One declared variable of a templated skill — the schema a client renders a form from.
+ */
+export interface CommunitySkillTemplateVariableApi {
+    /** Variable identifier, substituted for `{{ name }}` in the skill body. */
+    name: string
+    /** Human-readable question shown when collecting a value for this variable. */
+    prompt: string
+    /** Whether a value must be supplied at install time (otherwise it falls back to the default). */
+    is_required: boolean
+    /** Value used when none is supplied. Empty when the variable has no default. */
+    default: string
+}
+
+/**
  * Arbitrary key-value metadata carried from the skill's frontmatter.
  */
 export type CommunitySkillListApiMetadata = { [key: string]: unknown }
@@ -56,6 +70,8 @@ export interface CommunitySkillListApi {
     readonly author_handle: string
     /** Link to the skill's source directory on GitHub. */
     readonly github_url: string
+    /** Declared template variables, parsed from metadata. Non-empty marks this skill as a template: collect a value for each and pass them as `variables` when installing. */
+    readonly template_variables: readonly CommunitySkillTemplateVariableApi[]
     /** Number of times this skill has been installed into a team. */
     readonly install_count: number
     /** Total number of upvotes this skill has received. */
@@ -124,6 +140,8 @@ export interface CommunitySkillApi {
     readonly github_url: string
     /** Bundled files manifest — path and content_type only. File contents are copied in on install. */
     readonly files: readonly CommunitySkillFileManifestApi[]
+    /** Declared template variables, parsed from metadata. Non-empty marks this skill as a template: collect a value for each and pass them as `variables` when installing. */
+    readonly template_variables: readonly CommunitySkillTemplateVariableApi[]
     /** Number of times this skill has been installed into a team. */
     readonly install_count: number
     /** Total number of upvotes this skill has received. */
@@ -139,12 +157,19 @@ export interface CommunitySkillApi {
     readonly updated_at: string
 }
 
+/**
+ * Values for a template skill's declared variables, as a {name: value} map. Required only when installing a template (see the skill's `template_variables`); ignored for non-template skills.
+ */
+export type CommunitySkillInstallApiVariables = { [key: string]: string }
+
 export interface CommunitySkillInstallApi {
     /**
      * Name for the installed skill in your team. Defaults to the community skill's slug.
      * @maxLength 64
      */
     new_name?: string
+    /** Values for a template skill's declared variables, as a {name: value} map. Required only when installing a template (see the skill's `template_variables`); ignored for non-template skills. */
+    variables?: CommunitySkillInstallApiVariables
 }
 
 /**

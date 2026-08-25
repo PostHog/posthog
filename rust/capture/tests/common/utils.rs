@@ -160,6 +160,7 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     s3_fallback_endpoint: None,
     s3_fallback_prefix: String::new(),
     ai_max_sum_of_parts_bytes: 26_214_400, // 25MB default
+    ai_max_event_bytes: 8_388_608,         // 8MiB default
     ai_gateway_signing_secret: None,
     http1_header_read_timeout_ms: Some(5000), // 5 seconds default
     body_chunk_read_timeout_ms: None,         // disabled by default in tests
@@ -175,6 +176,10 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     capture_ingestion_warnings_kafka_topic: String::new(),
     capture_ingestion_warnings_kafka_hosts: String::new(),
     capture_ingestion_warnings_kafka_tls: false,
+    ai_byte_limit_per_second: 0,
+    ai_byte_limit_overrides_csv: None,
+    ai_byte_limit_dry_run: false,
+    ai_byte_limit_local_cache_max_entries: 300_000,
 });
 
 /// Build the per-sink env snapshot the v1 sink loader expects, with every
@@ -304,7 +309,7 @@ impl ServerHandle {
         let mut config = DEFAULT_CONFIG.clone();
         config.capture_v1_sinks = "msk".to_string();
         config.ai_gateway_signing_secret = Some(secret.to_string());
-        // The gateway tests send `$ai_*` events, which route to the AI topic;
+        // The gateway tests send AI events, which route to the AI topic;
         // point it at the same ephemeral topic so the consumer sees them.
         config.kafka.capture_analytics_ai_events_topic = topic.topic_name().to_string();
         let sink_env = v1_sink_env_for_topic("msk", topic.topic_name());

@@ -53,7 +53,28 @@ hogli devbox:open --vscode   # or --cursor / --web
 hogli devbox:stop            # when done — preserves disk, stops billing
 ```
 
-### 4. Auth, if you want it (optional)
+### 4. Fast QA and agent resume
+
+Before recreating sync, restarting PostHog, or making a new devbox, check whether the existing box is already usable:
+
+```bash
+hogli devbox:status
+hogli devbox:exec -- bash -lc 'cd ~/posthog && git status --short --branch && git rev-parse --short HEAD'
+hogli devbox:sync --status
+hogli devbox:exec -- bash -lc "curl -sf -o /dev/null -w '%{http_code}' http://127.0.0.1:8010/"
+```
+
+Use `-n <name>` on each command for a labeled box. If the forwarded app serves the intended branch/SHA, the target route loads, and route-critical APIs work, keep going and note unrelated degraded units rather than chasing perfect all-process health. When startup time matters, record rough timings for devbox start/resume, sync readiness, first route response, and first target-route load.
+
+For agent-managed startup, `hogli devbox:start --start-app` is the supported path for new/stopped boxes. The flag is sticky and starts the regular PostHog stack in the background. If the box is already running without the app, start it inside the box:
+
+```bash
+hogli devbox:exec -- bash -lc 'cd ~/posthog && ./bin/hogli up -d -y'
+```
+
+Use the target route, route-critical APIs, and process-specific phrocs checks as the readiness gate.
+
+### 5. Auth, if you want it (optional)
 
 To have `gh` or Claude Code authenticated on the box, store the token once as a Coder user secret. It's injected as an env var into every box you start, so you set it once rather than per box:
 
@@ -65,14 +86,14 @@ hogli devbox:secret:set CLAUDE_CODE_OAUTH_TOKEN --env CLAUDE_CODE_OAUTH_TOKEN
 
 Authing `gh` / Claude on a devbox is fine — that's what these are for. Set the value from `--file` or the hidden prompt; never paste a token into a command line or into this conversation. Restart a running box to pick up a newly set secret.
 
-### 5. Make it yours — your call
+### 6. Make it yours — your call
 
 The box is usable as shipped; personalize it however suits you, or not at all. Two supported paths, neither required, don't push one over the other:
 
 - **Tweak the box directly** — `devbox:ssh` in and install tools, add aliases, clone repos. Changes under `/home` survive stop/start and template updates, but a `devbox:destroy` (or a brand-new box) starts fresh.
 - **A dotfiles repo** — if you'd rather keep portable, version-controlled config that re-applies to every box: `hogli devbox:setup --configure-dotfiles` points the box at your `dotfiles_uri`, and Coder clones it (running an executable `~/dotfiles/install.sh` if present) on each start.
 
-### 6. Run commands on the box — `hogli devbox:exec`
+### 7. Run commands on the box — `hogli devbox:exec`
 
 `devbox:exec` runs one command over SSH and propagates its exit code — handy for scripts, agents, and quick checks without opening a shell:
 
@@ -98,6 +119,8 @@ hogli devbox:exec -- bash -lc 'cd ~/posthog && pnpm --filter=@posthog/frontend t
 hogli devbox:sync --status                           # watching / paused / conflicts
 hogli devbox:sync --terminate                        # tear the mirror down when done
 ```
+
+Before relying on sync, verify the remote branch/SHA and `devbox:sync --status`. If the box already matches and sync is watching without source-file conflicts, do not recreate it for cleanliness. Source-file conflicts block reliable QA until resolved; box-local config conflicts such as `.env` can be acceptable when the tracked source is clean.
 
 The non-obvious parts:
 

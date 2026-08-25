@@ -11,11 +11,13 @@ from django.utils import timezone as django_timezone
 
 from parameterized import parameterized
 from temporalio.client import WorkflowExecutionStatus
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models import Organization, Team
 from posthog.models.user import User
 
 from products.tasks.backend.facade.api import (
+    create_and_run_task,
     filter_uncovered_workflow_dispatch_run_ids,
     get_stale_queued_task_run_ids,
     maintain_workflow_dispatch_outbox,
@@ -23,11 +25,13 @@ from products.tasks.backend.facade.api import (
 )
 from products.tasks.backend.logic.services.workflow_dispatch import (
     RestartSnapshot,
+    WorkflowDispatchFlags,
     WorkflowDispatchOptions,
     build_create_payload,
     build_restart_payload,
     create_dispatch,
     dispatch_exceeded_max_age,
+    dispatch_task_processing_workflow,
     mark_dead,
     parse_create_payload,
     parse_restart_payload,
@@ -41,6 +45,7 @@ from products.tasks.backend.management.commands.run_task_workflow_dispatcher imp
 )
 from products.tasks.backend.metrics import WORKFLOW_DISPATCH_ATTEMPT_TOTAL
 from products.tasks.backend.models import Task, TaskRun, TaskWorkflowDispatch
+from products.tasks.backend.temporal.client import execute_task_processing_workflow
 from products.tasks.backend.temporal.process_task.workflow import PendingFollowup
 
 
@@ -80,6 +85,7 @@ class TestWorkflowDispatchPayload(SimpleTestCase):
             posthog_mcp_scopes="full",
             slack_thread_context={"channel_id": "C1"},
             prewarmed=True,
+            skip_user_check=True,
             initial_message=PendingFollowup(
                 message="continue",
                 artifact_ids=["artifact-1"],
@@ -254,6 +260,91 @@ class TestWorkflowDispatchPersistence(TestCase):
 
         self.assertEqual(uncovered, [self.task_run.id])
         increment_missing_intent.assert_not_called()
+
+    @patch("products.tasks.backend.metrics.WORKFLOW_DISPATCH_MISSING_INTENT_TOTAL.inc")
+    @patch("products.tasks.backend.facade.api.is_workflow_dispatch_shadow_enabled", return_value=True)
+    def test_missing_intent_counts_bare_runs_but_not_restart_rollout_gaps(
+        self, _shadow_enabled: Mock, increment_missing_intent: Mock
+    ) -> None:
+        resumed_run = TaskRun.objects.create(
+            task=self.task_run.task, team=self.team, status=TaskRun.Status.QUEUED, state={"handoff_resumed": True}
+        )
+
+        uncovered = filter_uncovered_workflow_dispatch_run_ids([self.task_run.id, resumed_run.id])
+
+        self.assertEqual(uncovered, [self.task_run.id, resumed_run.id])
+        increment_missing_intent.assert_called_once()
+
+    def test_deferred_start_create_and_run_persists_dispatch_marker(self) -> None:
+        creator_id = self.task_run.task.created_by_id
+        assert creator_id is not None
+        created = create_and_run_task(
+            team=self.team,
+            title="Deferred start",
+            description="Created without starting the workflow",
+            origin_product=Task.OriginProduct.SLACK,
+            user_id=creator_id,
+            create_pr=False,
+            mode="interactive",
+            start_workflow=False,
+            posthog_mcp_scopes="full",
+        )
+
+        assert created.latest_run is not None
+        run = TaskRun.objects.get(id=created.latest_run.id)
+        marker = run.state["pending_dispatch"]
+        self.assertFalse(marker["create_pr"])
+        self.assertEqual(marker["posthog_mcp_scopes"], "full")
+
+    @parameterized.expand(
+        [
+            ("already_started_keeps_run_alive", WorkflowAlreadyStartedError("wf", "process-task"), False, "queued"),
+            ("durable_dispatch_leaves_retry_to_dispatcher", RuntimeError("temporal down"), True, "queued"),
+            ("no_durable_dispatch_terminalizes", RuntimeError("temporal down"), False, "failed"),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.sync_connect")
+    def test_sync_start_failure_only_terminalizes_without_durable_dispatch(
+        self, _name: str, error: Exception, durable_dispatch: bool, expected_status: str, connect: Mock
+    ) -> None:
+        connect.side_effect = error
+
+        with self.captureOnCommitCallbacks(execute=True):
+            execute_task_processing_workflow(
+                task_id=str(self.task_run.task_id),
+                run_id=str(self.task_run.id),
+                team_id=self.team.id,
+                durable_dispatch=durable_dispatch,
+            )
+
+        self.task_run.refresh_from_db()
+        self.assertEqual(self.task_run.status, expected_status)
+
+    def test_dispatch_facade_normalizes_slack_context_into_shadow_row(self) -> None:
+        class Context:
+            def to_dict(self) -> dict:
+                return {"channel": "C1", "thread_ts": "123.45"}
+
+        with (
+            patch(
+                "products.tasks.backend.logic.services.workflow_dispatch.evaluate_workflow_dispatch_flags",
+                return_value=WorkflowDispatchFlags(shadow_enabled=True, async_enabled=False),
+            ),
+            patch("products.tasks.backend.temporal.client.execute_task_processing_workflow") as start,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            dispatch_task_processing_workflow(
+                task_id=str(self.task_run.task_id),
+                run_id=str(self.task_run.id),
+                team_id=self.team.id,
+                user_id=self.task_run.task.created_by_id,
+                slack_thread_context=Context(),
+                posthog_mcp_scopes="full",
+            )
+
+        row = TaskWorkflowDispatch.objects.unscoped().get(task_run=self.task_run)
+        self.assertEqual(row.payload["slack_thread_context"], {"channel": "C1", "thread_ts": "123.45"})
+        start.assert_called_once()
 
     def test_reconciler_excludes_covered_runs_at_any_age_unlike_the_killer_view(self) -> None:
         orphan_run = TaskRun.objects.create(task=self.task_run.task, team=self.team, status=TaskRun.Status.QUEUED)

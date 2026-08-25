@@ -96,7 +96,7 @@ export function createSandboxPosthogClient(
 // PostHog backend would otherwise wedge the signed-commit tool indefinitely.
 const REPORT_TIMEOUT_MS = 15_000;
 
-function withReportDeadline<T>(
+export function withReportDeadline<T>(
   work: (signal: AbortSignal) => Promise<T>,
   what: string,
 ): Promise<T> {

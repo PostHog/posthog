@@ -165,6 +165,12 @@ procs:
             tech: Frontend
         # no capability: always_required via intent-map.yaml
 
+    ngrok:
+        shell: 'bin/start-local-ngrok'
+        groups:
+            layer: Application
+            tech: Network
+
     typegen:
         sandbox: true
         shell: 'cd frontend && pnpm run typegen:watch'

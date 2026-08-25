@@ -150,6 +150,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
                 "gpt-5.3-codex",
                 "gpt-5.2",
                 "gpt-5-mini",
+                "gpt-5.6-luna",
                 # ReviewHog sandbox runs route here (no review_hog entry in the agent's
                 # origin→product map), so its reviewer-experiment arms must be allowed.
                 "gpt-5.6-sol",
@@ -243,19 +244,9 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allow_api_keys=True,
     ),
     "signals": ProductConfig(
-        # Dual-accept during the app migration: the PostHog Code ids stay listed until every
-        # region has a Signals application row and its runs mint under it. Dropping them is
-        # what finally makes this product unreachable from a Desktop-app token.
-        allowed_application_ids=frozenset(
-            {
-                POSTHOG_CODE_US_APP_ID,
-                POSTHOG_CODE_EU_APP_ID,
-                POSTHOG_CODE_DEV_APP_ID,
-                SIGNALS_US_APP_ID,
-                SIGNALS_EU_APP_ID,
-                SIGNALS_DEV_APP_ID,
-            }
-        ),
+        # Only the dedicated Signals app: dropping the PostHog Code ids is what finally makes
+        # this product unreachable from a Desktop-app token.
+        allowed_application_ids=frozenset({SIGNALS_US_APP_ID, SIGNALS_EU_APP_ID, SIGNALS_DEV_APP_ID}),
         allowed_models=None,  # any model — the signals pipeline picks models per stage (haiku, sonnet, ...)
         allow_api_keys=True,
         credit_bucket=None,
@@ -436,8 +427,6 @@ INTERNAL_RUN_SCOPE: Final[str] = "internal_run:read"
 # it can't be self-granted. Used to pick the budget, never to grant access.
 INTERACTIVE_RUN_SCOPE: Final[str] = "interactive_run:read"
 
-SIGNALS_PRODUCT: Final[str] = "signals"
-
 # Not a product: no caller can declare it, and it never appears in PRODUCTS. It only names a
 # budget in product_cost_limits / user_cost_limits, resolved from the token by resolve_cost_key.
 SIGNALS_INTERACTIVE_COST_KEY: Final[str] = "signals_interactive"
@@ -510,11 +499,16 @@ def resolve_cost_key(product: str, scopes: list[str] | None) -> str:
     Their volume has different owners — ours and the customer's — so they get separate budgets,
     resolved from the token's own provenance marker rather than from the product the caller
     declared, which a sandbox is free to choose.
+
+    The marker decides alone, without also requiring the declared product to be `signals`: a run
+    whose token still comes from the Array app (the fallback while a region has no Signals app
+    row) can declare `posthog_code` or `background_agents` instead, and pairing the two would let
+    that choice move the run off the interactive budget and out of the per-run spend ceiling.
+    Only interactive Signals runs are ever minted with the scope, so keying on it is sufficient.
     """
-    resolved = resolve_product_alias(product)
-    if resolved == SIGNALS_PRODUCT and INTERACTIVE_RUN_SCOPE in (scopes or []):
+    if INTERACTIVE_RUN_SCOPE in (scopes or []):
         return SIGNALS_INTERACTIVE_COST_KEY
-    return resolved
+    return resolve_product_alias(product)
 
 
 def check_product_access(

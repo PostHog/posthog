@@ -1,4 +1,3 @@
-from posthog import settings
 from posthog.clickhouse.client.connection import NodeRole
 from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 from posthog.clickhouse.property_values import (
@@ -7,8 +6,9 @@ from posthog.clickhouse.property_values import (
     KAFKA_PROPERTY_VALUES_TABLE_SQL_FN,
     PROPERTY_VALUES_MV_SQL,
 )
+from posthog.run_mode import run_mode
 
-if settings.CLOUD_DEPLOYMENT in ("US", "EU", "DEV"):
+if run_mode().is_deployed_cloud:
     _ROLES = [NodeRole.AUX]
 else:
     _ROLES = []

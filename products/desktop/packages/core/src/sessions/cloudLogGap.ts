@@ -19,7 +19,10 @@ export interface CloudLogGapReconcileRequest {
 export interface CloudLogGapDeficiency {
   expectedCount: number;
   observedLineCount: number;
+  stalledPasses: number;
 }
+
+const CLOUD_LOG_GAP_STALLED_PASS_LIMIT = 3;
 
 /**
  * Coalesce a queued reconcile request with a newer one, widening the range to
@@ -81,7 +84,7 @@ export type CloudLogGapAction =
   | {
       kind: "commit-best-effort";
       processedLineCount: number;
-      reason: "parse-failure" | "stable-deficit";
+      reason: "parse-failure" | "no-progress";
     }
   | { kind: "wait"; deficiency: CloudLogGapDeficiency };
 
@@ -102,8 +105,9 @@ export interface CloudLogGapInput {
  * Decide what to do after a reconcile fetch:
  * - `already-current`: the store already caught up; drop any tracked deficit.
  * - `fill`: the fetch covered the gap; commit everything it returned.
- * - `commit-best-effort`: the gap is unrecoverable (parse failure or a stable
- *   repeat of the same deficit); commit what we have and stop looping.
+ * - `commit-best-effort`: the gap is unrecoverable (parse failure, or the
+ *   deficit stopped shrinking across several passes); commit what we have and
+ *   stop looping.
  * - `wait`: still short, but likely lag; record the deficit and retry later.
  */
 export function classifyCloudLogGap(
@@ -125,20 +129,35 @@ export function classifyCloudLogGap(
     return { kind: "fill", processedLineCount: totalLineCount };
   }
 
-  const sameDeficiencyAsBefore =
-    previousDeficiency?.expectedCount === expectedCount &&
-    previousDeficiency?.observedLineCount === totalLineCount;
-
-  if (parseFailureCount > 0 || sameDeficiencyAsBefore) {
+  if (parseFailureCount > 0) {
     return {
       kind: "commit-best-effort",
       processedLineCount: expectedCount,
-      reason: parseFailureCount > 0 ? "parse-failure" : "stable-deficit",
+      reason: "parse-failure",
+    };
+  }
+
+  const stalledPasses =
+    previousDeficiency !== undefined &&
+    expectedCount - totalLineCount >=
+      previousDeficiency.expectedCount - previousDeficiency.observedLineCount
+      ? previousDeficiency.stalledPasses + 1
+      : 0;
+
+  if (stalledPasses >= CLOUD_LOG_GAP_STALLED_PASS_LIMIT) {
+    return {
+      kind: "commit-best-effort",
+      processedLineCount: expectedCount,
+      reason: "no-progress",
     };
   }
 
   return {
     kind: "wait",
-    deficiency: { expectedCount, observedLineCount: totalLineCount },
+    deficiency: {
+      expectedCount,
+      observedLineCount: totalLineCount,
+      stalledPasses,
+    },
   };
 }

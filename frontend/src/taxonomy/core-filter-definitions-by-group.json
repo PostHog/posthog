@@ -3386,22 +3386,6 @@
             "description": "The location of a Touch event on the Y axis",
             "label": "Touch Y"
         },
-        "$transformations_failed": {
-            "description": "The transformations that failed to run on this event during ingestion.",
-            "ignored_in_assistant": true,
-            "label": "Transformations failed",
-            "type": "String"
-        },
-        "$transformations_skipped": {
-            "description": "Array of transformations skipped during ingestion.",
-            "label": "Transformations skipped",
-            "used_for_debug": true
-        },
-        "$transformations_succeeded": {
-            "description": "Array of transformations that succeeded during ingestion.",
-            "label": "Transformations succeeded",
-            "used_for_debug": true
-        },
         "$update_person_last_seen_at": {
             "description": "When set to false, the event will not update the person's last_seen_at timestamp",
             "label": "Update last seen at",
@@ -8331,22 +8315,6 @@
         "$touch_y": {
             "description": "The location of a Touch event on the Y axis",
             "label": "Touch Y"
-        },
-        "$transformations_failed": {
-            "description": "The transformations that failed to run on this event during ingestion.",
-            "ignored_in_assistant": true,
-            "label": "Transformations failed",
-            "type": "String"
-        },
-        "$transformations_skipped": {
-            "description": "Array of transformations skipped during ingestion.",
-            "label": "Transformations skipped",
-            "used_for_debug": true
-        },
-        "$transformations_succeeded": {
-            "description": "Array of transformations that succeeded during ingestion.",
-            "label": "Transformations succeeded",
-            "used_for_debug": true
         },
         "$update_person_last_seen_at": {
             "description": "When set to false, the event will not update the person's last_seen_at timestamp",

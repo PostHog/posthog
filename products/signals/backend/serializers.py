@@ -21,7 +21,6 @@ from .models import (
     AutonomyPriority,
     SignalReport,
     SignalReportArtefact,
-    SignalReportCanvas,
     SignalReportRefund,
     SignalSourceConfig,
     SignalTeamConfig,
@@ -173,6 +172,12 @@ class SignalSourceConfigSerializer(serializers.ModelSerializer):
         return super().create(validated_data)
 
 
+# A team overrides the base branch for a handful of its repos; a map larger than this is abuse,
+# not use. Bounding it caps the per-write activity-log row (which stores the full before/after map)
+# and the request body a caller can push through this field.
+MAX_AUTOSTART_BASE_BRANCH_ENTRIES = 500
+
+
 class SignalTeamConfigSerializer(serializers.ModelSerializer):
     autostart_base_branches = serializers.DictField(
         child=serializers.CharField(max_length=255, allow_blank=True),
@@ -264,9 +269,18 @@ class SignalTeamConfigSerializer(serializers.ModelSerializer):
         }
 
     def validate_autostart_base_branches(self, value: dict) -> dict:
+        if len(value) > MAX_AUTOSTART_BASE_BRANCH_ENTRIES:
+            raise serializers.ValidationError(
+                f"Too many repository overrides ({len(value)}); the maximum is {MAX_AUTOSTART_BASE_BRANCH_ENTRIES}."
+            )
         cleaned: dict[str, str] = {}
         for repo, branch in value.items():
             repo_key = (repo or "").strip()
+            # Bound the key too — the DictField child only caps the branch value, so an
+            # oversized key would otherwise slip a large string into the stored map and its
+            # activity-log copy.
+            if len(repo_key) > 255:
+                raise serializers.ValidationError("Repository keys must be at most 255 characters.")
             if repo_key.count("/") != 1 or any(not part for part in repo_key.split("/")):
                 raise serializers.ValidationError(
                     f"Repository keys must be in 'organization/repository' form, got '{repo}'."
@@ -461,21 +475,6 @@ class ReportChartSerializer(serializers.Serializer):
     )
 
 
-class SignalReportCanvasSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = SignalReportCanvas
-        fields = [
-            "canvas_id",
-            "discussion_task_id",
-            "generation_task_id",
-            "generation_status",
-            "collaboration_mode",
-            "failure_reason",
-            "updated_at",
-        ]
-        read_only_fields = fields
-
-
 class SignalReportSerializer(serializers.ModelSerializer):
     artefact_count = serializers.IntegerField(read_only=True)
     charts = ReportChartSerializer(
@@ -486,10 +485,13 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "`[label](chart:<chart_id>)` link; the rest render below it."
         ),
     )
-    canvas_session = SignalReportCanvasSerializer(
+    suggested_prompts = serializers.ListField(
+        child=serializers.CharField(),
         read_only=True,
-        allow_null=True,
-        help_text="The persistent canvas and shared discussion created for this report, when available.",
+        help_text=(
+            "Follow-up questions the report's author suggests asking about it, in the order they were "
+            "written. The inbox offers them above the `Ask AI` box; clicking one fills the box with it."
+        ),
     )
     refund_ineligibility_reason = serializers.SerializerMethodField(
         help_text=(
@@ -551,7 +553,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "updated_at",
             "artefact_count",
             "charts",
-            "canvas_session",
+            "suggested_prompts",
             "priority",
             "actionability",
             "already_addressed",

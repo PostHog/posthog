@@ -1,9 +1,9 @@
-//! Endpoint-level coverage for `$ai_*` routing on analytics deployments:
+//! Endpoint-level coverage for AI event routing on analytics deployments:
 //! HTTP request -> router state -> `process_events` -> sink. The pipeline
 //! tests in `events::analytics` exercise `process_events` directly, so they
 //! cannot catch a regression in the router wiring (capture mode /
 //! `ai_events_overflow_enabled` not reaching the pipeline) or in the
-//! endpoint-level batch handling of mixed `$ai_*` / non-AI payloads.
+//! endpoint-level batch handling of mixed AI / non-AI payloads.
 
 #[path = "common/integration_utils.rs"]
 mod integration_utils;
@@ -128,12 +128,14 @@ fn setup_router_for_mode(
         false,
         0.0_f32,
         26_214_400,
+        983_040, // ai_max_event_bytes (960KB, the previous hardcoded limit)
         None,
         256,              // body_read_chunk_size_kb
         10 * 1024 * 1024, // capture_v1_max_compressed_body_bytes
         50 * 1024 * 1024, // capture_v1_max_decompressed_body_bytes
         overflow_limiter,
         ai_events_overflow_limiter,
+        None, // ai_byte_rate_limiter
         None, // replay_overflow_limiter
         None, // v1_sink_router
         8,    // capture_v1_scatter_gather_min_batch
@@ -156,6 +158,27 @@ fn mixed_batch_payload() -> String {
             },
             {
                 "event": "$pageview",
+                "distinct_id": DISTINCT_ID,
+                "properties": {}
+            }
+        ]
+    })
+    .to_string()
+}
+
+// Two allowlisted AI event names. capture-ai rejects a batch carrying anything
+// else, so its lane-assignment coverage has to use an all-AI batch.
+fn ai_only_batch_payload() -> String {
+    json!({
+        "api_key": TOKEN,
+        "batch": [
+            {
+                "event": "$ai_generation",
+                "distinct_id": DISTINCT_ID,
+                "properties": {"$ai_model": "gpt-4"}
+            },
+            {
+                "event": "$ai_span",
                 "distinct_id": DISTINCT_ID,
                 "properties": {}
             }
@@ -243,7 +266,7 @@ async fn legacy_routes_strip_forged_gateway_properties(#[case] path: &str) {
     assert!(data["properties"].get("$ai_gateway_request_id").is_none());
 }
 
-/// A mixed batch must split lanes: `$ai_*` events divert to the AI lane on
+/// A mixed batch must split lanes: AI events divert to the AI lane on
 /// analytics deployments, and the `$pageview` stays on the analytics lane.
 /// The valve-armed case pins down that the overflow valve alone does not
 /// change lane assignment.
@@ -277,28 +300,58 @@ async fn mixed_batch_diverts_only_ai_events(#[case] ai_events_overflow_enabled: 
     assert_eq!(pageview.metadata.data_type, DataType::AnalyticsMain);
 }
 
-/// Ai-mode deployments don't divert: their main topic is already the AI
-/// topic, so `$ai_*` events stay on the analytics lane alongside everything
-/// else. Pins the no-divert path end-to-end; the `routes_ai_events()` unit
-/// test alone can't catch the router failing to thread the mode into the
-/// pipeline.
+/// Capture mode does not change lane assignment: an Ai-mode deployment stamps
+/// `AiEvents` exactly like an analytics one. Pins the invariant end-to-end, so
+/// a deployment can never silently rejoin AI events to the analytics lane and
+/// slip past every AI-lane gate (byte limiter, ai restrictions, AI overflow).
+///
+/// The batch is all-AI because capture-ai refuses anything else; the mixed-batch
+/// half of the old version of this test now lives below.
 #[tokio::test]
-async fn ai_mode_keeps_ai_events_on_the_analytics_lane() {
+async fn ai_mode_diverts_ai_events_like_every_other_mode() {
     let (router, sink) = setup_router_for_mode(CaptureMode::Ai, false, None, None);
     let client = TestClient::new(router);
 
-    post_batch(&client, mixed_batch_payload()).await;
+    let response = client
+        .post("/i/v0/ai/batch")
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .body(ai_only_batch_payload())
+        .send()
+        .await;
+    assert_eq!(response.status(), StatusCode::OK);
 
     let events = sink.get_events().await;
     assert_eq!(events.len(), 2);
-    for event in &events {
-        assert_eq!(
-            event.metadata.data_type,
-            DataType::AnalyticsMain,
-            "no event may divert on an Ai-mode deployment ({})",
-            event.metadata.event_name,
-        );
-    }
+    assert!(
+        events
+            .iter()
+            .all(|e| e.metadata.data_type == DataType::AiEvents),
+        "every allowlisted AI event must land on the AI lane under Ai mode"
+    );
+}
+
+/// The endpoint-level half of the AI-lane gate. The unit tests in
+/// `events::analytics` call `process_events` directly, so only this proves the
+/// rejection is reachable through the router and surfaces as a 400.
+#[tokio::test]
+async fn ai_mode_rejects_a_mixed_batch_through_the_endpoint() {
+    let (router, sink) = setup_router_for_mode(CaptureMode::Ai, false, None, None);
+    let client = TestClient::new(router);
+
+    let response = client
+        .post("/i/v0/ai/batch")
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .body(mixed_batch_payload())
+        .send()
+        .await;
+
+    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    assert!(
+        sink.get_events().await.is_empty(),
+        "rejecting the batch must not publish the AI event ahead of the offender"
+    );
 }
 
 fn force_keyed_limiter() -> Arc<OverflowLimiter> {
@@ -312,7 +365,7 @@ fn force_keyed_limiter() -> Arc<OverflowLimiter> {
 }
 
 /// With `secondary` routing, a force-limited key on the AI limiter
-/// overflow-stamps the diverted `$ai_*` event only when the AI overflow
+/// overflow-stamps the diverted AI event only when the AI overflow
 /// valve is armed (setup wires the AI limiter exactly then, so the test
 /// mirrors that coupling), while the `$pageview` on the same hot key
 /// (force-limited on the analytics limiter) stamps in both cases (the
@@ -360,7 +413,7 @@ async fn ai_lane_overflow_stamping_gated_on_valve(
 
 /// The two lanes consult separate limiter instances end-to-end: a key that
 /// the analytics limiter force-routes must not drag the same key's diverted
-/// `$ai_*` event into AI overflow (and the pageview must still stamp).
+/// AI event into AI overflow (and the pageview must still stamp).
 /// Catches the router wiring one limiter instance into both slots.
 #[tokio::test]
 async fn ai_lane_overflow_isolated_from_analytics_limiter() {
@@ -404,7 +457,7 @@ async fn ai_lane_overflow_isolated_from_analytics_limiter() {
 }
 
 /// Import mode's no-overflow guarantee, end-to-end on the legacy path. Non-AI
-/// events in a historical batch land on `AnalyticsHistorical`; `$ai_*` events
+/// events in a historical batch land on `AnalyticsHistorical`; AI events
 /// divert to the AI lane (only the AI lane has AI processing, so imports must
 /// divert too). With the AI overflow valve unset — the capture-import config —
 /// neither lane can stamp overflow, even with the overflow limiter force-keyed

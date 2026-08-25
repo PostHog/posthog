@@ -7,11 +7,15 @@ from pathlib import Path
 
 import pytest
 
-from hogli_commands.product import gh as gh_module
+from hogli_commands.product import (
+    checks as checks_module,
+    gh as gh_module,
+)
 from hogli_commands.product.checks import (
     BackendPackageMarkerCheck,
     CheckContext,
     FileFolderConflictsCheck,
+    ImportSurfaceCheck,
     IsolationChainCheck,
     OrphanedTestFilesCheck,
     PackageJsonScriptsCheck,
@@ -302,7 +306,7 @@ _NARROWED_TURBO = {
     "extends": ["//"],
     "tasks": {
         "backend:contract-check": {
-            "inputs": ["backend/facade/**", "backend/presentation/**"],
+            "inputs": ["backend/facade/**", "backend/presentation/**", "backend/migrations/**"],
             "outputs": [],
             "cache": True,
         }
@@ -313,7 +317,7 @@ _NARROWED_TURBO_WITH_ROUTES = {
     "extends": ["//"],
     "tasks": {
         "backend:contract-check": {
-            "inputs": ["backend/facade/**", "backend/presentation/**", "backend/routes.py"],
+            "inputs": ["backend/facade/**", "backend/presentation/**", "backend/routes.py", "backend/migrations/**"],
             "outputs": [],
             "cache": True,
         }
@@ -1039,6 +1043,73 @@ def _make_backend(tmp_path: Path, files: list[str]) -> CheckContext:
     )
 
 
+class TestImportSurfaceCheck:
+    """The AST twin of the two import-linter contracts. Its reason to exist is the namespace
+    package: grimp cannot see a module under a directory without __init__.py, so a routed
+    view there passes the contract vacuously. None of the fixtures below carry a marker."""
+
+    def _ctx(
+        self, tmp_path: Path, files: dict[str, str], monkeypatch: pytest.MonkeyPatch, ignored=None
+    ) -> CheckContext:
+        ctx = _make_backend(tmp_path, list(files))
+        for path, content in files.items():
+            (ctx.backend_dir / path).write_text(content)
+        monkeypatch.setattr(checks_module, "ignored_import_edges", lambda: set(ignored or ()))
+        return ctx
+
+    @pytest.mark.parametrize(
+        "files, expected",
+        [
+            pytest.param(
+                {"routes.py": "from products.p.backend.presentation.views import V\n", "presentation/views.py": ""},
+                0,
+                id="routes_from_presentation",
+            ),
+            pytest.param(
+                {"routes.py": "from products.p.backend.services.views import V\n", "services/views.py": ""},
+                1,
+                id="routes_from_unmarked_package",
+            ),
+            pytest.param(
+                {"routes.py": "import products.p.backend.api as api\n", "api/__init__.py": ""},
+                1,
+                id="routes_plain_import",
+            ),
+            pytest.param(
+                {"presentation/views.py": "from products.p.backend.facade.api import f\n", "facade/api.py": ""},
+                0,
+                id="presentation_from_facade",
+            ),
+            pytest.param(
+                {"presentation/views.py": "from products.p.backend.services import thing\n", "services/thing.py": ""},
+                1,
+                id="presentation_from_unmarked_package",
+            ),
+            pytest.param(
+                {"presentation/views.py": "from products.p.backend import models\n", "models.py": ""},
+                1,
+                id="presentation_from_backend_root",
+            ),
+            pytest.param(
+                {"presentation/views.py": "from products.other.backend.models import M\n"},
+                0,
+                id="cross_product_is_tachs_job",
+            ),
+        ],
+    )
+    def test_surface(
+        self, tmp_path: Path, files: dict[str, str], expected: int, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        result = ImportSurfaceCheck().run(self._ctx(tmp_path, files, monkeypatch))
+        assert len(result.issues) == expected
+
+    def test_deferral_in_pyproject_is_honored(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        files = {"routes.py": "from products.p.backend.api import V\n", "api/__init__.py": ""}
+        edge = "products.p.backend.routes -> products.p.backend.api"
+        ctx = self._ctx(tmp_path, files, monkeypatch, ignored={edge})
+        assert ImportSurfaceCheck().run(ctx).issues == []
+
+
 class TestFileFolderConflictsCheck:
     def test_skip_when_no_backend(self, tmp_path: Path) -> None:
         product_dir = tmp_path / "p"
@@ -1477,6 +1548,16 @@ ignore_imports = [
     "products.logs.backend.presentation.views.alerts_api -> products.logs.backend.models",
     "products.tracing.backend.presentation.views -> products.tracing.backend.logic",
 ]
+
+[[tool.importlinter.contracts]]
+name = "routes must only import presentation"
+type = "forbidden"
+source_modules = ["products.*.backend.routes"]
+forbidden_modules = ["products.*.backend"]
+ignore_imports = [
+    "products.**.backend.routes -> products.**.backend.presentation.**",
+    "products.tracing.backend.routes -> products.tracing.backend.api",
+]
 """
 
 
@@ -1484,7 +1565,7 @@ ignore_imports = [
     "name,expected",
     [
         ("logs", 2),
-        ("tracing", 1),
+        ("tracing", 2),  # one presentation bypass + one routes -> backend/api/ deferral
         ("wizard", 0),
     ],
 )
@@ -1740,8 +1821,39 @@ class TestWatchedModelsAllowance:
     def test_chain_check_blocks_when_surface_omitted(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         ctx = self._allowance_ctx(tmp_path, monkeypatch, ["backend/facade/**", "backend/models/**"])
         result = chain_check.run(ctx)
-        assert any("watched-models surface" in i and "backend/migrations/" in i for i in result.issues)
+        assert any("model surface" in i and "backend/migrations/" in i for i in result.issues)
         assert result.file == "products/my_product/turbo.json"
+
+    def _narrowed_ctx(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, turbo_inputs: list[str]) -> CheckContext:
+        # a narrowed product with models but no allowance entry: the surface must still be watched
+        _seal_externally(monkeypatch)
+        ctx = _make_product(tmp_path, scripts=_WITH_SCRIPT, isolated=True)
+        (ctx.backend_dir / "models.py").write_text("class Table:\n    pass\n")
+        (ctx.backend_dir / "migrations").mkdir()
+        (ctx.product_dir / "turbo.json").write_text(
+            json.dumps({"tasks": {"backend:contract-check": {"inputs": turbo_inputs}}})
+        )
+        return ctx
+
+    @pytest.mark.parametrize(
+        "turbo_inputs, expected_uncovered",
+        [
+            (["backend/facade/**"], ["backend/migrations/", "backend/models.py"]),
+            (["backend/facade/**", "backend/models.py"], ["backend/migrations/"]),
+            (["backend/facade/**", "backend/models.py", "backend/migrations/**"], []),
+        ],
+    )
+    def test_chain_check_requires_the_model_surface_without_an_allowance(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, turbo_inputs: list[str], expected_uncovered: list[str]
+    ) -> None:
+        ctx = self._narrowed_ctx(tmp_path, monkeypatch, turbo_inputs)
+        result = chain_check.run(ctx)
+        surface_issues = [i for i in result.issues if "model surface" in i]
+        if not expected_uncovered:
+            assert surface_issues == []
+            return
+        assert len(surface_issues) == 1
+        assert all(location in surface_issues[0] for location in expected_uncovered)
 
 
 class TestUnwatchedGarages:
@@ -1795,6 +1907,8 @@ class TestNarrowedTurboWiringSurface:
         "inputs, expected",
         [
             (["backend/facade/**", "backend/models/tcac.py"], set()),  # covered
+            (["backend/facade/**", "backend/models/**"], set()),  # a dir glob covers the file inside it
+            (["backend/facade/**", "backend/models_extra/**"], {"backend/models/tcac.py"}),  # sibling dir doesn't
             (["backend/facade/**"], {"backend/models/tcac.py"}),  # missing -> uncovered
         ],
     )

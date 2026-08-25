@@ -48,6 +48,15 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "context": "CRM associations for the call — linked objects (e.g. Salesforce/HubSpot Account, Opportunity, Contact) and their field values.",
         },
     },
+    "transcripts": {
+        "description": "The transcript of a recorded Gong call — what each speaker said, grouped into monologues and sentences.",
+        "docs_url": "https://gong.app.gong.io/settings/api/documentation#post-/v2/calls/transcript",
+        "columns": {
+            "callId": "Identifier of the call this transcript belongs to. Joins to `calls.id`.",
+            "started": "Time at which the call started (ISO 8601), taken from the call this transcript belongs to.",
+            "transcript": "The transcript itself — a list of monologues, each with the `speakerId` who spoke, the `topic` under discussion, and the `sentences` said (`text` plus `start` and `end` offsets in milliseconds from the beginning of the call).",
+        },
+    },
     "users": {
         "description": "A Gong user (team member whose calls and activity are tracked).",
         "docs_url": "https://gong.app.gong.io/settings/api/documentation#get-/v2/users",

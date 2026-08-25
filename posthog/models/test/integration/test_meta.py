@@ -28,9 +28,9 @@ class TestInstagramIntegrationModel(BaseTest):
         # Instagram is reached through the Facebook page it is linked to, so the page scopes
         # are as load-bearing as the Instagram ones.
         assert set(config.scope.split(" ")) == {
-            "instagram_business_basic",
-            "instagram_business_manage_insights",
-            "instagram_business_manage_comments",
+            "instagram_basic",
+            "instagram_manage_insights",
+            "instagram_manage_comments",
             "pages_show_list",
             "pages_read_engagement",
         }

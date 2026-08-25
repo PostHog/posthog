@@ -57,6 +57,9 @@ class DemoFreeChannel:
     signup_rate: float = 0.03
     purchase_rate: float = 0.008
     utm_source_variants: dict[str, float] = field(default_factory=dict)
+    # Same unprefixed name the SDK writes, as on DemoCampaign. Emitted per person, so a
+    # channel can carry a click id without carrying any UTM at all.
+    click_id_property: str | None = None
     extra_properties: dict[str, str] = field(default_factory=dict)
     scenario: str = ""
 
@@ -373,23 +376,6 @@ CAMPAIGNS: tuple[DemoCampaign, ...] = (
         purchase_rate=0.01,
         scenario="Reddit: micros + cents formats",
     ),
-    # --- Pinterest Ads (total_impression / spend_in_dollar columns) ---
-    DemoCampaign(
-        platform="PinterestAds",
-        campaign_id="2001",
-        name="pin_inspiration",
-        daily_cost=22.0,
-        daily_impressions=8800,
-        daily_clicks=95,
-        daily_sessions=14,
-        utm_source="pinterest",
-        utm_campaign="pin_inspiration",
-        utm_medium="paid-social",
-        referring_domain="pinterest.com",
-        signup_rate=0.04,
-        purchase_rate=0.012,
-        scenario="Pinterest: dollar spend + micro-dollar checkout value",
-    ),
     # --- Snapchat Ads (swipes as clicks, spend in micros; source in error state) ---
     DemoCampaign(
         platform="SnapchatAds",
@@ -657,6 +643,20 @@ FREE_CHANNELS: tuple[DemoFreeChannel, ...] = (
         purchase_rate=0.005,
         scenario="Organic page posts under an alias of Meta Ads",
     ),
+    # Pinterest is unconnected and its traffic is entirely organic, so the paid gate has
+    # positive evidence and connect_source stays silent. Reddit is the mirror: also
+    # unconnected, but its campaign is paid, so there the suggestion is right.
+    DemoFreeChannel(
+        key="pinterest_organic",
+        daily_sessions=14,
+        referring_domain="pinterest.com",
+        utm_source="pinterest",
+        utm_medium="social",
+        utm_campaign="pin_inspiration",
+        signup_rate=0.04,
+        purchase_rate=0.012,
+        scenario="Unconnected platform with organic-only traffic: connect_source suppressed",
+    ),
     DemoFreeChannel(
         key="youtube_kol",
         daily_sessions=10,
@@ -680,20 +680,39 @@ FREE_CHANNELS: tuple[DemoFreeChannel, ...] = (
         extra_properties={"gad_source": "1"},
         scenario="Paid traffic carrying gad_source and no utm_medium",
     ),
+    # The three gate cases below carry no utm_source, so each one isolates a single
+    # branch of the touchpoint rule. Without them the rule's negative half is
+    # untestable against demo data: every tagged pageview names a source.
+    DemoFreeChannel(
+        key="google_clickid_only",
+        daily_sessions=11,
+        referring_domain="google.com",
+        click_id_property="gclid",
+        signup_rate=0.06,
+        purchase_rate=0.014,
+        scenario="Paid click with the UTMs stripped: a gclid is the only evidence",
+    ),
+    DemoFreeChannel(
+        key="meta_fbclid_only",
+        daily_sessions=16,
+        referring_domain="facebook.com",
+        click_id_property="fbclid",
+        signup_rate=0.03,
+        purchase_rate=0.006,
+        scenario="fbclid rides on organic Facebook links too, so it must not qualify alone",
+    ),
+    DemoFreeChannel(
+        key="campaign_only_orphan",
+        daily_sessions=9,
+        referring_domain="",
+        utm_campaign="orphan_campaign",
+        signup_rate=0.03,
+        purchase_rate=0.006,
+        scenario="utm_campaign with nothing naming the source: stays excluded",
+    ),
 )
 
 # Sources with cost rows written to the warehouse (must stay in sync with health.py).
-NATIVE_PLATFORMS_WITH_DATA: tuple[str, ...] = (
-    "GoogleAds",
-    "MetaAds",
-    "BingAds",
-    "LinkedinAds",
-    "RedditAds",
-    "PinterestAds",
-    "SnapchatAds",
-    "TikTokAds",
-)
-
 BIGQUERY_SOURCE_LABEL = "demo_partner"
 
 EVENT_SIGNUP = "user signed up"
