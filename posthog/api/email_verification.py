@@ -81,7 +81,13 @@ class EmailVerificationCodeVerifier:
         Returns False when the code was not issued or sent, so the caller can send the
         link email instead."""
         try:
-            target = target_email if target_email is not None else user.pending_email
+            # Signup verification always proves the account address. Only a verified user's
+            # email change targets the staged address; an unverified user's staged change must
+            # not let a code sent to the unverified new address verify the account.
+            if target_email is not None:
+                target = target_email
+            else:
+                target = user.pending_email if user.is_email_verified else None
             issued_at = int(time.time())
             code = code_based_verification_token_generator.make_code(user, issued_at)
             # Write the state before the send, so a delivered code can always verify.
@@ -128,7 +134,7 @@ class EmailVerificationCodeVerifier:
             return False
         issued_at, target = state
         # A code verifies only the address it was issued for. Signup codes store '' as the target.
-        expected_target = user.pending_email or ""
+        expected_target = (user.pending_email or "") if user.is_email_verified else ""
         if target != expected_target:
             return False
         return code_based_verification_token_generator.check_code(user, code, issued_at)

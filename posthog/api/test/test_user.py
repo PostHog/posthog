@@ -3309,6 +3309,24 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
         self.user.refresh_from_db()
         assert self.user.pending_email == "new-address@posthog.com"
 
+    def test_unverified_user_with_staged_change_verifies_only_the_account_address(self):
+        # A signup code for an unverified user must go to the account address and prove that one,
+        # even if a change to another address is staged: the staged address is itself unproven.
+        self.user.pending_email = "staged@posthog.com"
+        self.user.save()
+
+        with patch("posthog.api.email_verification.send_email_verification_code") as mock_send:
+            with self.settings(CELERY_TASK_ALWAYS_EAGER=True):
+                self.client.post("/api/users/request_email_verification/", {"uuid": self.user.uuid})
+        assert mock_send.call_args[0][2] is None
+        code = mock_send.call_args[0][1]
+
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        assert self.user.is_email_verified
+        assert self.user.email != "staged@posthog.com"
+
     def test_code_dies_when_a_different_pending_address_is_staged(self):
         self.user.is_email_verified = True
         self.user.pending_email = "first@posthog.com"
