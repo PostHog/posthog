@@ -138,23 +138,20 @@ export const llmEvaluationExecutionLogic = kea<llmEvaluationExecutionLogicType>(
                         return response
                     } catch (error) {
                         const status = error instanceof ApiError ? error.status : undefined
-                        // An answer from the backend explains itself, so show it. A failure with no
-                        // status never reached one, and its message is internal ("Malformed JSON
-                        // response …"), so that keeps the generic text.
-                        lemonToast.error(
-                            status === undefined
-                                ? 'Failed to start evaluation'
-                                : evaluationErrorMessage(error, 'Failed to start evaluation')
-                        )
-                        // The backend turns some runs down on purpose — a trace- or session-target
-                        // evaluation cannot be re-run against one generation. That answer is not a
-                        // defect, so it must not reach error tracking as an unhandled exception.
-                        // Only a client error is swallowed: `api.ts` classifies a missing status
-                        // (a dropped connection, or a 2xx whose body could not be read) as a fault
-                        // like any 5xx, and there the run may already have started.
+                        // The backend turns some runs down on purpose, because a trace- or
+                        // session-target evaluation cannot be re-run against one generation. That
+                        // answer explains itself to the user, and it is not a defect, so it must
+                        // not reach error tracking as an unhandled exception.
                         if (status !== undefined && status < 500) {
+                            lemonToast.error(evaluationErrorMessage(error, 'Failed to start evaluation'))
                             return null
                         }
+                        // A fault gets the generic text, because its body is an internal message
+                        // rather than something the user can act on. It keeps throwing so that
+                        // error tracking still receives it. `api.ts` leaves the status unset when
+                        // the request never reached the backend, or when the response body could
+                        // not be read, and there the run may already have started.
+                        lemonToast.error('Failed to start evaluation')
                         throw error
                     }
                 },
