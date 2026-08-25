@@ -5,6 +5,10 @@ import { DateRange } from '~/queries/schema/schema-general'
 /** Bars per release strip. The strips share the panel width with the label and count columns. */
 export const RELEASE_TIMELINE_RESOLUTION = 40
 export const MAX_VISIBLE_RELEASES = 8
+/** Stacked mode has no per-release rows, so it can hold far more releases before folding. */
+export const MAX_STACKED_RELEASES = 1000
+/** zinc-400 as hex: the chart canvas cannot resolve a CSS variable for a bar color. */
+export const UNATTRIBUTED_RELEASE_COLOR = '#9f9fa9'
 const MIN_BUCKET_SECONDS = 60
 
 /** One row of the releases query: bucket start (unix seconds), namespace, version, build, occurrences. */
@@ -197,4 +201,42 @@ export function buildIssueReleaseTimeline(
         total,
         maxBucketValue,
     }
+}
+
+export type IssueReleaseStripKind = 'release' | 'other' | 'unattributed'
+
+export interface IssueReleaseStrip {
+    release: IssueRelease
+    kind: IssueReleaseStripKind
+    label: string
+    color: string
+}
+
+/** Every strip the panel draws, in display order, with palette colors assigned to real releases. */
+export function listReleaseStrips(timeline: IssueReleaseTimeline, palette: string[]): IssueReleaseStrip[] {
+    const strips: IssueReleaseStrip[] = timeline.groups
+        .flatMap((group) => group.releases)
+        .map((release, index) => ({
+            release,
+            kind: 'release',
+            label: formatReleaseVersion(release),
+            color: palette[index % palette.length],
+        }))
+    if (timeline.other) {
+        strips.push({
+            release: timeline.other,
+            kind: 'other',
+            label: `${timeline.otherReleaseCount} other releases`,
+            color: UNATTRIBUTED_RELEASE_COLOR,
+        })
+    }
+    if (timeline.unattributed) {
+        strips.push({
+            release: timeline.unattributed,
+            kind: 'unattributed',
+            label: 'No release data',
+            color: UNATTRIBUTED_RELEASE_COLOR,
+        })
+    }
+    return strips
 }
