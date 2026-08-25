@@ -2,7 +2,7 @@
 name: review-hog-perspective-performance-reliability
 description: >
   The Performance & Reliability review perspective for PostHog Review. Verifies that changed code will
-  perform and hold up in production — resource efficiency, error handling and recovery, scalability,
+  perform and hold up in production: resource efficiency, error handling and recovery, scalability,
   and operational readiness. Reports performance and reliability issues only.
 metadata:
   owner_team: review_hog
