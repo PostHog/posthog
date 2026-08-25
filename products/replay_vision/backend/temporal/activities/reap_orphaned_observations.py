@@ -122,8 +122,7 @@ async def _reap_observations(temporal: Client, rows: list[dict[str, Any]]) -> in
         scanner_type = snapshot.get("scanner_type") or "unknown"
         if await database_sync_to_async(_mark_orphaned, thread_sensitive=False)(row["id"], scanner_type):
             reaped += 1
-        # Per-row so the heartbeat timeout distinguishes a big legitimate batch from a dead worker;
-        # the SDK throttles the actual RPCs.
+        # The SDK throttles the RPCs, so per-row is cheap.
         activity.heartbeat({"phase": "observations_reaping", "reaped": reaped})
     logger.info(
         "replay_vision.reap_orphaned_observations",

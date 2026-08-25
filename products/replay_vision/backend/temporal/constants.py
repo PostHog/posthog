@@ -30,7 +30,7 @@ def on_demand_priority(team_id: int) -> Priority:
 OBSERVATION_ORPHAN_CUTOFF = APPLY_SCANNER_EXECUTION_TIMEOUT + dt.timedelta(minutes=30)
 # Bounds one reaper pass; a backlog beyond this drains across subsequent reconciler ticks.
 REAP_ORPHANED_OBSERVATIONS_BATCH_SIZE = 500
-# The orphan reaper heartbeats as it works; an attempt quiet this long is stranded or stalled, not slow.
+# The reaper heartbeats as it works, so an attempt quiet this long is stranded or stalled, not slow.
 REAP_ORPHANED_OBSERVATIONS_HEARTBEAT_TIMEOUT = dt.timedelta(seconds=30)
 
 # Per-action vision-action child, fire-and-forgot by the sweep. Name + timeout live here (not in the
@@ -140,18 +140,12 @@ LIST_ENABLED_SCANNERS_TIMEOUT = dt.timedelta(seconds=60)
 LIST_SCANNER_SCHEDULES_TIMEOUT = dt.timedelta(seconds=120)
 RECONCILE_SCHEDULE_OP_TIMEOUT = dt.timedelta(seconds=60)
 
-# Shared budgets for the reconciler's reaper activities. Each pass is short, so a stranded attempt
-# (worker killed mid-drain during a scale-down) is cut off fast and retried on a live worker instead
-# of holding the tick; schedule-to-close caps queue wait plus retries so no single reaper can spend
-# the tick's whole execution budget.
+# Short attempts so one stranded on a dying worker reruns on a live one instead of holding the tick.
 REAPER_OP_TIMEOUT = dt.timedelta(seconds=45)
 REAPER_OP_SCHEDULE_TO_CLOSE = dt.timedelta(minutes=2)
 REAPER_MAX_ATTEMPTS = 3
 
-# The reconciler's activities are tiny control-plane ops; priority 1 lets them jump the sweep and
-# backfill backlog so a saturated queue cannot starve schedule sync past the tick's execution
-# timeout. A dedicated fairness key gives them their own share of priority-1 dispatch instead of
-# competing inside one team's on-demand key.
+# Priority 1 so a saturated sweep/backfill backlog cannot queue the tick past its execution timeout.
 RECONCILER_ACTIVITY_PRIORITY = Priority(priority_key=1, fairness_key="replay-vision-scanner-reconciler")
 
 

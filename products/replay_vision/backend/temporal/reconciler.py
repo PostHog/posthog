@@ -153,8 +153,6 @@ class ReconcileScannerSchedulesWorkflow(PostHogWorkflow):
     async def _run_reaper(
         self, reaper_activity: Callable[[], Any], *, heartbeat_timeout: dt.timedelta | None = None
     ) -> None:
-        """A short per-attempt budget with retries: an attempt stranded on a dying worker (autoscaler
-        scale-down) is cut off fast and rerun on a live one, instead of holding the tick for minutes."""
         await workflow.execute_activity(
             reaper_activity,
             start_to_close_timeout=REAPER_OP_TIMEOUT,
