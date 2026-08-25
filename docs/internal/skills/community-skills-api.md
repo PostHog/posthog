@@ -132,10 +132,14 @@ The target repo is public, so a failed publish must not leave anything behind:
 Publishing a skill is restricted to that skill's own owners (`LLMSkillOwner`), on top of the access
 `AccessControlPermission` already requires. `CommunityPublishOwnerPermission` enforces it.
 
-The action writes the skill into a public repository, so it asks for a stronger claim on the skill
-than editing it does, and that claim has to be per skill. `AccessControlPermission.has_permission`
-passes a member holding an object-level grant on any one skill, and the `name/<slug>` actions load
-whichever skill the URL names, so edit access alone reaches every skill in the project.
+Ownership is an audit claim on top of editor access, not a separate authorization boundary. Any
+member with edit access to a skill can add themselves as an owner through `PATCH name/<slug>`, so
+publishing means an editor took ownership of that skill explicitly, and the `LLMSkillOwner` row
+records who did and when. Reach across skills is closed by the object-level check on every
+`name/<slug>` action, not by ownership. Owner rows are filtered by current project access rather
+than deleted when access goes away, so a member who regains access is an owner again; that is
+equivalent to them adding themselves back, and it keeps a skill whose owners all left readable as
+"owned, nobody current" rather than as unowned.
 
 A skill with no current owners is publishable by nobody, and answers `403`. Owners leave the set when
 a member loses project access, and a skill can be created with an explicit empty owner list, so the
