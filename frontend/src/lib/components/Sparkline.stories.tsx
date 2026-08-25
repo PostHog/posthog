@@ -8,7 +8,6 @@ type Story = StoryObj<SparklineProps>
 const meta: Meta<SparklineProps> = {
     title: 'Components/Sparkline',
     component: Sparkline,
-    // The quill canvas is absolutely positioned, so a wrapper with no explicit size snapshots empty.
     render: (args) => <Sparkline {...args} className="w-64 h-16" />,
 }
 export default meta
@@ -50,7 +49,6 @@ export const Timeseries: Story = {
         data: [
             {
                 name: 'occurrence',
-                // Deterministic pattern so the visual snapshot stays stable.
                 values: dataRange.map((i) => (i * 37) % 100),
                 color: 'primitive-neutral-800',
             },
