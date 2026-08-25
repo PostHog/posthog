@@ -19,7 +19,7 @@ from products.warehouse_sources.backend.temporal.data_imports.destinations.regis
 # claiming a type with no writer would lease the group and then fail every batch in it.
 SUPPORTED_DESTINATION_TYPES: list[str] = [
     str(ExternalDataDestination.Type.POSTGRES),
-    str(ExternalDataDestination.Type.AZUREBLOB),
+    str(ExternalDataDestination.Type.AZURE_BLOB),
 ]
 
 

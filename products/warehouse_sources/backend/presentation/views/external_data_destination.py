@@ -24,7 +24,7 @@ from products.warehouse_sources.backend.facade.models import ExternalDataDestina
 # a user cannot select one until its writer ships.
 DESTINATION_INTEGRATION_KINDS: dict[str, tuple[str, ...]] = {
     str(ExternalDataDestination.Type.POSTGRES): (str(Integration.IntegrationKind.POSTGRESQL),),
-    str(ExternalDataDestination.Type.AZUREBLOB): (str(Integration.IntegrationKind.AZURE_BLOB),),
+    str(ExternalDataDestination.Type.AZURE_BLOB): (str(Integration.IntegrationKind.AZURE_BLOB),),
 }
 
 # Types a user may create. The PostHog warehouse row is created by the sync itself the first
