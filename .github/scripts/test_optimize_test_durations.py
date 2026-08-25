@@ -252,6 +252,25 @@ class TestJUnitShardSegmentFilter:
         base = next(shard for shard in shards if shard.name == "junit-results-backend-core-1")
         assert base.call_times["posthog/test_foo.py::TestThing::test_one"] == 1.5
 
+    def test_rerun_attempt_keeps_tests_only_an_earlier_attempt_ran(self, junit_dir: Path) -> None:
+        # A rerun without the pinned plan can reshard a test into a shard that is
+        # not rerun, so attempt 2 of shard 1 no longer lists it. Its attempt-1
+        # membership must survive or scoping drops a test that ran.
+        shard = junit_dir / "junit-results-backend-core-1-attempt2"
+        shard.mkdir()
+        (shard / "junit.xml").write_bytes(
+            b'<testsuite><testcase classname="posthog.test_bar" name="test_two" time="2.0"/></testsuite>'
+        )
+
+        base = next(
+            s for s in JUnitShard.load_all(junit_dir, segment="Core") if s.name == "junit-results-backend-core-1"
+        )
+
+        assert base.call_times == {
+            "posthog/test_foo.py::TestThing::test_one": 0.5,
+            "posthog/test_bar.py::test_two": 2.0,
+        }
+
     def test_unknown_segment_does_not_panic(self, junit_dir: Path):
         # Unknown segments fall back to lowercase passthrough — should just
         # match nothing in this fixture, not crash.
