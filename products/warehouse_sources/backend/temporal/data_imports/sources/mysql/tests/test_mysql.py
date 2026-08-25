@@ -8,7 +8,8 @@ from unittest.mock import MagicMock
 import pymysql
 from sshtunnel import BaseSSHTunnelForwarderError
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import Table, TableStats
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import SafeSQL, Table, TableStats
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import KeysetResumeState
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
     ValidatedRowFilter,
@@ -657,6 +658,43 @@ class TestExplainQuery:
         capture.assert_not_called()
 
 
+class TestCheckKeysetPagePlan:
+    @staticmethod
+    def _explain(cursor, **plan):
+        row = {"key": None, "type": "ALL", "rows": 1, "Extra": "", **plan}
+        cursor.description = [(name,) for name in row]
+        cursor.fetchall.return_value = [tuple(row.values())]
+
+    @pytest.mark.parametrize(
+        "plan,warns",
+        [
+            ({"key": "PRIMARY", "type": "range", "Extra": "Using where"}, False),
+            ({"key": "PRIMARY", "type": "range", "Extra": ""}, False),
+            # A row filter pulled the optimizer onto a secondary index, so the page can't read in
+            # key order and sorts the whole matched set — per page.
+            ({"key": "idx_status", "type": "ref", "Extra": "Using where; Using filesort"}, True),
+            # Right index, but still sorting: the ORDER BY isn't being served by the scan.
+            ({"key": "PRIMARY", "type": "range", "Extra": "Using filesort"}, True),
+            ({"key": "PRIMARY", "type": "range", "Extra": "Using temporary"}, True),
+            ({"key": None, "type": "ALL", "Extra": ""}, True),
+        ],
+    )
+    def test_warns_only_when_the_page_is_not_a_primary_key_scan(self, impl, cursor, logger, plan, warns):
+        self._explain(cursor, **plan)
+
+        impl.check_keyset_page_plan(cursor, SafeSQL(sql="SELECT 1", params={}), logger)
+
+        assert logger.warning.called is warns
+
+    def test_swallows_explain_failure(self, impl, cursor, logger):
+        # Diagnostics must never fail the page that follows.
+        cursor.execute.side_effect = pymysql.err.OperationalError(1345, "lacking privileges")
+
+        impl.check_keyset_page_plan(cursor, SafeSQL(sql="SELECT 1", params={}), logger)
+
+        assert logger.warning.called is False
+
+
 class TestSafetyContract:
     """Verifies that driver-specific metadata queries never splice untrusted identifiers into SQL."""
 
@@ -735,6 +773,125 @@ def build_pipeline_mocks(mocker):
 def _drain_source():
     source = MySQLImplementation().build_pipeline(_make_config(), _make_inputs())
     list(source.items())  # type: ignore[arg-type]  # MySQL source is always sync
+
+
+class TestKeysetReadPath:
+    @pytest.fixture
+    def keyset_mocks(self, mocker):
+        """Drive the keyset branch of `build_pipeline` without a real MySQL server."""
+        fake_table = Table(
+            name="messages",
+            parents=("mydb",),
+            columns=[MySQLColumn(name="id", data_type="int", column_type="int", nullable=False)],
+        )
+        mocker.patch.object(MySQLImplementation, "get_table_metadata", return_value=fake_table)
+        mocker.patch.object(MySQLImplementation, "get_primary_keys_for_table", return_value=["id"])
+        mocker.patch.object(MySQLImplementation, "get_rows_to_sync", return_value=0)
+        mocker.patch.object(MySQLImplementation, "get_chunk_size", return_value=2)
+        mocker.patch.object(MySQLImplementation, "get_partition_settings", return_value=None)
+        mocker.patch.object(MySQLImplementation, "explain_query")
+        plan_check = mocker.patch.object(MySQLImplementation, "check_keyset_page_plan")
+
+        cursor = MagicMock()
+        cursor.__enter__.return_value = cursor
+        cursor.description = [("id",)]
+        # A full page, then a short one that ends the walk.
+        cursor.fetchall.side_effect = [[(1,), (2,)], [(3,)]]
+
+        connection = MagicMock()
+        connection.__enter__.return_value = connection
+        connection.cursor.return_value = cursor
+
+        mock_connect = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            return_value=connection,
+        )
+        return mock_connect, cursor, plan_check
+
+    @staticmethod
+    def _keyset_source(manager):
+        source = MySQLImplementation().build_pipeline(_make_config(), _make_inputs(), resumable_source_manager=manager)
+        assert source.supports_resume is True
+        return source
+
+    @classmethod
+    def _drain_keyset(cls, manager):
+        # The keyset MySQL source always yields a sync generator of Arrow tables.
+        return list(cast(Generator, cls._keyset_source(manager).items()))
+
+    @staticmethod
+    def _fake_manager():
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+        return manager
+
+    def test_pages_read_with_autocommit(self, keyset_mocks):
+        # Without autocommit every page shares one read view, so the load holds undo history and a
+        # metadata lock on the source for its whole duration — the thing keyset paging exists to avoid.
+        mock_connect, _, _ = keyset_mocks
+
+        self._drain_keyset(self._fake_manager())
+
+        read_connects = [call for call in mock_connect.call_args_list if call.kwargs.get("autocommit")]
+        assert len(read_connects) == 1
+
+    def test_plan_is_checked_on_the_first_seeking_page(self, keyset_mocks):
+        # Page 1 has no `pk >` predicate, so its plan says nothing about how the walk behaves.
+        _, _, plan_check = keyset_mocks
+
+        self._drain_keyset(self._fake_manager())
+
+        assert plan_check.call_count == 1
+        checked_sql = plan_check.call_args.args[1]
+        assert "keyset_value" in checked_sql.params
+
+    def test_checkpoints_each_page_and_clears_once_the_table_is_walked(self, keyset_mocks):
+        manager = self._fake_manager()
+
+        self._drain_keyset(manager)
+
+        assert [call.args[0].last_key for call in manager.save_state.call_args_list] == [2, 3]
+        # The walk finished, so the next scheduled sync must start from the top, not mid-table.
+        manager.clear_state.assert_called_once()
+
+    def test_abandoned_walk_keeps_its_checkpoint(self, keyset_mocks):
+        # A draining worker stops consuming mid-table: the checkpoint has to survive so the next pod
+        # resumes from it instead of restarting the load from row 0.
+        manager = self._fake_manager()
+        items = cast(Generator, self._keyset_source(manager).items())
+
+        next(items)
+        next(items)
+        items.close()
+
+        assert manager.save_state.call_count == 1
+        manager.clear_state.assert_not_called()
+
+    def test_resumes_from_the_persisted_checkpoint(self, keyset_mocks):
+        manager = self._fake_manager()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = KeysetResumeState(last_key=7)
+
+        self._drain_keyset(manager)
+
+        _, cursor, _ = keyset_mocks
+        first_page_params = cursor.execute.call_args_list[0].args[1]
+        assert first_page_params["keyset_value"] == 7
+
+    def test_inferred_id_key_stays_on_the_streaming_path(self, keyset_mocks, mocker):
+        """A keyless table falls back to whatever `id` column it has, which may be nullable.
+
+        `WHERE id > :last` can't advance past a NULL — the next page would drop the predicate and
+        re-read the same rows — so an undeclared key keeps the streaming cursor and reports itself
+        non-resumable instead.
+        """
+        mocker.patch.object(MySQLImplementation, "get_primary_keys_for_table", return_value=None)
+
+        source = MySQLImplementation().build_pipeline(
+            _make_config(), _make_inputs(), resumable_source_manager=self._fake_manager()
+        )
+
+        assert source.supports_resume is False
 
 
 class TestBuildPipelineSourceLocation:

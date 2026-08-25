@@ -32,6 +32,7 @@ class PlanetScaleMySQLImplementation(MySQLImplementation):
         config: MySQLSourceConfig,
         *,
         read_timeout: int | None = None,
+        autocommit: bool = False,
     ) -> Iterator[pymysql.Connection]:
         ssl_ca = "/etc/ssl/cert.pem" if settings.DEBUG else "/etc/ssl/certs/ca-certificates.crt"
 
@@ -55,6 +56,11 @@ class PlanetScaleMySQLImplementation(MySQLImplementation):
                 "ssl_verify_cert": True,
                 "ssl_verify_identity": True,
                 "conv": _MYSQL_SAFE_CONVERSIONS,
+                # PlanetScale inherits the MySQL keyset read path, which pages with one
+                # independent bounded query per page and relies on autocommit so no read view
+                # (or metadata lock) is held across the whole load. Threaded through rather than
+                # hardcoded so the streaming path keeps pymysql's default of autocommit off.
+                "autocommit": autocommit,
                 "init_command": _VITESS_OLAP_INIT_COMMAND,
             }
             if read_timeout is not None:
