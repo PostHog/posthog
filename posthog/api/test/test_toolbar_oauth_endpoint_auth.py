@@ -24,10 +24,7 @@ from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal
 
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
+from products.access_control.backend.models.access_control import AccessControl
 
 
 def _make_oauth_app(organization, user, name="Toolbar Test App"):
