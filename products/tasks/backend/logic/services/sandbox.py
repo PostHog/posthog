@@ -560,6 +560,9 @@ class SandboxBase(ABC):
     def read_agent_server_boot_metrics(self) -> tuple[int | None, dict[str, int]]:
         return None, {}
 
+    def agent_server_health_url(self) -> str:
+        return "http://127.0.0.1:8080/health"
+
     def read_cpu_usage_usec(self) -> int | None:
         return None
 

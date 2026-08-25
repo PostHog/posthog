@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from django.conf import settings
 from django.db import connection
 
+import posthoganalytics
 from temporalio import activity
 
 from posthog.dataclasses import frozen
@@ -20,7 +21,13 @@ from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.exceptions import OAuthTokenError, SandboxExecutionError, SandboxMissingRepositoryError
 from products.tasks.backend.logic.services.connection_token import create_sandbox_event_ingest_token
-from products.tasks.backend.logic.services.sandbox import REPO_READY_FILE, Sandbox, SandboxBase, sandbox_repo_path
+from products.tasks.backend.logic.services.sandbox import (
+    REPO_READY_FILE,
+    SNAPSHOT_KIND_DIRECTORY,
+    Sandbox,
+    SandboxBase,
+    sandbox_repo_path,
+)
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
     StepTimer,
@@ -47,6 +54,8 @@ from products.tasks.backend.temporal.process_task.utils import (
 from .get_task_processing_context import TaskProcessingContext
 
 logger = get_logger(__name__)
+
+AGENT_SERVER_SHADOW_FEATURE_FLAG = "agent-server-shadow-observer"
 
 
 def _emit_agentsh_log_tail(ctx: TaskProcessingContext, sandbox: SandboxBase) -> None:
@@ -146,6 +155,52 @@ def _ensure_repository_on_disk(ctx: TaskProcessingContext, sandbox: SandboxBase)
                 },
                 cause=RuntimeError(f"missing repository directory {repo_path}"),
             )
+
+
+def _is_agent_shadow_enabled(ctx: TaskProcessingContext) -> bool:
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                AGENT_SERVER_SHADOW_FEATURE_FLAG,
+                distinct_id=ctx.distinct_id,
+                groups={"organization": ctx.organization_id},
+                group_properties={"organization": {"id": ctx.organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("agent_shadow_flag_check_failed", run_id=ctx.run_id)
+        return False
+
+
+def _launch_agent_shadow(ctx: TaskProcessingContext, sandbox: SandboxBase) -> bool:
+    if not _is_agent_shadow_enabled(ctx):
+        return False
+    if sandbox.config.snapshot_restored and sandbox.config.snapshot_kind != SNAPSHOT_KIND_DIRECTORY:
+        return False
+    process = f"[a]gent-shadow --boot-id {ctx.run_id}"
+    command = (
+        f"if pgrep -f -- {shlex.quote(process)} >/dev/null; then exit 0; "
+        f"elif test -x /usr/local/bin/agent-shadow; then nohup /usr/bin/env -i /usr/local/bin/agent-shadow "
+        f"--boot-id {shlex.quote(ctx.run_id)} --health-url {shlex.quote(sandbox.agent_server_health_url())} "
+        "--timeout 6m "
+        "> /tmp/agent-shadow.json 2> /tmp/agent-shadow.log < /dev/null & else exit 1; fi"
+    )
+    try:
+        result = sandbox.execute(command, timeout_seconds=10)
+    except Exception:
+        logger.exception("agent_shadow_launch_failed", run_id=ctx.run_id, sandbox_id=sandbox.id)
+        return False
+    if result.exit_code != 0:
+        logger.warning(
+            "agent_shadow_launch_failed",
+            run_id=ctx.run_id,
+            sandbox_id=sandbox.id,
+            exit_code=result.exit_code,
+        )
+        return False
+    return True
 
 
 @dataclass
@@ -504,6 +559,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         with StepTimer(
             "agent_server_ready", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
         ) as ready_timer:
+            _launch_agent_shadow(ctx, sandbox)
             _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=None, wait_for_health=True)
 
         _record_network_enforcement_observation(ctx)
@@ -551,6 +607,7 @@ def launch_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         with StepTimer(
             "agent_server_launch", boot_path=input.boot_path, origin_product=ctx.origin_product, runtime=runtime
         ) as launch_timer:
+            _launch_agent_shadow(ctx, sandbox)
             _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=repo_ready_file, wait_for_health=False)
 
         activity.logger.info(f"Agent server process launched for task {ctx.task_id}")
