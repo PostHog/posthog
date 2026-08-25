@@ -50,7 +50,7 @@ class TestMongoValidateCredentialsDatabaseName:
         "connection_string",
         [
             "https://cluster.example.com/db",  # wrong scheme, rejected by our own check
-            "mongodb://host:not-a-port/db",  # urlparse rejects the non-numeric port
+            "mongodb+srv://host:not-a-port/db",  # urlparse rejects the non-numeric port
         ],
     )
     def test_unparseable_connection_string_returns_actionable_error(self, connection_string):
