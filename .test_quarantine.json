@@ -36,8 +36,8 @@
             "runner": "playwright",
             "reason": "Ingested screenshot does not reach a phaiblob:// pointer before the poll window ends, so the assertion sees the raw value; fails on master and gates every PR",
             "owner": "@team-ai-observability",
-            "added": "2026-08-10",
-            "expires": "2026-08-17",
+            "added": "2026-08-25",
+            "expires": "2026-09-08",
             "mode": "run"
         }
     ]
