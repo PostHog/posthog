@@ -1,0 +1,605 @@
+name: ZZ Investigate GitHub API cost
+
+# THROWAWAY measurement harness. Do not merge, do not depend on it.
+#
+# It answers two questions with numbers instead of estimates:
+#   1. What does one `.github/actions/paths-filter` invocation cost in REST
+#      requests, what does the equivalent `git diff` cost, and do the two
+#      produce the same file list? ~30 workflows run the filter per PR, and its
+#      App bucket peaks at 65% of 15k/hr.
+#   2. Do `setup-node` and `setup-python` spend requests because the pinned
+#      versions are absent from the runner's tool cache, and does restoring the
+#      tool cache take that to zero?
+# Plus: `create-github-app-token` revokes its token in a post step unless
+#      `skip-token-revoke: true`. Every paths-filter mint in the tree omits it
+#      while every setup-action mint sets it, so the revoke's cost is measured too.
+#
+# Method. /rate_limit is documented as not counting against the limit it
+# reports, so every step under test is bracketed by a free sample of `used`.
+# The bucket read belongs to whichever token authenticates the sample, so each
+# probe authenticates with the same token the step under test uses.
+#
+# The endpoint cannot simply be trusted, though: against a GitHub CLI
+# user-to-server token it reports used=0 forever while `X-RateLimit-Used` on real
+# endpoints climbs by one per request. So every job first spends 3 requests on a
+# known-cost call and fails unless the bucket moves by exactly 3. A run that
+# reports zero for everything is then a result, not a broken instrument.
+#
+# Instrument. A shared bucket is noisy: other runs draw from it concurrently and
+# a single-digit delta drowns. Every measurement here therefore runs on the
+# `posthog-product-tests` App, whose core bucket peaked at 8 of 15,000 used
+# across a week of half-hourly samples. Per-invocation cost does not depend on
+# which App pays for it, so measuring on the quiet bucket measures the same
+# thing as measuring on the busy one, with a readable signal.
+
+on:
+    pull_request:
+        paths:
+            - '.github/workflows/zz-investigate-ratelimit.yml'
+            - '.github/scripts/gh-api-cost-probe.sh'
+    workflow_dispatch:
+
+concurrency:
+    group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+    cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+    contents: read
+
+env:
+    PROBE_BUCKET: posthog-product-tests
+
+jobs:
+    # ---------------------------------------------------------------- Fix 1 --
+    filter-api-cost:
+        name: paths-filter via REST
+        # Needs a real PR: the action only reaches the API on pull_request events.
+        # Forks get no secrets, so the App token could not be minted there.
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        env:
+            RUNNER_LABEL: ubuntu-latest
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Mint measurement token
+              id: token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY }}
+                  # The revoke is measured on its own below; here it would land
+                  # inside another job's measurement window.
+                  skip-token-revoke: true
+
+            - name: Calibrate the instrument
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+              run: .github/scripts/gh-api-cost-probe.sh calibrate 3
+
+            - name: Sample before first invocation
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+              run: .github/scripts/gh-api-cost-probe.sh sample before_first
+
+            - uses: ./.github/actions/paths-filter
+              id: first
+              with:
+                  token: ${{ steps.token.outputs.token }}
+                  list-files: json
+                  filters: |
+                      everything:
+                          - '**'
+
+            - name: Sample between invocations
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+              run: .github/scripts/gh-api-cost-probe.sh sample between
+
+            # A second invocation with the same token in the same job: if the cost
+            # is per-invocation, ~30 filter jobs per PR each pay it, and the fix is
+            # worth its size. If something memoizes, the fleet cost is lower.
+            - uses: ./.github/actions/paths-filter
+              id: second
+              with:
+                  token: ${{ steps.token.outputs.token }}
+                  list-files: json
+                  filters: |
+                      everything:
+                          - '**'
+
+            - name: Sample after second invocation
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+              run: .github/scripts/gh-api-cost-probe.sh sample after_second
+
+            - name: Report
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  FILE_COUNT: ${{ steps.first.outputs.everything_count }}
+              run: |
+                  probe=.github/scripts/gh-api-cost-probe.sh
+                  "$probe" delta paths_filter_invocation_1 before_first between "first invocation, ${FILE_COUNT:-?} changed files"
+                  "$probe" delta paths_filter_invocation_2 between after_second "second invocation, same token, same job"
+                  "$probe" note "PR files reported by the action: \`${FILE_COUNT:-unknown}\`. The action paginates \`GET /repos/{o}/{r}/pulls/{n}/files\` at 100 per page, so cost scales with PR size."
+
+    filter-git-cost:
+        name: paths-filter via git diff
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        env:
+            RUNNER_LABEL: ubuntu-latest
+        steps:
+            # `refs/pull/N/merge` plus one generation, so HEAD^1 is the base tip
+            # the merge was computed against. That is all `git diff HEAD^1 HEAD`
+            # needs, and it is two objects rather than a deep clone.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 2
+
+            - name: Mint measurement token
+              id: token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
+            - name: Calibrate the instrument
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+              run: .github/scripts/gh-api-cost-probe.sh calibrate 3
+
+            - name: Sample before git diff
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+              run: .github/scripts/gh-api-cost-probe.sh sample before_git
+
+            - name: Compute the changed-file list with git
+              run: |
+                  git diff --name-only HEAD^1 HEAD | sort >"$RUNNER_TEMP/files-git.txt"
+                  echo "git found $(wc -l <"$RUNNER_TEMP/files-git.txt") changed files"
+
+            - name: Sample after git diff
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+              run: .github/scripts/gh-api-cost-probe.sh sample after_git
+
+            # Outside the measured window on purpose: this is the reference list
+            # the git list has to match, and its own cost is the bonus reading.
+            - name: Fetch the same list from the REST API
+              env:
+                  GH_TOKEN: ${{ steps.token.outputs.token }}
+                  PR: ${{ github.event.pull_request.number }}
+              run: |
+                  gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[].filename' |
+                      sort >"$RUNNER_TEMP/files-api.txt"
+                  echo "API found $(wc -l <"$RUNNER_TEMP/files-api.txt") changed files"
+
+            - name: Sample after REST fetch
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+              run: .github/scripts/gh-api-cost-probe.sh sample after_api
+
+            - name: Report
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+              run: |
+                  probe=.github/scripts/gh-api-cost-probe.sh
+                  "$probe" delta git_diff_changed_files before_git after_git 'expected 0'
+                  "$probe" delta rest_pulls_files_paginated after_git after_api 'raw endpoint the action calls, for comparison'
+
+            # The two lists can legitimately diverge: the API returns the merge-base
+            # three-dot diff, while HEAD^1..HEAD is the merge result against the base
+            # tip. They agree unless master moved the same files under the PR. Fail
+            # loudly, because a silent divergence is what would break the fix.
+            - name: Assert the git list matches the API list
+              run: |
+                  {
+                      echo '<details><summary>Changed-file lists</summary>'
+                      echo
+                      echo '```'
+                      echo "--- git (HEAD^1..HEAD) ---"
+                      cat "$RUNNER_TEMP/files-git.txt"
+                      echo "--- REST (pulls/N/files) ---"
+                      cat "$RUNNER_TEMP/files-api.txt"
+                      echo '```'
+                      echo '</details>'
+                  } >>"$GITHUB_STEP_SUMMARY"
+
+                  if diff -u "$RUNNER_TEMP/files-api.txt" "$RUNNER_TEMP/files-git.txt"; then
+                      echo 'Lists match.'
+                  else
+                      echo "::error::git-derived and API-derived changed-file lists differ; the git replacement is not equivalent on this PR"
+                      exit 1
+                  fi
+
+    # -------------------------------------------------- Token revoke cost ----
+    # A revoke happens in the action's post step, after every observable step in
+    # its own job, so no in-job delta can see it. The next job's first sample can.
+    #
+    # Four jobs run strictly in order, each minting then immediately sampling, so
+    # every gap between jobs contains exactly one post-step phase and one mint:
+    #   1 -> 2  no revoke   (control)
+    #   2 -> 3  no revoke   (control, second reading, gives the spread)
+    #   3 -> 4  one revoke  (treatment)
+    # Revoke cost is treatment minus control: the mint and the inter-job noise
+    # appear in both and cancel.
+    revoke-1-skip:
+        name: Revoke chain 1 (skip-token-revoke)
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        env:
+            RUNNER_LABEL: ubuntu-latest
+        outputs:
+            end_used: ${{ steps.end.outputs.end_used }}
+            end_reset: ${{ steps.end.outputs.end_reset }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/scripts/gh-api-cost-probe.sh
+                  sparse-checkout-cone-mode: false
+            - name: Mint measurement token
+              id: token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+            - name: Calibrate the instrument
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+              run: .github/scripts/gh-api-cost-probe.sh calibrate 3
+
+            - name: Sample at end of job
+              id: end
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+              run: .github/scripts/gh-api-cost-probe.sh sample end
+
+    revoke-2-control:
+        name: Revoke chain 2 (skip-token-revoke)
+        needs: revoke-1-skip
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        env:
+            RUNNER_LABEL: ubuntu-latest
+        outputs:
+            start_used: ${{ steps.start.outputs.start_used }}
+            start_reset: ${{ steps.start.outputs.start_reset }}
+            end_used: ${{ steps.end.outputs.end_used }}
+            end_reset: ${{ steps.end.outputs.end_reset }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/scripts/gh-api-cost-probe.sh
+                  sparse-checkout-cone-mode: false
+            - name: Mint measurement token
+              id: token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+            - name: Sample at start of job
+              id: start
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+              run: .github/scripts/gh-api-cost-probe.sh sample start
+            - name: Calibrate the instrument
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+              run: .github/scripts/gh-api-cost-probe.sh calibrate 3
+
+            - name: Sample at end of job
+              id: end
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+              run: .github/scripts/gh-api-cost-probe.sh sample end
+
+    revoke-3-norevoke:
+        name: Revoke chain 3 (revoke enabled)
+        needs: revoke-2-control
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        env:
+            RUNNER_LABEL: ubuntu-latest
+        outputs:
+            start_used: ${{ steps.start.outputs.start_used }}
+            start_reset: ${{ steps.start.outputs.start_reset }}
+            end_used: ${{ steps.end.outputs.end_used }}
+            end_reset: ${{ steps.end.outputs.end_reset }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/scripts/gh-api-cost-probe.sh
+                  sparse-checkout-cone-mode: false
+            # The one arm without skip-token-revoke. Its post step issues
+            # DELETE /installation/token authenticated as this installation.
+            - name: Mint measurement token
+              id: token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY }}
+            - name: Sample at start of job
+              id: start
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+              run: .github/scripts/gh-api-cost-probe.sh sample start
+            - name: Calibrate the instrument
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+              run: .github/scripts/gh-api-cost-probe.sh calibrate 3
+
+            - name: Sample at end of job
+              id: end
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+              run: .github/scripts/gh-api-cost-probe.sh sample end
+
+    revoke-4-observe:
+        name: Revoke chain 4 (observe the revoke)
+        needs: revoke-3-norevoke
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        env:
+            RUNNER_LABEL: ubuntu-latest
+        outputs:
+            start_used: ${{ steps.start.outputs.start_used }}
+            start_reset: ${{ steps.start.outputs.start_reset }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/scripts/gh-api-cost-probe.sh
+                  sparse-checkout-cone-mode: false
+            - name: Mint measurement token
+              id: token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+            - name: Sample at start of job
+              id: start
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+              run: .github/scripts/gh-api-cost-probe.sh sample start
+
+            - name: Calibrate the instrument
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+              run: .github/scripts/gh-api-cost-probe.sh calibrate 3
+
+    # hogli-lint: not-a-required-gate -- reads the chain's samples to subtract two
+    # inter-job deltas; it reports a measurement and gates nothing.
+    revoke-report:
+        name: Revoke chain report
+        needs: [revoke-1-skip, revoke-2-control, revoke-3-norevoke, revoke-4-observe]
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        env:
+            RUNNER_LABEL: ubuntu-latest
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: .github/scripts/gh-api-cost-probe.sh
+                  sparse-checkout-cone-mode: false
+            - name: Report control and treatment gaps
+              env:
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  C1_END_USED: ${{ needs.revoke-1-skip.outputs.end_used }}
+                  C1_END_RESET: ${{ needs.revoke-1-skip.outputs.end_reset }}
+                  C2_START_USED: ${{ needs.revoke-2-control.outputs.start_used }}
+                  C2_START_RESET: ${{ needs.revoke-2-control.outputs.start_reset }}
+                  C2_END_USED: ${{ needs.revoke-2-control.outputs.end_used }}
+                  C2_END_RESET: ${{ needs.revoke-2-control.outputs.end_reset }}
+                  C3_START_USED: ${{ needs.revoke-3-norevoke.outputs.start_used }}
+                  C3_START_RESET: ${{ needs.revoke-3-norevoke.outputs.start_reset }}
+                  C3_END_USED: ${{ needs.revoke-3-norevoke.outputs.end_used }}
+                  C3_END_RESET: ${{ needs.revoke-3-norevoke.outputs.end_reset }}
+                  C4_START_USED: ${{ needs.revoke-4-observe.outputs.start_used }}
+                  C4_START_RESET: ${{ needs.revoke-4-observe.outputs.start_reset }}
+              run: |
+                  probe=.github/scripts/gh-api-cost-probe.sh
+                  "$probe" record revoke_control_gap_1_2 "$C1_END_USED" "$C2_START_USED" "$C1_END_RESET" "$C2_START_RESET" 'job handoff, no revoke, one mint'
+                  "$probe" record revoke_control_gap_2_3 "$C2_END_USED" "$C3_START_USED" "$C2_END_RESET" "$C3_START_RESET" 'job handoff, no revoke, one mint'
+                  "$probe" record revoke_treatment_gap_3_4 "$C3_END_USED" "$C4_START_USED" "$C3_END_RESET" "$C4_START_RESET" 'job handoff, ONE revoke, one mint'
+                  "$probe" note "Revoke cost = treatment gap minus control gap. Controls also bound the inter-job noise floor on this bucket: if they are not both 0, read the treatment number with that spread in mind."
+
+    # ---------------------------------------------------------------- Fix 2 --
+    toolcache-probe:
+        name: setup-* against a cold tool cache
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 15
+        env:
+            RUNNER_LABEL: depot-ubuntu-24.04
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Show the tool cache before any setup step
+              run: |
+                  {
+                      echo '<details><summary>/opt/hostedtoolcache before setup-*</summary>'
+                      echo
+                      echo '```'
+                      ls -la /opt/hostedtoolcache/node/ 2>&1 || true
+                      ls -la /opt/hostedtoolcache/Python/ 2>&1 || true
+                      echo '```'
+                      echo '</details>'
+                  } | tee -a "$GITHUB_STEP_SUMMARY"
+
+            - name: Mint measurement token
+              id: token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
+            - name: Calibrate the instrument
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+              run: .github/scripts/gh-api-cost-probe.sh calibrate 3
+
+            - name: Sample before setup-node
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+              run: .github/scripts/gh-api-cost-probe.sh sample before_node
+
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ steps.token.outputs.token }}
+
+            - name: Sample after setup-node
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+              run: .github/scripts/gh-api-cost-probe.sh sample after_node
+
+            - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: 3.13.13
+                  token: ${{ steps.token.outputs.token }}
+
+            - name: Sample after setup-python
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+              run: .github/scripts/gh-api-cost-probe.sh sample after_python
+
+            # A version directory that exists now and did not before is a download,
+            # independent of whether the runner logged "Attempting to download".
+            - name: Show the tool cache after setup-*
+              run: |
+                  {
+                      echo '<details><summary>/opt/hostedtoolcache after setup-*</summary>'
+                      echo
+                      echo '```'
+                      ls -la /opt/hostedtoolcache/node/ 2>&1 || true
+                      ls -la /opt/hostedtoolcache/Python/ 2>&1 || true
+                      echo '```'
+                      echo '</details>'
+                  } | tee -a "$GITHUB_STEP_SUMMARY"
+
+            - name: Report
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+              run: |
+                  probe=.github/scripts/gh-api-cost-probe.sh
+                  "$probe" delta setup_node_cold before_node after_node "$(cat .nvmrc)"
+                  "$probe" delta setup_python_cold after_node after_python '3.13.13'
+
+            # Written under the run id, so this cache serves only the paired job
+            # below and cannot evict a shared master cache.
+            - uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              continue-on-error: true
+              with:
+                  path: |
+                      /opt/hostedtoolcache/node
+                      /opt/hostedtoolcache/Python
+                  key: zz-investigate-toolcache-${{ github.run_id }}-${{ github.run_attempt }}
+
+    toolcache-cached:
+        name: setup-* against a restored tool cache
+        needs: toolcache-probe
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        runs-on: depot-ubuntu-24.04
+        timeout-minutes: 15
+        env:
+            RUNNER_LABEL: depot-ubuntu-24.04
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            # Depot backs the Actions cache API with Depot Cache, so this restore
+            # does not touch GitHub's 10 GB pool.
+            - uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              id: restore
+              continue-on-error: true
+              with:
+                  path: |
+                      /opt/hostedtoolcache/node
+                      /opt/hostedtoolcache/Python
+                  key: zz-investigate-toolcache-${{ github.run_id }}-${{ github.run_attempt }}
+
+            - name: Show the restored tool cache
+              env:
+                  CACHE_HIT: ${{ steps.restore.outputs.cache-hit }}
+              run: |
+                  {
+                      echo '<details><summary>/opt/hostedtoolcache after restore</summary>'
+                      echo
+                      echo '```'
+                      echo "cache-hit: ${CACHE_HIT:-false}"
+                      ls -la /opt/hostedtoolcache/node/ 2>&1 || true
+                      ls -la /opt/hostedtoolcache/Python/ 2>&1 || true
+                      echo '```'
+                      echo '</details>'
+                  } | tee -a "$GITHUB_STEP_SUMMARY"
+
+            - name: Mint measurement token
+              id: token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
+            - name: Calibrate the instrument
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+              run: .github/scripts/gh-api-cost-probe.sh calibrate 3
+
+            - name: Sample before setup-node
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+              run: .github/scripts/gh-api-cost-probe.sh sample before_node
+
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ steps.token.outputs.token }}
+
+            - name: Sample after setup-node
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+              run: .github/scripts/gh-api-cost-probe.sh sample after_node
+
+            - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version: 3.13.13
+                  token: ${{ steps.token.outputs.token }}
+
+            - name: Sample after setup-python
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+              run: .github/scripts/gh-api-cost-probe.sh sample after_python
+
+            - name: Report
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  CACHE_HIT: ${{ steps.restore.outputs.cache-hit }}
+              run: |
+                  probe=.github/scripts/gh-api-cost-probe.sh
+                  "$probe" delta setup_node_warm before_node after_node "cache-hit=${CACHE_HIT:-false}"
+                  "$probe" delta setup_python_warm after_node after_python "cache-hit=${CACHE_HIT:-false}"
+                  "$probe" note "A restore that missed makes these numbers a repeat of the cold job, not a warm reading. Check cache-hit above before reading them as the fix's result."
