@@ -43,9 +43,9 @@ import {
 } from "./schemas";
 
 // A refresh failure that is not a rejection is no evidence the token is dead, so
-// pause it instead of retiring it. Must stay well inside TOKEN_EXPIRY_SKEW_MS:
-// refresh fires that far ahead of expiry, so a longer pause would guarantee the
-// retry lands after the access token has already died.
+// pause rather than retire. Sized inside TOKEN_EXPIRY_SKEW_MS so a fast failure
+// still retries on a live token. Retry exhaustion can already outrun the skew on
+// its own, so the sizing buys nothing there.
 const FAILED_REFRESH_COOLDOWN_MS = 15_000;
 const TOKEN_EXPIRY_SKEW_MS = 60_000;
 const AUTH_FETCH_TIMEOUT_MS = 30_000;
@@ -101,9 +101,8 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   private refreshPromise: Promise<InMemorySession> | null = null;
   private impersonationExpiryTimer: ReturnType<typeof setTimeout> | null = null;
   private sessionGeneration = 0;
-  // A refresh the server will not honour, keyed to the session generation so
-  // every teardown and new grant invalidates it. `until: null` means the server
-  // proved the token dead; a timestamp means the failure was unclassified.
+  // A refresh already refused, keyed to the session generation so every teardown
+  // invalidates it. `until: null` is a proven-dead token, a timestamp is a pause.
   private refusedRefresh: {
     token: string;
     generation: number;
@@ -776,8 +775,7 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
           cloudRegion: input.cloudRegion,
           currentProjectId: input.selectedProjectId,
         });
-        // Last, so a throwing teardown cannot leave a refusal standing over a
-        // session the rest of the app still believes in.
+        // Last, so a throwing teardown leaves no refusal over a live-looking session.
         this.refusedRefresh = {
           token: input.refreshToken,
           generation: this.sessionGeneration,
@@ -791,8 +789,8 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
         result.errorCode === "server_error";
 
       if (!isRetryable) {
-        // This arm keeps the session and the stored token, so nothing else
-        // stops the caller re-presenting the same token on the next trigger.
+        // This arm keeps the session and the stored token, so only the pause
+        // stops the caller re-presenting it on the next trigger.
         this.pauseRefresh(input.refreshToken, result.errorCode);
         throw new Error(lastError);
       }
@@ -807,9 +805,8 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       await sleepWithBackoff(attempt, AuthService.REFRESH_BACKOFF);
     }
 
-    // Retries exhausted. A 5xx token endpoint, or a captive portal whose reply
-    // will not parse, arrives here rather than in the arm above, and without a
-    // pause each later trigger spends the whole retry budget again.
+    // A 5xx endpoint or a captive portal exhausts the budget here, not in the arm
+    // above; unpaused, each later trigger spends the whole budget again.
     this.pauseRefresh(input.refreshToken, "retries_exhausted");
 
     throw new Error(lastError);

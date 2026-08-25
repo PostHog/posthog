@@ -344,8 +344,7 @@ describe("UsageMonitorService", () => {
     await service.fetchOnce();
     expect(fetchUsage).toHaveBeenCalledTimes(3);
 
-    // The next failure starts from the base again, not from the escalated
-    // window two failures had reached.
+    // The next failure starts from the base, not the escalated window.
     await service.fetchOnce();
     vi.advanceTimersByTime(2_500);
     await service.fetchOnce();
@@ -393,8 +392,7 @@ describe("UsageMonitorService", () => {
     emitAuthState("org-1", "anonymous");
 
     await service.fetchOnce();
-    // refreshNow is reachable from a settings-pane mount and the cloud-task
-    // preflight, and a forced fetch with no session cannot succeed.
+    // A forced fetch with no session cannot succeed.
     await service.refreshNow();
     expect(fetchUsage).toHaveBeenCalledTimes(1);
   });

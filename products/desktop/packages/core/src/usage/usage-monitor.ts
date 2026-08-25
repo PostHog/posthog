@@ -57,8 +57,8 @@ export class UsageMonitorService extends TypedEventEmitter<UsageMonitorEvents> {
       if (state.currentOrgId === orgId) return;
       orgId = state.currentOrgId;
       this.latestUsage = null;
-      // The snapshot was just dropped, so the refetch below has to be allowed
-      // through whatever window a previous failure left behind.
+      // The snapshot was just dropped, so let the refetch through any open
+      // window. This clears the terminal stop too, which the gate re-derives.
       this.resetBackoff();
       if (state.currentOrgId !== null) this.requestRefresh();
     });
@@ -117,9 +117,8 @@ export class UsageMonitorService extends TypedEventEmitter<UsageMonitorEvents> {
     force?: boolean;
   } = {}): Promise<UsageOutput | null> {
     if (this.isFetching) return null;
-    // Re-derived, never trusted: the error that sets it can arrive after the
-    // last authenticated emission, and auth raises the same class for a refresh
-    // that was merely superseded.
+    // Re-derived, not trusted: the error can arrive after the last authenticated
+    // emission, and auth raises the same class for a merely superseded refresh.
     if (this.reauthRequired) {
       if (this.authService.getState().status !== "authenticated") return null;
       this.reauthRequired = false;

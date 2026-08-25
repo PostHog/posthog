@@ -1200,8 +1200,7 @@ describe("AuthService", () => {
       await service.initialize();
       expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
 
-      // Storage still holds the dead token, so the refusal has to fail this
-      // attempt without a request.
+      // Storage still holds the dead token, so this must fail without a request.
       seedStoredSession();
       await expect(service.getValidAccessToken()).rejects.toThrow(
         NotAuthenticatedError,
@@ -1223,13 +1222,10 @@ describe("AuthService", () => {
         await service.initialize();
         expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
 
-        // A 429, or a 400 whose body will not parse, lands here. That is not
-        // evidence the token is dead, so the next trigger is paused.
         await expect(service.getValidAccessToken()).rejects.toThrow(/paused/i);
         expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
 
-        // Still held just under the cooldown, so the window is pinned to the
-        // constant rather than to any value below a minute.
+        // Held just under the cooldown, so the constant itself is pinned.
         vi.setSystemTime(new Date("2026-08-24T00:00:14.900Z"));
         await expect(service.getValidAccessToken()).rejects.toThrow(/paused/i);
         expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
@@ -1262,8 +1258,8 @@ describe("AuthService", () => {
       stubAuthFetch();
       await service.login("us");
 
-      // Same token value as the refused one, so only the generation bump can
-      // release it. Otherwise signing back in leaves the user locked out.
+      // Same token as the refused one, so only the generation bump can release
+      // it. Otherwise signing back in leaves the user locked out.
       seedStoredSession();
       oauthFlow.refreshToken.mockResolvedValue(
         mockTokenResponse({
@@ -1285,8 +1281,7 @@ describe("AuthService", () => {
       await service.initialize();
       expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
 
-      // A different stored token is a different credential, so the pause must
-      // not widen to it.
+      // A different token is a different credential; the pause must not widen.
       seedStoredSession({ refreshToken: "another-refresh-token" });
       await expect(service.getValidAccessToken()).rejects.toThrow();
       expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(2);
@@ -1309,8 +1304,7 @@ describe("AuthService", () => {
         const spent = oauthFlow.refreshToken.mock.calls.length;
         expect(spent).toBeGreaterThan(1);
 
-        // A 5xx token endpoint, or a captive portal whose reply will not parse,
-        // exhausts the budget here rather than in the unclassified arm.
+        // This exhausts the retry budget rather than failing on the first attempt.
         await expect(service.getValidAccessToken()).rejects.toThrow();
         expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(spent);
       } finally {
