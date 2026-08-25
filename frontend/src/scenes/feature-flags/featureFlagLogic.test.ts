@@ -280,6 +280,49 @@ describe('featureFlagLogic', () => {
         })
     })
 
+    describe('deleted or unreachable feature flag', () => {
+        // A deleted flag 404s on the flag, its status, and its dependents. The scene renders
+        // NotFound from featureFlagMissing, so none of those may add a redundant error toast. A
+        // genuine failure (500) must still toast and reach error tracking.
+        it.each([
+            { httpStatus: 404, expectToast: false },
+            { httpStatus: 500, expectToast: true },
+        ])('http $httpStatus keeps toast shown = $expectToast', async ({ httpStatus, expectToast }) => {
+            logic.unmount()
+            silenceKeaLoadersErrors()
+            const id = 777
+            useMocks({
+                get: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${id}/`]: () => [
+                        httpStatus,
+                        { detail: 'nope' },
+                    ],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${id}/status`]: () => [
+                        httpStatus,
+                        { detail: 'nope' },
+                    ],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/${id}/dependent_flags/`]: () => [
+                        httpStatus,
+                        { detail: 'nope' },
+                    ],
+                },
+            })
+
+            logic = featureFlagLogic({ id })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadFeatureFlag']).toFinishAllListeners()
+
+            expect(logic.values.featureFlagMissing).toBe(true)
+            if (expectToast) {
+                expect(lemonToast.error).toHaveBeenCalled()
+            } else {
+                expect(lemonToast.error).not.toHaveBeenCalled()
+            }
+            resumeKeaLoadersErrors()
+        })
+    })
+
     describe('saveFeatureFlag error handling', () => {
         it('shows the friendly permission toast on a save-time 403', async () => {
             useMocks({
