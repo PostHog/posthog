@@ -4,6 +4,7 @@ import requests
 from celery import shared_task
 
 from posthog.models import ProxyRecord
+from posthog.scoping_audit import skip_team_scope_audit
 from posthog.tasks.utils import CeleryQueue
 from posthog.temporal.proxy_service.cloudflare import (
     CloudflareAPIError,
@@ -20,6 +21,7 @@ from posthog.temporal.proxy_service.cloudflare import (
     retry_backoff_max=3600,
     max_retries=10,
 )
+@skip_team_scope_audit
 def reconcile_proxy_root_redirect(proxy_record_id: str) -> None:
     try:
         record = ProxyRecord.objects.get(id=proxy_record_id)
