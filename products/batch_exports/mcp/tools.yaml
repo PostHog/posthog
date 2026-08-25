@@ -201,11 +201,16 @@ tools:
             idempotent: false
         title: Start file download export
         description: >
-            Start an on-demand batch export that prepares downloadable files for events, persons, or sessions. Provide
-            data_interval_start and data_interval_end as ISO 8601 datetimes; the interval must be at most one week. For
-            events, include and exclude filter event names. Use file-download-batch-exports-retrieve with the returned
-            id to poll until status is Completed, then follow the downloading-batch-export-files skill to download the
-            files through the existing REST download endpoint.
+            Start an on-demand batch export that prepares downloadable files for events, persons, sessions, or the
+            results of a HogQL query. For events, persons and sessions, provide data_interval_start and
+            data_interval_end as ISO 8601 datetimes; the interval must be at most one week, and for events, include and
+            exclude filter event names. The hogql model is in closed beta and is enabled per team: it takes a
+            hogql_query instead of a data interval, and returns a permission error naming HogQL batch exports when the
+            team does not have it enabled, in which case tell the user they can contact PostHog support to request
+            access. Limit hogql_query with a WHERE clause to export only the data the user asked for, because user
+            queries run under stricter resource limits than the other models. Use file-download-batch-exports-retrieve
+            with the returned id to poll until status is Completed, then follow the downloading-batch-export-files skill
+            to download the files through the existing REST download endpoint.
     file-download-batch-exports-download-retrieve:
         operation: file_download_batch_exports_download_retrieve
         enabled: false
