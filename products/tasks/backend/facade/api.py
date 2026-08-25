@@ -2374,6 +2374,61 @@ def signal_workflow_completion(run_id: str | UUID, status: str, error_message: s
         logger.warning("Failed to signal workflow completion for task run %s: %s", run.id, e)
 
 
+def query_pending_babysit_attention(run_id: str | UUID, task_id: str, team_id: int) -> dict | None:
+    """Query a run's Temporal workflow for staged babysit attention (ask mode).
+
+    Returns the ``pending_babysit_attention`` query result — the PR URL and
+    attention items waiting for consent — or None when nothing is staged or
+    the workflow is not reachable. Best-effort: a missing or completed workflow
+    returns None rather than raising.
+    """
+    import asyncio  # noqa: PLC0415 — only needed when querying
+
+    from posthog.temporal.common.client import sync_connect  # noqa: PLC0415 — keep temporalio off the api import path
+
+    from products.tasks.backend.temporal.process_task.workflow import (  # noqa: PLC0415 — keep temporalio off the api import path
+        ProcessTaskWorkflow,
+    )
+
+    run = TaskRun.objects.filter(pk=run_id, team_id=team_id).first()
+    if run is None:
+        return None
+    try:
+        client = sync_connect()
+        handle = client.get_workflow_handle(run.workflow_id)
+        return asyncio.run(handle.query(ProcessTaskWorkflow.pending_babysit_attention))
+    except Exception as e:
+        logger.warning("Failed to query pending babysit attention for task run %s: %s", run.id, e)
+        return None
+
+
+def signal_approve_ci_babysit(run_id: str | UUID, task_id: str, team_id: int) -> None:
+    """Signal a run's Temporal workflow to approve a staged babysit wake-up.
+
+    Only meaningful in "ask" mode; in other modes the workflow does not wait
+    for consent and the signal is a no-op. Best-effort: a missing or completed
+    workflow is silently ignored.
+    """
+    import asyncio  # noqa: PLC0415 — only needed when signalling
+
+    from posthog.temporal.common.client import sync_connect  # noqa: PLC0415 — keep temporalio off the api import path
+
+    from products.tasks.backend.temporal.process_task.workflow import (  # noqa: PLC0415 — keep temporalio off the api import path
+        ProcessTaskWorkflow,
+    )
+
+    run = TaskRun.objects.filter(pk=run_id, team_id=team_id).first()
+    if run is None:
+        return
+    try:
+        client = sync_connect()
+        handle = client.get_workflow_handle(run.workflow_id)
+        asyncio.run(handle.signal(ProcessTaskWorkflow.approve_ci_babysit))
+        logger.info("Signaled approve_ci_babysit for task run %s", run.id)
+    except Exception as e:
+        logger.warning("Failed to signal approve_ci_babysit for task run %s: %s", run.id, e)
+
+
 def _post_slack_update_for_pr(run: TaskRun) -> None:
     pr_url = (run.output or {}).get("pr_url") if isinstance(run.output, dict) else None
     if not pr_url:

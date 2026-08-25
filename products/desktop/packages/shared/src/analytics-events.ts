@@ -345,17 +345,6 @@ export interface SettingChangedProperties {
   old_value?: string | boolean | number;
 }
 
-export interface BabysitIndicatorOpenedProperties {
-  // The task the composer belongs to, when known.
-  task_id?: string;
-  // The babysit mode currently selected.
-  mode: string;
-}
-
-export interface BabysitIndicatorSettingsOpenedProperties {
-  task_id?: string;
-}
-
 export interface CustomSoundAddedProperties {
   // How the clip was captured.
   source: "recording" | "import";
@@ -1465,8 +1454,6 @@ export const ANALYTICS_EVENTS = {
   SETTING_CHANGED: "Setting changed",
   CUSTOM_SOUND_ADDED: "Custom sound added",
   CUSTOM_SOUND_RECORDING_SILENT: "Custom sound recording silent",
-  BABYSIT_INDICATOR_OPENED: "Babysit indicator opened",
-  BABYSIT_INDICATOR_SETTINGS_OPENED: "Babysit indicator settings opened",
 
   // Feedback events
   TASK_FEEDBACK: "Task feedback",
@@ -1659,8 +1646,6 @@ export type EventPropertyMap = {
 
   // Settings events
   [ANALYTICS_EVENTS.SETTING_CHANGED]: SettingChangedProperties;
-  [ANALYTICS_EVENTS.BABYSIT_INDICATOR_OPENED]: BabysitIndicatorOpenedProperties;
-  [ANALYTICS_EVENTS.BABYSIT_INDICATOR_SETTINGS_OPENED]: BabysitIndicatorSettingsOpenedProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_ADDED]: CustomSoundAddedProperties;
   [ANALYTICS_EVENTS.CUSTOM_SOUND_RECORDING_SILENT]: never;
 

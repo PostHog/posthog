@@ -190,6 +190,13 @@ export interface TaskRunSessionLogsResult {
   truncatedHeadCount: number;
 }
 
+export interface BabysitAttention {
+  pr_url?: string;
+  pr_state?: string;
+  head_sha?: string;
+  attention?: Record<string, unknown>;
+}
+
 type SessionLogsPage =
   | { ok: true; entries: StoredLogEntry[]; headers: Headers }
   | { ok: false; status: number; statusText: string };
@@ -3538,6 +3545,31 @@ export class PostHogAPIClient {
       },
     });
     return (await response.json().catch(() => ({}))) as { status?: string };
+  }
+
+  async getBabysitAttention(
+    taskId: string,
+    runId: string,
+  ): Promise<BabysitAttention | null> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/babysit_attention/`;
+    const response = await this.api.fetcher.fetch({
+      method: "get",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+    });
+    return (await response.json().catch(() => null)) as BabysitAttention | null;
+  }
+
+  async approveBabysit(taskId: string, runId: string): Promise<void> {
+    const teamId = await this.getTeamId();
+    const path = `/api/projects/${teamId}/tasks/${taskId}/runs/${runId}/approve_babysit/`;
+    await this.api.fetcher.fetch({
+      method: "post",
+      url: new URL(`${this.api.baseUrl}${path}`),
+      path,
+      overrides: { body: JSON.stringify({}) },
+    });
   }
 
   async runTaskInCloud(

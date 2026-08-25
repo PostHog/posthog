@@ -17,11 +17,13 @@ import { MarkdownRenderer } from "@posthog/ui/features/editor/components/Markdow
 import { DetailSection } from "@posthog/ui/features/inbox/components/DetailSection";
 import { useMemo } from "react";
 import { openExternalUrl } from "../../shell/openExternal";
+import { BabysitBanner } from "./BabysitBanner";
 import { PrChecksSection } from "./PrChecksSection";
 import { PrCommentsSection } from "./PrCommentsSection";
 import { PrFilesChangedSection } from "./PrFilesChangedSection";
 import { PrReviewActions } from "./PrReviewActions";
 import { usePrInfo } from "./usePrInfo";
+import { useTaskByPrUrl } from "./useTaskByPrUrl";
 
 interface PullRequestViewProps {
   prUrl: string;
@@ -37,6 +39,11 @@ export function PullRequestView({ prUrl }: PullRequestViewProps) {
   const isPr = prRef?.kind === "pr";
   const infoQuery = usePrInfo(isPr ? prUrl : null);
   const info = infoQuery.data;
+
+  // Resolve the task and run that own this PR so the babysit banner can
+  // reach the run's Temporal workflow for staged attention.
+  const task = useTaskByPrUrl(isPr ? prUrl : undefined);
+  const runId = task?.latest_run?.id;
 
   if (!isPr) {
     return (
@@ -128,6 +135,8 @@ export function PullRequestView({ prUrl }: PullRequestViewProps) {
         </DetailSection>
 
         <PrFilesChangedSection prUrl={prUrl} />
+
+        <BabysitBanner taskId={task?.id} runId={runId} prUrl={prUrl} />
 
         <PrCommentsSection prUrl={prUrl} />
 

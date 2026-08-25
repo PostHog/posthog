@@ -140,6 +140,7 @@ from products.tasks.backend.presentation.serializers import (
     TaskRunArtifactsPrepareUploadResponseSerializer,
     TaskRunArtifactsUploadRequestSerializer,
     TaskRunArtifactsUploadResponseSerializer,
+    TaskRunBabysitAttentionSerializer,
     TaskRunBootstrapCreateRequestSerializer,
     TaskRunCancelRequestSerializer,
     TaskRunCommandRequestSerializer,
@@ -2731,6 +2732,55 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 TaskRunErrorResponseSerializer({"error": "Failed to send command to agent server"}).data,
                 status=status.HTTP_502_BAD_GATEWAY,
             )
+
+    @extend_schema(
+        summary="Get pending babysit attention",
+        description=(
+            'When a run is in "ask" PR-babysitting mode and the PR needs attention, '
+            "the workflow stages the attention and waits for consent. This endpoint "
+            "queries the Temporal workflow for that staged attention so the desktop "
+            "can render a consent card. Returns null when nothing is waiting."
+        ),
+        responses={
+            200: OpenApiResponse(response=TaskRunBabysitAttentionSerializer),
+            404: OpenApiResponse(response=TaskRunErrorResponseSerializer),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path="babysit_attention",
+        required_scopes=["task:read"],
+    )
+    def babysit_attention(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        run = self._get_run_or_404(pk)
+        attention = tasks_facade.query_pending_babysit_attention(run.id, task_id, self.team_id)
+        return Response(TaskRunBabysitAttentionSerializer(attention).data)
+
+    @extend_schema(
+        summary="Approve PR babysitting",
+        description=(
+            "Approve a staged babysit wake-up so the agent fixes failing checks and "
+            'review comments on the PR. Only meaningful in "ask" mode; in other modes '
+            "the workflow does not wait for consent."
+        ),
+        responses={
+            200: OpenApiResponse(response=TaskRunErrorResponseSerializer),
+            404: OpenApiResponse(response=TaskRunErrorResponseSerializer),
+        },
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="approve_babysit",
+        required_scopes=["task:write"],
+    )
+    def approve_babysit(self, request, pk=None, **kwargs):
+        task_id = self._ensure_task_accessible()
+        run = self._get_run_or_404(pk)
+        tasks_facade.signal_approve_ci_babysit(run.id, task_id, self.team_id)
+        return Response({"ok": True})
 
     @staticmethod
     def _is_valid_sandbox_url(url: str) -> bool:

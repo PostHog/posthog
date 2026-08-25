@@ -957,6 +957,17 @@ class TaskRunErrorResponseSerializer(serializers.Serializer):
     )
 
 
+class TaskRunBabysitAttentionSerializer(serializers.Serializer):
+    """The staged PR attention waiting for consent in 'ask' babysit mode, or null."""
+
+    pr_url = serializers.CharField(required=False, help_text="The PR URL the attention is about")
+    pr_state = serializers.CharField(required=False, help_text="Lowercased GitHub PR state")
+    head_sha = serializers.CharField(required=False, help_text="Head commit SHA the attention was staged at")
+    attention = serializers.DictField(
+        required=False, help_text="Attention items: failing checks, review threads, comments, conflict"
+    )
+
+
 class AgentListResponseSerializer(serializers.Serializer):
     results = AgentDefinitionSerializer(many=True, help_text="Array of available agent definitions")
 
