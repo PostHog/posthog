@@ -259,6 +259,8 @@ def ai_gateway_headers(
         labels["ai_product"] = ai_product
 
     headers = _ai_property_headers(**labels) or {}
+    if ai_product:
+        headers["X-PostHog-Product"] = ai_product
     if trace_id:
         headers["X-PostHog-Trace-Id"] = trace_id
     if session_id:
@@ -332,7 +334,8 @@ def build_openai_client(
 
     ``product`` names the Python-gateway route used in the fallback; the slugless Go gateway
     derives the team from its ``phs_`` bearer and ignores it. ``ai_product`` tags the captured
-    generation in gateway mode (the Python-gateway fallback derives the tag from ``product``).
+    generation through both the typed product header and the legacy property in gateway mode
+    (the Python-gateway fallback derives the tag from ``product``).
     ``distinct_id`` is a Go-gateway header only. Callers must also pass the same value as ``user``
     on every completion request so the Python-gateway fallback preserves end-user attribution.
     trust_env=False keeps the in-cluster call off the egress proxy.
@@ -392,9 +395,10 @@ def build_async_anthropic_client(
     """Return a raw Anthropic client routed through the internal Go ai-gateway when configured,
     else the Python LLM gateway via :func:`get_async_anthropic_gateway_client`.
 
-    In gateway mode the ``ai_product``, ``ai_stage``, and ``team_id`` labels ride on the
-    ``X-PostHog-Properties`` JSON blob: the Go gateway ignores the ``x-posthog-property-<key>``
-    per-header form the Python gateway reads, so they would be dropped if passed that way.
+    In gateway mode ``ai_product`` rides on both ``X-PostHog-Product`` and the legacy
+    ``X-PostHog-Properties`` JSON blob. The ``ai_stage`` and ``team_id`` labels use only the
+    blob because the Go gateway ignores the ``x-posthog-property-<key>`` per-header form that
+    the Python gateway reads.
     ``team_id`` is the customer team the generation is attributed to (the usage report reads it as
     a property); it does not change the event's owning project, which the gateway derives from the
     ``phs_`` bearer. The Anthropic SDK appends ``/v1/messages``, so the client gets the gateway
@@ -418,6 +422,7 @@ def build_async_anthropic_client(
                 )
                 or {}
             ),
+            **({"X-PostHog-Product": ai_product} if ai_product else {}),
             **_ai_trace_headers(team_id),
         }
         return AsyncAnthropic(

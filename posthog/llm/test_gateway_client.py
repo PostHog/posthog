@@ -226,7 +226,10 @@ class TestBuildOpenAIClient:
         mock_openai.assert_called_once_with(
             api_key=AI_GATEWAY_KEY,
             base_url=AI_GATEWAY_URL,
-            default_headers={"X-PostHog-Properties": json.dumps({"ai_product": "aio_summarization"})},
+            default_headers={
+                "X-PostHog-Properties": json.dumps({"ai_product": "aio_summarization"}),
+                "X-PostHog-Product": "aio_summarization",
+            },
             http_client=mock_httpx.return_value,
         )
         assert result is mock_openai.return_value
@@ -251,7 +254,10 @@ class TestBuildAsyncOpenAIClient:
         mock_async_openai.assert_called_once_with(
             api_key=AI_GATEWAY_KEY,
             base_url=AI_GATEWAY_URL,
-            default_headers={"X-PostHog-Properties": json.dumps({"ai_product": "aio_eval_summary"})},
+            default_headers={
+                "X-PostHog-Properties": json.dumps({"ai_product": "aio_eval_summary"}),
+                "X-PostHog-Product": "aio_eval_summary",
+            },
             http_client=mock_httpx.return_value,
         )
         assert result is mock_async_openai.return_value
@@ -346,6 +352,7 @@ class TestBuildAsyncAnthropicClient:
                 "X-PostHog-Properties": json.dumps(
                     {"ai_product": "signals_grouping", "ai_stage": "match", "team_id": "42"}
                 ),
+                "X-PostHog-Product": "signals_grouping",
                 "X-PostHog-Trace-Id": TEAM_42_TRACE_ID,
             },
             http_client=mock_httpx.return_value,
@@ -382,7 +389,10 @@ class TestBuildAsyncAnthropicClient:
         build_async_anthropic_client("signals", ai_product="signals")
 
         _, kwargs = mock_anthropic.call_args
-        assert kwargs["default_headers"] == {"X-PostHog-Properties": json.dumps({"ai_product": "signals"})}
+        assert kwargs["default_headers"] == {
+            "X-PostHog-Properties": json.dumps({"ai_product": "signals"}),
+            "X-PostHog-Product": "signals",
+        }
 
     @override_settings(AI_GATEWAY_URL="", AI_GATEWAY_API_KEY="")
     @patch("posthog.llm.gateway_client.get_async_anthropic_gateway_client")
