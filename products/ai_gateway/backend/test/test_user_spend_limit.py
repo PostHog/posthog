@@ -72,8 +72,8 @@ class TestUserSpendLimit(APIBaseTest):
     @parameterized.expand(NO_BUDGET_SUPPORT)
     def test_clear_says_unavailable_where_the_gateway_holds_no_limits(self, _name, error):
         # A 404 on DELETE means the gateway serves no budgets route, not that the
-        # user had a limit to clear — so clear must fail like write does, not claim
-        # a limit was removed. Read reports `available: false` for the same gateway;
+        # user had a limit to clear. Clear must fail like write does, not claim a
+        # limit was removed. Read reports `available: false` for the same gateway;
         # clear must not disagree with it.
         with patch(f"{LOGIC}.clear_user_budget", side_effect=error):
             response = self.client.delete(self._url("clear/"))

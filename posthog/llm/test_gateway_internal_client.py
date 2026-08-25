@@ -188,7 +188,7 @@ class TestUserBudgets:
     @patch("posthog.llm.gateway_internal_client.settings")
     def test_get_returns_none_when_the_user_has_no_budget(self, mock_settings):
         _configured(mock_settings)
-        # "No budget" is a 2xx with no row, not a 404 — a 404 means no route at all.
+        # "No budget" is a 2xx with no row. A 404 means no route at all.
         with patch(
             "posthog.llm.gateway_internal_client.httpx.request", return_value=_response(200, {"budget": None})
         ) as mock_request:
