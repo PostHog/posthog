@@ -718,7 +718,7 @@ function StepTriggerConfigurationBatch({
                         sendAllKeyUpdates
                         allowRelativeDateOptions
                         {...COHORTS_ONLY_SUPPORT_IN_PICKER_PROPS}
-                        hideBehavioralCohorts
+                        hideBehavioralCohorts={!featureFlags[FEATURE_FLAGS.WORKFLOWS_COHORT_CONDITIONS]}
                         logicalRowDivider
                         onChange={(properties) =>
                             partialSetWorkflowActionConfig(action.id, {
