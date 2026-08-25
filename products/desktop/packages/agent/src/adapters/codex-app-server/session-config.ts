@@ -378,9 +378,10 @@ export class SessionConfigState {
 
   /**
    * codex's per-turn `collaborationMode`: `{ mode, settings: { model, reasoning_effort } }`.
-   * The model must be a string (not the null in collaborationMode/list output). codex applies
-   * a provided collaboration mode as is and ignores the turn's `effort` param, so the pinned
-   * effort has to ride along here or every turn runs at the model's default effort.
+   * The model must be a string (not the null in collaborationMode/list output). As of codex
+   * 0.144 (codex-rs/core/src/codex_thread.rs), codex applies a provided collaboration mode as
+   * is and reads the turn's `effort` param only when no collaboration mode is sent, so the
+   * pinned effort has to ride along here or every turn runs at the model's default effort.
    */
   collaborationModeForTurn(): unknown {
     return {
