@@ -17,6 +17,7 @@ export const INBOX_EVENTS = {
     VIEWED: 'Inbox viewed',
     WELCOME_VIEWED: 'Inbox welcome viewed',
     WELCOME_COMMAND_COPIED: 'Inbox welcome command copied',
+    WELCOME_SKIPPED: 'Inbox welcome skipped',
     PANEL_VIEWED: 'Inbox panel viewed',
     QUERY_CHANGED: 'Inbox query changed',
     REPORTS_IMPRESSED: 'Inbox reports impressed',
@@ -248,6 +249,17 @@ export function captureInboxWelcomeCommandCopied(params: {
     captureInboxEvent(INBOX_EVENTS.WELCOME_COMMAND_COPIED, {
         variant: params.variant,
         surface: params.surface,
+    })
+}
+
+/**
+ * The user dismissed the welcome takeover with "Skip for now". No event marked a rejected takeover
+ * before, so a user who left the welcome page without running the wizard was invisible. `variant`
+ * mirrors the welcome experiment arm the user skipped from.
+ */
+export function captureInboxWelcomeSkipped(params: { variant: InboxWelcomeVariant }): void {
+    captureInboxEvent(INBOX_EVENTS.WELCOME_SKIPPED, {
+        variant: params.variant,
     })
 }
 

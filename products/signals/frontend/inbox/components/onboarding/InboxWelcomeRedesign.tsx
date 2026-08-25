@@ -1,5 +1,6 @@
 import './InboxWelcomeRedesign.scss'
 
+import { useActions } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconRewindPlay, IconWarning } from '@posthog/icons'
@@ -10,7 +11,8 @@ import { IconSlack } from 'lib/lemon-ui/icons'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
 import { captureInboxWelcomeCommandCopied, captureInboxWelcomeViewed } from '../../inboxAnalytics'
-import { SELF_DRIVING_WIZARD_COMMAND } from './InboxOnboarding'
+import { inboxOnboardingLogic } from '../../logics/inboxOnboardingLogic'
+import { SELF_DRIVING_WIZARD_COMMAND, SkipForNowButton } from './InboxOnboarding'
 
 /** How long the copy button reads "Copied" before flipping back. */
 const COPIED_RESET_MS = 1600
@@ -168,12 +170,17 @@ function LoopDiagram(): JSX.Element {
  * Rendered without the tab bar: this variant is a full-pane welcome, not a locked tab.
  */
 export function InboxWelcomeRedesign(): JSX.Element {
+    const { skipOnboarding } = useActions(inboxOnboardingLogic)
+
     useEffect(() => {
         captureInboxWelcomeViewed({ variant: 'redesign' })
     }, [])
 
     return (
         <div className="InboxWelcomeRedesign flex min-h-full flex-col justify-center py-10">
+            <div className="flex justify-end px-6">
+                <SkipForNowButton onSkip={() => skipOnboarding('redesign')} />
+            </div>
             <div className="px-6 pb-12">
                 <div className="mx-auto flex max-w-[720px] flex-col items-center text-center">
                     <div className="mb-7">

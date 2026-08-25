@@ -9,7 +9,7 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
 
-import { captureInboxOnboardingDecided } from '../inboxAnalytics'
+import { type InboxWelcomeVariant, captureInboxOnboardingDecided, captureInboxWelcomeSkipped } from '../inboxAnalytics'
 import { signalSourcesLogic } from '../signalSourcesLogic'
 import type { SignalSourceConfig } from '../types'
 import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from './reportListLogic'
@@ -40,6 +40,9 @@ export type InboxSettledUiState = 'takeover' | 'inbox'
 /** localStorage key for the per-team last-settled UI state (see `lastSettledUiStateByTeam`). */
 export const INBOX_LAST_UI_STATE_STORAGE_KEY = 'inbox-onboarding-last-ui-state'
 
+/** localStorage key for the per-team "Skip for now" flag (see `onboardingSkippedByTeam`). */
+export const INBOX_ONBOARDING_SKIPPED_STORAGE_KEY = 'inbox-onboarding-skipped'
+
 /**
  * Why the onboarding is not showing. `null` whenever it is.
  *
@@ -55,6 +58,7 @@ export type InboxOnboardingSuppressionReason =
     | 'counts_loading'
     | 'refetching'
     | 'banner_dismissed'
+    | 'skipped'
     | null
 
 export interface InboxOnboardingDecision {
@@ -100,6 +104,8 @@ export function resolveWizardState({
 }
 
 export interface OnboardingModeInputs {
+    /** The user dismissed the welcome takeover with "Skip for now"; persisted per team. */
+    onboardingSkipped: boolean
     /** Every watcher loader has settled, so the set-up verdict is trustworthy. */
     isSetupLoaded: boolean
     /** At least one signal source, scout, or signal-emitting Replay Vision scanner is watching. */
@@ -135,6 +141,7 @@ export interface OnboardingModeInputs {
  * wait that can hang forever.
  */
 export function computeOnboardingDecision({
+    onboardingSkipped,
     isSetupLoaded,
     isSelfDrivingSetUp,
     areCountsResolved,
@@ -153,6 +160,13 @@ export function computeOnboardingDecision({
     // wizard detector nor the report counts could flip their verdict to an onboarding.
     if (isSetupLoaded && isSelfDrivingSetUp) {
         return { mode: 'none', reason: 'already_set_up' }
+    }
+    // The user chose "Skip for now": drop straight to the normal inbox, where the setup rail (or the
+    // Configuration tab on narrow screens) still offers the one command. Persisted per team, so the
+    // takeover does not return next visit. Checked below the two verdicts above so a team that later
+    // sets self-driving up (or has a run in flight) reports that rather than a stale "skipped".
+    if (onboardingSkipped) {
+        return { mode: 'none', reason: 'skipped' }
     }
     // Work already in the inbox rules the takeover out: the only remaining outcomes (banner /
     // none) both render the normal inbox, so show it now rather than holding a skeleton. The
@@ -240,6 +254,8 @@ export interface inboxOnboardingLogicValues {
     lastSettledUiStateByTeam: Record<string, InboxSettledUiState>
     onboardingDecision: InboxOnboardingDecision
     onboardingMode: InboxOnboardingMode
+    onboardingSkipped: boolean
+    onboardingSkippedByTeam: Record<string, boolean>
     resolvedOnboardingMode: InboxOnboardingMode
     verdictWaitExpired: boolean
 }
@@ -268,6 +284,12 @@ export interface inboxOnboardingLogicActions {
     ) => {
         teamId: number
         uiState: InboxSettledUiState
+    }
+    setOnboardingSkipped: (teamId: number) => {
+        teamId: number
+    }
+    skipOnboarding: (variant: InboxWelcomeVariant) => {
+        variant: InboxWelcomeVariant
     }
 }
 
@@ -300,7 +322,9 @@ export interface inboxOnboardingLogicMeta {
             pullsCountLoading: boolean,
             reportsCountLoading: boolean
         ) => boolean
+        onboardingSkipped: (onboardingSkippedByTeam: Record<string, boolean>, currentTeamId: number | null) => boolean
         onboardingDecision: (
+            onboardingSkipped: boolean,
             isSetupLoaded: boolean,
             isSelfDrivingSetUp: boolean,
             areCountsResolved: boolean,
@@ -385,12 +409,14 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
 
     actions({
         dismissBanner: true,
+        skipOnboarding: (variant: InboxWelcomeVariant) => ({ variant }),
+        setOnboardingSkipped: (teamId: number) => ({ teamId }),
         expireWizardVerdictWait: true,
         setLastSettledUiState: (teamId: number, uiState: InboxSettledUiState) => ({ teamId, uiState }),
         refreshSetupState: true,
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         // Re-pull everything the verdict is computed from. Fired when the wizard run ends and when
         // the user returns to a tab whose verdict still says "not set up".
         refreshSetupState: () => {
@@ -398,6 +424,15 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
             actions.loadScoutConfigs()
             actions.loadPullsCount()
             actions.loadReportsCount()
+        },
+        // Persist the skip against the current team and record it, so a rejected takeover leaves a
+        // trace (nothing did before). The caller passes the arm it skipped from.
+        skipOnboarding: ({ variant }) => {
+            const teamId = values.currentTeamId
+            if (teamId != null) {
+                actions.setOnboardingSkipped(teamId)
+            }
+            captureInboxWelcomeSkipped({ variant })
         },
     })),
 
@@ -412,6 +447,14 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
             false,
             {
                 expireWizardVerdictWait: () => true,
+            },
+        ],
+        // Keyed by team: skipping the takeover in one project must not skip it in another.
+        onboardingSkippedByTeam: [
+            {} as Record<string, boolean>,
+            { persist: true, storageKey: INBOX_ONBOARDING_SKIPPED_STORAGE_KEY },
+            {
+                setOnboardingSkipped: (state, { teamId }) => (state[teamId] ? state : { ...state, [teamId]: true }),
             },
         ],
         // Keyed by team: the verdict is per team, and a cached verdict from another team must not
@@ -492,8 +535,14 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
         // The verdict from live inputs alone, with the input it is still waiting on. Kept separate
         // from `onboardingMode` so neither the cache writer nor the telemetry below ever reports a
         // guess that itself came from the cache.
+        onboardingSkipped: [
+            (s) => [s.onboardingSkippedByTeam, s.currentTeamId],
+            (onboardingSkippedByTeam: Record<string, boolean>, currentTeamId: number | null): boolean =>
+                currentTeamId != null ? (onboardingSkippedByTeam[currentTeamId] ?? false) : false,
+        ],
         onboardingDecision: [
             (s) => [
+                s.onboardingSkipped,
                 s.isSetupLoaded,
                 s.isSelfDrivingSetUp,
                 s.areCountsResolved,
@@ -504,6 +553,7 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
                 s.isRefetching,
             ],
             (
+                onboardingSkipped: boolean,
                 isSetupLoaded: boolean,
                 isSelfDrivingSetUp: boolean,
                 areCountsResolved: boolean,
@@ -514,6 +564,7 @@ export const inboxOnboardingLogic = kea<inboxOnboardingLogicType>([
                 isRefetching: boolean
             ): InboxOnboardingDecision =>
                 computeOnboardingDecision({
+                    onboardingSkipped,
                     isSetupLoaded,
                     isSelfDrivingSetUp,
                     areCountsResolved,
