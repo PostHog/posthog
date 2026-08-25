@@ -55,6 +55,10 @@ jobs:
                   filters: |
                       nodejs:
                         - .github/workflows/ci-nodejs.yml
+                        # The report job executes these after Jest uploads its JUnit artifacts.
+                        - '.github/actions/report-jest-timings/**'
+                        - '.github/scripts/report_test_timings.py'
+                        - 'bin/report-jest-timings'
                         # Node DB setup builds sqlx-cli via this composite; changes to it must exercise these jobs.
                         - '.github/actions/setup-sqlx-cli/**'
                         - 'nodejs/**'
