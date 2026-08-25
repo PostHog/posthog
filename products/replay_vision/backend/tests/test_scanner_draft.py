@@ -11,20 +11,31 @@ from posthog.rate_limit import AIBurstRateThrottle
 
 from products.posthog_ai.backend.models.assistant import CoreMemory
 from products.replay_vision.backend.models.replay_scanner import ScannerType
+from products.replay_vision.backend.queries.scanner_candidate_query import MIN_SAMPLING_RATE
+from products.replay_vision.backend.queries.scanner_volume_estimate import ScannerVolumeEstimate
+from products.replay_vision.backend.queries.visited_paths import VisitedPath
 from products.replay_vision.backend.scanner_draft import (
     DraftError,
+    ScannerDraft,
     _build_user_content,
     _business_context,
     _existing_scanners,
     _ExistingScanner,
     _finalize,
+    _finalize_v2,
     _generate,
     _LlmDraft,
+    _LlmDraftV2,
+    _pages_query,
+    _solve_budget,
+    draft_scanner_from_goal_v2,
 )
 from products.replay_vision.backend.tag_suggestions import _ProductTaxonomy
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 
 _GENERATE_PATH = "products.replay_vision.backend.scanner_draft._generate"
+_MODULE = "products.replay_vision.backend.scanner_draft"
+_API_MODULE = "products.replay_vision.backend.api.scanners"
 _CORE_MEMORY_FLAG_PATH = "products.replay_vision.backend.scanner_draft.is_core_memory_disabled"
 
 
@@ -43,6 +54,17 @@ def _draft(**overrides) -> _LlmDraft:
     }
     base.update(overrides)
     return _LlmDraft(**base)
+
+
+def _draft_v2(**overrides) -> _LlmDraftV2:
+    base = {
+        "scanner_type": "monitor",
+        "name": "Billing give-up",
+        "description": "Flags sessions where the user gives up in billing.",
+        "prompt": "Did the user give up in billing? Answer yes or no with a one-sentence reason.",
+    }
+    base.update(overrides)
+    return _LlmDraftV2(**base)
 
 
 class TestBuildUserContent:
@@ -423,6 +445,10 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
             },
             "rationale": "A classifier fits because you want the mix of visit intents, not a single yes/no.",
             "query": None,
+            # Goal-flow fields are null on the legacy path: the wizard keeps its own defaults.
+            "sampling_mode": None,
+            "sampling_rate": None,
+            "estimated_monthly_observations": None,
         }
 
     @patch(_GENERATE_PATH)
@@ -557,3 +583,249 @@ class TestDraftScannerEndpoint(_VisionAPITestCase):
             resp = self.client.post(self.draft_url, data={"goal": "find rage clicks"}, format="json")
 
         assert resp.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+
+
+class TestPagesQuery:
+    def test_pages_become_one_multi_value_property(self):
+        # Separate properties would AND and match almost nothing: measured 68 sessions where the
+        # one-property shape matched 44,523.
+        query = _pages_query(["/billing", "/checkout", "/payment"])
+
+        assert query is not None
+        assert len(query["properties"]) == 1
+        assert query["properties"][0] == {
+            "type": "recording",
+            "key": "visited_page",
+            "value": ["/billing", "/checkout", "/payment"],
+            "operator": "icontains",
+        }
+
+    def test_collapsed_id_pages_filter_by_their_prefix(self):
+        # The grounding list says "/invoice/:id" but real URLs hold real IDs, so the literal value
+        # would match zero sessions. The prefix still matches every such URL.
+        query = _pages_query(["/invoice/:id", "/billing"])
+
+        assert query is not None
+        assert query["properties"][0]["value"] == ["/invoice/", "/billing"]
+
+    @pytest.mark.parametrize("pathname", ["/", "/:id", "/a/:id/b"])
+    def test_a_page_that_cannot_narrow_is_dropped(self, pathname):
+        # "/a/:id/b" prefixes to "/a/", two non-slash chars: icontains on it matches nearly every
+        # URL, so it reads as a narrowing filter while narrowing nothing.
+        assert _pages_query([pathname]) is None
+
+    def test_prefix_collisions_are_deduped(self):
+        query = _pages_query(["/invoice/:id", "/invoice/:id/edit"])
+
+        assert query is not None
+        assert query["properties"][0]["value"] == ["/invoice/"]
+
+
+class TestFinalizeV2:
+    def test_hallucinated_pages_are_dropped(self):
+        draft = _finalize_v2(
+            _draft_v2(filter_pages=["/billing", "/made-up-page"]),
+            allowed_pages=["/billing", "/checkout"],
+            team_id=1,
+        )
+
+        assert draft.query is not None
+        assert draft.query["properties"][0]["value"] == ["/billing"]
+
+    def test_no_grounded_pages_means_no_query(self):
+        draft = _finalize_v2(_draft_v2(filter_pages=["/made-up"]), allowed_pages=["/billing"], team_id=1)
+
+        assert draft.query is None
+
+    def test_carries_the_models_sampling_mode_without_costing(self):
+        draft = _finalize_v2(_draft_v2(sampling_mode="focused"), allowed_pages=[], team_id=1)
+
+        assert draft.sampling_mode == "focused"
+        assert draft.sampling_rate is None
+        assert draft.estimated_monthly_observations is None
+
+
+class TestSolveBudget(_VisionAPITestCase):
+    def _solve(self, *, budget, model_mode="focused", monthly_by_mode=None):
+        # Counting is ClickHouse's job with its own tests; these assert the dial arithmetic.
+        monthly_by_mode = monthly_by_mode or {}
+
+        def fake_estimate(*, sampling_mode, **kwargs):
+            matched = monthly_by_mode[str(sampling_mode)]
+            return ScannerVolumeEstimate(matched_sessions=matched, effective_window_days=30)
+
+        with patch(f"{_MODULE}.estimate_scanner_session_volume", side_effect=fake_estimate):
+            return _solve_budget(
+                team=self.team,
+                user=self.user,
+                query=None,
+                monthly_scan_budget=budget,
+                model_mode=model_mode,
+            )
+
+    def test_a_budget_that_covers_everything_opens_the_floodgates(self):
+        # The user asked for more than exists, so nothing is filtered: a quality mode would only
+        # hide sessions the budget could have paid for — even when the model chose one.
+        solution = self._solve(budget=1000, model_mode="focused", monthly_by_mode={"comprehensive": 50})
+
+        assert solution.sampling_mode == "comprehensive"
+        assert solution.sampling_rate == 1.0
+        assert solution.estimated_monthly_observations == 50
+
+    def test_a_budget_below_the_volume_keeps_the_models_mode_and_solves_the_rate(self):
+        solution = self._solve(
+            budget=1_000, model_mode="focused", monthly_by_mode={"comprehensive": 100_000, "focused": 69_000}
+        )
+
+        assert solution.sampling_mode == "focused"
+        # Floored to the rate precision, never rounded up: up would overspend the stated budget.
+        assert solution.sampling_rate == 0.0144
+        assert solution.estimated_monthly_observations <= 1_000
+
+    def test_a_mode_that_already_fits_the_budget_needs_no_sampling(self):
+        solution = self._solve(
+            budget=1_000, model_mode="focused", monthly_by_mode={"comprehensive": 5_000, "focused": 800}
+        )
+
+        assert solution.sampling_mode == "focused"
+        assert solution.sampling_rate == 1.0
+        assert solution.estimated_monthly_observations == 800
+
+    def test_a_tiny_budget_clamps_at_the_minimum_rate(self):
+        solution = self._solve(budget=1, model_mode="comprehensive", monthly_by_mode={"comprehensive": 10_000_000})
+
+        assert solution.sampling_rate == MIN_SAMPLING_RATE
+
+
+class TestDraftV2(_VisionAPITestCase):
+    def _run(self, *, pages=(), generate=None, estimate_error=False):
+        fake_pages = tuple(VisitedPath(pathname=p, sessions=10) for p in pages)
+        estimate_patch = (
+            patch(f"{_MODULE}.estimate_scanner_session_volume", side_effect=RuntimeError("clickhouse down"))
+            if estimate_error
+            else patch(
+                f"{_MODULE}.estimate_scanner_session_volume",
+                return_value=ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30),
+            )
+        )
+        with (
+            patch(f"{_MODULE}.fetch_visited_paths", return_value=fake_pages),
+            patch(_GENERATE_PATH, return_value=generate or _draft_v2()),
+            estimate_patch,
+        ):
+            return draft_scanner_from_goal_v2(
+                team=self.team,
+                user=self.user,
+                goal="find out where people give up in billing",
+                monthly_scan_budget=1_000,
+                user_access_control=_access_control(allow=True),
+            )
+
+    def test_a_costing_failure_does_not_cost_the_draft(self):
+        # The estimate is a nicety on top of a good draft; a ClickHouse timeout must not 503 the flow.
+        draft = self._run(estimate_error=True)
+
+        assert draft.name
+        assert draft.sampling_mode is None
+        assert draft.sampling_rate is None
+        assert draft.estimated_monthly_observations is None
+
+    def test_a_pages_query_failure_still_drafts_from_events(self):
+        with (
+            patch(f"{_MODULE}.fetch_visited_paths", side_effect=RuntimeError("clickhouse down")),
+            patch(_GENERATE_PATH, return_value=_draft_v2(filter_pages=["/billing"])) as gen,
+            patch(
+                f"{_MODULE}.estimate_scanner_session_volume",
+                return_value=ScannerVolumeEstimate(matched_sessions=300, effective_window_days=30),
+            ),
+        ):
+            draft = draft_scanner_from_goal_v2(
+                team=self.team,
+                user=self.user,
+                goal="billing",
+                monthly_scan_budget=100,
+                user_access_control=_access_control(allow=True),
+            )
+
+        assert gen.called
+        # No page list was shown, so the model's page picks cannot be grounded and no filter survives.
+        assert draft.query is None
+
+    def test_solved_dials_reach_the_draft(self):
+        draft = self._run(pages=("/billing",), generate=_draft_v2(filter_pages=["/billing"]))
+
+        assert draft.query is not None
+        assert draft.sampling_mode == "comprehensive"
+        assert draft.sampling_rate == 1.0
+        assert draft.estimated_monthly_observations == 300
+
+
+class TestDraftEndpointGoalFlow(_VisionAPITestCase):
+    @property
+    def draft_url(self) -> str:
+        return f"{self.scanners_url}draft/"
+
+    def setUp(self):
+        super().setUp()
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+
+    def _costed_draft(self):
+        return ScannerDraft(
+            name="Billing give-up",
+            description="d",
+            scanner_type="monitor",
+            scanner_config={"prompt": "p"},
+            rationale="",
+            query={"kind": "RecordingsQuery"},
+            sampling_mode="comprehensive",
+            sampling_rate=0.25,
+            estimated_monthly_observations=1_000,
+        )
+
+    def test_budget_with_the_flag_on_takes_the_goal_flow(self):
+        with (
+            patch(f"{_API_MODULE}._goal_flow_enabled", return_value=True),
+            patch(f"{_API_MODULE}.draft_scanner_from_goal_v2", return_value=self._costed_draft()) as v2,
+            patch(f"{_API_MODULE}.draft_scanner_from_goal") as legacy,
+        ):
+            resp = self.client.post(
+                self.draft_url, data={"goal": "billing give-ups", "monthly_scan_budget": 1000}, format="json"
+            )
+
+        assert resp.status_code == status.HTTP_200_OK
+        assert not legacy.called
+        assert v2.call_args.kwargs["monthly_scan_budget"] == 1000
+        body = resp.json()
+        assert body["sampling_mode"] == "comprehensive"
+        assert body["sampling_rate"] == 0.25
+        assert body["estimated_monthly_observations"] == 1000
+
+    def test_budget_with_the_flag_off_degrades_to_the_legacy_draft(self):
+        # A client/rollout skew (page loaded before the flag flipped off) must not half-apply the
+        # new flow: the request still answers, as a legacy draft with null dials.
+        with (
+            patch(f"{_API_MODULE}._goal_flow_enabled", return_value=False),
+            patch(f"{_API_MODULE}.draft_scanner_from_goal_v2") as v2,
+            patch(_GENERATE_PATH, return_value=_draft()),
+        ):
+            resp = self.client.post(
+                self.draft_url, data={"goal": "billing give-ups", "monthly_scan_budget": 1000}, format="json"
+            )
+
+        assert resp.status_code == status.HTTP_200_OK
+        assert not v2.called
+        body = resp.json()
+        assert body["sampling_mode"] is None
+        assert body["sampling_rate"] is None
+        assert body["estimated_monthly_observations"] is None
+
+    def test_no_budget_never_consults_the_flag(self):
+        with (
+            patch(f"{_API_MODULE}._goal_flow_enabled") as gate,
+            patch(_GENERATE_PATH, return_value=_draft()),
+        ):
+            resp = self.client.post(self.draft_url, data={"goal": "billing give-ups"}, format="json")
+
+        assert resp.status_code == status.HTTP_200_OK
+        assert not gate.called

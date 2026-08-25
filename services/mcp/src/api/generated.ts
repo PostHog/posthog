@@ -28614,6 +28614,12 @@ export namespace Schemas {
          * @maxLength 2000
          */
       goal: string;
+      /**
+         * Goal-based flow only: how many replays a month the scanner may watch. The draft solves `sampling_mode` and `sampling_rate` so the projection lands on this number. Omitted on the legacy flow, and ignored while the goal-based flow's flag is off for the caller.
+         * @minimum 1
+         * @maximum 1000000
+         */
+      monthly_scan_budget?: number;
     }
 
     /**
@@ -28630,6 +28636,20 @@ export namespace Schemas {
       Classifier: 'classifier',
       Scorer: 'scorer',
       Summarizer: 'summarizer',
+    } as const;
+
+    /**
+     * * `focused` - Focused
+     * * `balanced` - Balanced
+     * * `comprehensive` - Comprehensive
+     */
+    export type SamplingModeEnum = typeof SamplingModeEnum[keyof typeof SamplingModeEnum];
+
+
+    export const SamplingModeEnum = {
+      Focused: 'focused',
+      Balanced: 'balanced',
+      Comprehensive: 'comprehensive',
     } as const;
 
     /**
@@ -28653,6 +28673,22 @@ export namespace Schemas {
       rationale: string;
       /** `RecordingsQuery` narrowing which sessions get scanned; null when the draft targets every session. */
       query: unknown;
+      /** Goal-based flow only: the quality pre-filter the draft chose for the goal. Null on the legacy flow, and null when the costing estimate failed — the wizard keeps its defaults.
+       *
+       * * `focused` - Focused
+       * * `balanced` - Balanced
+       * * `comprehensive` - Comprehensive */
+      sampling_mode: SamplingModeEnum | null;
+      /**
+         * Goal-based flow only: the random sampling rate solved from `monthly_scan_budget`, 0..1. 1.0 when the budget covers every matching session. Null whenever `sampling_mode` is.
+         * @nullable
+         */
+      sampling_rate: number | null;
+      /**
+         * Goal-based flow only: replays a month the drafted scanner is projected to watch under the solved dials — at or under `monthly_scan_budget`. Null whenever `sampling_mode` is.
+         * @nullable
+         */
+      estimated_monthly_observations: number | null;
     }
 
     export interface DraftStatusResponse {
@@ -31625,20 +31661,6 @@ export namespace Schemas {
       /** Hash of the uploaded symbol set content. */
       content_hash: string;
     }
-
-    /**
-     * * `focused` - Focused
-     * * `balanced` - Balanced
-     * * `comprehensive` - Comprehensive
-     */
-    export type SamplingModeEnum = typeof SamplingModeEnum[keyof typeof SamplingModeEnum];
-
-
-    export const SamplingModeEnum = {
-      Focused: 'focused',
-      Balanced: 'balanced',
-      Comprehensive: 'comprehensive',
-    } as const;
 
     /**
      * * `gemini-3.5-flash-lite` - Gemini 3.5 Flash Lite
