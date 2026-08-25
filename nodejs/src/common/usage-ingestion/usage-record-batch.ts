@@ -39,13 +39,18 @@ export class UsageRecordBatch {
         return this.records.size
     }
 
+    /** Whether this record would be kept, so a caller can skip building one. */
+    accepts(teamId: number, usageKey?: string): boolean {
+        if (this.client === null || !this.config.isTeamEnabled(teamId)) {
+            return false
+        }
+        return (
+            usageKey === undefined || !this.config.isUsageKeyEnabled || this.config.isUsageKeyEnabled(teamId, usageKey)
+        )
+    }
+
     add(teamId: number, usageKey: string, recordId: string, quantity = 1, unit?: string): void {
-        if (
-            !this.client ||
-            quantity <= 0 ||
-            !this.config.isTeamEnabled(teamId) ||
-            (this.config.isUsageKeyEnabled && !this.config.isUsageKeyEnabled(teamId, usageKey))
-        ) {
+        if (quantity <= 0 || !this.accepts(teamId, usageKey)) {
             return
         }
         const key = `${teamId}:${usageKey}:${recordId}`
@@ -65,6 +70,10 @@ export class UsageRecordBatch {
         usageKey: string,
         recordId: string
     ): void {
+        // A record that would be dropped must not put the flush behind its Kafka writes.
+        if (!this.accepts(teamId, usageKey)) {
+            return
+        }
         this.pendingAcknowledgements.push(
             Promise.all(acknowledgements)
                 .then((results) => {

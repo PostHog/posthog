@@ -115,7 +115,7 @@ export class IngestionTracesServer implements NodeServer {
         serviceLoaders.push(async () => {
             const usageBatch = new UsageRecordBatch(createUsageIngestionClient(this.config, 'apm'), {
                 unit: 'bytes',
-                isTeamEnabled: usageReportTeamMatcher(this.config, 'apm'),
+                isTeamEnabled: usageReportTeamMatcher(this.config),
             })
             const consumer = new TracesIngestionConsumer(this.config, {
                 teamManager,

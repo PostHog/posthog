@@ -26,6 +26,7 @@ const DEFAULT_MAX_PAYLOAD_BYTES = 35 * 1024 * 1024;
 const MAX_GIT_BUFFER = 256 * 1024 * 1024;
 // Per-attempt cap for the GraphQL commit call; retried with backoff on timeout.
 const GH_GRAPHQL_TIMEOUT_MS = 30_000;
+const GH_PR_LOOKUP_TIMEOUT_MS = 4_000;
 
 export interface SignedCommitCtx {
   /** Working directory of the clone. */
@@ -197,11 +198,11 @@ export async function resolveRepoNameWithOwner(cwd: string): Promise<string> {
   return `${parsed.owner}/${parsed.repo}`;
 }
 
-async function resolveBaseBranch(ctx: SignedCommitCtx): Promise<string | null> {
-  if (ctx.baseBranch) return ctx.baseBranch;
-  // Fall back to the remote's default branch so the guard still fires when no
-  // explicit base is supplied. Best-effort: a clone without origin/HEAD just
-  // leaves the guard inactive rather than failing the commit.
+// Best-effort: a clone without origin/HEAD leaves the default-branch refusal
+// inactive rather than failing the commit.
+async function remoteDefaultBranch(
+  ctx: SignedCommitCtx,
+): Promise<string | null> {
   const r = await runGit(
     ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"],
     ctx.cwd,
@@ -215,24 +216,111 @@ async function resolveBaseBranch(ctx: SignedCommitCtx): Promise<string | null> {
   );
 }
 
+// Fork rows are dropped: `--head` matches a fork's head ref too, and the signed
+// write always lands on the origin repository, never on the fork.
+async function openPrBaseForHead(
+  ctx: SignedCommitCtx,
+  branch: string,
+  exec: typeof execGh = execGh,
+): Promise<{ bases: string[]; error: string | null }> {
+  const res = await execGhWithRetry(
+    [
+      "pr",
+      "list",
+      "--head",
+      branch,
+      "--state",
+      "open",
+      "--limit",
+      "20",
+      "--json",
+      "baseRefName,isCrossRepository",
+    ],
+    {
+      cwd: ctx.cwd,
+      env: ghTokenEnv(ctx.token),
+      timeoutMs: GH_PR_LOOKUP_TIMEOUT_MS,
+    },
+    { maxAttempts: 2, backoffMs: 250 },
+    exec,
+  );
+  if (res.exitCode !== 0) {
+    return { bases: [], error: res.stderr.trim() || res.error || "gh failed" };
+  }
+  try {
+    const rows = JSON.parse(res.stdout) as {
+      baseRefName?: string;
+      isCrossRepository?: boolean;
+    }[];
+    const bases = rows
+      .filter((row) => row.isCrossRepository !== true)
+      .map((row) => row.baseRefName)
+      .filter((base): base is string => !!base);
+    return { bases: [...new Set(bases)], error: null };
+  } catch {
+    return { bases: [], error: `unreadable gh output: ${res.stdout.trim()}` };
+  }
+}
+
+function refuseBaseWrite(branch: string, because: string): Error {
+  return new Error(
+    `Refusing to commit directly to base branch '${branch}' (${because}). ` +
+      `Pass a 'branch' name prefixed with posthog/.`,
+  );
+}
+
+/**
+ * The base branch for a write to `branch`; throws when the write is refused.
+ * A caller-supplied base can be a head branch the run has to update, so GitHub
+ * decides and the PR's own base replaces the pin for the whole operation. The
+ * repository's default branch is refused whatever the caller passed.
+ */
+export async function resolveWriteBase(
+  ctx: SignedCommitCtx,
+  branch: string,
+  exec: typeof execGh = execGh,
+): Promise<string | null> {
+  const remoteDefault = await remoteDefaultBranch(ctx);
+  if (branch === remoteDefault) {
+    throw refuseBaseWrite(branch, "it is the repository's default branch");
+  }
+
+  const base = ctx.baseBranch ?? remoteDefault;
+  if (!base || branch !== base) return base;
+
+  if (!remoteDefault) {
+    throw refuseBaseWrite(
+      branch,
+      "the repository's default branch could not be determined",
+    );
+  }
+
+  const { bases, error } = await openPrBaseForHead(ctx, branch, exec);
+  if (error) {
+    throw refuseBaseWrite(
+      branch,
+      `its open pull requests could not be looked up: ${error}`,
+    );
+  }
+  const candidates = bases.filter((candidate) => candidate !== branch);
+  if (candidates.length === 0) {
+    throw refuseBaseWrite(branch, "no open pull request heads it");
+  }
+  if (candidates.length > 1) {
+    throw refuseBaseWrite(
+      branch,
+      `it heads open pull requests with different bases (${candidates.join(", ")})`,
+    );
+  }
+  return candidates[0];
+}
+
 async function resolveBranchName(
   ctx: SignedCommitCtx,
   input: SignedCommitInput,
 ): Promise<string> {
-  const branch = input.branch
-    ? input.branch.replace(/^refs\/heads\//, "")
-    : await resolveCurrentBranch(ctx);
-
-  // Guard both paths: an explicit `branch: "main"` must be refused the same as
-  // landing on the base branch implicitly via HEAD.
-  const baseBranch = await resolveBaseBranch(ctx);
-  if (baseBranch && branch === baseBranch) {
-    throw new Error(
-      `Refusing to commit directly to base branch '${baseBranch}'. ` +
-        `Pass a 'branch' name prefixed with posthog/.`,
-    );
-  }
-  return branch;
+  if (input.branch) return input.branch.replace(/^refs\/heads\//, "");
+  return resolveCurrentBranch(ctx);
 }
 
 async function resolveCurrentBranch(ctx: SignedCommitCtx): Promise<string> {
@@ -576,6 +664,7 @@ async function assertNoBaseLeak(
   ctx: SignedCommitCtx,
   branch: string,
   tip: string,
+  base: string | null,
 ): Promise<void> {
   const skip = (reason: string) => {
     process.stderr.write(
@@ -583,7 +672,6 @@ async function assertNoBaseLeak(
     );
   };
 
-  const base = await resolveBaseBranch(ctx);
   if (!base || base === branch) return;
 
   const fetched = await runGit(["fetch", "--no-tags", "origin", base], ctx.cwd);
@@ -839,6 +927,7 @@ export async function createSignedCommit(
     resolveRepoNameWithOwner(ctx.cwd),
     resolveBranchName(ctx, input),
   ]);
+  const writeBase = await resolveWriteBase(ctx, branch);
 
   if (input.paths && input.paths.length > 0) {
     const r = await runGit(["add", "--", ...input.paths], ctx.cwd);
@@ -880,7 +969,7 @@ export async function createSignedCommit(
     );
   }
 
-  await assertNoBaseLeak(ctx, branch, tip);
+  await assertNoBaseLeak(ctx, branch, tip, writeBase);
 
   const body = [input.body, buildPostHogTrailers(ctx.taskId).join("\n")]
     .filter(Boolean)
@@ -954,7 +1043,7 @@ export async function createSignedRewrite(
     );
   }
 
-  const baseBranch = await resolveBaseBranch(ctx);
+  const baseBranch = await resolveWriteBase(ctx, branch);
   if (baseBranch) {
     await runGit(["fetch", "--no-tags", "origin", baseBranch], ctx.cwd);
   }
@@ -1125,7 +1214,8 @@ export async function createSignedMerge(
     resolveBranchName(ctx, { message: "", branch: input.branch }),
   ]);
 
-  const base = input.base ?? (await resolveBaseBranch(ctx));
+  const writeBase = await resolveWriteBase(ctx, branch);
+  const base = input.base ?? writeBase;
   if (!base) {
     throw new Error(
       "Could not determine the base branch — pass `base` explicitly (e.g. master).",

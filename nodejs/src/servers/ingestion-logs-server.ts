@@ -159,7 +159,7 @@ export class IngestionLogsServer implements NodeServer {
         serviceLoaders.push(async () => {
             const usageBatch = new UsageRecordBatch(createUsageIngestionClient(this.config, 'logs'), {
                 unit: 'bytes',
-                isTeamEnabled: usageReportTeamMatcher(this.config, 'logs'),
+                isTeamEnabled: usageReportTeamMatcher(this.config),
             })
             const consumer = new LogsIngestionConsumer(this.config, {
                 teamManager,

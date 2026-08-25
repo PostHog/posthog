@@ -26,23 +26,24 @@ Read with `argMax(quantity, timestamp)` grouped by the sort key. HogQL rejects `
 The collapse happens on merge, so a plain `sum(quantity)` counts every un-merged duplicate.
 Measured locally: two identical batches landing in separate parts read as 6 rows summing 18 without `FINAL`, and 3 rows summing 9 with it.
 
-| producer_id         | usage_key                                               | unit           | record_id                                                                                       | env var                                       |
-| ------------------- | ------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| `ingestion`         | `events`, `ai_events`                                   | events         | `{day}:{event}:{distinct_id}:{uuid}`                                                            | `USAGE_INGESTION_REPORT_INGESTION_TEAMS`      |
-| `ai-ingestion`      | `ai_events`                                             | events         | `{day}:{event}:{distinct_id}:{uuid}`                                                            | `USAGE_INGESTION_REPORT_INGESTION_TEAMS`      |
-| `error-tracking`    | `exceptions`                                            | events         | `{day}:{event}:{distinct_id}:{uuid}`                                                            | `USAGE_INGESTION_REPORT_INGESTION_TEAMS`      |
-| `cdp`               | `cdp_billable_invocations`                              | invocations    | `event:{eventUuid}` / `flow:{invocationId}:{actionStepCount}:{kind}` / `webhook:{invocationId}` | `USAGE_INGESTION_REPORT_CDP_TEAMS`            |
-| `feature-flags`     | `feature_flag_requests`                                 | requests       | fresh UUIDv7 per flush                                                                          | `FLAGS_USAGE_INGESTION_TEAMS`                 |
-| `ingestion`         | `survey_responses`                                      | events         | `{day}:{event}:{distinct_id}:{uuid}`                                                            | `USAGE_INGESTION_REPORT_INGESTION_TEAMS`      |
-| `warehouse-sources` | `warehouse_rows_synced`                                 | rows           | the ExternalDataJob ID                                                                          | `USAGE_INGESTION_REPORT_WAREHOUSE_ROWS_TEAMS` |
-| `batch-exports`     | `batch_export_rows`                                     | rows           | the BatchExportRun ID                                                                           | `USAGE_INGESTION_REPORT_BATCH_EXPORTS_TEAMS`  |
-| `replay-vision`     | `replay_vision_credits`                                 | credits        | the observation ID                                                                              | `USAGE_INGESTION_REPORT_REPLAY_VISION_TEAMS`  |
-| `logs`              | `logs_bytes`, `logs_records`                            | bytes, records | fresh UUIDv7 per flush                                                                          | `USAGE_INGESTION_REPORT_LOGS_TEAMS`           |
-| `apm`               | `apm_bytes`, `apm_spans`                                | bytes, records | fresh UUIDv7 per flush                                                                          | `USAGE_INGESTION_REPORT_APM_TEAMS`            |
-| `session-replay`    | `session_replay_recordings`, `mobile_replay_recordings` | recordings     | the session ID                                                                                  | `USAGE_INGESTION_REPORT_INGESTION_TEAMS`      |
-| `ingestion`         | `enhanced_person_events`                                | events         | `{day}:{event}:{distinct_id}:{uuid}`                                                            | `USAGE_INGESTION_REPORT_INGESTION_TEAMS`      |
+| producer_id         | usage_key                                               | unit           | record_id                                                                                      | deployment                     |
+| ------------------- | ------------------------------------------------------- | -------------- | ---------------------------------------------------------------------------------------------- | ------------------------------ |
+| `ingestion`         | `events`, `ai_events`                                   | events         | `{day}:{event}:{distinct_id}:{uuid}`                                                           | ingestion consumers            |
+| `ai-ingestion`      | `ai_events`                                             | events         | `{day}:{event}:{distinct_id}:{uuid}`                                                           | AI ingestion consumer          |
+| `error-tracking`    | `exceptions`                                            | events         | `{day}:{event}:{distinct_id}:{uuid}`                                                           | error tracking server          |
+| `cdp`               | `cdp_billable_invocations`                              | invocations    | `event:{eventUuid}` / `flow:{invocationId}:{actionStepCount}:{kind}` / `webhook:{invocationId}` | CDP consumers                  |
+| `feature-flags`     | `feature_flag_requests`                                 | requests       | fresh UUIDv7 per flush                                                                         | feature flags service          |
+| `ingestion`         | `survey_responses`                                      | events         | `{day}:{event}:{distinct_id}:{uuid}`                                                           | ingestion consumers            |
+| `warehouse-sources` | `warehouse_rows_synced`                                 | rows           | the ExternalDataJob ID                                                                         | warehouse sources worker       |
+| `batch-exports`     | `batch_export_rows`                                     | rows           | the BatchExportRun ID                                                                          | batch exports worker           |
+| `replay-vision`     | `replay_vision_credits`                                 | credits        | the observation ID                                                                             | replay vision worker           |
+| `logs`              | `logs_bytes`, `logs_records`                            | bytes, records | fresh UUIDv7 per flush                                                                         | logs ingestion server          |
+| `apm`               | `apm_bytes`, `apm_spans`                                | bytes, records | fresh UUIDv7 per flush                                                                         | traces ingestion server        |
+| `session-replay`    | `session_replay_recordings`, `mobile_replay_recordings` | recordings     | the session ID                                                                                 | session replay consumer        |
+| `ingestion`         | `enhanced_person_events`                                | events         | `{day}:{event}:{distinct_id}:{uuid}`                                                           | ingestion consumers            |
 
-Each env var is a team list, so a producer rolls out independently: `''` reports nothing, `*` every team, `1,2` those teams.
+Every producer reads one env var, `USAGE_INGESTION_REPORT_TEAMS`: `''` reports nothing, `*` every team, `1,2` those teams.
+Each producer above is its own deployment, so one name still rolls out per producer, set in that service's config.
 Empty is the default everywhere, so nothing reports until it is set.
 There is deliberately no percentage option: sampling a share of a team's events would bill that team a fraction of what it used.
 
@@ -200,8 +201,8 @@ cd rust && USAGE_INGESTION_DATABASE_URL=postgres://posthog:posthog@localhost:543
 Then point a producer at it and turn its team matcher on:
 
 ```sh
-USAGE_INGESTION_ADDR=localhost:7143 USAGE_INGESTION_REPORT_INGESTION_TEAMS='*' ./bin/start
-FLAGS_USAGE_INGESTION_URL=http://localhost:7143 FLAGS_USAGE_INGESTION_TEAMS='*' cargo run -p feature-flags
+USAGE_INGESTION_ADDR=localhost:7143 USAGE_INGESTION_REPORT_TEAMS='*' ./bin/start
+FLAGS_USAGE_INGESTION_URL=http://localhost:7143 USAGE_INGESTION_REPORT_TEAMS='*' cargo run -p feature-flags
 ```
 
 Records land within one flush interval:

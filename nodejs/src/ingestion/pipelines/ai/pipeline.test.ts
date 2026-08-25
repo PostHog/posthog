@@ -80,7 +80,7 @@ describe('AiIngestionPipeline', () => {
     const runPipeline = async (messages: Message[]): Promise<void> => {
         const pipeline = createAiIngestionPipeline(config)
         const batch = messages.map((message) => createOkContext({ message }, { message }))
-        await pipeline.feed(batch)
+        await pipeline.feed(batch, {})
         let result = await pipeline.next()
         while (result !== null) {
             // The pipeline handles its own side effects; none may leak to drivers.
@@ -190,14 +190,17 @@ describe('AiIngestionPipeline', () => {
         }
     })
 
-    it('reports one ai_events usage record per event, keyed on the event uuid', async () => {
+    it('reports one ai_events usage record per event, keyed on the event deduplication identity', async () => {
         const messages = [createMessage('$ai_generation'), createMessage('$ai_span')]
-        const uuids = messages.map((m) => parseJSON(m.value!.toString()).uuid)
+        const recordIds = messages.map((message) => {
+            const event = parseJSON(message.value!.toString())
+            return `${event.timestamp.slice(0, 10)}:${event.event}:${event.distinct_id}:${event.uuid}`
+        })
 
         await runPipeline(messages)
 
         expect(ingestedUsage).toHaveLength(2)
-        expect(ingestedUsage.map((r) => r.recordId).sort()).toEqual([...uuids].sort())
+        expect(ingestedUsage.map((r) => r.recordId).sort()).toEqual(recordIds.sort())
         expect(ingestedUsage.every((r) => r.usageKey === 'ai_events' && r.quantity === 1)).toBe(true)
         expect(ingestedUsage.every((r) => r.teamId === team.id)).toBe(true)
     })

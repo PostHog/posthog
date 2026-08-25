@@ -137,16 +137,14 @@ export type CommonConfig = BaseServerConfig & {
     PERSONHOG_IDLE_CONNECTION_TIMEOUT_MS: number
     PERSONHOG_STATE_MONITOR_POLL_INTERVAL_MS: number
 
-    // Usage ingestion gRPC. Each reporting site has its own team list: '' reports nothing,
-    // '*' every team, '1,2' those teams. No percentage: it would bill a fraction of a team.
+    // Usage ingestion gRPC. One team list per deployment, because each reporting site is its
+    // own service: '' reports nothing, '*' every team, '1,2' those teams. No percentage: it
+    // would bill a fraction of a team.
     USAGE_INGESTION_ADDR: string
     USAGE_INGESTION_TLS: boolean
     USAGE_INGESTION_TIMEOUT_MS: number
     USAGE_INGESTION_MAX_BATCH_SIZE: number
-    USAGE_INGESTION_REPORT_INGESTION_TEAMS: string
-    USAGE_INGESTION_REPORT_CDP_TEAMS: string
-    USAGE_INGESTION_REPORT_LOGS_TEAMS: string
-    USAGE_INGESTION_REPORT_APM_TEAMS: string
+    USAGE_INGESTION_REPORT_TEAMS: string
 
     // Redis
     REDIS_URL: string
@@ -335,10 +333,7 @@ export function getDefaultCommonConfig(): CommonConfig {
         USAGE_INGESTION_TLS: false,
         USAGE_INGESTION_TIMEOUT_MS: 5_000,
         USAGE_INGESTION_MAX_BATCH_SIZE: 500,
-        USAGE_INGESTION_REPORT_INGESTION_TEAMS: '',
-        USAGE_INGESTION_REPORT_CDP_TEAMS: '',
-        USAGE_INGESTION_REPORT_LOGS_TEAMS: '',
-        USAGE_INGESTION_REPORT_APM_TEAMS: '',
+        USAGE_INGESTION_REPORT_TEAMS: '',
 
         // Redis
         // ok to connect to localhost over plaintext

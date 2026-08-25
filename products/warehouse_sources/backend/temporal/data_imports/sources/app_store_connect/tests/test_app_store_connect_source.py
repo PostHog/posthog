@@ -14,6 +14,7 @@ from posthog.schema import (
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.app_store_connect import (
     APP_STORE_CONNECT_ANALYTICS_CREATE_FORBIDDEN_ERROR,
     APP_STORE_CONNECT_ANALYTICS_INACTIVE_ERROR,
+    APP_STORE_CONNECT_MISSING_VENDOR_NUMBER_ERROR,
     APP_STORE_CONNECT_READ_FORBIDDEN_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.app_store_connect.settings import (
@@ -191,6 +192,13 @@ class TestAppStoreConnectSource:
         assert valid is False
         assert error is not None and "vendor number" in error
         mocked.assert_not_called()
+
+    def test_missing_vendor_number_is_non_retryable(self) -> None:
+        # A report sync raises this ValueError when no vendor number is set. It can never succeed on
+        # retry, so the source must classify it non-retryable rather than burn the activity's budget.
+        friendly = _resolve_friendly_error(APP_STORE_CONNECT_MISSING_VENDOR_NUMBER_ERROR)
+
+        assert friendly is not None
 
     def test_auth_and_permission_failures_are_non_retryable(self) -> None:
         errors = cast(dict[str, Any], AppStoreConnectSource().get_non_retryable_errors())

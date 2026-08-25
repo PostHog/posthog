@@ -84,4 +84,16 @@ describe('UsageRecordBatch', () => {
 
         expect(client.ingest).not.toHaveBeenCalled()
     })
+
+    it.each([
+        ['no client', new UsageRecordBatch(null, { unit: 'events', isTeamEnabled: () => true })],
+        [
+            'an excluded team',
+            new UsageRecordBatch({} as UsageIngestionClient, { unit: 'events', isTeamEnabled: () => false }),
+        ],
+    ])('flushes without waiting on acknowledgements for %s', async (_name, b) => {
+        b.addAfterAcknowledgements([new Promise(() => {})], 1, 'events', 'uuid-1')
+
+        await expect(b.flush()).resolves.toBeUndefined()
+    })
 })

@@ -25,13 +25,13 @@ class UsageRecord:
     timestamp_ms: int = field(default_factory=lambda: int(time() * 1000))
 
 
-def team_is_enabled(site: str, team_id: int) -> bool:
-    raw = os.environ.get(f"USAGE_INGESTION_REPORT_{site.upper()}_TEAMS", "").strip()
+def team_is_enabled(team_id: int) -> bool:
+    raw = os.environ.get("USAGE_INGESTION_REPORT_TEAMS", "").strip()
     return raw == "*" or str(team_id) in {value.strip() for value in raw.split(",") if value.strip()}
 
 
 def report_usage(records: Iterable[UsageRecord], *, site: str) -> None:
-    enabled = [record for record in records if team_is_enabled(site, record.team_id)]
+    enabled = [record for record in records if team_is_enabled(record.team_id)]
     address = os.environ.get("USAGE_INGESTION_ADDR", "")
     if not enabled or not address:
         return

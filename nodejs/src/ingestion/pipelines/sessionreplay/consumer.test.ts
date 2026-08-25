@@ -88,10 +88,7 @@ describe('SessionRecordingIngester', () => {
             USAGE_INGESTION_TLS: false,
             USAGE_INGESTION_TIMEOUT_MS: 5000,
             USAGE_INGESTION_MAX_BATCH_SIZE: 500,
-            USAGE_INGESTION_REPORT_INGESTION_TEAMS: '',
-            USAGE_INGESTION_REPORT_CDP_TEAMS: '',
-            USAGE_INGESTION_REPORT_LOGS_TEAMS: '',
-            USAGE_INGESTION_REPORT_APM_TEAMS: '',
+            USAGE_INGESTION_REPORT_TEAMS: '',
             ...configOverrides,
         }
 

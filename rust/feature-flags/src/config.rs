@@ -139,7 +139,7 @@ impl FromStr for TeamIdCollection {
         let s = s.trim();
         if s.eq_ignore_ascii_case("all") || s == "*" {
             Ok(TeamIdCollection::All)
-        } else if s.eq_ignore_ascii_case("none") {
+        } else if s.is_empty() || s.eq_ignore_ascii_case("none") {
             Ok(TeamIdCollection::None)
         } else {
             let mut team_ids = Vec::new();
@@ -922,11 +922,13 @@ pub struct Config {
     #[envconfig(from = "FLAGS_BILLING_SHUTDOWN_FLUSH_TIMEOUT_MS", default = "15000")]
     pub billing_shutdown_flush_timeout_ms: u64,
 
-    // Usage-ingestion mirror. Empty URL or `none` teams disables it, so it
-    // rolls out per team independently of the Redis billing keyspace.
+    // Usage-ingestion mirror. Empty URL or empty teams disables it, so it
+    // rolls out per team independently of the Redis billing keyspace. The team
+    // list carries the name every usage producer reads, because each producer
+    // is its own deployment and sets it in its own config.
     #[envconfig(from = "FLAGS_USAGE_INGESTION_URL", default = "")]
     pub usage_ingestion_url: String,
-    #[envconfig(from = "FLAGS_USAGE_INGESTION_TEAMS", default = "none")]
+    #[envconfig(from = "USAGE_INGESTION_REPORT_TEAMS", default = "")]
     pub usage_ingestion_teams: TeamIdCollection,
     #[envconfig(from = "FLAGS_USAGE_INGESTION_TIMEOUT_MS", default = "5000")]
     pub usage_ingestion_timeout_ms: u64,
@@ -1400,6 +1402,12 @@ mod tests {
     #[test]
     fn test_team_ids_to_track_none() {
         let team_ids: TeamIdCollection = "none".parse().unwrap();
+        assert_eq!(team_ids, TeamIdCollection::None);
+    }
+
+    #[test]
+    fn test_team_ids_to_track_empty() {
+        let team_ids: TeamIdCollection = "".parse().unwrap();
         assert_eq!(team_ids, TeamIdCollection::None);
     }
 

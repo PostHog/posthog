@@ -5,9 +5,9 @@ import { buildIntegerMatcher } from '~/common/config/config'
 import { KafkaConsumerV2 } from '~/common/kafka/consumer/consumer-v2'
 import { DlqOutput, IngestionWarningsOutput, LogEntriesOutput, OverflowOutput, TophogOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { UsageIngestionConfig, createUsageIngestionClient, usageReportTeamMatcher } from '~/common/usage-ingestion'
 import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
-import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import {
     EventIngestionRestrictionManager,
@@ -154,7 +154,7 @@ export class SessionRecordingIngester {
         this.promiseScheduler = new PromiseScheduler()
         this.usageBatch = new UsageRecordBatch(createUsageIngestionClient(config, 'session_replay'), {
             unit: 'recordings',
-            isTeamEnabled: usageReportTeamMatcher(config, 'session_replay'),
+            isTeamEnabled: usageReportTeamMatcher(config),
         })
 
         // The v2 consumer defers the unassign on revoke until in-flight work is drained and the
