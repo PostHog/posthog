@@ -248,6 +248,16 @@ class TestValidateCredentials:
         assert "Site ID isn't valid" in (error or "")
         assert "Validation Error" not in (error or "")
 
+    def test_not_acceptable_406_surfaces_a_clear_message(self) -> None:
+        # A 406 must map to an actionable message instead of falling through to Webflow's raw
+        # envelope, so users learn what to fix at connect time rather than mid-sync.
+        with patch(WEBFLOW_SESSION_PATCH) as MockSession:
+            MockSession.return_value.get.return_value = _make_response({"message": "nope"}, status_code=406)
+            ok, error = validate_credentials("token", "site-1")
+        assert ok is False
+        assert "406 Not Acceptable" in (error or "")
+        assert "nope" not in (error or "")
+
     def test_request_exception_returns_error(self) -> None:
         with patch(WEBFLOW_SESSION_PATCH) as MockSession:
             MockSession.return_value.get.side_effect = requests.exceptions.ConnectionError("boom")

@@ -131,6 +131,15 @@ def validate_credentials(api_token: str, site_id: str, schema_name: Optional[str
     if response.status_code == 404:
         return False, f"Webflow site '{site_id}' was not found or is not accessible by this token"
 
+    # A 406 means Webflow refuses to serve this site even though PostHog asks for JSON — a
+    # deterministic site-level rejection. Surface it at connect time so it does not fail
+    # mid-sync with no actionable message.
+    if response.status_code == 406:
+        return (
+            False,
+            "Webflow returned a 406 Not Acceptable for this site. Check that the site's plan includes the CMS and that no site security setting blocks API access, then try again.",
+        )
+
     # A 400 means Webflow rejected the Site ID as malformed before looking it up — distinct from a
     # 404 for a well-formed but unknown/inaccessible id. Surface a clear message instead of leaking
     # Webflow's raw "Validation Error: ..." envelope.
