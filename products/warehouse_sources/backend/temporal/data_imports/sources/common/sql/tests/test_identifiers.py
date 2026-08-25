@@ -23,26 +23,28 @@ class TestBacktickIdentifierQuoter:
             ("db@prod", "`db@prod`"),
             ("a-b", "`a-b`"),
             ("a.b", "`a.b`"),
+            # Ordinary business names the old allowlist rejected import fine.
+            ("applicant profile", "`applicant profile`"),
+            ("a'b", "`a'b`"),
+            ('a"b', '`a"b`'),
+            # A literal backtick is escaped by doubling.
+            ("a`b", "`a``b`"),
+            ("x`; DROP TABLE foo; --", "`x``; DROP TABLE foo; --`"),
         ],
     )
-    def test_accepts_allowed_identifiers(self, identifier: str, expected: str) -> None:
+    def test_accepts_and_escapes_identifiers(self, identifier: str, expected: str) -> None:
         assert self.quoter.quote(identifier) == expected
 
     @pytest.mark.parametrize(
         "identifier",
         [
-            "bad;id",
-            "drop table x",
-            "a'b",
-            'a"b',
-            "a`b",
             "a\nb",
-            "a b",
-            "a/*b*/",
+            "a\tb",
+            "a\x00b",
             "",
         ],
     )
-    def test_rejects_unsafe_identifiers(self, identifier: str) -> None:
+    def test_rejects_control_characters(self, identifier: str) -> None:
         with pytest.raises(InvalidIdentifierError):
             self.quoter.quote(identifier)
 
@@ -56,28 +58,41 @@ class TestBacktickIdentifierQuoter:
         with pytest.raises(InvalidIdentifierError):
             self.quoter.quote_qualified()
 
-    def test_quote_qualified_rejects_any_unsafe_part(self) -> None:
+    def test_quote_qualified_rejects_control_character_part(self) -> None:
         with pytest.raises(InvalidIdentifierError):
-            self.quoter.quote_qualified("schema", "bad;table")
+            self.quoter.quote_qualified("schema", "bad\ntable")
 
 
 class TestAnsiIdentifierQuoter:
     quoter = AnsiIdentifierQuoter()
 
-    def test_quotes_with_double_quotes(self) -> None:
-        assert self.quoter.quote("my_table") == '"my_table"'
+    @pytest.mark.parametrize(
+        "identifier,expected",
+        [
+            ("my_table", '"my_table"'),
+            # Ordinary business names the old allowlist rejected import fine.
+            ("Date Established", '"Date Established"'),
+            ("Ventas Total Dia", '"Ventas Total Dia"'),
+            ("Edit URL", '"Edit URL"'),
+            # A literal double-quote is escaped by doubling, like Snowflake / Postgres.
+            ('a"b', '"a""b"'),
+            ('users"; DROP TABLE x; --', '"users""; DROP TABLE x; --"'),
+        ],
+    )
+    def test_accepts_and_escapes_identifiers(self, identifier: str, expected: str) -> None:
+        assert self.quoter.quote(identifier) == expected
 
     def test_quote_qualified_with_double_quotes(self) -> None:
         assert self.quoter.quote_qualified("public", "users") == '"public"."users"'
 
-    def test_rejects_sql_injection_attempt(self) -> None:
+    def test_rejects_control_characters(self) -> None:
         with pytest.raises(InvalidIdentifierError):
-            self.quoter.quote('users"; DROP TABLE x; --')
+            self.quoter.quote("bad\nid")
 
     def test_invalid_identifier_error_is_a_value_error(self) -> None:
         """Back-compat: code catching plain ValueError still works."""
         with pytest.raises(ValueError):
-            self.quoter.quote("bad;id")
+            self.quoter.quote("bad\nid")
 
 
 class TestBracketIdentifierQuoter:
