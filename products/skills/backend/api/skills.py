@@ -295,8 +295,8 @@ class LLMSkillViewSet(
     def _guard_object_access(self, request: Request, skill_name: str) -> Response | None:
         """Object-level access guard for an action that never loads the skill itself.
 
-        `archive` and `duplicate` hand the name straight to a service function, so there is no loaded
-        row for `_load_skill_with_object_access` to check. This loads one for the check alone, and
+        `archive`, `duplicate`, and the file writes hand the name straight to a service function, so
+        there is no loaded row for `_load_skill_with_object_access` to check. This loads one for the check alone, and
         hands back the 404 the action owes when the name matches nothing.
         """
         if self._load_skill_with_object_access(request, skill_name) is None:
@@ -1140,6 +1140,10 @@ class LLMSkillViewSet(
         if auth_error is not None:
             return auth_error
 
+        access_error = self._guard_object_access(request, skill_name)
+        if access_error is not None:
+            return access_error
+
         payload = LLMSkillFileCreateSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
 
@@ -1201,6 +1205,10 @@ class LLMSkillViewSet(
         auth_error = self._ensure_web_authenticated(request)
         if auth_error is not None:
             return auth_error
+
+        access_error = self._guard_object_access(request, skill_name)
+        if access_error is not None:
+            return access_error
 
         file_path = file_path.rstrip("/")
         normalized = file_path.replace("\\", "/")
@@ -1267,6 +1275,10 @@ class LLMSkillViewSet(
         auth_error = self._ensure_web_authenticated(request)
         if auth_error is not None:
             return auth_error
+
+        access_error = self._guard_object_access(request, skill_name)
+        if access_error is not None:
+            return access_error
 
         payload = LLMSkillFileRenameSerializer(data=request.data)
         payload.is_valid(raise_exception=True)

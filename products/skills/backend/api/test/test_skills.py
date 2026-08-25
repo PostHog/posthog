@@ -1497,7 +1497,6 @@ class TestSkillAccessControlRBAC(APIBaseTest):
         assert update_response.status_code == status.HTTP_200_OK
 
     def _other_skill_with_object_grant(self) -> LLMSkill:
-        """A second skill the member holds an object-level editor grant on, and nothing else."""
         other = LLMSkill.objects.create(
             team=self.team,
             name="theirs",
@@ -1523,6 +1522,9 @@ class TestSkillAccessControlRBAC(APIBaseTest):
             ("update by name", "patch", "name/make-fractals", {"description": "d2", "base_version": 1}),
             ("archive", "post", "name/make-fractals/archive", {}),
             ("duplicate", "post", "name/make-fractals/duplicate", {"new_name": "copy"}),
+            ("create file", "post", "name/make-fractals/files", {"path": "notes.md", "content": "x"}),
+            ("delete file", "delete", "name/make-fractals/files/SKILL.md", None),
+            ("rename file", "post", "name/make-fractals/files-rename", {"old_path": "a.md", "new_path": "b.md"}),
         ]
     )
     def test_an_object_level_grant_on_one_skill_does_not_reach_another(self, _label, method, path, data):
