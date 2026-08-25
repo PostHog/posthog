@@ -198,7 +198,7 @@ double-count resolution and is the largest.
   `ph_scoped_capture` (`posthog/ph_client.py:63`) — a plain `posthoganalytics.capture()` in
   those workers is silently dropped (see root `CLAUDE.md`).
 - **Skill gate.** Any serializer/viewset edit here must go through `/improving-drf-endpoints`
-  first (see "Mandatory skill invocation" in the root `AGENTS.md`).
+  first (see `.claude/rules/drf-endpoints.md`).
 - **Isolation.** Emit at the product boundary (serializer + facade functions), not deep in
   `logic.py` domain helpers — cross-product callers (Max, groups) already reach notebooks via
   `facade.api`, so that is the natural single owner of emission.

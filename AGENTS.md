@@ -248,17 +248,13 @@ When automating a convention, try these in order — only fall back to the next 
 
 ### Guidance goes where every agent reads it
 
-We use more than one coding agent. `AGENTS.md` is the shared format — each directory's `CLAUDE.md` is a symlink to its `AGENTS.md` — and `.agents/skills/` is the skills location Claude Code and Codex CLI both read natively. A convention written anywhere else reaches some of the team and not the rest.
+We use more than one coding agent, so guidance lives in an `AGENTS.md`, a README, or a skill — never only in a tool-specific config. Each directory's `CLAUDE.md` is a symlink to its `AGENTS.md`, and `.agents/skills/` is the skills location Claude Code and Codex CLI both read natively.
 
-- **Content lives in an `AGENTS.md`, a README, or a skill.** Never only in a tool-specific config.
-- **`.claude/rules/*.md` are triggers, not content.** Only Claude Code reads them, so a rule holding the only copy of a convention hides it from everyone else. Each stays a few lines: what changed, and which portable doc to read. A lint-staged check warns when one grows past that.
-- **Nested `AGENTS.md` is directory-scoped, not file-scoped.** Claude Code loads it on touching a file in that tree; Codex walks up from the working directory, usually the repo root. So the root `AGENTS.md` keeps the trigger even when the explanation moves down, and a file-pattern trigger still needs a rule.
+`.claude/rules/*.md` are the exception, and they are triggers rather than content. Only Claude Code reads them, so a rule holding the only copy of a convention hides it from everyone else. Each stays a few lines: what changed, and which portable doc to read.
 
-### Hooks are per-tool environment bootstrapping only
+Keep path triggers in the root `AGENTS.md` even when the explanation moves down to a nested one. Nested files are directory-scoped: Claude Code loads them on touching a file in that tree, while Codex walks up from the working directory, usually the repo root.
 
-Hooks prepare the environment a session runs in. They never carry rules, and they cannot be shared: Claude Code's `SessionStart` hooks write to `CLAUDE_ENV_FILE` to put flox on `PATH` (`.claude/hooks/`), while Codex reaches the same environment through the `.codex/with-flox` wrapper declared in `.codex/config.toml`. Both exist on purpose — do not unify them, and do not assume one is missing what the other has.
-
-Do not add `PreToolUse`, `PostToolUse`, or `Notification` hooks. They add latency, they are fragile, and anything worth enforcing that way belongs in a linter or a lint-staged rule that covers every agent and every human. Changes to `.claude/hooks/` trigger a lint-staged warning; changes to `.claude/settings.json` are blocked outright.
+Claude Code hooks are reserved for environment bootstrapping (`SessionStart` only) — do not add `PreToolUse`, `PostToolUse`, or `Notification` hooks as they add latency and are fragile. Codex reaches the same environment through the `.codex/with-flox` wrapper instead; the two cannot be shared. Changes to `.claude/hooks/` trigger a lint-staged warning; changes to `.claude/settings.json` are blocked outright.
 
 ### Mandatory skill invocation
 
