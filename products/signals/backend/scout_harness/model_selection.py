@@ -151,15 +151,19 @@ def _infer_runtime_adapter(model_id: str) -> str:
     return RUNTIME_ADAPTER_CLAUDE if "claude" in model_id.lower() else RUNTIME_ADAPTER_CODEX
 
 
+# The model ids a `SignalScoutConfig.model` pin may carry. Deliberately a short list rather than
+# the whole Tasks catalog: it backs a plain dropdown anyone with config access can use, so every
+# entry has to be one we are happy to hand any scout unreviewed. A richer selector belongs with the
+# AI gateway cost controls, not here. Every id must also exist in the Tasks catalog — a pin has no
+# runtime-pinning escape hatch, so an id that catalog cannot route would be stored with nothing
+# authoritative to run it by. `test_scout_model_selection` holds that invariant.
+SCOUT_MODEL_PIN_ALLOWLIST: tuple[str, ...] = ("gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol")
+
+
 def scout_model_pin_catalog() -> tuple[str, ...]:
-    """The model ids a `SignalScoutConfig.model` pin may carry: the canonical Tasks catalog, both
-    runtimes. The config API validates pins against this, unlike the free-form payload path — a pin
-    has no runtime-pinning escape hatch, so an off-catalog id would be stored with nothing
-    authoritative to route it by."""
-    return (
-        *get_models_for_runtime_adapter(RUNTIME_ADAPTER_CLAUDE),
-        *get_models_for_runtime_adapter(RUNTIME_ADAPTER_CODEX),
-    )
+    """The model ids a `SignalScoutConfig.model` pin may carry. The config API validates pins
+    against this, unlike the free-form payload path."""
+    return SCOUT_MODEL_PIN_ALLOWLIST
 
 
 def _runtime_adapter_for_pin(model_id: str) -> str:

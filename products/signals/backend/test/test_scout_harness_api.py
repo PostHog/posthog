@@ -1151,21 +1151,17 @@ class TestScoutHarnessConfigModelAPI(APIBaseTest):
         # shape returns it for a team inside the `scouts-model-config` dogfood.
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-judge")
         with patch(self._FLAG_PATH, return_value=True):
-            response = self.client.patch(
-                self._detail_url(str(config.id)), data={"model": "claude-opus-4-5"}, format="json"
-            )
+            response = self.client.patch(self._detail_url(str(config.id)), data={"model": "gpt-5.6-sol"}, format="json")
         assert response.status_code == status.HTTP_200_OK, response.json()
-        assert response.json()["model"] == "claude-opus-4-5"
+        assert response.json()["model"] == "gpt-5.6-sol"
         config.refresh_from_db()
-        assert config.model == "claude-opus-4-5"
+        assert config.model == "gpt-5.6-sol"
 
     def test_patch_rejects_model_outside_the_flag(self) -> None:
         # The dogfood gate on the write path: without the flag a pin can't be stored at all.
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-judge")
         with patch(self._FLAG_PATH, return_value=False):
-            response = self.client.patch(
-                self._detail_url(str(config.id)), data={"model": "claude-opus-4-5"}, format="json"
-            )
+            response = self.client.patch(self._detail_url(str(config.id)), data={"model": "gpt-5.6-sol"}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         config.refresh_from_db()
         assert config.model is None
@@ -1183,8 +1179,9 @@ class TestScoutHarnessConfigModelAPI(APIBaseTest):
         assert config.model is None
 
     def test_resending_stored_model_unchanged_stays_ungated(self) -> None:
-        # Clients resend whole config objects, so after a team leaves the preview an unchanged
-        # stored pin must not 400 an unrelated edit.
+        # Clients resend whole config objects, so an unchanged stored pin must not 400 an unrelated
+        # edit — neither after a team leaves the preview, nor once the pin has left the allowlist,
+        # as `claude-opus-4-5` has here.
         config = SignalScoutConfig.objects.create(
             team=self.team, skill_name="signals-scout-judge", model="claude-opus-4-5"
         )
@@ -1199,14 +1196,20 @@ class TestScoutHarnessConfigModelAPI(APIBaseTest):
         assert config.model == "claude-opus-4-5"
         assert config.emit is False
 
-    def test_patch_rejects_model_outside_catalog(self) -> None:
-        # A typo'd pin would fail every scheduled run until cleared, so the write names the
+    @parameterized.expand(
+        [
+            ("typo", "claude-opus-4-55"),
+            # A real Tasks-catalog model that the scout allowlist deliberately leaves out: the API
+            # must be no looser than the picker, or the two drift apart.
+            ("off_allowlist", "claude-opus-4-5"),
+        ]
+    )
+    def test_patch_rejects_model_outside_allowlist(self, _name: str, model: str) -> None:
+        # A pin we can't serve would fail every scheduled run until cleared, so the write names the
         # available models instead of storing it.
         config = SignalScoutConfig.objects.create(team=self.team, skill_name="signals-scout-judge")
         with patch(self._FLAG_PATH, return_value=True):
-            response = self.client.patch(
-                self._detail_url(str(config.id)), data={"model": "claude-opus-4-55"}, format="json"
-            )
+            response = self.client.patch(self._detail_url(str(config.id)), data={"model": model}, format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Available models" in str(response.json())
         config.refresh_from_db()

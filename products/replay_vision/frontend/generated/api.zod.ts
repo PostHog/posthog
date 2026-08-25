@@ -840,8 +840,6 @@ export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOn
 export const visionScannersScoutsCreateBodyConfigOneOutputDestinationsOneSlackOneThreadReportsDefault = false
 export const visionScannersScoutsCreateBodyConfigOneRunCronScheduleMax = 100
 
-export const visionScannersScoutsCreateBodyConfigOneModelMax = 200
-
 export const visionScannersScoutsCreateBodyConfigOneTagsMax = 10
 
 export const visionScannersScoutsCreateBodyConfigOneMcpGatewayServerIdsMax = 100
@@ -955,11 +953,18 @@ export const VisionScannersScoutsCreateBody = /* @__PURE__ */ zod
                         "Optional five-field cron expression, e.g. '30 9 \* \* \*' (daily at 09:30), '0 9,17 \* \* \*' (twice daily), or '0 9 \* \* 1-5' (weekday mornings). Evaluated in the project timezone. Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
                     ),
                 model: zod
-                    .string()
-                    .max(visionScannersScoutsCreateBodyConfigOneModelMax)
-                    .nullish()
+                    .union([
+                        zod
+                            .enum(['gpt-5.6-luna', 'gpt-5.6-terra', 'gpt-5.6-sol'])
+                            .describe(
+                                '\* `gpt-5.6-luna` - gpt-5.6-luna\n\* `gpt-5.6-terra` - gpt-5.6-terra\n\* `gpt-5.6-sol` - gpt-5.6-sol'
+                            ),
+                        zod.enum(['']),
+                        zod.null(),
+                    ])
+                    .optional()
                     .describe(
-                        "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it."
+                        "Optional model id this scout's runs are pinned to, e.g. `gpt-5.6-sol`. Must be one of the models listed here; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.\n\n\* `gpt-5.6-luna` - gpt-5.6-luna\n\* `gpt-5.6-terra` - gpt-5.6-terra\n\* `gpt-5.6-sol` - gpt-5.6-sol"
                     ),
                 tags: zod
                     .array(zod.string())

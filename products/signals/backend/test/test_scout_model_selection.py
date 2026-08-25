@@ -9,7 +9,13 @@ from parameterized import parameterized
 
 from posthog.models.team.team import Team
 
-from products.signals.backend.scout_harness.model_selection import GLM_MODEL, ScoutModel, resolve_scout_model
+from products.signals.backend.scout_harness.model_selection import (
+    GLM_MODEL,
+    SCOUT_MODEL_PIN_ALLOWLIST,
+    ScoutModel,
+    resolve_scout_model,
+)
+from products.tasks.backend.facade.run_config import get_models_for_runtime_adapter
 
 _PAYLOAD_PATH = "products.signals.backend.scout_harness.model_selection.posthoganalytics.get_feature_flag_payload"
 
@@ -231,6 +237,17 @@ class TestConfigModelPin:
     def test_pin_beats_payload_and_resolves_runtime(self, _name: str, pin: str, expected_adapter: str) -> None:
         # The payload routes every run to another model; an explicit pin must win over the experiment.
         assert self._resolve_pinned(pin, flag_on=True) == ScoutModel(model=pin, runtime_adapter=expected_adapter)
+
+    def test_allowlisted_models_all_exist_in_the_tasks_catalog(self) -> None:
+        # The picker offers exactly this list, and a pin carries no runtime of its own — it is
+        # routed by looking the id up in the Tasks catalog. An id renamed or dropped there would
+        # leave the dropdown offering a model nothing can route, failing every run of any scout
+        # pinned to it.
+        catalog = {
+            *get_models_for_runtime_adapter("claude"),
+            *get_models_for_runtime_adapter("codex"),
+        }
+        assert set(SCOUT_MODEL_PIN_ALLOWLIST) <= catalog
 
     def test_pin_is_ignored_outside_the_flag(self) -> None:
         # The dogfood gate: with the flag off a stored pin is inert and the payload layer applies.

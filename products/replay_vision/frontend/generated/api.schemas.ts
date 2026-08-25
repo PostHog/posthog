@@ -1708,6 +1708,19 @@ export const ScoutConfigNetworkAccessEnumApi = {
 } as const
 
 /**
+ * * `gpt-5.6-luna` - gpt-5.6-luna
+ * * `gpt-5.6-terra` - gpt-5.6-terra
+ * * `gpt-5.6-sol` - gpt-5.6-sol
+ */
+export type ScoutModelPinEnumApi = (typeof ScoutModelPinEnumApi)[keyof typeof ScoutModelPinEnumApi]
+
+export const ScoutModelPinEnumApi = {
+    Gpt56Luna: 'gpt-5.6-luna',
+    Gpt56Terra: 'gpt-5.6-terra',
+    Gpt56Sol: 'gpt-5.6-sol',
+} as const
+
+/**
  * Optional JSON Schema (draft 2020-12) describing ONE structured record this scout produces via `scout-record-output` — e.g. a per-report quality judgment (`{"type": "object", "properties": {"verdict": {"enum": ["good", "bad", "unsure"]}, "reason": {"type": "string"}}, "required": ["verdict", "reason"]}`). The root must be `"type": "object"`. Setting a schema turns the structured-output channel on: the run prompt renders the schema and every submitted record is validated against it and recorded in the project as a `$scout_structured_output` event, queryable like any event. The channel also requires emit — a dry-run scout has nowhere to record to. Cardinality is the scout's call (one record per run, one per judged entity, ...). Null = channel off. Setting a schema requires skill-authoring authorization (the `llm_skill:write` scope and skill editor access) since the scout reads it verbatim in its prompt; clearing it needs only the config write. Records validate against the schema in force when the run was dispatched.
  * @nullable
  */
@@ -1742,12 +1755,12 @@ export interface SignalScoutConfigOptionsApi {
      * @nullable
      */
     run_cron_schedule?: string | null
-    /**
-     * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
-     * @maxLength 200
-     * @nullable
-     */
-    model?: string | null
+    /** Optional model id this scout's runs are pinned to, e.g. `gpt-5.6-sol`. Must be one of the models listed here; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
+     *
+     * * `gpt-5.6-luna` - gpt-5.6-luna
+     * * `gpt-5.6-terra` - gpt-5.6-terra
+     * * `gpt-5.6-sol` - gpt-5.6-sol */
+    model?: ScoutModelPinEnumApi | BlankEnumApi | null
     /**
      * Free-form labels for grouping the fleet, e.g. `["revenue", "on-call"]`. Normalized to lowercase kebab-case (`On Call` and `on_call` both become `on-call`), deduped, and stored sorted; at most 10 tags, each at most 50 characters once normalized. Pass the full desired set — a write replaces the existing tags rather than merging into them. Filter the config list with the `tags` query parameter.
      * @maxItems 10
@@ -1886,7 +1899,7 @@ export interface SignalScoutConfigApi {
      * * `full` - Full */
     readonly network_access: ScoutConfigNetworkAccessEnumApi
     /**
-     * Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the platform's agent models; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
+     * Optional model id this scout's runs are pinned to, e.g. `gpt-5.6-sol`. Must be one of the models listed here; an invalid id is rejected with the available ones listed. Null keeps the default model, chosen by the platform. Early access: the pin can only be set on projects enrolled in the scout model preview, and only takes effect there. Set null to clear it.
      * @nullable
      */
     readonly model: string | null

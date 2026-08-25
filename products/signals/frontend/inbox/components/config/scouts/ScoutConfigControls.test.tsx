@@ -1,5 +1,8 @@
 import { fireEvent, render } from '@testing-library/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -42,6 +45,14 @@ describe('ScoutConfigForm', () => {
 
     beforeEach(() => initKeaTests())
 
+    // The picker is gated on the scout model preview; without the flag the row does not render.
+    const enableModelConfig = (): void => {
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SCOUTS_MODEL_CONFIG], {
+            [FEATURE_FLAGS.SCOUTS_MODEL_CONFIG]: true,
+        })
+    }
+
     it('saves the daily run time on blur and never clears the schedule from an empty input', () => {
         const onUpdate = jest.fn()
         const { container, unmount } = render(<ScoutConfigForm config={config} onUpdate={onUpdate} />)
@@ -71,6 +82,34 @@ describe('ScoutConfigForm', () => {
 
         expect(container.querySelector('input[type="time"]')).toBeNull()
         expect(getByText('Custom (0 9 * * 1-5)')).toBeTruthy()
+        unmount()
+    })
+
+    it('offers the allowlisted models and saves the picked id', () => {
+        enableModelConfig()
+        const onUpdate = jest.fn()
+        const { getByLabelText, getByText, unmount } = render(<ScoutConfigForm config={config} onUpdate={onUpdate} />)
+
+        // An unpinned scout reads as the platform default, not as a blank field.
+        expect(getByLabelText(`${config.skill_name} model`).textContent).toContain('Default')
+
+        fireEvent.click(getByLabelText(`${config.skill_name} model`))
+        fireEvent.click(getByText('Most capable'))
+
+        expect(onUpdate).toHaveBeenCalledWith('config-1', { model: 'gpt-5.6-sol' })
+        unmount()
+    })
+
+    it('keeps showing a stored model that is no longer on the allowlist', () => {
+        enableModelConfig()
+        const onUpdate = jest.fn()
+        const { getByLabelText, unmount } = render(
+            <ScoutConfigForm config={{ ...config, model: 'claude-opus-4-5' }} onUpdate={onUpdate} />
+        )
+
+        // Reading as "Default" would misreport which model the scout actually runs on.
+        expect(getByLabelText(`${config.skill_name} model`).textContent).toContain('claude-opus-4-5')
+        expect(onUpdate).not.toHaveBeenCalled()
         unmount()
     })
 

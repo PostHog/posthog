@@ -2177,16 +2177,53 @@ def _validate_structured_output_schema(value: dict | None) -> dict | None:
 
 
 _SCOUT_MODEL_HELP = (
-    "Optional model id this scout's runs are pinned to, e.g. `claude-opus-4-5`. Must be one of the "
-    "platform's agent models; an invalid id is rejected with the available ones listed. Null keeps "
-    "the default model, chosen by the platform. Early access: the pin can only be set on projects "
+    "Optional model id this scout's runs are pinned to, e.g. `gpt-5.6-sol`. Must be one of the "
+    "models listed here; an invalid id is rejected with the available ones listed. Null keeps the "
+    "default model, chosen by the platform. Early access: the pin can only be set on projects "
     "enrolled in the scout model preview, and only takes effect there. Set null to clear it."
 )
 
 
+class ScoutModelPinField(serializers.ChoiceField):
+    """The `model` pin as a choice, so the allowlist reaches the OpenAPI schema and the generated
+    frontend and MCP types instead of being restated there.
+
+    It also accepts whatever is already stored on the scout, which a plain `ChoiceField` would
+    reject before `validate_model` ever runs. Clients (MCP callers especially) resend whole config
+    objects, so a pin stored before the allowlist narrowed would otherwise 400 every unrelated edit
+    to that scout.
+    """
+
+    def __init__(self, **kwargs: Any) -> None:
+        catalog = scout_model_pin_catalog()
+        super().__init__(
+            choices=list(catalog),
+            error_messages={
+                "invalid_choice": f"Not an available model. Available models: {', '.join(sorted(catalog))}."
+            },
+            **kwargs,
+        )
+
+    def to_internal_value(self, data: Any) -> Any:
+        if isinstance(data, str):
+            data = data.strip()
+        if data and data == getattr(getattr(self.parent, "instance", None), "model", None):
+            return data
+        return super().to_internal_value(data)
+
+
+def _scout_model_field() -> ScoutModelPinField:
+    return ScoutModelPinField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        help_text=_SCOUT_MODEL_HELP,
+    )
+
+
 def _validate_scout_model(value: str | None, context: dict, current: str | None = None) -> str | None:
-    """Normalize a scout model pin, gate setting one on the `scouts-model-config` dogfood flag, and
-    hold it to the platform's model catalog.
+    """Normalize a scout model pin and gate setting one on the `scouts-model-config` dogfood flag.
+    The allowlist itself is `ScoutModelPinField`'s job.
 
     Two writes stay ungated: clearing (null, or a blank string normalized to null), and re-sending
     the stored value unchanged — clients (MCP callers especially) resend whole config objects, and
@@ -2201,9 +2238,6 @@ def _validate_scout_model(value: str | None, context: dict, current: str | None 
     team = get_team() if callable(get_team) else context.get("team")
     if not isinstance(team, Team) or not scout_model_config_enabled(team):
         raise serializers.ValidationError("Choosing a scout model is not available on this project yet.")
-    catalog = scout_model_pin_catalog()
-    if value not in catalog:
-        raise serializers.ValidationError(f"Not an available model. Available models: {', '.join(sorted(catalog))}.")
     return value
 
 
@@ -2551,13 +2585,7 @@ class SignalScoutConfigUpdateSerializer(serializers.ModelSerializer):
             "`no_output` quiet warning. Set it on watchdog scouts whose value is staying quiet."
         ),
     )
-    model = serializers.CharField(
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        max_length=200,
-        help_text=_SCOUT_MODEL_HELP,
-    )
+    model = _scout_model_field()
     tags = _scout_tags_field()
     structured_output_schema = StructuredOutputSchemaField(
         required=False,
@@ -2715,13 +2743,7 @@ class SignalScoutConfigOptionsSerializer(serializers.Serializer):
             "Takes precedence over `run_interval_minutes`; occurrences must be at least 30 minutes apart."
         ),
     )
-    model = serializers.CharField(
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        max_length=200,
-        help_text=_SCOUT_MODEL_HELP,
-    )
+    model = _scout_model_field()
     tags = _scout_tags_field()
     structured_output_schema = StructuredOutputSchemaField(
         required=False,
