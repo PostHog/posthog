@@ -13,9 +13,7 @@ import { SceneFavorite } from 'lib/components/Scenes/SceneFavorite'
 import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyticsSummaryButton'
 import { SceneShareButton } from 'lib/components/Scenes/SceneShareButton'
 import { SceneSubscribeButton } from 'lib/components/Scenes/SceneSubscribeButton'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { Link } from 'lib/lemon-ui/Link'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
@@ -51,7 +49,6 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
     const { query, hogQL, exportContext, hogQLVariables, canEditInSqlEditor } = useValues(theInsightDataLogic)
 
     const { createStaticCohort } = useActions(exportsLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { openCreateFromInsightModal } = useActions(endpointLogic)
     const { push } = useActions(router)
     const { openAddToDashboardModal, openTerraformModal } = useActions(insightModalsLogic(insightLogicProps))
@@ -191,9 +188,7 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
                 Create endpoint
             </ButtonPrimitive>
 
-            {featureFlags[FEATURE_FLAGS.PRODUCT_DATA_CATALOG] ? (
-                <CreateMetricFromInsightButton isSavedInsight={isSavedInsight} insightShortId={insight?.short_id} />
-            ) : null}
+            <CreateMetricFromInsightButton isSavedInsight={isSavedInsight} insightShortId={insight?.short_id} />
 
             {canEditInSqlEditor && (
                 <Link

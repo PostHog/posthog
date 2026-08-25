@@ -4,9 +4,7 @@ import { router } from 'kea-router'
 import { AddToDashboardModal } from 'lib/components/AddToDashboard/AddToDashboardModal'
 import { SharingModal } from 'lib/components/Sharing/SharingModal'
 import { TerraformExportModal } from 'lib/components/TerraformExporter/TerraformExportModal'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { NewDashboardModal } from 'scenes/dashboard/NewDashboardModal'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -185,12 +183,7 @@ function InsightMetricModalWrapper({
 }: {
     insightLogicProps: InsightLogicProps
 }): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { insight } = useValues(insightLogic(insightLogicProps))
-
-    if (!featureFlags[FEATURE_FLAGS.PRODUCT_DATA_CATALOG]) {
-        return null
-    }
 
     return (
         <MetricFromInsightModal

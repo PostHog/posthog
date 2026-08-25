@@ -1,0 +1,33 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "description": "Input for proposing a certification: address the target by id or (convenience) by name.",
+    "properties": {
+        "notes": {
+            "description": "Why this mark exists.",
+            "type": "string"
+        },
+        "proposed_status": {
+            "default": "certified",
+            "description": "Intent of the proposal: 'certified' to propose trusting this source, 'deprecated' to propose avoiding it (e.g. a stale or wrong source).\n\n* `certified` - certified\n* `deprecated` - deprecated",
+            "enum": ["certified", "deprecated"],
+            "type": "string"
+        },
+        "saved_query_id": {
+            "description": "Warehouse view (saved query) id to certify.",
+            "type": "string"
+        },
+        "table_id": {
+            "description": "Warehouse table id to certify (XOR the other targets).",
+            "type": "string"
+        },
+        "table_name": {
+            "description": "Table name; 409 with candidates if ambiguous.",
+            "type": "string"
+        },
+        "view_name": {
+            "description": "View name; 409 with candidates if ambiguous.",
+            "type": "string"
+        }
+    },
+    "type": "object"
+}
