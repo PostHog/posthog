@@ -27,7 +27,9 @@ def test_worker_spans_stay_inside_the_callers_trace():
     series = [span for span in exporter.get_finished_spans() if span.name.startswith("series_")]
     assert len(series) == 3
     assert {span.context.trace_id for span in series} == {caller_context.trace_id}
-    assert {span.parent.span_id for span in series} == {caller_context.span_id}
+    parents = [span.parent for span in series]
+    assert all(parent is not None for parent in parents)
+    assert {parent.span_id for parent in parents if parent is not None} == {caller_context.span_id}
 
 
 def test_workers_read_the_callers_context_and_cannot_write_back():
