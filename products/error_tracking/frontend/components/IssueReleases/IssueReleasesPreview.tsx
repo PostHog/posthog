@@ -18,19 +18,21 @@ import {
 import { pluralize } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { ErrorTrackingReleasesQueryResponse } from '~/queries/schema/schema-general'
+
 import { IssueFilterPreviewHeader } from '../IssueFilterPreview/IssueFilterPreviewHeader'
 import { issueFilterPreviewLogic } from '../IssueFilterPreview/issueFilterPreviewLogic'
 import { IssueReleaseRow } from './IssueReleaseRow'
-import { IssueReleaseTimeline, ReleaseBucketing, listReleaseStrips } from './issueReleases'
+import { listReleaseStrips, maxBucketValue } from './issueReleases'
 import { issueReleasesLogic } from './issueReleasesLogic'
 import { IssueReleasesStackedChart } from './IssueReleasesStackedChart'
 
 export function IssueReleasesPreview({ issueId }: { issueId: string }): JSX.Element {
-    const { timeline, releasesLoading, releasesError, selectedNamespace } = useValues(issueReleasesLogic({ issueId }))
+    const { releases, releasesLoading, releasesError, selectedNamespace } = useValues(issueReleasesLogic({ issueId }))
     const { loadReleases, selectNamespace } = useActions(issueReleasesLogic({ issueId }))
     const { releasesViewMode } = useValues(issueFilterPreviewLogic)
     const { setReleasesViewMode } = useActions(issueFilterPreviewLogic)
-    const hasReleases = timeline !== null && timeline.total > 0
+    const hasReleases = releases !== null && releases.total > 0
 
     return (
         <div className="flex flex-col">
@@ -55,7 +57,7 @@ export function IssueReleasesPreview({ issueId }: { issueId: string }): JSX.Elem
                         </ToggleGroupItem>
                     </ToggleGroup>
                     <ReleasesSummary
-                        timeline={timeline}
+                        releases={releases}
                         loading={releasesLoading}
                         selectedNamespace={selectedNamespace}
                         onSelectNamespace={selectNamespace}
@@ -74,7 +76,7 @@ export function IssueReleasesPreview({ issueId }: { issueId: string }): JSX.Elem
                             Retry
                         </Button>
                     </div>
-                ) : timeline === null || !hasReleases ? (
+                ) : releases === null || !hasReleases ? (
                     <div className="flex min-h-40 flex-1 flex-col items-center justify-center gap-1 text-center">
                         <Text variant="muted">No release information for these exceptions.</Text>
                         <Text size="xs" variant="muted">
@@ -82,9 +84,9 @@ export function IssueReleasesPreview({ issueId }: { issueId: string }): JSX.Elem
                         </Text>
                     </div>
                 ) : releasesViewMode === 'stacked' ? (
-                    <IssueReleasesStackedChart timeline={timeline} />
+                    <IssueReleasesStackedChart releases={releases} />
                 ) : (
-                    <ReleaseTimeline timeline={timeline} />
+                    <ReleaseTimeline releases={releases} />
                 )}
             </div>
         </div>
@@ -94,12 +96,12 @@ export function IssueReleasesPreview({ issueId }: { issueId: string }): JSX.Elem
 const ALL_APPS = '__all__'
 
 function ReleasesSummary({
-    timeline,
+    releases,
     loading,
     selectedNamespace,
     onSelectNamespace,
 }: {
-    timeline: IssueReleaseTimeline | null
+    releases: ErrorTrackingReleasesQueryResponse | null
     loading: boolean
     selectedNamespace: string | null
     onSelectNamespace: (namespace: string | null) => void
@@ -111,21 +113,21 @@ function ReleasesSummary({
             </Skeleton>
         )
     }
-    if (timeline === null || (timeline.releaseCount === 0 && timeline.namespaces.length === 0)) {
+    if (releases === null || (releases.release_count === 0 && releases.namespaces.length === 0)) {
         return null
     }
-    const releases = pluralize(timeline.releaseCount, 'release')
-    if (timeline.namespaces.length <= 1) {
-        const namespace = timeline.namespaces[0]
+    const count = pluralize(releases.release_count, 'release')
+    if (releases.namespaces.length <= 1) {
+        const namespace = releases.namespaces[0]
         return (
             <Text size="xs" variant="muted" className="truncate">
-                {namespace ? `${namespace} · ${releases}` : releases}
+                {namespace ? `${namespace} · ${count}` : count}
             </Text>
         )
     }
     const appItems: Record<string, string> = {
-        [ALL_APPS]: pluralize(timeline.namespaces.length, 'app'),
-        ...Object.fromEntries(timeline.namespaces.map((namespace) => [namespace, namespace])),
+        [ALL_APPS]: pluralize(releases.namespaces.length, 'app'),
+        ...Object.fromEntries(releases.namespaces.map((namespace) => [namespace, namespace])),
     }
     return (
         <div className="flex min-w-0 items-center gap-2">
@@ -146,43 +148,39 @@ function ReleasesSummary({
                 </SelectContent>
             </Select>
             <Text size="xs" variant="muted" className="shrink-0">
-                {releases}
+                {count}
             </Text>
         </div>
     )
 }
 
-function ReleaseTimeline({ timeline }: { timeline: IssueReleaseTimeline }): JSX.Element {
+function ReleaseTimeline({ releases }: { releases: ErrorTrackingReleasesQueryResponse }): JSX.Element {
     const theme = useChartTheme()
-    const strips = listReleaseStrips(timeline, theme.colors)
+    const strips = listReleaseStrips(releases, theme.colors)
+    const maxValue = maxBucketValue(strips)
 
     return (
         <div className="flex flex-col gap-px">
             {strips.map((strip) => (
                 <IssueReleaseRow
-                    key={strip.release.key}
-                    release={strip.release}
-                    kind={strip.kind}
-                    label={strip.label}
-                    color={strip.color}
-                    bucketing={timeline.bucketing}
-                    maxValue={timeline.maxBucketValue}
-                    total={timeline.total}
+                    key={strip.key}
+                    strip={strip}
+                    buckets={releases.buckets}
+                    maxValue={maxValue}
+                    total={releases.total}
                 />
             ))}
-            <ReleaseTimelineAxis bucketing={timeline.bucketing} />
+            <ReleaseTimelineAxis dateFrom={releases.date_from} dateTo={releases.date_to} />
         </div>
     )
 }
 
-function ReleaseTimelineAxis({ bucketing }: { bucketing: ReleaseBucketing }): JSX.Element {
+function ReleaseTimelineAxis({ dateFrom, dateTo }: { dateFrom: string; dateTo: string }): JSX.Element {
     const { timezone } = useValues(teamLogic)
-    const { rangeStart: start, rangeEnd: end } = bucketing
-    const spansDays = end - start >= 2 * 24 * 60 * 60
-    const format = (unix: number): string =>
-        dayjs(unix * 1000)
-            .tz(timezone)
-            .format(spansDays ? 'D MMM' : 'D MMM HH:mm')
+    const start = dayjs(dateFrom)
+    const end = dayjs(dateTo)
+    const spansDays = end.diff(start, 'day') >= 2
+    const format = (date: dayjs.Dayjs): string => date.tz(timezone).format(spansDays ? 'D MMM' : 'D MMM HH:mm')
 
     return (
         <div className="grid grid-cols-[minmax(0,8rem)_minmax(0,1fr)_4.5rem] gap-x-2 pt-1">
@@ -191,7 +189,7 @@ function ReleaseTimelineAxis({ bucketing }: { bucketing: ReleaseBucketing }): JS
                     {format(start)}
                 </Text>
                 <Text size="xxs" variant="muted">
-                    {format(Math.round((start + end) / 2))}
+                    {format(dayjs((start.valueOf() + end.valueOf()) / 2))}
                 </Text>
                 <Text size="xxs" variant="muted">
                     {format(end)}

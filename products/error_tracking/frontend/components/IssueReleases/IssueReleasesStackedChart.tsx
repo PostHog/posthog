@@ -8,30 +8,28 @@ import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { ErrorTrackingReleasesQueryResponse } from '~/queries/schema/schema-general'
 import { PropertyOperator } from '~/types'
 
 import { issueFilterPreviewLogic } from '../IssueFilterPreview/issueFilterPreviewLogic'
-import { IssueReleaseStrip, IssueReleaseTimeline, listReleaseStrips } from './issueReleases'
+import { IssueReleaseStrip, listReleaseStrips } from './issueReleases'
 
-export function IssueReleasesStackedChart({ timeline }: { timeline: IssueReleaseTimeline }): JSX.Element {
+export function IssueReleasesStackedChart({ releases }: { releases: ErrorTrackingReleasesQueryResponse }): JSX.Element {
     const theme = useChartTheme()
     const { timezone } = useValues(teamLogic)
     const { applyPropertyFilter } = useActions(issueFilterPreviewLogic)
 
-    const labels = useMemo(
-        () => timeline.bucketing.bucketStarts.map((start) => new Date(start * 1000).toISOString()),
-        [timeline.bucketing]
-    )
+    const labels = releases.buckets
     const series = useMemo<Series<IssueReleaseStrip>[]>(
         () =>
-            listReleaseStrips(timeline, theme.colors).map((strip) => ({
-                key: strip.release.key,
+            listReleaseStrips(releases, theme.colors).map((strip) => ({
+                key: strip.key,
                 label: strip.fullLabel,
                 color: strip.color,
-                data: strip.release.counts,
+                data: strip.series.counts,
                 meta: strip,
             })),
-        [timeline, theme.colors]
+        [releases, theme.colors]
     )
     const tickFormatter = useMemo(() => createXAxisTickCallback({ timezone, allDays: labels }), [labels, timezone])
     const config = useChartConfig<TimeSeriesBarChartConfig>(
@@ -58,7 +56,7 @@ export function IssueReleasesStackedChart({ timeline }: { timeline: IssueRelease
         }
         if (strip.kind === 'unattributed') {
             applyPropertyFilter('$app_version', null, PropertyOperator.IsNotSet, true)
-        } else {
+        } else if (strip.release) {
             applyPropertyFilter('$app_version', strip.release.version, PropertyOperator.Exact, true)
         }
     }

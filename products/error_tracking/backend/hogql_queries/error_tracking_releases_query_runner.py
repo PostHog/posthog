@@ -1,0 +1,278 @@
+import re
+import datetime
+from zoneinfo import ZoneInfo
+
+from posthog.schema import (
+    CachedErrorTrackingReleasesQueryResponse,
+    ErrorTrackingIssueRelease,
+    ErrorTrackingReleaseSeries,
+    ErrorTrackingReleasesOrderBy,
+    ErrorTrackingReleasesQuery,
+    ErrorTrackingReleasesQueryResponse,
+)
+
+from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.property import property_to_expr
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.utils import relative_date_parse
+
+from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQueryRunnerAccessMixin
+from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import validate_uuid_param
+
+DEFAULT_RESOLUTION = 40
+DEFAULT_MAX_RELEASES = 5
+MIN_BUCKET_SECONDS = 60
+# Rows the query hands back for folding. Past this, the lowest-volume releases are dropped, so the
+# fold undercounts `other` but every returned series stays exact.
+MAX_QUERY_RELEASES = 5000
+
+NUMERIC_VERSION = re.compile(r"^\d+(\.\d+)*")
+
+ReleaseKey = tuple[str | None, str | None, str | None]
+
+
+class _Accumulator:
+    """Per-release occurrence counts while the query rows are folded into the response."""
+
+    def __init__(self, key: ReleaseKey, bucket_count: int) -> None:
+        self.key = key
+        self.counts = [0] * bucket_count
+        self.total = 0
+        self.first_index = -1
+        self.last_index = -1
+
+    def add(self, index: int, count: int) -> None:
+        self.counts[index] += count
+        self.total += count
+        if self.first_index == -1 or index < self.first_index:
+            self.first_index = index
+        if index > self.last_index:
+            self.last_index = index
+
+
+class ErrorTrackingReleasesQueryRunner(
+    ErrorTrackingQueryRunnerAccessMixin, AnalyticsQueryRunner[ErrorTrackingReleasesQueryResponse]
+):
+    query: ErrorTrackingReleasesQuery
+    cached_response: CachedErrorTrackingReleasesQueryResponse
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.query.issueId = validate_uuid_param(self.query.issueId, "issueId")
+        self.date_from = self.parse_relative_date_from(self.query.dateRange.date_from if self.query.dateRange else None)
+        self.date_to = self.parse_relative_date_to(self.query.dateRange.date_to if self.query.dateRange else None)
+        resolution = self.query.resolution or DEFAULT_RESOLUTION
+        total_seconds = max(1, int((self.date_to - self.date_from).total_seconds()))
+        self.bucket_seconds = max(MIN_BUCKET_SECONDS, -(-total_seconds // resolution))
+        aligned_from = int(self.date_from.timestamp()) // self.bucket_seconds * self.bucket_seconds
+        self.bucket_starts = list(range(aligned_from, int(self.date_to.timestamp()), self.bucket_seconds))
+        if not self.bucket_starts:
+            self.bucket_starts = [aligned_from]
+
+    @classmethod
+    def parse_relative_date_from(cls, date: str | None) -> datetime.datetime:
+        if date == "all" or date is None:
+            return datetime.datetime.now(tz=ZoneInfo("UTC")) - datetime.timedelta(days=7)
+        return relative_date_parse(date, now=datetime.datetime.now(tz=ZoneInfo("UTC")), timezone_info=ZoneInfo("UTC"))
+
+    @classmethod
+    def parse_relative_date_to(cls, date: str | None) -> datetime.datetime:
+        if not date:
+            return datetime.datetime.now(tz=ZoneInfo("UTC"))
+        if date == "all":
+            raise ValueError("Invalid date range")
+        return relative_date_parse(date, ZoneInfo("UTC"), increase=True)
+
+    def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        return parse_select(
+            """
+            SELECT
+                namespace,
+                version,
+                build,
+                groupArray(tuple(bucket, occurrences)) AS series,
+                sum(occurrences) AS total
+            FROM (
+                SELECT
+                    toUnixTimestamp(toStartOfInterval(timestamp, toIntervalSecond({bucket_seconds}))) AS bucket,
+                    properties.$app_namespace AS namespace,
+                    properties.$app_version AS version,
+                    toString(properties.$app_build) AS build,
+                    count() AS occurrences
+                FROM events
+                WHERE {where}
+                GROUP BY bucket, namespace, version, build
+            )
+            GROUP BY namespace, version, build
+            ORDER BY total DESC
+            LIMIT {limit}
+            """,
+            placeholders={
+                "bucket_seconds": ast.Constant(value=self.bucket_seconds),
+                "where": self.events_where(),
+                "limit": ast.Constant(value=MAX_QUERY_RELEASES),
+            },
+        )
+
+    def events_where(self) -> ast.Expr:
+        conditions: list[ast.Expr] = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=self.date_from),
+                op=ast.CompareOperationOp.GtEq,
+            ),
+            ast.CompareOperation(
+                left=ast.Field(chain=["timestamp"]),
+                right=ast.Constant(value=self.date_to),
+                op=ast.CompareOperationOp.LtEq,
+            ),
+            ast.CompareOperation(
+                left=ast.Field(chain=["event"]), right=ast.Constant(value="$exception"), op=ast.CompareOperationOp.Eq
+            ),
+            # Resolve the issue's fingerprints once, inside ClickHouse, instead of joining the
+            # fingerprint state onto every event row. Merged issues can own hundreds of fingerprints.
+            ast.CompareOperation(
+                left=ast.Field(chain=["properties", "$exception_fingerprint"]),
+                op=ast.CompareOperationOp.In,
+                right=self.issue_fingerprints_query(),
+            ),
+        ]
+
+        if self.query.filterTestAccounts:
+            for prop in self.team.test_account_filters or []:
+                conditions.append(property_to_expr(prop, self.team))
+
+        if self.query.filterGroup:
+            conditions.append(property_to_expr(self.query.filterGroup, self.team))
+
+        return ast.And(exprs=conditions)
+
+    def issue_fingerprints_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
+        # The tuple wrap keeps `argMax` from skipping a NULL issue_id at the latest version, so a
+        # fingerprint unassigned after a split does not resolve to its previous issue.
+        return parse_select(
+            """
+            SELECT fingerprint
+            FROM (
+                SELECT
+                    fingerprint,
+                    tupleElement(argMax(tuple(issue_id), version), 1) AS issue_id,
+                    argMax(is_deleted, version) AS is_deleted
+                FROM raw_error_tracking_fingerprint_issue_state
+                GROUP BY fingerprint
+            )
+            WHERE issue_id = {issue_id} AND is_deleted = 0
+            """,
+            placeholders={"issue_id": ast.Constant(value=self.query.issueId)},
+        )
+
+    def _calculate(self) -> ErrorTrackingReleasesQueryResponse:
+        with self.timings.measure("error_tracking_releases_hogql_execute"):
+            query_result = execute_hogql_query(
+                query=self.to_query(),
+                team=self.team,
+                user=self.user,
+                query_type="ErrorTrackingReleasesQuery",
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+            )
+
+        response = self.fold(query_result.results)
+        response.timings = query_result.timings
+        response.hogql = query_result.hogql
+        response.modifiers = self.modifiers
+        return response
+
+    def fold(self, rows: list) -> ErrorTrackingReleasesQueryResponse:
+        bucket_count = len(self.bucket_starts)
+        aligned_from = self.bucket_starts[0]
+        selected_namespace = self.query.appNamespace or None
+        releases: dict[ReleaseKey, _Accumulator] = {}
+        unattributed: _Accumulator | None = None
+        namespaces: set[str] = set()
+
+        for namespace, version, build, series, _total in rows:
+            in_range = [
+                ((int(bucket) - aligned_from) // self.bucket_seconds, int(count))
+                for bucket, count in series
+                if 0 <= (int(bucket) - aligned_from) // self.bucket_seconds < bucket_count
+            ]
+            if not in_range:
+                continue
+            if namespace:
+                namespaces.add(namespace)
+            if selected_namespace is not None and namespace != selected_namespace:
+                continue
+            if not namespace and not version:
+                unattributed = unattributed or _Accumulator((None, None, None), bucket_count)
+                target = unattributed
+            else:
+                key: ReleaseKey = (namespace, version, build)
+                target = releases.setdefault(key, _Accumulator(key, bucket_count))
+            for index, count in in_range:
+                target.add(index, count)
+
+        ordered = sorted(releases.values(), key=self.sort_key(list(releases.values())), reverse=True)
+        max_releases = self.query.maxReleases if self.query.maxReleases is not None else DEFAULT_MAX_RELEASES
+        visible, hidden = ordered[:max_releases], ordered[max_releases:]
+
+        other: _Accumulator | None = None
+        if hidden:
+            other = _Accumulator((None, None, None), bucket_count)
+            for release in hidden:
+                for index, count in enumerate(release.counts):
+                    if count:
+                        other.add(index, count)
+
+        total = sum(release.total for release in ordered) + (unattributed.total if unattributed else 0)
+        return ErrorTrackingReleasesQueryResponse(
+            date_from=self.date_from.isoformat(),
+            date_to=self.date_to.isoformat(),
+            buckets=[self.bucket_iso(index) for index in range(bucket_count)],
+            bucket_seconds=self.bucket_seconds,
+            results=[
+                ErrorTrackingIssueRelease(
+                    namespace=release.key[0],
+                    version=release.key[1],
+                    build=release.key[2],
+                    **self.series(release).model_dump(),
+                )
+                for release in visible
+            ],
+            other=self.series(other) if other else None,
+            other_release_count=len(hidden),
+            unattributed=self.series(unattributed) if unattributed else None,
+            release_count=len(ordered),
+            namespaces=sorted(namespaces),
+            total=total,
+        )
+
+    def sort_key(self, releases: list[_Accumulator]):
+        order_by = self.query.orderBy or ErrorTrackingReleasesOrderBy.LATEST
+        if order_by == ErrorTrackingReleasesOrderBy.OCCURRENCES:
+            return lambda release: (release.total, release.first_index)
+        # Version numbers order releases only when every release has one; a mix (commit hashes,
+        # dates) falls back to when each release first appeared, since bucket ties are common.
+        if releases and all(NUMERIC_VERSION.match(release.key[1] or "") for release in releases):
+            return lambda release: (version_tuple(release.key[1]), version_tuple(release.key[2]), release.first_index)
+        return lambda release: (release.first_index, version_tuple(release.key[1]), release.total)
+
+    def bucket_iso(self, index: int) -> str:
+        return datetime.datetime.fromtimestamp(self.bucket_starts[index], tz=ZoneInfo("UTC")).isoformat()
+
+    def series(self, release: _Accumulator) -> ErrorTrackingReleaseSeries:
+        return ErrorTrackingReleaseSeries(
+            counts=release.counts,
+            total=release.total,
+            first_seen=self.bucket_iso(release.first_index) if release.first_index >= 0 else None,
+            last_seen=self.bucket_iso(release.last_index) if release.last_index >= 0 else None,
+        )
+
+
+def version_tuple(value: str | None) -> tuple[int, ...]:
+    match = NUMERIC_VERSION.match(value or "")
+    return tuple(int(part) for part in match.group(0).split(".")) if match else ()

@@ -10,8 +10,9 @@ import {
     ErrorTrackingPendingFingerprintIssueStateUpdate,
     ErrorTrackingQuery,
     ErrorTrackingQueryIssueSeverity,
+    ErrorTrackingReleasesOrderBy,
+    ErrorTrackingReleasesQuery,
     EventsQuery,
-    HogQLQuery,
     InsightVizNode,
     NodeKind,
     ProductKey,
@@ -30,7 +31,7 @@ import {
 } from '~/types'
 
 import { LIMIT_ITEMS } from './components/Breakdowns/consts'
-import { RELEASES_QUERY_LIMIT } from './components/IssueReleases/issueReleases'
+import { RELEASE_TIMELINE_RESOLUTION } from './components/IssueReleases/issueReleases'
 import {
     ERROR_TRACKING_DETAILS_RESOLUTION,
     ERROR_TRACKING_LISTING_RESOLUTION,
@@ -367,51 +368,33 @@ export const errorTrackingBreakdownsQuery = ({
     })
 }
 
-export const errorTrackingIssueReleasesQuery = ({
+export const errorTrackingReleasesQuery = ({
     issueId,
     dateRange,
     filterGroup,
     filterTestAccounts,
-    bucketSeconds,
+    appNamespace,
+    maxReleases,
+    orderBy,
 }: {
     issueId: string
     dateRange: DateRange
     filterGroup: UniversalFiltersGroup
     filterTestAccounts: boolean
-    bucketSeconds: number
-}): HogQLQuery => {
-    const group = filterGroup.values[0] as UniversalFiltersGroup
-    const properties = [...group.values] as AnyPropertyFilter[]
-    // Inlined rather than passed through `values`: the runner resolves `values` placeholders at parse
-    // time, which leaves no `{filters}` placeholder for the filters pass to fill in.
-    const interval = Math.max(1, Math.floor(bucketSeconds))
-
-    return {
-        kind: NodeKind.HogQLQuery,
-        query: `
-            SELECT
-                namespace,
-                version,
-                build,
-                groupArray(tuple(bucket, occurrences)) AS series,
-                sum(occurrences) AS total,
-                count() OVER () AS release_count
-            FROM (
-                SELECT
-                    toUnixTimestamp(toStartOfInterval(timestamp, toIntervalSecond(${interval}))) AS bucket,
-                    properties.$app_namespace AS namespace,
-                    properties.$app_version AS version,
-                    toString(properties.$app_build) AS build,
-                    count() AS occurrences
-                FROM events
-                WHERE event = '$exception' AND issue_id = ${escapeHogQLString(issueId)} AND {filters}
-                GROUP BY bucket, namespace, version, build
-            )
-            GROUP BY namespace, version, build
-            ORDER BY total DESC
-            LIMIT ${RELEASES_QUERY_LIMIT}
-        `,
-        filters: { dateRange, filterTestAccounts, properties },
+    appNamespace?: string
+    maxReleases: number
+    orderBy: ErrorTrackingReleasesOrderBy
+}): ErrorTrackingReleasesQuery => {
+    return setLatestVersionsOnQuery({
+        kind: NodeKind.ErrorTrackingReleasesQuery,
+        issueId,
+        dateRange,
+        filterGroup: filterGroup as PropertyGroupFilter,
+        filterTestAccounts,
+        appNamespace,
+        maxReleases,
+        orderBy,
+        resolution: RELEASE_TIMELINE_RESOLUTION,
         tags: { productKey: ProductKey.ERROR_TRACKING },
-    }
+    })
 }

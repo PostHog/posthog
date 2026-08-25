@@ -8,27 +8,30 @@ import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { dayjs } from 'lib/dayjs'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { IssueRelease, ReleaseBucketing } from './issueReleases'
-
 interface IssueReleaseStripProps {
-    release: IssueRelease
+    stripKey: string
     label: string
     color: string
-    bucketing: ReleaseBucketing
+    counts: number[]
+    /** ISO bucket starts, aligned with `counts`. */
+    buckets: string[]
     /** Shared value ceiling, so bar heights compare across every strip in the panel. */
     maxValue: number
 }
 
-export function IssueReleaseStrip({ release, label, color, bucketing, maxValue }: IssueReleaseStripProps): JSX.Element {
+export function IssueReleaseStrip({
+    stripKey,
+    label,
+    color,
+    counts,
+    buckets,
+    maxValue,
+}: IssueReleaseStripProps): JSX.Element {
     const theme = useChartTheme()
     const { timezone } = useValues(teamLogic)
-    const labels = useMemo(
-        () => bucketing.bucketStarts.map((start) => new Date(start * 1000).toISOString()),
-        [bucketing]
-    )
     const series = useMemo<Series[]>(
-        () => [{ key: release.key, label, color, data: release.counts }],
-        [release.key, release.counts, label, color]
+        () => [{ key: stripKey, label, color, data: counts }],
+        [stripKey, counts, label, color]
     )
     const config = useChartConfig<BarChartConfig>(
         () => ({
@@ -60,7 +63,7 @@ export function IssueReleaseStrip({ release, label, color, bucketing, maxValue }
         <div className="flex h-6 w-full min-w-0 overflow-hidden">
             <BarChart
                 series={series}
-                labels={labels}
+                labels={buckets}
                 theme={theme}
                 config={config}
                 className="h-full"

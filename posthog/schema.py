@@ -102,6 +102,7 @@ from posthog.schema_enums import (
     ErrorTrackingIssueStatus as ErrorTrackingIssueStatus,
     ErrorTrackingOrderBy as ErrorTrackingOrderBy,
     ErrorTrackingQueryIssueSeverity as ErrorTrackingQueryIssueSeverity,
+    ErrorTrackingReleasesOrderBy as ErrorTrackingReleasesOrderBy,
     EvaluationRuntime as EvaluationRuntime,
     ExperimentMetricGoal as ExperimentMetricGoal,
     ExperimentMetricMathType as ExperimentMetricMathType,
@@ -4815,6 +4816,22 @@ class ErrorTrackingIssueFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
+class ErrorTrackingIssueRelease(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    build: str | None = None
+    counts: list[int] = Field(
+        ...,
+        description="Occurrences per bucket, aligned with the response's `buckets`.",
+    )
+    first_seen: str | None = None
+    last_seen: str | None = None
+    namespace: str | None = None
+    total: int
+    version: str | None = None
+
+
 class ErrorTrackingPendingFingerprintIssueStateUpdate(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -4833,6 +4850,19 @@ class ErrorTrackingPendingFingerprintIssueStateUpdate(BaseModel):
         ...,
         description=("Client-stamped monotonic version (`Date.now()` ms at mutation success)."),
     )
+
+
+class ErrorTrackingReleaseSeries(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    counts: list[int] = Field(
+        ...,
+        description="Occurrences per bucket, aligned with the response's `buckets`.",
+    )
+    first_seen: str | None = None
+    last_seen: str | None = None
+    total: int
 
 
 class EventMetadataPropertyFilter(BaseModel):
@@ -6373,7 +6403,7 @@ class QueryResponseAlternative10(BaseModel):
     )
 
 
-class QueryResponseAlternative20(BaseModel):
+class QueryResponseAlternative21(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -11228,6 +11258,87 @@ class CachedErrorTrackingFingerprintProjectionQueryResponse(BaseModel):
     timings: list[QueryTiming] | None = Field(
         default=None,
         description=("Measured timings for different parts of the query generation process"),
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose"
+            " latest sync failed, is paused, hit a billing limit, or is otherwise"
+            " stale. Results may not reflect current source data. Accumulated"
+            " across every HogQL execution that contributes to this response — so"
+            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
+            " the same warnings as raw HogQL queries. Also carries access control"
+            " warnings when a system-table query filters out objects the user can't"
+            " access."
+        ),
+    )
+
+
+class CachedErrorTrackingReleasesQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bucket_seconds: int
+    buckets: list[str] = Field(
+        ...,
+        description=("ISO start of each bucket. The first one can start before `date_from`."),
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    date_from: str
+    date_to: str
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    namespaces: list[str] = Field(
+        ...,
+        description="Every app namespace in the range, regardless of `appNamespace`.",
+    )
+    next_allowed_client_refresh: AwareDatetime
+    other: ErrorTrackingReleaseSeries | None = Field(..., description="Releases past `maxReleases`, summed.")
+    other_release_count: int
+    query_metadata: dict[str, Any] | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    release_count: int = Field(
+        ...,
+        description=("Distinct releases in the range for the selected app, before folding."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[ErrorTrackingIssueRelease] = Field(
+        ..., description="The releases returned on their own, in the requested order."
+    )
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    total: int
+    unattributed: ErrorTrackingReleaseSeries | None = Field(
+        ..., description="Exceptions without an app namespace or version."
     )
     used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
         default=None,
@@ -16556,6 +16667,76 @@ class ErrorTrackingRelationalIssue(BaseModel):
     status: ErrorTrackingIssueStatus
 
 
+class ErrorTrackingReleasesQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bucket_seconds: int
+    buckets: list[str] = Field(
+        ...,
+        description=("ISO start of each bucket. The first one can start before `date_from`."),
+    )
+    date_from: str
+    date_to: str
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    namespaces: list[str] = Field(
+        ...,
+        description="Every app namespace in the range, regardless of `appNamespace`.",
+    )
+    other: ErrorTrackingReleaseSeries | None = Field(..., description="Releases past `maxReleases`, summed.")
+    other_release_count: int
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    release_count: int = Field(
+        ...,
+        description=("Distinct releases in the range for the selected app, before folding."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[ErrorTrackingIssueRelease] = Field(
+        ..., description="The releases returned on their own, in the requested order."
+    )
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    total: int
+    unattributed: ErrorTrackingReleaseSeries | None = Field(
+        ..., description="Exceptions without an app namespace or version."
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose"
+            " latest sync failed, is paused, hit a billing limit, or is otherwise"
+            " stale. Results may not reflect current source data. Accumulated"
+            " across every HogQL execution that contributes to this response — so"
+            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
+            " the same warnings as raw HogQL queries. Also carries access control"
+            " warnings when a system-table query filters out objects the user can't"
+            " access."
+        ),
+    )
+
+
 class ErrorTrackingSimilarIssuesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -19181,7 +19362,77 @@ class QueryResponseAlternative15(BaseModel):
     )
 
 
-class QueryResponseAlternative21(BaseModel):
+class QueryResponseAlternative16(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    bucket_seconds: int
+    buckets: list[str] = Field(
+        ...,
+        description=("ISO start of each bucket. The first one can start before `date_from`."),
+    )
+    date_from: str
+    date_to: str
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    namespaces: list[str] = Field(
+        ...,
+        description="Every app namespace in the range, regardless of `appNamespace`.",
+    )
+    other: ErrorTrackingReleaseSeries | None = Field(..., description="Releases past `maxReleases`, summed.")
+    other_release_count: int
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    release_count: int = Field(
+        ...,
+        description=("Distinct releases in the range for the selected app, before folding."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[ErrorTrackingIssueRelease] = Field(
+        ..., description="The releases returned on their own, in the requested order."
+    )
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    total: int
+    unattributed: ErrorTrackingReleaseSeries | None = Field(
+        ..., description="Exceptions without an app namespace or version."
+    )
+    used_data_warehouse_sources: list[DataWarehouseSourceUsage] | None = Field(
+        default=None,
+        description=("Connector-synced data warehouse sources referenced by this query, if any."),
+    )
+    warnings: list[DataWarehouseSyncWarning | AccessControlFilterWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose"
+            " latest sync failed, is paused, hit a billing limit, or is otherwise"
+            " stale. Results may not reflect current source data. Accumulated"
+            " across every HogQL execution that contributes to this response — so"
+            " insights backed by warehouse tables (Trends, Funnels, etc.) receive"
+            " the same warnings as raw HogQL queries. Also carries access control"
+            " warnings when a system-table query filters out objects the user can't"
+            " access."
+        ),
+    )
+
+
+class QueryResponseAlternative22(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19231,7 +19482,7 @@ class QueryResponseAlternative21(BaseModel):
     )
 
 
-class QueryResponseAlternative22(BaseModel):
+class QueryResponseAlternative23(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19282,7 +19533,7 @@ class QueryResponseAlternative22(BaseModel):
     )
 
 
-class QueryResponseAlternative23(BaseModel):
+class QueryResponseAlternative24(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19343,7 +19594,7 @@ class QueryResponseAlternative23(BaseModel):
     )
 
 
-class QueryResponseAlternative24(BaseModel):
+class QueryResponseAlternative25(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -19396,7 +19647,7 @@ class QueryResponseAlternative24(BaseModel):
     )
 
 
-class QueryResponseAlternative25(BaseModel):
+class QueryResponseAlternative27(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -26652,7 +26903,7 @@ class PropertyValuesQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class QueryResponseAlternative16(BaseModel):
+class QueryResponseAlternative17(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -27777,6 +28028,31 @@ class ErrorTrackingQuery(BaseModel):
     withLastEvent: bool | None = None
 
 
+class ErrorTrackingReleasesQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    appNamespace: str | None = Field(default=None, description="Only count exceptions from this app namespace.")
+    dateRange: DateRange | None = None
+    filterGroup: PropertyGroupFilter | None = None
+    filterTestAccounts: bool | None = None
+    issueId: str
+    kind: Literal["ErrorTrackingReleasesQuery"] = "ErrorTrackingReleasesQuery"
+    maxReleases: int | None = Field(
+        default=None,
+        description=("How many releases to return on their own; the rest fold into `other`."),
+    )
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    orderBy: ErrorTrackingReleasesOrderBy | None = Field(
+        default=None,
+        description="`latest` orders by version number, `occurrences` by volume.",
+    )
+    resolution: int | None = Field(default=None, description="Number of time buckets across the date range.")
+    response: ErrorTrackingReleasesQueryResponse | None = None
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class ExperimentExposureQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -28600,7 +28876,7 @@ class LegacyExperimentQueryResponse(BaseModel):
     )
 
 
-class QueryResponseAlternative19(BaseModel):
+class QueryResponseAlternative20(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -29001,7 +29277,7 @@ class FunnelsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class QueryResponseAlternative17(BaseModel):
+class QueryResponseAlternative18(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -29021,7 +29297,7 @@ class QueryResponseAlternative17(BaseModel):
     )
 
 
-class QueryResponseAlternative18(BaseModel):
+class QueryResponseAlternative19(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -30234,6 +30510,7 @@ class HogQLAutocomplete(BaseModel):
         | ErrorTrackingSimilarIssuesQuery
         | ErrorTrackingFingerprintProjectionQuery
         | ErrorTrackingBreakdownsQuery
+        | ErrorTrackingReleasesQuery
         | ErrorTrackingIssueCorrelationQuery
         | LogsQuery
         | LogAttributesQuery
@@ -30349,6 +30626,7 @@ class HogQLMetadata(BaseModel):
         | ErrorTrackingSimilarIssuesQuery
         | ErrorTrackingFingerprintProjectionQuery
         | ErrorTrackingBreakdownsQuery
+        | ErrorTrackingReleasesQuery
         | ErrorTrackingIssueCorrelationQuery
         | LogsQuery
         | LogAttributesQuery
@@ -30457,6 +30735,7 @@ class MaxInsightContext(BaseModel):
         | ErrorTrackingSimilarIssuesQuery
         | ErrorTrackingFingerprintProjectionQuery
         | ErrorTrackingBreakdownsQuery
+        | ErrorTrackingReleasesQuery
         | ErrorTrackingIssueCorrelationQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
@@ -30596,6 +30875,7 @@ class QueryRequest(BaseModel):
         | ErrorTrackingSimilarIssuesQuery
         | ErrorTrackingFingerprintProjectionQuery
         | ErrorTrackingBreakdownsQuery
+        | ErrorTrackingReleasesQuery
         | ErrorTrackingIssueCorrelationQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
@@ -30727,6 +31007,7 @@ class QuerySchemaRoot(
         | ErrorTrackingSimilarIssuesQuery
         | ErrorTrackingFingerprintProjectionQuery
         | ErrorTrackingBreakdownsQuery
+        | ErrorTrackingReleasesQuery
         | ErrorTrackingIssueCorrelationQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
@@ -30828,6 +31109,7 @@ class QuerySchemaRoot(
         | ErrorTrackingSimilarIssuesQuery
         | ErrorTrackingFingerprintProjectionQuery
         | ErrorTrackingBreakdownsQuery
+        | ErrorTrackingReleasesQuery
         | ErrorTrackingIssueCorrelationQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
@@ -30934,6 +31216,7 @@ class QueryUpgradeRequest(BaseModel):
         | ErrorTrackingSimilarIssuesQuery
         | ErrorTrackingFingerprintProjectionQuery
         | ErrorTrackingBreakdownsQuery
+        | ErrorTrackingReleasesQuery
         | ErrorTrackingIssueCorrelationQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
@@ -31040,6 +31323,7 @@ class QueryUpgradeResponse(BaseModel):
         | ErrorTrackingSimilarIssuesQuery
         | ErrorTrackingFingerprintProjectionQuery
         | ErrorTrackingBreakdownsQuery
+        | ErrorTrackingReleasesQuery
         | ErrorTrackingIssueCorrelationQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery
@@ -31332,6 +31616,7 @@ class VisualizationArtifactContent(BaseModel):
         | ErrorTrackingSimilarIssuesQuery
         | ErrorTrackingFingerprintProjectionQuery
         | ErrorTrackingBreakdownsQuery
+        | ErrorTrackingReleasesQuery
         | ErrorTrackingIssueCorrelationQuery
         | ExperimentFunnelsQuery
         | ExperimentTrendsQuery

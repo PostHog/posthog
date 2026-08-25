@@ -10,45 +10,30 @@ import { teamLogic } from 'scenes/teamLogic'
 import { PropertyOperator } from '~/types'
 
 import { issueFilterPreviewLogic } from '../IssueFilterPreview/issueFilterPreviewLogic'
-import { IssueRelease, ReleaseBucketing, formatReleaseVersion } from './issueReleases'
+import { IssueReleaseStrip as IssueReleaseStripData } from './issueReleases'
 import { IssueReleaseStrip } from './IssueReleaseStrip'
 
-export type IssueReleaseRowKind = 'release' | 'other' | 'unattributed'
-
 interface IssueReleaseRowProps {
-    release: IssueRelease
-    kind: IssueReleaseRowKind
-    label: string
-    color: string
-    bucketing: ReleaseBucketing
+    strip: IssueReleaseStripData
+    buckets: string[]
     maxValue: number
     total: number
 }
 
-export function IssueReleaseRow({
-    release,
-    kind,
-    label,
-    color,
-    bucketing,
-    maxValue,
-    total,
-}: IssueReleaseRowProps): JSX.Element {
+export function IssueReleaseRow({ strip, buckets, maxValue, total }: IssueReleaseRowProps): JSX.Element {
     const { applyPropertyFilter } = useActions(issueFilterPreviewLogic)
     const { timezone } = useValues(teamLogic)
-    const share = total > 0 ? release.total / total : 0
+    const { series, kind, label, color } = strip
+    const share = total > 0 ? series.total / total : 0
     const filterable = kind !== 'other'
 
-    const formatBucket = (index: number): string =>
-        dayjs(bucketing.bucketStarts[index] * 1000)
-            .tz(timezone)
-            .format('D MMM YYYY HH:mm')
+    const formatDate = (iso: string): string => dayjs(iso).tz(timezone).format('D MMM YYYY HH:mm')
 
     const onSelect = (): void => {
         if (kind === 'unattributed') {
             applyPropertyFilter('$app_version', null, PropertyOperator.IsNotSet, true)
-        } else {
-            applyPropertyFilter('$app_version', release.version, PropertyOperator.Exact, true)
+        } else if (strip.release) {
+            applyPropertyFilter('$app_version', strip.release.version, PropertyOperator.Exact, true)
         }
     }
 
@@ -64,11 +49,11 @@ export function IssueReleaseRow({
                 placement="right"
                 title={
                     <div className="flex flex-col gap-0.5">
-                        <span className="font-semibold">{formatReleaseVersion(release)}</span>
-                        {kind === 'release' && <span>{release.namespace ?? 'No app namespace'}</span>}
-                        {release.firstSeenIndex >= 0 && (
+                        <span className="font-semibold">{label}</span>
+                        {strip.release && <span>{strip.release.namespace ?? 'No app namespace'}</span>}
+                        {series.first_seen && series.last_seen && (
                             <span>
-                                {formatBucket(release.firstSeenIndex)} to {formatBucket(release.lastSeenIndex)}
+                                {formatDate(series.first_seen)} to {formatDate(series.last_seen)}
                             </span>
                         )}
                         {filterable && <span className="text-muted-alt">Click to filter exceptions</span>}
@@ -98,15 +83,16 @@ export function IssueReleaseRow({
                 )}
             </LemonTooltip>
             <IssueReleaseStrip
-                release={release}
+                stripKey={strip.key}
                 label={label}
                 color={color}
-                bucketing={bucketing}
+                counts={series.counts}
+                buckets={buckets}
                 maxValue={maxValue}
             />
             <div className="flex items-baseline justify-end gap-1 tabular-nums">
                 <Text size="xs" weight="semibold">
-                    {humanFriendlyLargeNumber(release.total)}
+                    {humanFriendlyLargeNumber(series.total)}
                 </Text>
                 <Text size="xxs" variant="muted">
                     {share > 0 && share < 0.005 ? '<1%' : `${Math.round(share * 100)}%`}

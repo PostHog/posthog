@@ -11,7 +11,12 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
-import { ErrorTrackingQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import {
+    ErrorTrackingIssueRelease,
+    ErrorTrackingQueryResponse,
+    ErrorTrackingReleasesQueryResponse,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 
 import { errorTrackingQueryResponse, errorTrackingTypeIssue } from './__mocks__/error_tracking_query'
 import { TEST_EVENTS } from './__mocks__/events'
@@ -23,7 +28,6 @@ import {
     IssueFilterPreview,
     IssueReleasesViewMode,
 } from './components/IssueFilterPreview/issueFilterPreviewLogic'
-import { computeReleaseBucketing, IssueReleasesQueryRow } from './components/IssueReleases/issueReleases'
 import { errorTrackingIssueSceneLogic } from './scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 
 const ISSUE_ID = '01890a1b-2c3d-4e4f-8a9b-0c1d2e3f4a5b'
@@ -180,35 +184,65 @@ const STORY_RELEASES: {
     { namespace: 'com.example.app', version: '3.2.1', build: '421', from: 0.88, to: 1, peak: 5, shape: 'flat' },
     { namespace: null, version: null, build: null, from: 0.3, to: 0.5, peak: 1, shape: 'flat' },
 ]
-function storyReleaseRows(dateRange: { date_from?: string | null; date_to?: string | null }): IssueReleasesQueryRow[] {
-    const bucketing = computeReleaseBucketing({ date_from: dateRange.date_from ?? '-7d', date_to: dateRange.date_to })
-    if (!bucketing) {
-        return []
+const STORY_RELEASE_BUCKET_SECONDS = (7 * 24 * 60 * 60) / 40
+const STORY_RELEASE_BUCKETS = Array.from({ length: 40 }, (_, index) =>
+    new Date(Date.UTC(2024, 6, 2) + index * STORY_RELEASE_BUCKET_SECONDS * 1000).toISOString()
+)
+function storyReleaseSeries(release: (typeof STORY_RELEASES)[number]): ErrorTrackingIssueRelease {
+    const counts = STORY_RELEASE_BUCKETS.map(() => 0)
+    const start = Math.floor(release.from * counts.length)
+    const end = Math.ceil(release.to * counts.length)
+    for (let index = start; index < end; index++) {
+        const progress = (index - start) / Math.max(1, end - start - 1)
+        const jitter = 0.7 + ((index * 7) % 4) / 10
+        const factor = {
+            flat: 1,
+            decay: 1 - 0.85 * progress,
+            ramp: 0.15 + 0.85 * progress,
+            hump: Math.sin(Math.PI * progress),
+        }[release.shape]
+        counts[index] = Math.round(release.peak * factor * jitter)
     }
-    const bucketCount = bucketing.bucketStarts.length
-    const rows: IssueReleasesQueryRow[] = []
-    for (const release of STORY_RELEASES) {
-        const start = Math.floor(release.from * bucketCount)
-        const end = Math.ceil(release.to * bucketCount)
-        const series: [number, number][] = []
-        for (let index = start; index < end; index++) {
-            const progress = (index - start) / Math.max(1, end - start - 1)
-            const jitter = 0.7 + ((index * 7) % 4) / 10
-            const factor = {
-                flat: 1,
-                decay: 1 - 0.85 * progress,
-                ramp: 0.15 + 0.85 * progress,
-                hump: Math.sin(Math.PI * progress),
-            }[release.shape]
-            const count = Math.round(release.peak * factor * jitter)
-            if (count > 0) {
-                series.push([bucketing.bucketStarts[index], count])
-            }
-        }
-        const total = series.reduce((sum, [, count]) => sum + count, 0)
-        rows.push([release.namespace, release.version, release.build, series, total, STORY_RELEASES.length])
+    const seen = counts.map((count, index) => (count > 0 ? index : -1)).filter((index) => index >= 0)
+    return {
+        namespace: release.namespace,
+        version: release.version,
+        build: release.build,
+        counts,
+        total: counts.reduce((sum, count) => sum + count, 0),
+        first_seen: seen.length ? STORY_RELEASE_BUCKETS[seen[0]] : null,
+        last_seen: seen.length ? STORY_RELEASE_BUCKETS[seen[seen.length - 1]] : null,
     }
-    return rows
+}
+function storyReleasesResponse(maxReleases: number): ErrorTrackingReleasesQueryResponse {
+    const series = STORY_RELEASES.map(storyReleaseSeries)
+    const releases = series.filter((release) => release.namespace !== null).reverse()
+    const unattributed = series.find((release) => release.namespace === null) ?? null
+    const visible = releases.slice(0, maxReleases)
+    const hidden = releases.slice(maxReleases)
+    const other = hidden.length
+        ? {
+              counts: STORY_RELEASE_BUCKETS.map((_, index) =>
+                  hidden.reduce((sum, release) => sum + release.counts[index], 0)
+              ),
+              total: hidden.reduce((sum, release) => sum + release.total, 0),
+              first_seen: hidden[0].first_seen,
+              last_seen: hidden[0].last_seen,
+          }
+        : null
+    return {
+        date_from: STORY_RELEASE_BUCKETS[0],
+        date_to: new Date(Date.UTC(2024, 6, 9)).toISOString(),
+        buckets: STORY_RELEASE_BUCKETS,
+        bucket_seconds: STORY_RELEASE_BUCKET_SECONDS,
+        results: visible,
+        other,
+        other_release_count: hidden.length,
+        unattributed,
+        release_count: releases.length,
+        namespaces: ['com.example.app'],
+        total: series.reduce((sum, release) => sum + release.total, 0),
+    }
 }
 const STORY_MANY_CUSTOM_PROPERTIES = Object.fromEntries(
     Array.from({ length: 18 }, (_, index) => [`custom_property_${index + 1}`, `value_${index + 1}`])
@@ -391,12 +425,7 @@ const meta: Meta = {
             post: {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
                     const body = (await request.json()) as {
-                        query?: {
-                            kind?: string
-                            select?: string[]
-                            query?: string
-                            filters?: { dateRange?: { date_from?: string | null; date_to?: string | null } }
-                        }
+                        query?: { kind?: string; select?: string[]; maxReleases?: number }
                     }
                     if (body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
                         return [200, STORY_BREAKDOWNS_RESPONSE]
@@ -409,12 +438,12 @@ const meta: Meta = {
                             ? [200, STORY_TIMELINE_RESPONSE]
                             : [200, STORY_EVENTS_RESPONSE]
                     }
-                    if (body.query?.kind === NodeKind.HogQLQuery) {
-                        return body.query.query?.includes('$app_version')
-                            ? [200, { results: storyReleaseRows(body.query.filters?.dateRange ?? {}) }]
-                            : [200, { results: [] }]
+                    if (body.query?.kind === NodeKind.ErrorTrackingReleasesQuery) {
+                        return [200, storyReleasesResponse(body.query.maxReleases ?? 5)]
                     }
-                    return [200, STORY_SUMMARY_RESPONSE]
+                    return body.query?.kind === NodeKind.HogQLQuery
+                        ? [200, { results: [] }]
+                        : [200, STORY_SUMMARY_RESPONSE]
                 },
                 '/api/environments/:team_id/error_tracking/stack_frames/batch_get/': [
                     200,
