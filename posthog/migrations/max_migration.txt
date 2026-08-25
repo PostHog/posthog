@@ -1,1 +1,1 @@
-1316_deprecate_organization_domain_idp_config
+1318_disable_oauth_scope_trgm_fastupdate
