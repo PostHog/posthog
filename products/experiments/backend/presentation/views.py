@@ -728,9 +728,9 @@ class EnterpriseExperimentsViewSet(
         """
         Change history for this experiment.
 
-        Returns a paginated audit trail of changes to the experiment and its holdouts
-        and shared metrics: who made each change, what changed (field-level before/after
-        values), and when. Ordered newest first.
+        Returns a paginated audit trail of changes to the experiment, its holdouts and
+        shared metrics, and its linked feature flag: who made each change, what changed
+        (field-level before/after values), and when. Ordered newest first.
         """
         limit = request.validated_query_data["limit"]
         page = request.validated_query_data["page"]
@@ -741,16 +741,26 @@ class EnterpriseExperimentsViewSet(
         # object's own id, so they need their own type-matched clauses. The experiment's own
         # clause must exclude those detail types in turn: an unrelated holdout or shared
         # metric whose pk collides with this experiment's id would otherwise leak in.
-        activity_filter = Q(item_id=str(experiment.id)) & ~Q(detail__type__in=["holdout", "shared_metric"])
+        # The linked flag's changes log under the FeatureFlag scope, so each clause carries
+        # its own scope instead of a single outer scope filter.
+        activity_filter = Q(scope="Experiment", item_id=str(experiment.id)) & ~Q(
+            detail__type__in=["holdout", "shared_metric"]
+        )
         if experiment.holdout_id is not None:
-            activity_filter |= Q(item_id=str(experiment.holdout_id), detail__type="holdout")
+            activity_filter |= Q(scope="Experiment", item_id=str(experiment.holdout_id), detail__type="holdout")
         saved_metric_ids = [str(pk) for pk in experiment.saved_metrics.values_list("id", flat=True)]
         if saved_metric_ids:
-            activity_filter |= Q(item_id__in=saved_metric_ids, detail__type="shared_metric")
+            activity_filter |= Q(scope="Experiment", item_id__in=saved_metric_ids, detail__type="shared_metric")
+        # The flag's history stays behind the flag's own access controls: a viewer of the
+        # experiment may have "none" access to the linked flag.
+        if experiment.feature_flag_id is not None and self.user_access_control.check_access_level_for_object(
+            experiment.feature_flag, required_level="viewer"
+        ):
+            activity_filter |= Q(scope="FeatureFlag", item_id=str(experiment.feature_flag_id))
 
         activity_query = (
             ActivityLog.objects.select_related("user")
-            .filter(activity_filter, team_id=self.team_id, scope="Experiment")
+            .filter(activity_filter, team_id=self.team_id)
             .order_by("-created_at")
         )
         activity_page = get_activity_page(activity_query, limit, page)
