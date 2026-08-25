@@ -72,7 +72,6 @@ export type MlMirrorConfig = {
     /**
      * Read crawl history before the mirror sends URLs to Kafka.
      *
-     * The disabled default permits a separate workload-identity and DynamoDB-capacity rollout.
      * Read failures publish every candidate, so the lookup cannot lose fetch work.
      */
     SESSION_RECORDING_ML_URL_CRAWL_HISTORY_PRECHECK_ENABLED: boolean
@@ -227,7 +226,7 @@ export function getDefaultMlMirrorConfig(): MlMirrorConfig {
         SESSION_RECORDING_ML_IMAGE_SCRUB_PRODUCER_ENABLED: false,
         SESSION_RECORDING_ML_URL_COLLECTION_ENABLED: false,
         SESSION_RECORDING_ML_URL_PRODUCER_ENABLED: false,
-        SESSION_RECORDING_ML_URL_CRAWL_HISTORY_PRECHECK_ENABLED: false,
+        SESSION_RECORDING_ML_URL_CRAWL_HISTORY_PRECHECK_ENABLED: true,
         SESSION_RECORDING_ML_URL_CRAWL_HISTORY_PRECHECK_TIMEOUT_MS: 500,
         WEB_BOT_AUTH_PRIVATE_KEYS: '',
         SESSION_RECORDING_ML_IMAGE_FETCH_DRY_RUN: true,
