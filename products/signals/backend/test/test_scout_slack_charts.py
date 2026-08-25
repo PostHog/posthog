@@ -292,6 +292,7 @@ class TestScoutSlackReportCharts(BaseTest):
         def _render(**kw):
             if render_mock.call_count == 2:
                 raw = get_client().get(_rendered_assets_cache_key("delivery-wt"))
+                assert raw is not None
                 cached_before_second_render.extend(v[0] for v in json.loads(raw).values())
             return (MagicMock(id=render_mock.call_count), b"png")
 
