@@ -1868,6 +1868,10 @@ class TestPrinter(BaseTest):
             "toStartOfMonth(timestamp)(1)",
             "Function 'toStartOfMonth' expects 0 parameters, found 1",
         )
+        self._assert_expr_error(
+            "toStartOfMonth()(timestamp)",
+            "Function 'toStartOfMonth' does not accept parameters",
+        )
         self._assert_expr_error("sparkline()", "Function 'sparkline' expects 1 argument, found 0")
         self._assert_expr_error("hamburger(event)", "Unsupported function call 'hamburger(...)'")
         self._assert_expr_error("mad(event)", "Unsupported function call 'mad(...)'")

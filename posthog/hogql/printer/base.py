@@ -1097,6 +1097,11 @@ class BasePrinter(Visitor[str]):
                     node.name,
                     argument_term="parameter",
                 )
+                if func_meta.max_params == 0:
+                    # An empty parametric call like toStartOfMonth()(x) parses to params=[],
+                    # which the count check above accepts (0 == 0). A non-parametric function
+                    # must still reject the parameter syntax, or the invalid call reaches ClickHouse.
+                    raise QueryError(f"Function '{node.name}' does not accept parameters")
             elif func_meta.min_params:
                 raise QueryError(f"Function '{node.name}' requires parameters in addition to arguments")
 
