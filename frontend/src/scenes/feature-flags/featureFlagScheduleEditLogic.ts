@@ -12,12 +12,6 @@ import type { TeamPublicType, TeamType } from '../../types'
 import { teamLogic } from '../teamLogic'
 import { featureFlagLogic, scheduleDateFromStoredISO, scheduleDateToProjectTzISO } from './featureFlagLogic'
 
-// Used from reducers, which don't receive `values` — we still need a synchronous read at
-// action-dispatch time. Selectors and listeners use the reactive `projectTimezone` selector instead.
-function projectTimezoneImperative(): string {
-    return teamLogic.findMounted()?.values.currentTeam?.timezone || 'UTC'
-}
-
 export interface FeatureFlagScheduleEditLogicProps {
     id: number | 'new' | 'link'
 }
@@ -155,10 +149,6 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
         editScheduledAt: [
             null as Dayjs | null,
             {
-                openEdit: (_, { schedule }) =>
-                    schedule.scheduled_at
-                        ? scheduleDateFromStoredISO(schedule.scheduled_at, projectTimezoneImperative())
-                        : null,
                 setEditScheduledAt: (_, { date }) => date,
                 closeEdit: () => null,
             },
@@ -182,10 +172,6 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
         editEndDate: [
             null as Dayjs | null,
             {
-                openEdit: (_, { schedule }) =>
-                    schedule.end_date
-                        ? scheduleDateFromStoredISO(schedule.end_date, projectTimezoneImperative())
-                        : null,
                 setEditEndDate: (_, { date }) => date,
                 closeEdit: () => null,
             },
@@ -342,6 +328,15 @@ export const featureFlagScheduleEditLogic = kea<featureFlagScheduleEditLogicType
         ],
     }),
     listeners(({ actions, values, props: logicProps }) => ({
+        openEdit: ({ schedule }) => {
+            // Reducers can't read `values`, so the project timezone is applied here rather than
+            // being threaded through the action payload, matching how the rest of this scene works.
+            const timezone = values.projectTimezone
+            actions.setEditScheduledAt(
+                schedule.scheduled_at ? scheduleDateFromStoredISO(schedule.scheduled_at, timezone) : null
+            )
+            actions.setEditEndDate(schedule.end_date ? scheduleDateFromStoredISO(schedule.end_date, timezone) : null)
+        },
         setEditRepeatsValue: ({ value }) => {
             if (value === 'none') {
                 actions.setEditIsRecurring(false)
