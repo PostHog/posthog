@@ -1,5 +1,6 @@
 import type { UserSpendLimit } from "@posthog/api-client/spend-limit";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 export const USER_SPEND_LIMIT_QUERY_KEY = [
@@ -19,6 +20,9 @@ export function useUserSpendLimit() {
     enabled: client !== null,
     staleTime: 60_000,
     retry: false,
+    // The enforced limit is per user: drop it on any auth transition so a new
+    // account never reads the previous one's line from this shared key.
+    meta: AUTH_SCOPED_QUERY_META,
   });
 }
 
