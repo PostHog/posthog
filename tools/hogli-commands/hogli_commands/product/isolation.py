@@ -222,13 +222,8 @@ def permanent_interface_modules(tach_content: str, module_path: str) -> set[str]
     return modules
 
 
-def presentation_bypass_entries(name: str, pyproject_text: str | None = None) -> list[str]:
-    """import-linter ignore_imports entries that still let this product's presentation
-    reach its own internals directly — the deferred presentation-wave worklist.
-
-    Each entry is one view -> internal edge to remove before the product is internally
-    sealed (see the isolating-product-facade-contracts skill).
-    """
+def _importlinter_ignore_entries(pyproject_text: str | None = None) -> list[str]:
+    """Every ignore_imports entry across the import-linter contracts, or [] if unreadable."""
     if pyproject_text is None:
         pyproject = REPO_ROOT / "pyproject.toml"
         if not pyproject.exists():
@@ -238,8 +233,35 @@ def presentation_bypass_entries(name: str, pyproject_text: str | None = None) ->
         contracts = tomllib.loads(pyproject_text)["tool"]["importlinter"]["contracts"]
     except (tomllib.TOMLDecodeError, KeyError):
         return []
-    prefix = f"products.{name}.backend.presentation"
-    return [entry for contract in contracts for entry in contract.get("ignore_imports", []) if entry.startswith(prefix)]
+    return [entry for contract in contracts for entry in contract.get("ignore_imports", [])]
+
+
+def ignored_import_edges(pyproject_text: str | None = None) -> set[str]:
+    """The exact edges the import-linter contracts ignore, normalized to "importer -> imported".
+
+    Wildcard entries are dropped: they only ever allow the presentation/facade trees, which the
+    AST surface check permits outright."""
+    edges = set()
+    for entry in _importlinter_ignore_entries(pyproject_text):
+        if "*" in entry or "->" not in entry:
+            continue
+        importer, imported = entry.split("->", 1)
+        edges.add(f"{importer.strip()} -> {imported.strip()}")
+    return edges
+
+
+def presentation_bypass_entries(name: str, pyproject_text: str | None = None) -> list[str]:
+    """import-linter ignore_imports entries that still let this product's HTTP surface
+    reach past the facade — the deferred presentation-wave worklist.
+
+    Two contracts feed it: presentation reaching internals directly (one view -> internal
+    edge per entry), and routes.py registering views that live outside presentation/ (one
+    routes -> view-module edge per entry). Both mean presentation code the contract cannot
+    see, so both block the internal seal until removed (see the
+    isolating-product-facade-contracts skill).
+    """
+    prefixes = (f"products.{name}.backend.presentation", f"products.{name}.backend.routes ->")
+    return [entry for entry in _importlinter_ignore_entries(pyproject_text) if entry.startswith(prefixes)]
 
 
 def has_contract_check_script(product_dir: Path) -> bool:
@@ -321,11 +343,11 @@ def has_narrowed_turbo_inputs(
     skip inert, and a routes-only narrowing isn't a real contract surface — both are rejected.
     Negated globs ('!...') are excluded from the surface test.
 
-    Permanently-exposed modules, garage wiring locations, carve-out modules, and (for products
-    under the watched-models allowance) the model surface all count as extended surface: a product
-    may list them without forfeiting the narrowing, since core depends on each outside the plain
-    facade->contracts channel and they must re-run the suite on change (see
-    uncovered_permanent_modules, unwatched_garages, and the carve-out/model coverage checks)."""
+    Permanently-exposed modules, garage wiring locations, carve-out modules, and the model surface
+    all count as extended surface: a product may list them without forfeiting the narrowing, since
+    core depends on each outside the plain facade->contracts channel and they must re-run the suite
+    on change (see uncovered_permanent_modules, unwatched_garages, and the carve-out/model coverage
+    checks)."""
     inputs = [i for i in contract_check_inputs(product_dir) if not i.startswith("!")]
     if not inputs:
         return False
@@ -345,11 +367,15 @@ def has_narrowed_turbo_inputs(
 
 def _input_covers(input_glob: str, accepted: str) -> bool:
     """A directory location (trailing slash) is covered by any input inside it; a single-file
-    location only by an exact input — backend/tasks.py.bak must not count as watching
-    backend/tasks.py."""
+    location by an exact input, or by a wildcard-free `dir/**` input whose directory contains it —
+    backend/models/** watches backend/models/tcac.py, but backend/tasks.py.bak must not count as
+    watching backend/tasks.py (and backend/tasks/** does not watch backend/tasks.py)."""
     if accepted.endswith("/"):
         return input_glob.startswith(accepted)
-    return input_glob == accepted
+    if input_glob == accepted:
+        return True
+    directory = input_glob.removesuffix("/**")
+    return directory != input_glob and "*" not in directory and accepted.startswith(directory + "/")
 
 
 def _uncovered_locations(product_dir: Path, targets_to_prefixes: dict[str, tuple[str, ...]]) -> set[str]:
@@ -486,6 +512,7 @@ MODEL_CROSSINGS: frozenset[tuple[str, str]] = frozenset(
     {
         ("product_analytics", "Insight"),
         ("product_analytics", "InsightVariable"),
+        ("product_analytics", "InsightViewed"),
         ("warehouse_sources", "DataWarehouseCredential"),
         ("warehouse_sources", "DataWarehouseTable"),
         ("warehouse_sources", "ExternalDataJob"),
@@ -742,8 +769,8 @@ def facade_carveout_modules(backend_dir: Path, name: str) -> set[str]:
 def facade_model_crossings(backend_dir: Path, name: str) -> list[FacadeClassImport]:
     """Model classes this product's facade hands out under the watched-models allowance.
 
-    Sanctioned interim debt, never a leak; a narrowed product must keep the model surface
-    (MODEL_SURFACE_PREFIXES) in its contract-check inputs."""
+    Sanctioned interim debt, never a leak. The model surface (MODEL_SURFACE_PREFIXES) is watched
+    by every narrowed product regardless; see unwatched_model_surface."""
     return list(_split_facade_reexports(backend_dir, name).model_crossings)
 
 
@@ -779,12 +806,14 @@ def _literal_prefix_overlaps(glob: str, prefix: str) -> bool:
 
 def unwatched_model_surface(product_dir: Path) -> set[str]:
     """Model-surface locations present in the product but not wholly watched by its (narrowed)
-    contract-check inputs. Only meaningful for a product whose facade hands out model classes under
-    the watched-models allowance — callers gate on that.
+    contract-check inputs. Every narrowed product must watch its models and migrations: a model is
+    reachable without an import (apps.get_model strings, migrations, admin, fixtures), so tach and
+    the facade checks cannot prove nothing outside observes it, and a model or migration change has
+    to re-run the full suite.
 
-    Stricter than the garage check on purpose: the allowance requires the WHOLE surface watched, so
-    a directory location needs its full glob (backend/models/**) — an input inside it, or a negation
-    that may carve files out of it, does not count. A garage may be watched piecemeal; the model
+    Stricter than the garage check on purpose: the WHOLE surface must be watched, so a directory
+    location needs its full glob (backend/models/**) — an input inside it, or a negation that may
+    carve files out of it, does not count. A garage may be watched piecemeal; the model
     surface may not, because any unwatched model file is a class core can observe without re-running
     the suite. There is no glob engine here, so a negation only passes when its literal prefix (up
     to the first wildcard) is provably disjoint from the surface — `!backend/**/x.py` could match a
@@ -839,8 +868,8 @@ class IsolationStatus:
     unwatched_garages: tuple[str, ...] = ()
     uncovered_carveout_modules: tuple[str, ...] = ()
     # Model classes the facade hands out under the watched-models allowance (see
-    # MODEL_CROSSINGS); uncovered_model_surface lists the surface locations a narrowed
-    # product fails to keep in its contract-check inputs.
+    # MODEL_CROSSINGS). uncovered_model_surface lists the model/migration locations a narrowed
+    # product fails to keep in its contract-check inputs; every narrowed product must watch them.
     model_crossings: tuple[FacadeClassImport, ...] = ()
     uncovered_model_surface: tuple[str, ...] = ()
 
@@ -894,7 +923,6 @@ def compute_isolation_status(
     permanent_modules = frozenset(permanent_interface_modules(tach_content, module_path))
     reexports = _split_facade_reexports(backend_dir, name)
     carveout_modules = reexports.carveout_modules
-    model_surface = MODEL_SURFACE_PREFIXES if reexports.model_crossings else ()
     return IsolationStatus(
         name=name,
         is_isolated=is_isolated,
@@ -903,7 +931,9 @@ def compute_isolation_status(
         has_legacy_leaks=has_legacy_interface_leaks(tach_content, module_path),
         bypass_entries=tuple(presentation_bypass_entries(name, pyproject_text)),
         has_contract_check_script=has_contract_check_script(product_dir),
-        has_narrowed_turbo=has_narrowed_turbo_inputs(product_dir, permanent_modules, carveout_modules, model_surface),
+        has_narrowed_turbo=has_narrowed_turbo_inputs(
+            product_dir, permanent_modules, carveout_modules, MODEL_SURFACE_PREFIXES
+        ),
         permanent_exposures=tuple(sorted(permanent_modules)),
         uncovered_permanent_exposures=tuple(sorted(uncovered_permanent_modules(product_dir, permanent_modules))),
         unqualified_permanent_exposures=tuple(
@@ -913,5 +943,5 @@ def compute_isolation_status(
         unwatched_garages=tuple(sorted(unwatched_garages(product_dir))),
         uncovered_carveout_modules=tuple(sorted(uncovered_carveout_modules(product_dir, carveout_modules))),
         model_crossings=reexports.model_crossings,
-        uncovered_model_surface=tuple(sorted(unwatched_model_surface(product_dir))) if model_surface else (),
+        uncovered_model_surface=tuple(sorted(unwatched_model_surface(product_dir))),
     )

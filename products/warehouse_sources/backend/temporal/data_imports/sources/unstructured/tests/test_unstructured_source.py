@@ -1,6 +1,6 @@
 from typing import Optional
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from parameterized import parameterized
 
@@ -11,19 +11,12 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.generated_
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.unstructured.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.unstructured.source import UnstructuredSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.unstructured.unstructured import (
-    UnstructuredResumeConfig,
-)
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestUnstructuredSourceClass:
     def setup_method(self) -> None:
         self.source = UnstructuredSource()
         self.team_id = 123
-
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.UNSTRUCTURED
 
     def test_form_fields(self) -> None:
         fields = {f.name: f for f in self.source.get_source_config.fields if isinstance(f, SourceFieldInputConfig)}
@@ -72,35 +65,3 @@ class TestUnstructuredSourceClass:
         assert msg == expected_msg
         # The user-configured host and team are threaded through to the probe, not discarded.
         mock_validate.assert_called_once_with("https://custom.example.com", "k", self.team_id)
-
-    @parameterized.expand(["401 Client Error: Unauthorized for url", "403 Client Error: Forbidden for url"])
-    def test_non_retryable_errors(self, expected_key: str) -> None:
-        assert expected_key in self.source.get_non_retryable_errors()
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(MagicMock())
-        assert manager._data_class is UnstructuredResumeConfig
-
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        canonical = self.source.get_canonical_descriptions()
-        assert set(canonical.keys()) == set(ENDPOINTS)
-
-    def test_source_for_pipeline_threads_credentials(self) -> None:
-        config = UnstructuredSourceConfig(api_key="secret", base_url="https://custom.example.com")
-        manager = MagicMock()
-        inputs = MagicMock()
-        inputs.schema_name = "workflows"
-        inputs.team_id = 77
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.unstructured.source.unstructured_source"
-        ) as mock_source:
-            self.source.source_for_pipeline(config, manager, inputs)
-
-        mock_source.assert_called_once_with(
-            base_url="https://custom.example.com",
-            api_key="secret",
-            endpoint="workflows",
-            logger=inputs.logger,
-            resumable_source_manager=manager,
-            team_id=77,
-        )

@@ -50,14 +50,13 @@ const LogsSceneTabbedContent = (): JSX.Element => {
     const showServicesView = useFeatureFlag('LOGS_SERVICES_VIEW')
     const showServicesV2 = useFeatureFlag('LOGS_SERVICES_VIEW_V2')
     const showServices = activeTab === 'services' && showServicesView
-    const showAlerting = useFeatureFlag('LOGS_ALERTING')
     const showTransformations = useFeatureFlag('LOGS_TRANSFORMATIONS')
     const showAnomalies = useFeatureFlag('LOGS_ANOMALIES')
 
     const tabs: { key: LogsSceneActiveTab; label: string }[] = [
         { key: 'viewer', label: 'Viewer' },
         ...(showServicesView ? [{ key: 'services' as const, label: 'Services' }] : []),
-        ...(showAlerting ? [{ key: 'alerts' as const, label: 'Alerts' }] : []),
+        { key: 'alerts', label: 'Alerts' },
         ...(showAnomalies ? [{ key: 'anomalies' as const, label: 'Anomalies' }] : []),
         { key: 'sql', label: 'SQL' },
         ...(showTransformations ? [{ key: 'transformations' as const, label: 'Transformations' }] : []),
@@ -114,7 +113,7 @@ const LogsSceneTabbedContent = (): JSX.Element => {
                     <LogsViewerModal />
                 </>
             )}
-            {activeTab === 'alerts' && showAlerting && <LogsAlertingSection />}
+            {activeTab === 'alerts' && <LogsAlertingSection />}
             {activeTab === 'anomalies' && showAnomalies && <LogsAnomalies />}
             {activeTab === 'sql' && <LogsSqlEditor id={LOGS_SCENE_VIEWER_ID} />}
             {activeTab === 'transformations' && showTransformations && <LogsTransformations />}

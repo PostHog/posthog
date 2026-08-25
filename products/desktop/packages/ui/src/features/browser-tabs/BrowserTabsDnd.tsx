@@ -1,9 +1,12 @@
 import { type DragDropEvents, DragDropProvider } from "@dnd-kit/react";
 import { browserTabsStore } from "@posthog/core/browser-tabs/browserTabsStore";
-import { useHostTRPC } from "@posthog/host-router/react";
+import { useService } from "@posthog/di/react";
 import { primaryWindow, setTabOrder } from "@posthog/shared";
-import { useMutation } from "@tanstack/react-query";
 import { type ReactNode, useRef } from "react";
+import {
+  BROWSER_TABS_CLIENT,
+  type BrowserTabsClient,
+} from "./browserTabsClient";
 import { reorderWithinGroup, storedOrderIds } from "./displayOrder";
 import { usePinnedTabsStore } from "./pinnedTabsStore";
 import { useTabReorderStore } from "./tabReorderStore";
@@ -28,8 +31,7 @@ function sameOrder(a: string[], b: string[]): boolean {
  * drops the preview.
  */
 export function BrowserTabsDndProvider({ children }: { children: ReactNode }) {
-  const trpc = useHostTRPC();
-  const setOrder = useMutation(trpc.browserTabs.setOrder.mutationOptions());
+  const client = useService<BrowserTabsClient>(BROWSER_TABS_CLIENT);
   /** Stored order captured at dragstart — used to skip a no-op persist. */
   const initialOrder = useRef<string[] | null>(null);
 
@@ -92,7 +94,7 @@ export function BrowserTabsDndProvider({ children }: { children: ReactNode }) {
       // rewind a newer write.
       applyLocalTransform((s) => setTabOrder(s, win.id, order));
       void persistWrite(() =>
-        setOrder.mutateAsync({ windowId: win.id, tabIds: order }),
+        client.setOrder({ windowId: win.id, tabIds: order }),
       );
     });
   };

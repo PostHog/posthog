@@ -43,6 +43,7 @@ __all__ = [
     "ReportTaskCapExceeded",
     "aappend_task_run_artefact",
     "append_task_run_artefact",
+    "enforce_report_implementation_rerun_cap",
     "enforce_report_task_cap",
     "record_implementation_task",
     "record_report_task",
@@ -61,6 +62,12 @@ MAX_DISCUSSION_TASKS_PER_REPORT = 3
 _PIPELINE_TASK_RUN_TYPES = frozenset(
     {TASK_RUN_TYPE_IMPLEMENTATION, TASK_RUN_TYPE_RESEARCH, TASK_RUN_TYPE_REPO_SELECTION, TASK_RUN_TYPE_SCOUT}
 )
+
+# Pipeline runs that never open a PR for the report. Research and repo-selection runs sit on the
+# base branch and read other people's PRs while checking for in-flight work, so a PR URL on one of
+# their runs is something the agent looked at, not something it shipped. Kept as a denylist so a
+# new run type that does ship code (a report is expected to grow several PRs) counts by default.
+NON_PR_BEARING_TASK_RUN_TYPES = frozenset({TASK_RUN_TYPE_RESEARCH, TASK_RUN_TYPE_REPO_SELECTION, TASK_RUN_TYPE_SCOUT})
 
 _TERMINAL_NO_PR_RUN_STATUSES = frozenset({"failed", "cancelled"})
 
@@ -132,7 +139,7 @@ def signals_task_ids(*, report_id: str, type: str) -> list[str]:
     ]
 
 
-def _live_implementation_exists(*, team_id: int, report_id: str) -> bool:
+def _live_implementation_exists(*, team_id: int, report_id: str, exclude_task_id: str | None = None) -> bool:
     """Whether the report has an implementation task that still claims its one slot.
 
     Reads the `SignalReportTask` gate rows (not the API-mutable artefact log) and traverses
@@ -142,11 +149,12 @@ def _live_implementation_exists(*, team_id: int, report_id: str) -> bool:
     claims it permanently (the report is implemented). Quota-cancelled implementations delete
     their gate rows (`release_quota_cancelled_implementation`), so they never count.
     """
-    rows = (
-        SignalReportTask.objects.filter(team_id=team_id, report_id=report_id, relationship=TASK_RUN_TYPE_IMPLEMENTATION)
-        .exclude(task__deleted=True)
-        .values_list("task_id", "task__runs__status", "task__runs__output__pr_url")
-    )
+    claimants = SignalReportTask.objects.filter(
+        team_id=team_id, report_id=report_id, relationship=TASK_RUN_TYPE_IMPLEMENTATION
+    ).exclude(task__deleted=True)
+    if exclude_task_id is not None:
+        claimants = claimants.exclude(task_id=exclude_task_id)
+    rows = claimants.values_list("task_id", "task__runs__status", "task__runs__output__pr_url")
     runs_by_task: dict[str, list[tuple[str | None, object]]] = {}
     for task_id, status, pr_url in rows:
         runs_by_task.setdefault(str(task_id), []).append((status, pr_url))
@@ -201,6 +209,45 @@ def enforce_report_task_cap(*, team_id: int, report_id: str, relationship: str |
         raise ReportTaskCapExceeded(
             kind=TASK_RUN_TYPE_DISCUSSION,
             detail="This report has reached its limit of AI discussions. Open an existing discussion task to continue.",
+        )
+
+
+def enforce_report_implementation_rerun_cap(*, team_id: int, report_id: str, task_id: str) -> None:
+    """Re-check the one-live-implementation slot before starting another run of an existing task.
+
+    `enforce_report_task_cap` guards task *creation*, but a task outlives its runs. An
+    implementation whose every run ended failed/cancelled without a PR releases its slot, which
+    lets a second implementation be created for the report — and then running the first one again
+    would put two live implementations on it, spending unbilled inference twice over.
+
+    Only another task holding the slot blocks: a task reclaiming the slot it released is the
+    ordinary "my run failed, try again" path and stays allowed. Non-implementation tasks are
+    unaffected, since the discussion cap counts tasks rather than runs and conversation inside
+    one is deliberately unlimited.
+
+    Must be called inside an open transaction: it locks the report row, the same lock creation
+    and auto-start take. That lock only serializes for as long as the caller's transaction stays
+    open, and a live run is what marks the slot taken, so a caller that goes on to start the run
+    has to insert the run row in this same transaction. Releasing the lock first would leave the
+    task looking released for the whole span before the insert, which is long enough for a
+    concurrent create to pass its own count check.
+    """
+    if not transaction.get_connection().in_atomic_block:
+        raise RuntimeError(
+            "enforce_report_implementation_rerun_cap must run inside a transaction; it locks the report row"
+        )
+    is_implementation = SignalReportTask.objects.filter(
+        team_id=team_id, report_id=report_id, task_id=task_id, relationship=TASK_RUN_TYPE_IMPLEMENTATION
+    ).exists()
+    if not is_implementation:
+        return
+    report = SignalReport.objects.select_for_update().filter(id=report_id, team_id=team_id).first()
+    if report is None:
+        return
+    if _live_implementation_exists(team_id=team_id, report_id=report_id, exclude_task_id=task_id):
+        raise ReportTaskCapExceeded(
+            kind=TASK_RUN_TYPE_IMPLEMENTATION,
+            detail="A PR task already exists for this report. Open the existing task to continue.",
         )
 
 

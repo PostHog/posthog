@@ -55,6 +55,7 @@ def queue_configured_scout_slack_delivery(
                 integration_id=destination.integration_id,
                 channel=destination.channel,
                 edit_note=edit_note[:MAX_SLACK_NOTE_SNAPSHOT_LEN] if edit_note is not None else None,
+                thread_reports=destination.thread_reports,
             ),
             robust=True,
         )

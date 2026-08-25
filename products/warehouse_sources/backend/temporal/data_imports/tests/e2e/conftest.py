@@ -94,7 +94,7 @@ def mysql_container():
     local flox envs have Docker too. If Docker is unreachable the
     fixture errors loudly so the breakage isn't silently hidden.
     """
-    container = MySqlContainer("mysql:9.2")
+    container = MySqlContainer("mysql:9.2").with_env("MYSQL_INITDB_SKIP_TZINFO", "1")
     container.start()
     try:
         yield container

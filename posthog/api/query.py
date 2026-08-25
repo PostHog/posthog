@@ -66,12 +66,14 @@ from posthog.rate_limit import (
     APIQueriesSustainedThrottle,
     ClickHouseBurstRateThrottle,
     ClickHouseSustainedRateThrottle,
+    ErrorTrackingFingerprintProjectionBurstRateThrottle,
+    ErrorTrackingFingerprintProjectionSustainedRateThrottle,
     HogQLQueryThrottle,
 )
 from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.schema_migrations.upgrade import upgrade
 
-from products.managed_warehouse.backend.facade import feature_flags as managed_warehouse_feature_flags
+from products.managed_warehouse.backend.facade import query_labels as managed_warehouse_query_labels
 from products.warehouse_sources.backend.facade.models import is_managed_warehouse_connection_ready
 
 from common.hogvm.python.utils import HogVMException
@@ -171,16 +173,18 @@ def _process_query_request(
 # the generic endpoint.
 _QUERY_KIND_SCOPES: dict[str, list[str]] = {
     "AccountsTableQuery": ["query:read", "account:read"],
+    "ErrorTrackingFingerprintProjectionQuery": ["query:read", "error_tracking:read"],
     "MetricsQuery": ["metrics:read"],
     # Both scopes listed: this result replaces the view's default query:read
     # rather than adding to it, and a token must hold every listed scope.
     "MCPToolFailureOccurrencesQuery": ["query:read", "mcp_analytics:read"],
     "MCPToolCallsAndErrorsQuery": ["query:read", "mcp_analytics:read"],
     "MCPToolCallBreakdownQuery": ["query:read", "mcp_analytics:read"],
+    "MCPToolCategoryMapQuery": ["query:read", "mcp_analytics:read"],
 }
 
 
-def _required_scopes_for_query_payload(query: object) -> list[str] | None:
+def required_scopes_for_query_payload(query: object) -> list[str] | None:
     current_query = query
     while isinstance(current_query, dict):
         kind = current_query.get("kind")
@@ -207,22 +211,27 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         if getattr(view, "action", None) != "create":
             return None
         query = request.data.get("query") if isinstance(request.data, dict) else None
-        return _required_scopes_for_query_payload(query)
+        return required_scopes_for_query_payload(query)
 
     def get_throttles(self):
         if self.action == "draft_sql":
             return [AIBurstRateThrottle(), AISustainedRateThrottle()]
         if self.action == "get_query_log":
             return [APIQueriesBurstThrottle(), APIQueriesSustainedThrottle()]
+        query = self.request.data.get("query")
+        if isinstance(query, dict) and query.get("kind") == "ErrorTrackingFingerprintProjectionQuery":
+            return [
+                ErrorTrackingFingerprintProjectionBurstRateThrottle(),
+                ErrorTrackingFingerprintProjectionSustainedRateThrottle(),
+            ]
         if (
             self.team_id in settings.API_QUERIES_PER_TEAM
             or (settings.API_QUERIES_ENABLED and self.check_team_api_queries_concurrency())
             or (settings.API_QUERIES_LEGACY_TEAM_LIST and self.team_id not in settings.API_QUERIES_LEGACY_TEAM_LIST)
         ):
             return [APIQueriesBurstThrottle(), APIQueriesSustainedThrottle()]
-        if query := self.request.data.get("query"):
-            if isinstance(query, dict) and query.get("kind") == "HogQLQuery":
-                return [HogQLQueryThrottle()]
+        if isinstance(query, dict) and query.get("kind") == "HogQLQuery":
+            return [HogQLQueryThrottle()]
         return [ClickHouseBurstRateThrottle(), ClickHouseSustainedRateThrottle()]
 
     def check_team_api_queries_concurrency(self):
@@ -393,9 +402,9 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
         query_status = get_query_status(team_id=self.team.pk, query_id=pk, show_progress=show_progress)
         managed_connection_id = next(
             (
-                label.removeprefix(managed_warehouse_feature_flags.MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX)
+                label.removeprefix(managed_warehouse_query_labels.MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX)
                 for label in query_status.labels or []
-                if label.startswith(managed_warehouse_feature_flags.MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX)
+                if label.startswith(managed_warehouse_query_labels.MANAGED_WAREHOUSE_QUERY_STATUS_LABEL_PREFIX)
             ),
             None,
         )

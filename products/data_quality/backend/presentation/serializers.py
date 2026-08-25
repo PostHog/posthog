@@ -234,8 +234,8 @@ class DataQualitySuiteRunSerializer(serializers.ModelSerializer):
     )
     trigger = serializers.CharField(read_only=True, help_text="manual, materialization, or source_sync.")
     subject_type = serializers.SerializerMethodField(
-        help_text="'table' or 'view' when the run targets exactly one subject; null for a "
-        "check-scoped or multi-subject run."
+        help_text="'table' or 'view' when the run targets exactly one subject, including a run of a "
+        "single check on that subject; null for a run spanning several subjects."
     )
 
     @extend_schema_field(serializers.CharField(allow_null=True))

@@ -5,7 +5,8 @@ Source of truth for satellite ClickHouse clusters, managed declaratively with
 Schemas are written in HCL, **composed per node** `(env, role)`, verified against
 captured cluster dumps, and used to generate the migration that applies a change.
 
-Covers the satellite roles (ops, logs, aux, `ai_events`, sessions, sessionsv3, `batch_exports`) in the cloud envs (dev, prod-us, prod-eu) where each exists, plus the local `data` node and the three ingestion roles (`events`, `small`, `medium`) the multinode stack runs.
+Covers the satellite roles (logs, aux, `ai_events`, sessions, sessionsv3, `batch_exports`) in the cloud envs (dev, prod-us, prod-eu) where each exists, plus the local `data` node and the three ingestion roles (`events`, `small`, `medium`) the multinode stack runs.
+`ops` is local-only here: posthog-cloud-infra authors its cloud env layers and goldens, composing `roles/ops/shared` vendored from this directory.
 The `local-single` env models the plain dev stack, where one server hosts every role's objects under the role `all`, composed as the union of the roles the multinode stack splits across nodes.
 The prod data clusters carry per-env `mat_` columns, so their goldens and per-env override layers live in posthog-cloud-infra (see [The cloud side](#the-cloud-side-posthog-cloud-infra)).
 
@@ -81,9 +82,9 @@ reconciling a new role.
 Every role `manifest.hcl` composes for the gate's env is dumped and gated — for `local-multi` that is
 each node the multinode stack runs, one per published port in `dump-live.sh`'s `ROLES`, compared
 against its `golden/local-multi/<role>.hcl` (`aux` is filed as `auxiliary`, see `golden_name` in
-`lib.sh`). The local LOGS node runs a partial/newer schema than the cloud logs nodes, so
-`local-multi logs` composes a self-contained `roles/logs/local` (extracted from the live node) rather
-than the shared cloud layers.
+`lib.sh`). Every logs node composes `roles/logs/{base,traces,traces_kafka_metrics}`; the local one
+adds a self-contained `roles/logs/local` (extracted from the live node) for the legacy `logs32`
+family it still runs, and skips the cloud-only metrics ingest in `roles/logs/cloud`.
 
 `node_roles` is **derived**: an object in `roles/shared/` appears in every node's composition →
 `node_roles` = every role the manifest declares; an object under `roles/ops/` appears only in the ops

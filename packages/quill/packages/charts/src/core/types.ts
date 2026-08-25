@@ -315,6 +315,9 @@ export interface YAxis {
     hide?: boolean
     /** `false` floats this axis to its data range instead of clamping a non-negative domain to 0. */
     startAtZero?: boolean
+    /** Domain control for this axis. Set on secondary axes only: the primary axis takes the
+     *  chart-level `valueDomain`, already merged with the goal-line stretch. See {@link ValueDomain}. */
+    valueDomain?: ValueDomain
 }
 
 /** Built-in legend config for the multi-series charts. The chart renders a {@link Legend} and,
@@ -391,6 +394,9 @@ export interface TooltipConfig {
     totalFormatter?: (value: number) => string
     /** Sort series rows by value descending so the highest value appears at the top. */
     sortedByValue?: boolean
+    /** Bar charts only. `bar` (the default) tooltips only inside a painted bar. `band` tooltips
+     *  anywhere in the hovered band, so a one-pixel bar or a zero bucket still reports its value. */
+    hitArea?: 'bar' | 'band'
 }
 
 /** Value-axis domain control (y for vertical/line/area charts, x for horizontal bars). Omit for the

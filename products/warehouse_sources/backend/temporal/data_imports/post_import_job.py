@@ -169,6 +169,12 @@ def _always(gate: PostImportGateContext) -> bool:
     return True
 
 
+def _wrote_rows_gate(gate: PostImportGateContext) -> bool:
+    """Table size describes the rows this run loaded, so a run that wrote none leaves it
+    unchanged. `None` predates row counting, so it runs the step."""
+    return gate.job.rows_synced != 0
+
+
 def _data_quality_gate(gate: PostImportGateContext) -> bool:
     return data_quality_checks_needed_for(gate.team_id, gate.schema.table_id)
 
@@ -309,7 +315,7 @@ POST_IMPORT_STEPS: tuple[PostImportStep, ...] = (
     PostImportStep(key=EMIT_SIGNALS_STEP, enabled=_emit_signals_gate, start=_start_emit_signals),
     PostImportStep(key=SEMANTIC_ENRICHMENT_STEP, enabled=_enrichment_gate, start=_start_semantic_enrichment),
     PostImportStep(key=TABLE_STATISTICS_STEP, enabled=_statistics_gate, start=_start_table_statistics),
-    PostImportStep(key=TABLE_SIZE_STEP, enabled=_always, start=_start_table_size),
+    PostImportStep(key=TABLE_SIZE_STEP, enabled=_wrote_rows_gate, start=_start_table_size),
     PostImportStep(key=DUCKLAKE_COPY_STEP, enabled=_always, start=_start_ducklake_copy),
     PostImportStep(key=DATA_QUALITY_CHECKS_STEP, enabled=_data_quality_gate, start=_start_data_quality_checks),
 )

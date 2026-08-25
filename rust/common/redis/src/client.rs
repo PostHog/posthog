@@ -313,6 +313,39 @@ impl RedisClient {
     }
 }
 
+/// Run a Lua script and decode its integer-array reply. Behind a trait so callers
+/// can be unit-tested against an in-memory fake, including a failing one that
+/// proves a limiter fails open.
+#[async_trait]
+pub trait ScriptRunner: Send + Sync {
+    async fn eval_int_vec(
+        &self,
+        script: &str,
+        keys: Vec<String>,
+        args: Vec<String>,
+    ) -> Result<Vec<i64>, CustomRedisError>;
+
+    /// Rebuild the underlying connection after a connection-class failure; see
+    /// [`Client::heal`]. The default no-op keeps test fakes trivial.
+    async fn heal(&self) {}
+}
+
+#[async_trait]
+impl ScriptRunner for RedisClient {
+    async fn eval_int_vec(
+        &self,
+        script: &str,
+        keys: Vec<String>,
+        args: Vec<String>,
+    ) -> Result<Vec<i64>, CustomRedisError> {
+        RedisClient::eval_int_vec(self, script, keys, args).await
+    }
+
+    async fn heal(&self) {
+        self.heal_connection().await;
+    }
+}
+
 #[async_trait]
 impl Client for RedisClient {
     async fn heal(&self) {
@@ -1179,7 +1212,7 @@ mod integration_tests {
     use crate::{ClientPipelineExt, PipelineResult};
     use testcontainers::core::{IntoContainerPort, WaitFor};
     use testcontainers::runners::AsyncRunner;
-    use testcontainers::GenericImage;
+    use testcontainers::{GenericImage, ImageExt};
 
     async fn create_test_client() -> (RedisClient, testcontainers::ContainerAsync<GenericImage>) {
         let container = GenericImage::new("redis", "7-alpine")
@@ -1204,6 +1237,106 @@ mod integration_tests {
         .unwrap();
 
         (client, container)
+    }
+
+    // Kill the Redis container and bring it back on the same port: a client
+    // stays broken (MultiplexedConnection never reconnects) until heal() swaps
+    // in a rebuilt connection.
+    #[tokio::test]
+    #[ignore] // Requires Docker; run with: cargo test integration_tests -- --ignored
+    async fn test_heal_recovers_connection_after_redis_restart() {
+        // A fixed host port: docker assigns a NEW random host port when a
+        // killed container restarts, which would leave the client dialing a
+        // dead port and turn this test into a false failure.
+        let host_port = 30000 + (std::process::id() % 10000) as u16;
+        let container = GenericImage::new("redis", "7-alpine")
+            .with_wait_for(WaitFor::message_on_stdout("Ready to accept connections"))
+            .with_mapped_port(host_port, 6379.tcp())
+            .start()
+            .await
+            .unwrap();
+        let host = container.get_host().await.unwrap();
+        let port = container.get_host_port_ipv4(6379).await.unwrap();
+        let url = format!("redis://{host}:{port}");
+
+        let connect = || async {
+            RedisClient::with_config(
+                url.clone(),
+                CompressionConfig::disabled(),
+                RedisValueFormat::Utf8,
+                Some(Duration::from_millis(1000)),
+                Some(Duration::from_millis(2000)),
+            )
+            .await
+        };
+
+        // The readiness banner can land a hair before the socket accepts, so
+        // probe with a real command until Redis answers.
+        let mut healed_client = None;
+        for _ in 0..20 {
+            if let Ok(c) = connect().await {
+                if c.set("probe".to_string(), "1".to_string()).await.is_ok() {
+                    healed_client = Some(c);
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        let healed_client = healed_client.expect("redis container never became ready");
+        let broken_client = connect().await.unwrap();
+        broken_client
+            .set("k".to_string(), "v".to_string())
+            .await
+            .unwrap();
+
+        // Kill/start via the docker CLI: an abrupt kill matches the
+        // node-replacement failure heal() exists for.
+        let docker = |args: Vec<String>| {
+            let status = std::process::Command::new("docker")
+                .args(&args)
+                .status()
+                .unwrap();
+            assert!(status.success(), "docker {args:?} failed");
+        };
+        docker(vec!["kill".to_string(), container.id().to_string()]);
+
+        assert!(healed_client
+            .set("k".to_string(), "v".to_string())
+            .await
+            .is_err());
+        assert!(broken_client
+            .set("k".to_string(), "v".to_string())
+            .await
+            .is_err());
+
+        docker(vec!["start".to_string(), container.id().to_string()]);
+        // Wait until the restarted Redis answers (checked via a fresh client)
+        // so the single heal attempt below cannot race the restart and burn
+        // its cooldown.
+        let mut ready = false;
+        for _ in 0..50 {
+            if let Ok(c) = connect().await {
+                if c.set("probe".to_string(), "1".to_string()).await.is_ok() {
+                    ready = true;
+                    break;
+                }
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+        assert!(ready, "redis container never came back");
+
+        Client::heal(&healed_client).await;
+        assert!(healed_client
+            .set("k".to_string(), "v".to_string())
+            .await
+            .is_ok());
+
+        // Without heal() the connection stays dead - the failure mode heal
+        // exists to fix.
+        assert!(broken_client
+            .set("k".to_string(), "v".to_string())
+            .await
+            .is_err());
     }
 
     #[tokio::test]

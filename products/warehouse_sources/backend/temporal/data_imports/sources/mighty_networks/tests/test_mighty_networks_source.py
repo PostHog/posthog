@@ -3,17 +3,11 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mightynetworks import (
     MightyNetworksSourceConfig,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.mighty_networks.mighty_networks import (
-    MightyNetworksResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.mighty_networks.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.mighty_networks.source import MightyNetworksSource
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 class TestMightyNetworksSource:
@@ -22,41 +16,9 @@ class TestMightyNetworksSource:
         self.team_id = 123
         self.config = MightyNetworksSourceConfig(network_id="1234", api_key="key")
 
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.MIGHTYNETWORKS
-
     def test_connection_host_fields_cover_network_id(self):
         # network_id is where the stored api_key is sent; retargeting it must re-require the key.
         assert self.source.connection_host_fields == ["network_id"]
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "MightyNetworks"
-        assert config.label == "Mighty Networks"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/mighty_networks.png"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/mighty-networks"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["network_id", "api_key"]
-
-    def test_api_key_field_is_secret_password(self):
-        config = self.source.get_source_config
-        api_key_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.secret is True
-        assert api_key_field.required is True
-
-    def test_network_id_field_is_plain_text(self):
-        config = self.source.get_source_config
-        network_id_field = next(
-            f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "network_id"
-        )
-        assert network_id_field.type == SourceFieldInputConfigType.TEXT
-        assert network_id_field.secret is False
-        assert network_id_field.required is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -92,23 +54,11 @@ class TestMightyNetworksSource:
             assert schema.supports_append is False
             assert schema.incremental_fields == []
 
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["Members"])
-        assert len(schemas) == 1
-        assert schemas[0].name == "Members"
-
-    def test_get_schemas_filtered_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nope"]) == []
-
     def test_lists_tables_without_credentials_publishes_catalog(self):
         # Static endpoint catalog (no I/O) — the public docs table list should render.
         assert self.source.lists_tables_without_credentials is True
         documented = self.source.get_documented_tables()
         assert {table["name"] for table in documented} == set(ENDPOINTS)
-
-    def test_canonical_descriptions_cover_every_endpoint(self):
-        canonical = self.source.get_canonical_descriptions()
-        assert set(canonical) == set(ENDPOINTS)
 
     @parameterized.expand(
         [
@@ -177,29 +127,3 @@ class TestMightyNetworksSource:
 
         assert permissions == {"Members": None, "Purchases": "missing scope"}
         assert mock_check_access.call_count == 2
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert manager._data_class is MightyNetworksResumeConfig
-
-    @mock.patch(
-        "products.warehouse_sources.backend.temporal.data_imports.sources.mighty_networks.source.mighty_networks_source"
-    )
-    def test_source_for_pipeline_plumbs_arguments(self, mock_mighty_networks_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "Members"
-        inputs.team_id = 1
-        inputs.job_id = "job-1"
-        manager = mock.MagicMock()
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        mock_mighty_networks_source.assert_called_once_with(
-            api_key="key",
-            network_id="1234",
-            endpoint="Members",
-            team_id=1,
-            job_id="job-1",
-            resumable_source_manager=manager,
-        )

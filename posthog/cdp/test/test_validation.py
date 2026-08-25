@@ -3,6 +3,8 @@ import json
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
@@ -16,19 +18,20 @@ from posthog.cdp.validation import (
     compile_hog,
     generate_template_bytecode,
 )
+from posthog.models.integration import Integration
 
 from products.messaging.backend.api.design_validation import validate_design
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 
 
-def validate_inputs(schema, inputs, function_type="destination", is_dwh_source=False):
+def validate_inputs(schema, inputs, function_type="destination", is_dwh_source=False, context_extra=None):
     serializer = MappingsSerializer(
         data={
             "inputs_schema": schema,
             "inputs": inputs,
         },
-        context={"function_type": function_type, "is_dwh_source": is_dwh_source},
+        context={"function_type": function_type, "is_dwh_source": is_dwh_source, **(context_extra or {})},
     )
     serializer.is_valid(raise_exception=True)
     return serializer.validated_data["inputs"]
@@ -218,6 +221,24 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
                 "order": 4,
             },
         }
+
+    def test_omitted_required_input_falls_back_to_the_schema_default(self):
+        schema = [
+            {"key": "url", "type": "string", "label": "Webhook URL", "required": True},
+            {"key": "method", "type": "string", "label": "HTTP Method", "required": True, "default": "POST"},
+        ]
+
+        inputs = validate_inputs(schema, {"url": {"value": "https://example.com"}})
+
+        assert inputs["method"]["value"] == "POST"
+
+    def test_explicitly_emptied_required_input_is_still_rejected(self):
+        schema = [{"key": "method", "type": "string", "label": "HTTP Method", "required": True, "default": "POST"}]
+
+        with pytest.raises(ValidationError) as e:
+            validate_inputs(schema, {"method": {"value": ""}})
+
+        assert "This field is required." in str(e.value)
 
     def test_validate_inputs_creates_bytecode_for_html(self):
         # NOTE: CSS block curly brackets must be escaped beforehand
@@ -551,6 +572,159 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             validate_inputs(inputs_schema, {"email": {"value": value}})
         assert "At most 10 email senders are allowed." in str(ctx.value.detail)
 
+    def _create_email_integration(self, domain="posthog.com"):
+        return Integration.objects.create(
+            team=self.team,
+            kind="email",
+            config={"email": f"sender@{domain}", "name": "Sender", "domain": domain, "verified": True},
+        )
+
+    def _validate_email_from(self, from_value, existing_from=None, get_team=True, cache=None):
+        inputs_schema = [{"key": "email", "type": "native_email", "required": True, "templating": "liquid"}]
+        value = {"from": from_value, "to": "a@b.com", "subject": "hi", "text": "hi"}
+        context_extra = {"existing_email_from": existing_from}
+        if get_team:
+            context_extra["get_team"] = lambda: self.team
+        if cache is not None:
+            context_extra["email_integration_domain_cache"] = cache
+        return validate_inputs(inputs_schema, {"email": {"value": value}}, context_extra=context_extra)
+
+    @parameterized.expand(
+        [
+            ("off_domain", "sales@evil.com", 'is not on the verified domain "posthog.com"'),
+            ("planted_placeholder", "default@example.com", 'is not on the verified domain "posthog.com"'),
+            ("not_an_email", "not-an-email", "is not a valid email address"),
+            ("address_list", "a@posthog.com, b@posthog.com", "is not a valid email address"),
+        ]
+    )
+    def test_email_literal_sender_override_rejected_at_save(self, _name, address, expected):
+        # A literal override that the runtime would refuse (or silently fall back from) must be
+        # rejected when the workflow is saved, while the author can still act on it.
+        integration = self._create_email_integration()
+
+        with pytest.raises(ValidationError) as ctx:
+            self._validate_email_from({"integrationId": integration.id, "email": address})
+        assert expected in str(ctx.value.detail)
+
+    @parameterized.expand(
+        [
+            ("on_domain", "community@posthog.com"),
+            ("case_insensitive", "Community@PostHog.com"),
+            ("liquid_template", "{{ event.properties.sender }}"),
+            ("hog_template", "{event.properties.sender}"),
+            ("empty_means_integration_default", ""),
+        ]
+    )
+    def test_email_sender_override_accepted_at_save(self, _name, address):
+        integration = self._create_email_integration()
+
+        validated = self._validate_email_from({"integrationId": integration.id, "email": address})
+        assert validated["email"]["value"]["from"]["email"] == address
+
+    def test_email_sender_override_unchanged_stored_value_is_not_revalidated(self):
+        # Workflows written before June 2026 carry a placeholder address the author never typed.
+        # Re-saving one of them must not fail on that stored value; only a newly written address
+        # is held to the domain rule. The stored placeholders are removed by a separate backfill.
+        integration = self._create_email_integration()
+
+        self._validate_email_from(
+            {"integrationId": integration.id, "email": "default@example.com"},
+            existing_from={"integrationId": integration.id, "email": "default@example.com"},
+        )
+
+    def test_email_sender_override_changed_value_is_validated(self):
+        integration = self._create_email_integration()
+
+        with pytest.raises(ValidationError) as ctx:
+            self._validate_email_from(
+                {"integrationId": integration.id, "email": "new@evil.com"},
+                existing_from={"integrationId": integration.id, "email": "old@evil.com"},
+            )
+        assert 'is not on the verified domain "posthog.com"' in str(ctx.value.detail)
+
+    def test_email_sender_override_kept_address_with_changed_sender_is_validated(self):
+        # Selecting a different sender re-runs the domain check even when the address is kept.
+        # Grandfathering on the address alone let a sender change save an off-domain pair that
+        # silently falls back at send time - the failure this validation exists to surface.
+        posthog_integration = self._create_email_integration("posthog.com")
+        other_integration = self._create_email_integration("example.dev")
+
+        with pytest.raises(ValidationError) as ctx:
+            self._validate_email_from(
+                {"integrationId": other_integration.id, "email": "community@posthog.com"},
+                existing_from={"integrationId": posthog_integration.id, "email": "community@posthog.com"},
+            )
+        assert 'is not on the verified domain "example.dev"' in str(ctx.value.detail)
+
+    def test_email_sender_override_added_rotation_sender_is_validated(self):
+        # Adding a rotation sender keeps the stored address, so an address-only grandfather
+        # would skip the multi-sender domain loop entirely.
+        posthog_integration = self._create_email_integration("posthog.com")
+        other_integration = self._create_email_integration("example.dev")
+
+        with pytest.raises(ValidationError) as ctx:
+            self._validate_email_from(
+                {
+                    "integrationId": posthog_integration.id,
+                    "integrationIds": [posthog_integration.id, other_integration.id],
+                    "email": "community@posthog.com",
+                },
+                existing_from={"integrationId": posthog_integration.id, "email": "community@posthog.com"},
+            )
+        assert 'is not on the verified domain "example.dev"' in str(ctx.value.detail)
+
+    def test_email_sender_override_grandfathers_either_live_or_draft_value(self):
+        # A raw-API live save is compared against both stored variants: an address unchanged
+        # from the live value must not be blocked because a divergent draft exists.
+        integration = self._create_email_integration()
+
+        self._validate_email_from(
+            {"integrationId": integration.id, "email": "legacy@evil.com"},
+            existing_from=[
+                {"integrationId": integration.id, "email": "legacy@evil.com"},
+                {"integrationId": integration.id, "email": "draft@evil.com"},
+            ],
+        )
+
+    def test_email_sender_domain_lookup_is_cached_per_save(self):
+        # A drip sequence validates one action at a time, so each email step re-queries the
+        # same sender row unless the domain lookup shares a request-scoped cache (mirrors
+        # _message_template_cache).
+        integration = self._create_email_integration()
+        cache: dict = {}
+
+        self._validate_email_from({"integrationId": integration.id, "email": "a@posthog.com"}, cache=cache)
+        with self.assertNumQueries(0):
+            self._validate_email_from({"integrationId": integration.id, "email": "b@posthog.com"}, cache=cache)
+
+    def test_email_sender_override_must_be_on_every_rotation_domain(self):
+        # Sender rotation picks one integration per send, so a literal address that is off-domain
+        # for any of them would make a fraction of sends fall back to a different sender.
+        posthog_integration = self._create_email_integration("posthog.com")
+        other_integration = self._create_email_integration("example.dev")
+
+        with pytest.raises(ValidationError) as ctx:
+            self._validate_email_from(
+                {
+                    "integrationId": posthog_integration.id,
+                    "integrationIds": [posthog_integration.id, other_integration.id],
+                    "email": "community@posthog.com",
+                }
+            )
+        assert 'is not on the verified domain "example.dev"' in str(ctx.value.detail)
+
+    @parameterized.expand(
+        [
+            ("no_team_in_context", False, 1),
+            ("unknown_integration", True, 999999),
+        ]
+    )
+    def test_email_sender_override_skips_when_domain_is_unresolvable(self, _name, get_team, integration_id):
+        # Internal re-saves run without a request (no get_team), and an integration id that does
+        # not resolve has no domain to compare against. Both must not block the save; the runtime
+        # still enforces the domain at send time.
+        self._validate_email_from({"integrationId": integration_id, "email": "sales@evil.com"}, get_team=get_team)
+
     @parameterized.expand(
         [
             ("person", "{person?.id}"),
@@ -637,6 +811,16 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
                     "secret_field": {"value": "EXISTING_SECRET_VALUE"},
                 },
             ),
+            # The UI sends the read-back mask as the value when a secret is left untouched. This
+            # must keep the stored secret, not encrypt the mask over it.
+            (
+                {
+                    "secret_field": {"value": "********", "secret": True},
+                },
+                {
+                    "secret_field": {"value": "EXISTING_SECRET_VALUE"},
+                },
+            ),
         ]:
             serializer = MappingsSerializer(
                 data={
@@ -650,6 +834,30 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
 
             values_only = {k: {"value": v["value"]} for k, v in validated.items()}
             assert values_only == expected_result
+
+    @parameterized.expand(
+        [
+            # Read-back mask flagged as secret, nothing stored to restore.
+            ({"value": "********", "secret": True},),
+            # Mask that lost its secret flag - the persistence guard must still refuse it.
+            ({"value": "********"},),
+        ]
+    )
+    def test_masked_secret_without_stored_value_is_rejected(self, input_value):
+        # The mask must never be encrypted as the real credential when there is nothing to restore.
+        inputs_schema = [
+            {"key": "secret_field", "type": "string", "required": True, "secret": True},
+        ]
+
+        serializer = MappingsSerializer(
+            data={
+                "inputs_schema": inputs_schema,
+                "inputs": {"secret_field": input_value},
+            },
+            context={"function_type": "destination", "encrypted_inputs": {}},
+        )
+        with self.assertRaises(ValidationError):
+            serializer.is_valid(raise_exception=True)
 
     def test_validate_filters_builds_bytecode(self):
         filters = {
@@ -951,3 +1159,33 @@ class TestHogFunctionValidation(ClickhouseTestMixin, APIBaseTest, QueryMatchingT
             )
         # The original value round-trips so the UI can still render the templated source string.
         assert validated["tags"]["value"] == value
+
+
+class TestTaskInputTypeValidation(SimpleTestCase):
+    # The task_* input types are authored programmatically (workflow API, MCP agents), so the
+    # serializer is the only guard against a payload shape the tasks endpoint would reject at
+    # run time - long after the workflow saved fine.
+    @parameterized.expand(
+        [
+            ("repository_string", "task_repository", "example-org/example-repo", True),
+            ("repository_not_string", "task_repository", 123, False),
+            ("model_full", "task_model", {"model": "claude-sonnet-5", "reasoning_effort": "high"}, True),
+            ("model_without_effort", "task_model", {"model": "claude-sonnet-5"}, True),
+            ("model_not_dict", "task_model", "claude-sonnet-5", False),
+            ("model_value_not_string", "task_model", {"model": 5}, False),
+            ("model_key_absent", "task_model", {"reasoning_effort": "high"}, False),
+            ("model_value_empty_string", "task_model", {"model": ""}, False),
+            ("installations_string_list", "task_mcp_installations", ["id-1", "id-2"], True),
+            ("installations_not_list", "task_mcp_installations", "id-1", False),
+            ("installations_not_strings", "task_mcp_installations", [1, 2], False),
+        ]
+    )
+    def test_task_input_value_shapes(self, _name, schema_type, value, expect_valid):
+        schema = [{"key": "field", "type": schema_type, "label": "Field", "required": False}]
+        inputs = {"field": {"value": value}}
+
+        if expect_valid:
+            validate_inputs(schema, inputs)
+        else:
+            with pytest.raises(ValidationError):
+                validate_inputs(schema, inputs)

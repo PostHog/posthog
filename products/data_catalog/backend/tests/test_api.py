@@ -34,7 +34,7 @@ from products.data_catalog.backend.presentation.serializers import (
     MetricRunRequestSerializer,
     MetricSerializer,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.models.rbac.access_control import AccessControl
 

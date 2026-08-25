@@ -6,8 +6,8 @@ from django.core.cache import cache
 from rest_framework import status
 from slack_sdk.errors import SlackApiError
 
+from posthog.cdp.templates.fixtures import template_slack
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
-from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.constants import AvailableFeature
 from posthog.models import Integration, Organization, OrganizationMembership, Team
 

@@ -54,7 +54,7 @@
                     "type": "null"
                 }
             ],
-            "description": "JSON-encoded array of numeric team (project) IDs to filter by, NOT a comma-separated string. Pass as e.g. `[1,2]`. Omit for all teams in the org."
+            "description": "JSON-encoded array of numeric team (project) IDs to filter by, NOT a comma-separated string. Pass as e.g. `[1,2]`. Omit for every project this request can see: all org teams for full billing-access callers, or the member's visible/project-scoped teams for member read-only callers."
         },
         "usage_types": {
             "anyOf": [

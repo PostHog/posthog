@@ -36,20 +36,48 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
 
 ## Spaces & chrome
 
-- Spaces is a **top-level space** reached through the app rail (`AppNav`),
-  gated behind `project-bluebird` and wired in `routes/__root.tsx`. The rail's
-  spaces are Code (`/code`), Inbox (`/inbox`), and Spaces (`/website`).
+- Spaces is a rail destination, gated behind `project-bluebird` and wired in
+  `routes/__root.tsx`.
+  The rail's destinations and the paths they claim live in one table,
+  `railPane.ts`: Home (`/`), Spaces (`/spaces`), Activity (`/activity`),
+  Inbox (`/inbox`), Command Center (`/command-center`), Loops (`/loops`).
+  Unclaimed routes belong to Spaces.
+  Only Spaces and Activity own the column beside the rail; the rest are
+  whole-screen, so no route under them may draw a second nav.
+- **A rail pick returns you to where that destination was**, not to its index.
+  `BrowserTabStrip` records the settled route per destination in the active
+  tab's `viewState.lastByPane`, and `pickRailDestination` replays it. Only Spaces
+  carries sidebar state on top of its href. Clicking the destination you are
+  already on never restores — it runs `onReclick`, which for Spaces means the
+  list.
+  Anything a destination does besides navigating must live in its route
+  component, not its `onPick`: the restore path navigates by href and never
+  reaches the navigation bridge.
+- **Testing flag-off locally:** dev builds default `project-bluebird` and
+  `code-spaces-layout` on, and that default beats posthog's own override. Force
+  them off with
+  `localStorage.setItem("ph-dev-flags-off", "project-bluebird,code-spaces-layout")`
+  and reload (see `devFlagOverrides.ts`). Bluebird-only paths are listed in
+  `bluebirdRoutes.ts`; a flag-off user who restores one lands on a new task.
+- Routes are flat, and the ones wearing the spaces chrome are grouped under the
+  **pathless** `_shell` layout rather than a URL prefix.
+  Match `fullPath` (the route's own pattern) rather than the resolved URL when
+  deciding what a route is: a space id could otherwise impersonate a
+  destination.
 - The Spaces UI has **its own chrome**: rail + a persistent channel-list
-  sidebar (`ChannelsList`, rendered in `__root`) + the `WebsiteLayout` outlet. It
+  sidebar (`ChannelsList`, rendered in `__root`) + the `ShellLayout` outlet. It
   does NOT use the code `HeaderRow`/`MainSidebar`, so breadcrumbs render in
-  `WebsiteLayout`'s own top bar (below).
+  `ShellLayout`'s own top bar (below).
 - Under the channels layout the sidebar is a **master/detail slider**
   (`ChannelPanes` in `ChannelsSidebar.tsx`): the searchable channel list, and the
   channel you're in (`ChannelSidebar`, headed by `ChannelBackRow`). Both panes
   stay mounted — the offscreen one is `inert` — so the slide has something to
   slide and returning to the list doesn't rebuild every row. A two-finger
   horizontal swipe moves between them (`useChannelPaneSwipe`, wheel `deltaX`
-  accumulated per gesture and locked until the wheel goes quiet).
+  accumulated per gesture and locked until the wheel goes quiet). The track
+  animates only for a space-row click or the back row; tab restoration, route
+  sync, hotkeys, rail restoration, and swipes snap directly to their pane so
+  unrelated navigation never moves the sidebar across the reader.
 - In the list, "Starred"/"Spaces" are headings above lightly indented rows. The
   private "personal" row leads the Starred section and takes the same inset as the
   spaces beside it. It is the one row that carries a glyph: the lock is the only
@@ -62,11 +90,13 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   Four routes carry a channel's name — the channel list, an activity row, a
   mention row, and remote search — and each calls it, because only the first
   goes through `useTaskChannels`.
-  Recognition uses `channel_type`, never the name.
+  Recognition of a full channel object goes through `isPersonalChannel`/`isGeneralChannel`
+  (`@posthog/core/canvas/channelName`), which check `system_role` first and fall back to
+  `channel_type`/name for a server that predates the field — never the name alone.
 - **The lock follows what a space is, not what it is called.** `channelGlyph`
-  takes a `personal` flag, and every caller holding the channel passes
-  `channelType === "personal"`; the name match behind it is a fallback for
-  surfaces that hold a bare name.
+  takes a `personal` flag; a caller holding the channel object should pass
+  `isPersonalChannel(channel)` rather than `channelType === "personal"` directly, and the
+  name match behind it is a fallback for surfaces that hold only a bare name.
   A public space named `personal` used to wear the lock while the real private
   space showed none, which is a space impersonating yours.
   `validateChannelName` reserves `personal` and `me` so the create and rename
@@ -197,20 +227,21 @@ changing breadcrumbs, canvas naming, or the canvas generation harness. The root
   The one exception is a session opened from the list's tree: it loads in the
   main window and leaves the sidebar on the list, because picking a session
   while browsing across spaces is not a request to go into one. It says so with
-  `keepListForNextRoute()`, which the route effect consumes in place of sliding.
+  `keepListForRoute(spaceId)`, which the route effect checks in place of sliding;
+  the first-run landing on #general uses the same latch.
 
 ## Breadcrumbs
 
-- **`WebsiteLayout` renders its own top bar.** The Spaces UI has no code
+- **`ShellLayout` renders its own top bar.** The Spaces UI has no code
   `HeaderRow`, so breadcrumbs (and the dashboard controls) are a local bar inside
-  `WebsiteLayout`, not pushed through the header store.
+  `ShellLayout`, not pushed through the header store.
 - **A page does not get its own crumb — its H1 is the title.** A view that
   renders its own `<h1>` is NOT repeated as a breadcrumb segment for itself. The
   dashboards grid's h1 is "Dashboards"; a single dashboard's h1 is its name.
 - **A parent index IS a crumb when you're on a child, but not when you're on it.**
-  - On the grid (`/website/$channelId`): trail is `#channel` only — no
+  - On the grid (`/spaces/$channelId`): trail is `#channel` only — no
     "Dashboards" crumb (its own h1 covers it, and `#channel` already links here).
-  - On a single dashboard (`/website/$channelId/dashboards/$id`): trail is
+  - On a single dashboard (`/spaces/$channelId/dashboards/$id`): trail is
     `#channel / Dashboards`, where `Dashboards` links back to the grid. The
     dashboard's name is the h1 below, not a crumb.
 - Crumbs reflect navigable parents above the current page; the current page is

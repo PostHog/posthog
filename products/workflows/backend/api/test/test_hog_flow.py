@@ -1,6 +1,7 @@
 import json
 from copy import deepcopy
 from datetime import UTC, datetime, timedelta
+from io import StringIO
 from typing import Any, Optional
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -13,12 +14,14 @@ from django.test import override_settings
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.cdp.flag_gated_templates import gated_template_enabled
+from posthog.cdp.templates.fixtures import template_slack
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
-from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.constants import AvailableFeature
 from posthog.event_usage import EventSource
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.integration import Integration
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.fixtures import create_app_metric2
@@ -175,6 +178,65 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 201, response.json()
         return response.json()["id"]
 
+    def test_email_sending_rate_limit_round_trip(self):
+        flow_id = self._create_simple_flow()
+
+        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                {"email_sending_rate_limit": {"count": 250, "period": "hour"}},
+            )
+        assert response.status_code == 200, response.json()
+        assert response.json()["email_sending_rate_limit"] == {"count": 250, "period": "hour"}
+        assert HogFlow.objects.get(id=flow_id).email_sending_rate_limit == {"count": 250, "period": "hour"}
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"email_sending_rate_limit": None},
+        )
+        assert response.status_code == 200, response.json()
+        assert response.json()["email_sending_rate_limit"] is None
+
+    @parameterized.expand(
+        [
+            ("zero_count", {"count": 0, "period": "minute"}),
+            ("missing_count", {"period": "minute"}),
+            ("unknown_period", {"count": 10, "period": "day"}),
+        ]
+    )
+    def test_email_sending_rate_limit_rejects_invalid_values(self, _name, value):
+        flow_id = self._create_simple_flow()
+
+        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=True):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                {"email_sending_rate_limit": value},
+            )
+        assert response.status_code == 400, response.json()
+
+    def test_email_sending_rate_limit_gated_on_feature_flag(self):
+        # The UI hides the control behind the flag, but API callers hit the serializer directly —
+        # without the server-side gate any team could adopt the feature before its rollout.
+        flow_id = self._create_simple_flow()
+        url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}"
+        value = {"email_sending_rate_limit": {"count": 100, "period": "minute"}}
+
+        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=False) as mock_gate:
+            response = self.client.patch(url, value)
+        assert response.status_code == 400, response.json()
+        assert mock_gate.call_args.args[0] == "workflows-email-rate-limit"
+
+        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=True):
+            response = self.client.patch(url, value)
+        assert response.status_code == 200, response.json()
+
+        # A flag dial-down must not brick saves that resubmit the stored value, nor block clearing.
+        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=False):
+            response = self.client.patch(url, value)
+            assert response.status_code == 200, response.json()
+            response = self.client.patch(url, {"email_sending_rate_limit": None})
+            assert response.status_code == 200, response.json()
+
     @parameterized.expand(
         [
             ("name_match", "welcome", {"Welcome email"}),
@@ -312,6 +374,51 @@ class TestHogFlowAPI(APIBaseTest):
         detail = response.json()["detail"]
         for fragment in fragments:
             assert fragment in detail, (fragment, detail)
+
+    def test_literal_off_domain_sender_override_is_rejected_at_save(self):
+        # The domain rule lived only in the send path, so a bad literal address saved fine and
+        # every send then fell back to the integration's sender with a run-log warning the
+        # author never saw. The save is where the author can still act on it.
+        sync_template_to_db(_email_function_template())
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="email",
+            config={"email": "sender@posthog.com", "name": "Sender", "domain": "posthog.com", "verified": True},
+        )
+        inputs = _valid_email_inputs()
+        inputs["email"]["value"]["from"] = {"integrationId": integration.id, "email": "sales@evil.com"}
+        hog_flow, action = self._create_hog_flow_with_action({"inputs": inputs})
+        action["type"] = "function_email"
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, HTTP_X_POSTHOG_CLIENT="mcp")
+
+        assert response.status_code == 400, response.json()
+        assert 'is not on the verified domain "posthog.com"' in response.json()["detail"]
+
+    def test_stored_off_domain_sender_override_survives_a_resave(self):
+        # Workflows written before June 2026 carry a placeholder address the author never typed.
+        # Re-sending the stored graph unchanged must not fail on it, or every edit to an affected
+        # workflow is blocked until the placeholder backfill has run.
+        sync_template_to_db(_email_function_template())
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="email",
+            config={"email": "sender@posthog.com", "name": "Sender", "domain": "posthog.com", "verified": True},
+        )
+        inputs = _valid_email_inputs()
+        inputs["email"]["value"]["from"] = {"integrationId": integration.id, "email": "default@example.com"}
+        hog_flow, action = self._create_hog_flow_with_action({"template_id": "template-email", "inputs": inputs})
+        action["type"] = "function_email"
+        stored = HogFlow.objects.create(
+            team=self.team, name="Legacy flow", actions=hog_flow["actions"], status=HogFlow.State.ACTIVE
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{stored.id}",
+            {"actions": hog_flow["actions"]},
+        )
+
+        assert response.status_code == 200, response.json()
 
     def test_fixed_template_id_is_inferred_from_step_type(self):
         # template_id on fixed-template steps is a constant of the step type; omitting the
@@ -2115,14 +2222,20 @@ class TestHogFlowAPI(APIBaseTest):
             "type": "validation_error",
         }
 
-    def test_hog_flow_data_warehouse_table_trigger_valid(self):
+    @parameterized.expand(
+        [
+            ("data-warehouse-table", "postgres.table_1"),
+            ("data-warehouse-view", "daily_revenue"),
+        ]
+    )
+    def test_hog_flow_data_warehouse_trigger_valid(self, trigger_type, table_name):
         trigger_action = {
             "id": "trigger_node",
             "name": "trigger_1",
             "type": "trigger",
             "config": {
-                "type": "data-warehouse-table",
-                "table_name": "postgres.table_1",
+                "type": trigger_type,
+                "table_name": table_name,
                 "filters": {"properties": []},
             },
         }
@@ -2136,11 +2249,13 @@ class TestHogFlowAPI(APIBaseTest):
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
         assert response.status_code == 201, response.json()
         trigger = response.json()["trigger"]
-        assert trigger["type"] == "data-warehouse-table"
-        assert trigger["table_name"] == "postgres.table_1"
-        # Filters should be compiled to bytecode with the data-warehouse-table source
-        assert trigger["filters"]["source"] == "data-warehouse-table"
+        assert trigger["type"] == trigger_type
+        assert trigger["table_name"] == table_name
+        # Filters should be compiled to bytecode against the trigger's own warehouse source
+        assert trigger["filters"]["source"] == trigger_type
         assert "bytecode" in trigger["filters"]
+        # Row-scoped runs have no person, so the other exit conditions can't be evaluated.
+        assert response.json()["exit_condition"] == "exit_only_at_end"
 
     def test_hog_flow_data_warehouse_table_trigger_without_table_name(self):
         trigger_action = {
@@ -2217,18 +2332,24 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("wait_until_condition", {"condition": {"filters": {"properties": []}}, "max_wait_duration": "5m"}),
-            ("random_cohort_branch", {"cohorts": [{"percentage": 50}]}),
+            ("data-warehouse-table", "wait_until_condition"),
+            ("data-warehouse-table", "random_cohort_branch"),
+            ("data-warehouse-view", "wait_until_condition"),
+            ("data-warehouse-view", "random_cohort_branch"),
         ]
     )
-    def test_hog_flow_data_warehouse_table_trigger_rejects_person_dependent_steps(self, action_type, action_config):
+    def test_hog_flow_data_warehouse_trigger_rejects_person_dependent_steps(self, trigger_type, action_type):
+        action_config = {
+            "wait_until_condition": {"condition": {"filters": {"properties": []}}, "max_wait_duration": "5m"},
+            "random_cohort_branch": {"cohorts": [{"percentage": 50}]},
+        }[action_type]
         trigger_action = {
             "id": "trigger_node",
             "name": "trigger_1",
             "type": "trigger",
             "config": {
-                "type": "data-warehouse-table",
-                "table_name": "postgres.table_1",
+                "type": trigger_type,
+                "table_name": "some_table",
                 "filters": {"properties": []},
             },
         }
@@ -2273,6 +2394,99 @@ class TestHogFlowAPI(APIBaseTest):
             "name": "Test DWH Flow",
             "status": "draft",
             "actions": [trigger_action, person_dependent_action],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+
+    def test_hog_flow_slack_trigger_stores_the_bare_channel_id(self):
+        # The channel picker identifies a channel as `C123|#name`, but the event carries `C123`, so
+        # storing the composite compiles a filter that never matches and the workflow never runs.
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "slack-message",
+                "filters": {
+                    "properties": [
+                        {
+                            "key": "channel",
+                            "value": ["C0ALERTS|#alerts"],
+                            "operator": "exact",
+                            "type": "event",
+                        }
+                    ]
+                },
+            },
+        }
+
+        hog_flow = {"name": "Test Slack Flow", "status": "active", "actions": [trigger_action]}
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        stored = response.json()["trigger"]["filters"]["properties"][0]["value"]
+        assert stored == ["C0ALERTS"]
+
+    @staticmethod
+    def _slack_trigger_action(properties: list[dict]) -> dict:
+        return {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {"type": "slack-message", "filters": {"properties": properties}},
+        }
+
+    @parameterized.expand(
+        [
+            ("no_properties", []),
+            ("no_channel_entry", [{"key": "bot_id", "value": "is_not_set", "operator": "is_not_set", "type": "event"}]),
+            ("blank_channel_value", [{"key": "channel", "value": [""], "operator": "exact", "type": "event"}]),
+            # Presence operators store the operator string as the value, so the value looks
+            # non-empty while the compiled filter matches every channel.
+            ("is_set_channel", [{"key": "channel", "value": "is_set", "operator": "is_set", "type": "event"}]),
+            ("negated_channel", [{"key": "channel", "value": ["C0ALERTS"], "operator": "is_not", "type": "event"}]),
+            # Channel ids are opaque, so a pattern can only widen; ".*" matches every channel.
+            ("regex_channel", [{"key": "channel", "value": [".*"], "operator": "regex", "type": "event"}]),
+        ]
+    )
+    def test_hog_flow_slack_trigger_requires_a_channel_filter_to_activate(self, _name, properties):
+        # Only the builder UI asks for a channel; without this server-side check, a flow
+        # activated via the raw API or MCP fires on every message in every channel the
+        # Slack bot is in.
+        hog_flow = {
+            "name": "Test Slack Flow",
+            "status": "active",
+            "actions": [self._slack_trigger_action(properties)],
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 400, response.json()
+        assert "channel" in response.json()["detail"].lower()
+
+    def test_hog_flow_slack_trigger_channel_gap_is_caught_at_enable(self):
+        # The workflows table's Enable button patches status alone, skipping the builder's
+        # channel validation, so activation-time re-validation is what has to catch it.
+        draft = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {"name": "Test Slack Flow", "status": "draft", "actions": [self._slack_trigger_action([])]},
+        )
+        assert draft.status_code == 201, draft.json()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{draft.json()['id']}", {"status": "active"}
+        )
+
+        assert response.status_code == 400, response.json()
+        assert "channel" in response.json()["detail"].lower()
+
+    def test_hog_flow_slack_trigger_draft_saves_without_a_channel(self):
+        # The builder saves mid-edit drafts before a channel is picked; only activation
+        # fails closed.
+        hog_flow = {
+            "name": "Test Slack Flow",
+            "status": "draft",
+            "actions": [self._slack_trigger_action([])],
         }
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
@@ -2811,8 +3025,8 @@ class TestHogFlowAPI(APIBaseTest):
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     def test_internal_user_blast_radius_persons_rejects_flag_condition(self):
         with patch(
-            "products.workflows.backend.api.hog_flow.get_user_blast_radius_persons"
-        ) as mock_get_user_blast_radius_persons:
+            "products.workflows.backend.api.hog_flow.get_batch_audience_person_ids"
+        ) as mock_get_batch_audience_person_ids:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
                 {"filters": {"properties": [{"key": "my-other-flag", "type": "flag", "value": "true"}]}},
@@ -2822,28 +3036,13 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 400, response.json()
         assert "Feature flags can't be used as a batch audience condition" in response.json().get("error", "")
-        mock_get_user_blast_radius_persons.assert_not_called()
+        mock_get_batch_audience_person_ids.assert_not_called()
 
-    @parameterized.expand(
-        [
-            ("flag_on_uses_workflows_query", True),
-            ("flag_off_uses_legacy_query", False),
-        ]
-    )
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
-    def test_internal_user_blast_radius_persons_query_selection(self, _name, flag_enabled):
-        with (
-            patch(
-                "products.workflows.backend.api.hog_flow.use_workflows_batch_audience_query",
-                return_value=flag_enabled,
-            ),
-            patch(
-                "products.workflows.backend.api.hog_flow.get_batch_audience_person_ids", return_value=["id-1"]
-            ) as mock_workflows_query,
-            patch(
-                "products.workflows.backend.api.hog_flow.get_user_blast_radius_persons", return_value=["id-1"]
-            ) as mock_legacy_query,
-        ):
+    def test_internal_user_blast_radius_persons_uses_workflows_query(self):
+        with patch(
+            "products.workflows.backend.api.hog_flow.get_batch_audience_person_ids", return_value=["id-1"]
+        ) as mock_workflows_query:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
                 {"filters": {"properties": []}, "dedupe_key": "email"},
@@ -2853,27 +3052,22 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert response.status_code == 200, response.json()
         assert response.json()["users_affected"] == ["id-1"]
-        if flag_enabled:
-            mock_workflows_query.assert_called_once_with(self.team, {"properties": []}, None, None, dedupe_key="email")
-            mock_legacy_query.assert_not_called()
-        else:
-            mock_legacy_query.assert_called_once_with(self.team, {"properties": []}, None, None)
-            mock_workflows_query.assert_not_called()
+        mock_workflows_query.assert_called_once_with(self.team, {"properties": []}, None, None, dedupe_key="email")
 
     @parameterized.expand(
         [
-            ("flag_on_uses_deduped_count", True, 3),
-            ("flag_off_keeps_person_count", False, 5),
+            ("dedupe_key_uses_deduped_count", "email", 3),
+            ("no_dedupe_key_keeps_person_count", None, 5),
         ]
     )
-    def test_user_blast_radius_dedupe_key_affects_count(self, _name, flag_enabled, expected_affected):
+    def test_user_blast_radius_dedupe_key_affects_count(self, _name, dedupe_key, expected_affected):
         from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
 
+        payload: dict = {"filters": {"properties": []}}
+        if dedupe_key is not None:
+            payload["dedupe_key"] = dedupe_key
+
         with (
-            patch(
-                "products.workflows.backend.api.hog_flow.use_workflows_batch_audience_query",
-                return_value=flag_enabled,
-            ),
             patch(
                 "products.workflows.backend.api.hog_flow.get_user_blast_radius",
                 return_value=BlastRadiusResult(affected=5, total=10),
@@ -2889,16 +3083,16 @@ class TestHogFlowAPI(APIBaseTest):
         ):
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
-                {"filters": {"properties": []}, "dedupe_key": "email"},
+                payload,
             )
 
         assert response.status_code == 200, response.json()
         assert response.json()["affected"] == expected_affected
         assert response.json()["total"] == 10
         # The applied key is echoed so the frontend can label the count correctly
-        assert response.json()["dedupe_key"] == ("email" if flag_enabled else None)
-        if flag_enabled:
-            # The legacy person-count query is skipped — only the deduped count runs
+        assert response.json()["dedupe_key"] == dedupe_key
+        if dedupe_key is not None:
+            # The person-count query is skipped — only the deduped count runs
             mock_deduped_count.assert_called_once_with(self.team, {"properties": []}, "email")
             mock_legacy_count.assert_not_called()
         else:
@@ -4813,3 +5007,166 @@ class TestHogFlowSecretInputs(APIBaseTest):
         stored = json.dumps({"actions": flow.actions, "trigger": flow.trigger, "draft": flow.draft})
         assert "LEGACY-SECRET" not in stored
         assert "DRAFT-SECRET" not in stored
+
+
+def _create_task_template() -> dict:
+    template = deepcopy(webhook_template)
+    template["id"] = "template-posthog-create-task"
+    template["name"] = "Create AI task"
+    template["inputs_schema"] = [
+        {"key": "prompt", "type": "string", "label": "Instructions", "secret": False, "required": True}
+    ]
+    return template
+
+
+class TestFlagGatedTemplates(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        sync_template_to_db(_create_task_template())
+
+    def _post_flow_with_create_task_action(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+        action = {
+            "id": "action_1",
+            "name": "action_1",
+            "type": "function",
+            "config": {"template_id": "template-posthog-create-task", "inputs": {"prompt": {"value": "Investigate"}}},
+        }
+        # The MCP client header selects strict validation - the path agents and API callers
+        # actually use. Web-client draft saves stay lenient; the gate holds at publish there.
+        return self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {"name": "Test Flow", "actions": [trigger_action, action], "edges": []},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+
+    def _post_flow_with_create_task_action_as_web(self):
+        trigger_action = {
+            "id": "trigger_node",
+            "name": "trigger_1",
+            "type": "trigger",
+            "config": {
+                "type": "event",
+                "filters": {"events": [{"id": "$pageview", "name": "$pageview", "type": "events", "order": 0}]},
+            },
+        }
+        action = {
+            "id": "action_1",
+            "name": "action_1",
+            "type": "function",
+            "config": {"template_id": "template-posthog-create-task", "inputs": {"prompt": {"value": "Investigate"}}},
+        }
+        return self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows",
+            {"name": "Test Flow", "actions": [trigger_action, action], "edges": []},
+        )
+
+    @parameterized.expand(
+        [
+            ("flag_on", True, status.HTTP_201_CREATED),
+            ("flag_off", False, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_gated_template_requires_feature_flag(self, _name, flag_enabled, expected_status):
+        # The builder hides the AI task step behind a flag, but agents and API callers write
+        # workflows through this endpoint directly - without the server-side gate they could
+        # attach the step on any team.
+        with patch(
+            "products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=flag_enabled
+        ) as mock_gate:
+            response = self._post_flow_with_create_task_action()
+
+        assert response.status_code == expected_status, response.json()
+        assert mock_gate.call_args.args[0] == "workflow-ai-task-action"
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert "Template not found" in response.json()["detail"]
+
+    def test_flag_eval_failure_hides_the_gated_template(self):
+        # A flag-service blip must hide the pre-release step, not expose it.
+        with patch(
+            "posthog.cdp.flag_gated_templates.posthoganalytics.feature_enabled",
+            side_effect=Exception("flag service down"),
+        ):
+            assert gated_template_enabled("workflow-ai-task-action", self.team) is False
+
+    def _create_active_flow_with_gated_step(self) -> str:
+        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=True):
+            response = self._post_flow_with_create_task_action()
+            assert response.status_code == status.HTTP_201_CREATED, response.json()
+            flow_id = response.json()["id"]
+            activate = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                {"status": "active"},
+                HTTP_X_POSTHOG_CLIENT="mcp",
+            )
+            assert activate.status_code == status.HTTP_200_OK, activate.json()
+        return flow_id
+
+    def test_stored_gated_step_survives_the_flag_turning_off(self):
+        # The gate polices new adoption. A workflow that already carries the step must keep
+        # saving after a flag dial-down or eval blip, or the flow becomes un-editable and
+        # refresh_hog_flows starts failing on it. Resend the stored actions, as any builder
+        # save or programmatic full update does.
+        flow_id = self._create_active_flow_with_gated_step()
+
+        # No MCP header: MCP callers can't resend the whole actions array (workflows-patch-graph
+        # owns that), but an active flow validates strictly for every client, so the gate still runs.
+        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=False):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                {"name": "Renamed flow", "actions": HogFlow.objects.get(id=flow_id).actions},
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+    def test_refresh_command_survives_the_flag_turning_off(self):
+        self._create_active_flow_with_gated_step()
+
+        out = StringIO()
+        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=False):
+            call_command("refresh_hog_flows", "--team-id", str(self.team.id), stdout=out)
+
+        assert "Errors: 0" in out.getvalue(), out.getvalue()
+
+    def test_a_step_smuggled_into_a_draft_cannot_activate(self):
+        # Lenient web draft saves skip the gate, so an unflagged user can store the step in a
+        # draft. Grandfathering must not treat that as authorization: activation re-checks the
+        # flag, or the draft path becomes a gate bypass.
+        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=False):
+            create = self._post_flow_with_create_task_action_as_web()
+            assert create.status_code == status.HTTP_201_CREATED, create.json()
+            flow_id = create.json()["id"]
+
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                {"status": "active"},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Template not found" in str(response.json())
+
+    def test_a_new_gated_step_is_still_rejected_on_a_flow_that_has_one(self):
+        flow_id = self._create_active_flow_with_gated_step()
+
+        second_step = {
+            "id": "action_2",
+            "name": "action_2",
+            "type": "function",
+            "config": {"template_id": "template-posthog-create-task", "inputs": {"prompt": {"value": "Another"}}},
+        }
+        with patch("products.workflows.backend.api.hog_flow.gated_template_enabled", return_value=False):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+                {"actions": [*HogFlow.objects.get(id=flow_id).actions, second_step]},
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Template not found" in str(response.json())

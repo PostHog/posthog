@@ -21,7 +21,7 @@ describe("createPiEnrichmentExtension", () => {
     vi.unstubAllGlobals();
   });
 
-  it("adds live PostHog metadata to Pi read results", async () => {
+  it("adds rich-output instructions and live metadata to Pi", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: string | URL | Request) => {
@@ -52,7 +52,6 @@ describe("createPiEnrichmentExtension", () => {
     let beforeAgentStartHandler: BeforeAgentStartHandler | undefined;
     const extension = createPiEnrichmentExtension({
       apiUrl: "https://us.posthog.com",
-      enableObjectReferences: true,
       projectId: 1,
       apiKey: "token",
     });
@@ -97,27 +96,5 @@ describe("createPiEnrichmentExtension", () => {
         ),
       },
     ]);
-  });
-
-  it("does not add object-tag guidance unless enabled", async () => {
-    let beforeAgentStartHandler: BeforeAgentStartHandler | undefined;
-    const extension = createPiEnrichmentExtension({
-      apiUrl: "https://us.posthog.com",
-      projectId: 1,
-      apiKey: "token",
-    });
-    await extension.factory({
-      on: (
-        event: string,
-        registeredHandler: ToolResultHandler | BeforeAgentStartHandler,
-      ) => {
-        if (event === "before_agent_start") {
-          beforeAgentStartHandler =
-            registeredHandler as BeforeAgentStartHandler;
-        }
-      },
-    } as unknown as ExtensionAPI);
-
-    expect(beforeAgentStartHandler).toBeUndefined();
   });
 });

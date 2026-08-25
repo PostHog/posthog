@@ -49,6 +49,27 @@ const SSE_DEFAULT_TIMEOUT_MS = 10 * 60 * 1000
 // in `ee/api/session_summaries.py`. If you change one, check the other.
 const SSE_READ_TIMEOUT_MS = 30_000
 
+// Page size for the `query-*-actors` tools. The ceiling bounds how much of a caller's context
+// window one page can consume; everything past it is reachable by paging with `offset`.
+// Out-of-range values are clamped rather than rejected, because the schema codegen doesn't
+// propagate `@minimum`/`@maximum` on integer fields into the generated zod.
+const ACTORS_DEFAULT_LIMIT = 100
+const ACTORS_MAX_LIMIT = 1000
+
+function clampActorsLimit(value: unknown): number {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return ACTORS_DEFAULT_LIMIT
+    }
+    return Math.min(Math.max(Math.trunc(value), 1), ACTORS_MAX_LIMIT)
+}
+
+function clampActorsOffset(value: unknown): number {
+    if (typeof value !== 'number' || !Number.isFinite(value)) {
+        return 0
+    }
+    return Math.max(Math.trunc(value), 0)
+}
+
 export interface GroupType {
     group_type: string
     group_type_index: number
@@ -1262,9 +1283,15 @@ export class ApiClient {
             query: Record<string, unknown>
             results: { columns: string[]; results: any[][] }
             hasMore: boolean
+            limit: number
             offset: number
         }> => {
-            const normalized = normalizeQuery(query)
+            // `limit`/`offset` are page controls on the outer ActorsQuery. The inner
+            // InsightActorsQuery rejects unknown keys, so they have to come off the source
+            // before it gets wrapped.
+            const { limit: requestedLimit, offset: requestedOffset, ...normalized } = normalizeQuery(query)
+            const limit = clampActorsLimit(requestedLimit)
+            const offset = clampActorsOffset(requestedOffset)
             const includeRecordings = Boolean(normalized.includeRecordings)
             const finalSelect = includeRecordings ? [...select, 'matched_recordings'] : [...select]
 
@@ -1272,13 +1299,20 @@ export class ApiClient {
                 kind: 'ActorsQuery',
                 source: normalized,
                 select: finalSelect,
-                orderBy: [...orderBy],
-                limit: 100,
+                // An explicit empty `orderBy` suppresses ActorsQueryRunner's default ordering and
+                // reaches ClickHouse with no ORDER BY, so row order is undefined and consecutive
+                // pages can repeat or skip actors. Omitting the key instead lets the runner order by
+                // the actor id column it selected. The per-tool orders already end in a unique
+                // tiebreak.
+                ...(orderBy.length > 0 ? { orderBy: [...orderBy] } : {}),
+                limit,
+                offset,
             }
 
             const response = await this.request<{
                 results: any[][]
                 hasMore?: boolean
+                limit?: number
                 offset?: number
             }>({
                 method: 'POST',
@@ -1326,7 +1360,8 @@ export class ApiClient {
                 query: wrappedQuery,
                 results: { columns, results },
                 hasMore: response.hasMore ?? false,
-                offset: response.offset ?? 0,
+                limit: response.limit ?? limit,
+                offset: response.offset ?? offset,
             }
         }
 
@@ -1398,7 +1433,8 @@ export class ApiClient {
 
             // Funnel actors project `actor` (+ `matched_recordings` when `includeRecordings`, handled
             // by runActorsQuery). The query carries the step/trends-dropoff selectors on the inner
-            // FunnelsActorsQuery; ordering is backend-determined, so orderBy stays empty.
+            // FunnelsActorsQuery; there is no meaningful ranking, so the backend's own actor-id
+            // ordering applies.
             funnelActors: async ({ query }: { query: Record<string, unknown> }) => runActorsQuery(query, ['actor']),
         }
     }

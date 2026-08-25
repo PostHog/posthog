@@ -3,6 +3,7 @@ import { router } from 'kea-router'
 
 import { LemonButton } from '@posthog/lemon-ui'
 
+import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -83,6 +84,7 @@ function SubscriptionDetailActions({ sub }: { sub: SubscriptionApi }): JSX.Eleme
 export function SubscriptionScene(): JSX.Element {
     const {
         subscription,
+        subscriptionAccessDenied,
         subscriptionLoading,
         deliveriesPage,
         deliveriesPageLoading,
@@ -94,11 +96,13 @@ export function SubscriptionScene(): JSX.Element {
     const { loadDeliveriesPage, deliverSubscription, setDeliveryStatusFilter, submitDeliveryFeedback } =
         useActions(subscriptionSceneLogic)
 
-    const showNotFound = !subscriptionLoading && !subscription
+    const showNotFound = !subscriptionLoading && !subscription && !subscriptionAccessDenied
 
     return (
         <SceneContent>
-            {showNotFound ? (
+            {subscriptionAccessDenied ? (
+                <AccessDenied object="subscription" />
+            ) : showNotFound ? (
                 <NotFound object="subscription" />
             ) : (
                 <div className="py-8 flex-1 min-h-0 flex flex-col gap-6 max-w-full">

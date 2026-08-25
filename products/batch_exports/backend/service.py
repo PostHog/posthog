@@ -407,6 +407,14 @@ class AWSCredentials:
     aws_access_key_id: str
     aws_secret_access_key: str = field(repr=False)
     aws_session_token: str | None = field(default=None, repr=False)
+    expiration: dt.datetime | None = field(default=None)
+
+    @property
+    def expiry_time(self) -> str | None:
+        """ISO-8601 expiration time for temporary credentials, if available."""
+        if self.expiration is None:
+            return None
+        return self.expiration.isoformat()
 
 
 @dataclass

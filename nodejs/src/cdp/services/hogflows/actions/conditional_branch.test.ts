@@ -219,6 +219,53 @@ describe('action.conditional_branch', () => {
             counterHogflowRekeyWake.reset()
         })
 
+        it('evaluates a first wait against the refreshed person, on the invocation and the result alike', async () => {
+            // The result carries a shallow clone, so both have to land on the fresh person: whichever
+            // one a later reader picks up must not still hold the person the dequeue cached.
+            const freshPerson = { id: 'p1', properties: { email: 'written-after-caching@posthog.com' } }
+            waitInvocation.refreshPerson = jest.fn().mockResolvedValue({
+                person: freshPerson,
+                filterGlobals: { ...waitInvocation.filterGlobals, person: freshPerson },
+            })
+            const result = createInvocationResult<CyclotronJobInvocationHogFlow>(waitInvocation)
+
+            await handler.execute({ invocation: waitInvocation, action: waitAction, result })
+
+            expect(waitInvocation.refreshPerson).toHaveBeenCalledTimes(1)
+            expect(waitInvocation.filterGlobals.person?.properties).toEqual(freshPerson.properties)
+            expect(result.invocation.filterGlobals.person?.properties).toEqual(freshPerson.properties)
+            expect(result.invocation.person).toEqual(freshPerson)
+        })
+
+        it('keeps the person it already had when the refresh comes back empty', async () => {
+            // The refresh adds freshness; it must not drop a person because one lookup found nothing.
+            const before = waitInvocation.person
+            waitInvocation.refreshPerson = jest
+                .fn()
+                .mockResolvedValue({ person: undefined, filterGlobals: { person: null } as any })
+            const result = createInvocationResult<CyclotronJobInvocationHogFlow>(waitInvocation)
+
+            await handler.execute({ invocation: waitInvocation, action: waitAction, result })
+
+            expect(waitInvocation.person).toEqual(before)
+            expect(waitInvocation.filterGlobals.person).not.toBeNull()
+        })
+
+        it('keeps the cached person on a re-check of a wait that already parked', async () => {
+            const refreshPerson = jest.fn().mockResolvedValue(undefined)
+            waitInvocation.refreshPerson = refreshPerson
+            // Set once the wait parks; its re-checks run 10 minutes apart, by when the cache expired.
+            waitInvocation.state.currentAction!.pollReparked = true
+
+            await handler.execute({
+                invocation: waitInvocation,
+                action: waitAction,
+                result: createInvocationResult(waitInvocation),
+            })
+
+            expect(refreshPerson).not.toHaveBeenCalled()
+        })
+
         it('advances to the matched branch and clears eventMatched', async () => {
             waitInvocation.state.currentAction!.eventMatched = true
             waitInvocation.state.currentAction!.eventMatchedEvent = 'subscription created'

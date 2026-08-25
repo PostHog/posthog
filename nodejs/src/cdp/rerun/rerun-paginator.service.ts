@@ -787,6 +787,16 @@ export class RerunPaginatorService {
                 hogFlow,
                 filterGlobals
             )
+            // The parked per-action hog function state is not replayable:
+            // `stripInputs` removed its `globals.inputs` (resolved secrets)
+            // before the row was written, and `buildHogFunctionInvocation`
+            // reuses a present `hogFunctionState` verbatim instead of
+            // re-rendering inputs — a message action resumed with it fails
+            // with "No recipient identifier found". Dropping it makes the
+            // action re-enter fresh, so inputs re-render against the current
+            // config, which is what a rerun intends anyway.
+            const { hogFunctionState: _stripped, ...restoredCurrentAction } = persistedState.currentAction ?? {}
+
             invocation.id = row.invocation_id
             invocation.parentRunId = row.parent_run_id || null
             invocation.state = {
@@ -802,7 +812,9 @@ export class RerunPaginatorService {
                 // wait_until_condition the janitor gave up on) resume safely.
                 // `personId` is carried for the same reason — the worker needs it
                 // to reload person data for batch/manual triggers on resume.
-                currentAction: persistedState.currentAction,
+                currentAction: persistedState.currentAction
+                    ? (restoredCurrentAction as CyclotronJobInvocationHogFlow['state']['currentAction'])
+                    : undefined,
                 personId: persistedState.personId,
                 // Sticky rerun counter — mirror the hog function path so the
                 // lifecycle row producer can derive `attempts` / `is_retry`

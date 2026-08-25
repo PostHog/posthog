@@ -125,6 +125,7 @@ export interface accessControlsLogicValues {
     defaults: AccessControlDefaultsResponse | null
     defaultsLoading: boolean
     filteredMembers: AccessControlMemberEntry[]
+    filteredResourceKeySet: Set<APIScopeObject>
     filteredRoles: AccessControlRoleEntry[]
     filters: AccessControlFilters
     loading: boolean
@@ -687,6 +688,7 @@ export interface accessControlsLogicMeta {
                 label: string
             }[]
         ) => Set<APIScopeObject>
+        filteredResourceKeySet: (filters: AccessControlFilters) => Set<APIScopeObject>
         ruleOptions: (
             availableProjectLevels: AccessControlLevel[],
             availableResourceLevels: AccessControlLevel[]
@@ -1239,6 +1241,10 @@ export const accessControlsLogic = kea<accessControlsLogicType>([
                     label: string
                 }[]
             ): Set<APIScopeObject> => new Set(resourceKeys.map((r) => r.key)),
+        ],
+        filteredResourceKeySet: [
+            (s) => [s.filters],
+            (filters: AccessControlFilters): Set<APIScopeObject> => new Set(filters.resourceKeys),
         ],
 
         ruleOptions: [

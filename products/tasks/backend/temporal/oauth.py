@@ -24,7 +24,7 @@ from products.tasks.backend.logic.services.run_actor import (
     is_slack_interaction_state,
     loop_owner_eligible_for_credentials,
 )
-from products.tasks.backend.models import Task
+from products.tasks.backend.models import TASK_OWNERSHIP_VERSION_STATE_KEY, Task
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -59,8 +59,7 @@ SIGNALS_ORIGIN_PRODUCTS = frozenset(
 )
 
 # Signals surfaces a person drives by hand: the Inbox report CTAs ("Create PR" / "Discuss")
-# and scout chat. Scheduled scouts and auto-started implementations are excluded — they carry
-# `internal=True`, and their volume is chosen by our own pipeline rather than by a customer.
+# and scout chat. Scheduled scouts run under their own reserved origin and never appear here.
 INTERACTIVE_SIGNALS_ORIGIN_PRODUCTS = frozenset(
     {
         Task.OriginProduct.SIGNAL_REPORT,
@@ -77,9 +76,23 @@ def _oauth_application_for_task(task: Task) -> SandboxOAuthApplication:
     return "array"
 
 
-def is_interactive_signals_task(task: Task) -> bool:
-    """Whether this run exists because a person pressed something, not because we scheduled it."""
-    return task.origin_product in INTERACTIVE_SIGNALS_ORIGIN_PRODUCTS and not task.internal
+def is_interactive_signals_run(task: Task, state: dict[str, Any] | None) -> bool:
+    """Whether *this run* exists because a person pressed something, not because we scheduled it.
+
+    Asks the run, not the task. `task.internal` is stamped once at creation and never
+    recomputed, so it only ever answers for the run that created the task: Signals auto-starts
+    an implementation task, and a person can later start a second run on that same task from
+    the report. One task, two runs, two different initiators.
+
+    `ai_stage` is the pipeline's own stamp on a run it started. It is absent from the task
+    create serializer and sits in `_PROTECTED_RUN_STATE_KEYS`, so no caller can set or forge
+    one — the review carve-outs already trust it as proof a run is self-driving. A signals run
+    without one therefore cannot have come from the pipeline, which makes the interactive
+    budget and its per-run ceiling the fail-closed default.
+    """
+    if task.origin_product not in INTERACTIVE_SIGNALS_ORIGIN_PRODUCTS:
+        return False
+    return not (state or {}).get("ai_stage")
 
 
 def _scopes_for_loop_fired_run(scopes: PosthogMcpScopes) -> list[str]:
@@ -111,11 +124,15 @@ def create_oauth_access_token(
     user: User | None = None,
     allow_task_creator_fallback: bool = True,
     loop_id: str | None = None,
+    run_state: dict[str, Any] | None = None,
 ) -> str:
     """Create an OAuth access token for the task's sandbox app, scoped to the task's team.
 
     OAuth tokens auto-expire after 6 hours, so no cleanup is needed. Pass `loop_id` for a
     loop-fired run so `loop:write` is stripped from the granted scopes regardless of `scopes`.
+    Pass `run_state` so the Signals budget is picked from the run's own provenance
+    (`is_interactive_signals_run`); omitting it bills a signals run as interactive, which is
+    the safe default but is never what a pipeline run wants.
     """
     actor = user or (task.created_by if allow_task_creator_fallback else None)
     if not actor:
@@ -142,7 +159,7 @@ def create_oauth_access_token(
         # task needs a member-capable token, or every member-proxy call it was
         # just granted would 403.
         token_options["include_mcp_builtin_agent_scope"] = True
-    if is_interactive_signals_task(task):
+    if is_interactive_signals_run(task, run_state):
         token_options["include_interactive_run_scope"] = True
     return create_oauth_access_token_for_user(actor, task.team_id, **token_options)
 
@@ -162,58 +179,46 @@ def create_oauth_access_token_for_run(
     to mint creator credentials for a Slack run by omitting one kwarg. Loop-fired runs
     (``loop_id`` in run state) get ``loop:write`` stripped from the granted scopes here.
     """
-    actor_user = get_task_run_credential_user(task, state)
-    loop_id = (state or {}).get("loop_id")
-    if task.origin_product == Task.OriginProduct.WORKFLOW:
-        # Workflow-fired runs mirror the loop-run policy below: the owner's eligibility is
-        # rechecked and locked at mint time, and automation-editing scopes are stripped.
-        # The workflow's snapshotted scope choice additionally caps the request, because a
-        # teammate's rerun dispatches with the generic user-run scopes rather than the
-        # ones the workflow selected.
-        effective_scopes = _workflow_run_scopes(scopes, state)
-        credential_owner_id = actor_user.id if actor_user is not None else task.created_by_id
-        with transaction.atomic():
-            if not loop_owner_eligible_for_credentials(credential_owner_id, task.team):
-                raise TaskInvalidStateError(
-                    f"Workflow task {task.id} credential owner can no longer access its team",
-                    {"task_id": task.id},
-                    cause=RuntimeError("workflow credential owner is not an active team member"),
-                )
-            return create_oauth_access_token(
-                task,
-                scopes=effective_scopes,
-                user=actor_user,
-                allow_task_creator_fallback=not is_slack_interaction_state(state),
-                loop_id=None,
-            )
-    if loop_id is None:
-        return create_oauth_access_token(
-            task,
-            scopes=scopes,
-            user=actor_user,
-            allow_task_creator_fallback=not is_slack_interaction_state(state),
-            loop_id=None,
-        )
-
-    # Loop run: re-verify the credential owner is eligible at mint time, not just at dispatch, and do
-    # it atomically. `is_active` on the already-loaded `task.created_by` is stale, so the check reads
-    # and locks the owner row (and its membership) freshly, then mints inside the same transaction —
-    # a deactivation or membership removal can't commit between the check and token creation, and the
-    # async loop cancellation can't revoke a token already handed to the sandbox.
-    credential_owner_id = actor_user.id if actor_user is not None else task.created_by_id
     with transaction.atomic():
-        if not loop_owner_eligible_for_credentials(credential_owner_id, task.team):
+        locked_task = (
+            Task.objects.select_for_update(of=("self",))
+            .select_related("created_by", "team")
+            .get(id=task.id, team_id=task.team_id)
+        )
+        run_ownership_version = (state or {}).get(TASK_OWNERSHIP_VERSION_STATE_KEY)
+        if run_ownership_version != locked_task.ownership_version:
             raise TaskInvalidStateError(
-                f"Loop task {task.id} credential owner can no longer access its team",
+                f"Task run for {task.id} belongs to a previous task owner",
                 {"task_id": task.id},
-                cause=RuntimeError("loop credential owner is not an active team member"),
+                cause=RuntimeError("task run ownership version is stale"),
             )
+
+        actor_user = get_task_run_credential_user(locked_task, state)
+        loop_id = (state or {}).get("loop_id")
+        effective_scopes = scopes
+        credential_owner_kind: str | None = None
+        if locked_task.origin_product == Task.OriginProduct.WORKFLOW:
+            effective_scopes = _workflow_run_scopes(scopes, state)
+            credential_owner_kind = "workflow"
+        elif loop_id is not None:
+            credential_owner_kind = "loop"
+
+        if credential_owner_kind is not None:
+            credential_owner_id = actor_user.id if actor_user is not None else locked_task.created_by_id
+            if not loop_owner_eligible_for_credentials(credential_owner_id, locked_task.team):
+                raise TaskInvalidStateError(
+                    f"{credential_owner_kind.capitalize()} task {locked_task.id} credential owner can no longer access its team",
+                    {"task_id": locked_task.id},
+                    cause=RuntimeError(f"{credential_owner_kind} credential owner is not an active team member"),
+                )
+
         return create_oauth_access_token(
-            task,
-            scopes=scopes,
+            locked_task,
+            scopes=effective_scopes,
             user=actor_user,
             allow_task_creator_fallback=not is_slack_interaction_state(state),
             loop_id=loop_id if isinstance(loop_id, str) else None,
+            run_state=state,
         )
 
 

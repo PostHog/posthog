@@ -6,12 +6,14 @@ import {
   FolderIcon,
   GithubLogoIcon,
   GitPullRequestIcon,
+  PulseIcon,
   TerminalIcon,
   WarningIcon,
   XIcon,
 } from "@phosphor-icons/react";
 import { Chip, cn } from "@posthog/quill";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
+import { getObjectKind } from "@posthog/ui/utils/objectKinds";
 import { type NodeViewProps, NodeViewWrapper } from "@tiptap/react";
 import { usePasteUndoStore } from "../pasteUndoStore";
 import type { ChipType, MentionChipAttrs } from "./MentionChipNode";
@@ -30,18 +32,24 @@ const typeIconMap: Record<ChipType, React.ComponentType<{ size: number }>> = {
   experiment: FlaskIcon,
   insight: ChartLineIcon,
   feature_flag: FlagIcon,
+  posthog_object: PulseIcon,
 };
 
 function IconCloseButton({
   type,
   iconSize,
+  objectKind,
   onRemove,
 }: {
   type: ChipType;
   iconSize: number;
+  objectKind?: MentionChipAttrs["objectKind"];
   onRemove: () => void;
 }) {
-  const Icon = typeIconMap[type] || FileTextIcon;
+  const Icon =
+    type === "posthog_object" && objectKind
+      ? getObjectKind(objectKind).icon
+      : typeIconMap[type] || FileTextIcon;
 
   return (
     <button
@@ -70,6 +78,7 @@ function DefaultChip({
   type,
   id,
   label,
+  objectKind,
   chipId,
   pastedText,
   selected,
@@ -78,6 +87,7 @@ function DefaultChip({
   type: string;
   id: string;
   label: string;
+  objectKind?: MentionChipAttrs["objectKind"];
   chipId: string | null;
   pastedText: boolean;
   selected: boolean;
@@ -87,7 +97,7 @@ function DefaultChip({
   const canUndoPaste =
     pastedText && chipId !== null && chipId === undoableChipId;
   const isCommand = type === "command";
-  const prefix = isCommand ? "/" : "@";
+  const prefix = isCommand ? "/" : type === "posthog_object" ? "" : "@";
   const isFile = type === "file";
   const isFolder = type === "folder";
   const isGithubRef = type === "github_issue" || type === "github_pr";
@@ -126,6 +136,7 @@ function DefaultChip({
       <IconCloseButton
         type={type as ChipType}
         iconSize={isPr ? 12 : 10}
+        objectKind={objectKind}
         onRemove={onRemove}
       />
       {isGithubRef ? (
@@ -153,7 +164,7 @@ export function MentionChipView({
   editor,
   selected,
 }: NodeViewProps) {
-  const { type, id, label, pastedText, chipId } =
+  const { type, id, label, objectKind, pastedText, chipId } =
     node.attrs as MentionChipAttrs;
 
   const handleRemove = () => {
@@ -172,6 +183,7 @@ export function MentionChipView({
         type={type}
         id={id}
         label={label}
+        objectKind={objectKind}
         chipId={chipId ?? null}
         pastedText={pastedText}
         selected={selected}
