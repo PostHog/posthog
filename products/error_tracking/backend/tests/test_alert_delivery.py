@@ -72,9 +72,17 @@ class TestAlertDelivery(BaseTest):
         kwargs = client.chat_postMessage.call_args.kwargs
         assert kwargs["channel"] == "C0123"
         assert "thread_ts" not in kwargs
+        actions = next(block for block in kwargs["blocks"] if block["type"] == "actions")
+        assert [element.get("action_id") for element in actions["elements"]] == [
+            "error_tracking_issue_resolve",
+            "error_tracking_issue_assign_me",
+            "error_tracking_issue_suppress",
+            None,
+        ]
+        assert actions["elements"][3]["url"].endswith(f"/error_tracking/{self.issue.id}")
         thread = self._thread(alert)
         assert thread is not None
-        assert thread.external_ref == {"channel": "C0123", "ts": "111.222"}
+        assert thread.external_ref == {"channel": "C0123", "ts": "111.222", "headline": "🔴 New issue"}
         assert thread.delivered_event_uuids == ["notif-1"]
 
     def test_redelivered_notification_is_not_reposted(self):
@@ -105,6 +113,35 @@ class TestAlertDelivery(BaseTest):
         thread = self._thread(alert)
         assert thread is not None
         assert thread.delivered_event_uuids == ["notif-1", "notif-2"]
+
+    @parameterized.expand(
+        [
+            ("resolved_strips_actions", "$error_tracking_issue_resolved", "Resolved", True, False),
+            ("reopened_rearms_actions", "$error_tracking_issue_reopened", "Active", True, True),
+            ("assigned_leaves_root_alone", "$error_tracking_issue_assigned", "Active", False, False),
+        ]
+    )
+    def test_status_update_edits_root_message(self, _name, event, status, expect_edit, expect_actions):
+        self._create_alert(triggers=["issue_created"])
+        self._deliver(self._inputs("$error_tracking_issue_created"))
+
+        delivered, client = self._deliver(self._inputs(event, notification_id="notif-2", status=status))
+
+        assert delivered == 1
+        if not expect_edit:
+            client.chat_update.assert_not_called()
+            return
+        client.chat_update.assert_called_once()
+        kwargs = client.chat_update.call_args.kwargs
+        assert kwargs["channel"] == "C0123"
+        assert kwargs["ts"] == "111.222"
+        # The edit keeps the original headline instead of re-deriving one from the update event.
+        assert kwargs["blocks"][0]["text"]["text"].startswith("🔴 New issue")
+        actions = next(block for block in kwargs["blocks"] if block["type"] == "actions")
+        action_ids = [element["action_id"] for element in actions["elements"] if "action_id" in element]
+        assert bool(action_ids) is expect_actions
+        context = next(block for block in kwargs["blocks"] if block["type"] == "context")
+        assert context["elements"][0]["text"] == f"Status: {status}"
 
     def test_update_without_thread_is_skipped(self):
         alert = self._create_alert(triggers=["issue_created"])
