@@ -8,7 +8,6 @@ import { LayoutItem } from 'react-grid-layout'
 import { LemonTableColumns } from '@posthog/lemon-ui'
 
 import { PaginatedResponse } from 'lib/api'
-import { ChartDataset, ChartType, InteractionItem } from 'lib/Chart'
 import { CommonFilters, HeatmapFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { HedgehogActorOptions } from 'lib/components/HedgehogMode/types'
 import { SessionRecordingTriggerGroupsConfig, UrlTriggerConfig } from 'lib/components/IngestionControls/types'
@@ -5271,65 +5270,45 @@ export interface ProjectTreeBreadcrumb extends BreadcrumbBase {
 }
 export type Breadcrumb = LinkBreadcrumb | RenamableBreadcrumb | SymbolBreadcrumb | ProjectTreeBreadcrumb
 
-export type GraphDataset = ChartDataset<ChartType> &
-    Partial<
-        Pick<
-            TrendResult,
-            | 'count'
-            | 'label'
-            | 'days'
-            | 'labels'
-            | 'data'
-            | 'compare'
-            | 'compare_label'
-            | 'status'
-            | 'action'
-            | 'actions'
-            | 'breakdown_value'
-            | 'persons_urls'
-            | 'persons'
-            | 'filter'
-        >
-    > & {
-        /** Used in filtering out visibility of datasets. Set internally by chart.js */
-        id: number
-        /** Toggled on to draw incompleteness lines in LineGraph.tsx */
-        dotted?: boolean
-        /** Array of breakdown values used only in ActionsHorizontalBar/ActionsPie.tsx data */
-        breakdownValues?: (string | number | string[] | undefined)[]
-        /** Array of breakdown labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
-        breakdownLabels?: (string | number | undefined)[]
-        /** Array of compare labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
-        compareLabels?: (CompareLabelType | undefined | null)[]
-        /** Array of persons used only in (ActionsHorizontalBar|ActionsPie).tsx */
-        personsValues?: (Person | undefined | null)[]
-        index?: number
-        /** Value (count) for specific data point; only valid in the context of an xy intercept */
-        pointValue?: number
-        /** Value (count) for specific data point; only valid in the context of an xy intercept */
-        personUrl?: string
-        /** Action/event filter defition */
-        action?: ActionFilter | null
-        yAxisID?: string
-    }
-
-export type GraphPoint = InteractionItem & { dataset: GraphDataset }
-
-interface PointsPayload {
-    pointsIntersectingLine: GraphPoint[]
-    pointsIntersectingClick: GraphPoint[]
-    clickedPointNotLine: boolean
-    referencePoint: GraphPoint
-}
-
-export interface GraphPointPayload {
-    points: PointsPayload
-    index: number
-    value?: number
-    /** Contains the dataset for all the points in the same x-axis point; allows switching between matching points in the x-axis */
-    crossDataset?: GraphDataset[]
-    /** ID for the currently selected series */
-    seriesId?: number
+export type GraphDataset = Partial<
+    Pick<
+        TrendResult,
+        | 'count'
+        | 'label'
+        | 'days'
+        | 'labels'
+        | 'data'
+        | 'compare'
+        | 'compare_label'
+        | 'status'
+        | 'action'
+        | 'actions'
+        | 'breakdown_value'
+        | 'persons_urls'
+        | 'persons'
+        | 'filter'
+    >
+> & {
+    /** Used in filtering out visibility of datasets. Set internally by chart.js */
+    id: number
+    /** Toggled on to draw incompleteness lines in LineGraph.tsx */
+    dotted?: boolean
+    /** Array of breakdown values used only in ActionsHorizontalBar/ActionsPie.tsx data */
+    breakdownValues?: (string | number | string[] | undefined)[]
+    /** Array of breakdown labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
+    breakdownLabels?: (string | number | undefined)[]
+    /** Array of compare labels used only in ActionsHorizontalBar/ActionsPie.tsx data */
+    compareLabels?: (CompareLabelType | undefined | null)[]
+    /** Array of persons used only in (ActionsHorizontalBar|ActionsPie).tsx */
+    personsValues?: (Person | undefined | null)[]
+    index?: number
+    /** Value (count) for specific data point; only valid in the context of an xy intercept */
+    pointValue?: number
+    /** Value (count) for specific data point; only valid in the context of an xy intercept */
+    personUrl?: string
+    /** Action/event filter defition */
+    action?: ActionFilter | null
+    yAxisID?: string
 }
 
 export enum CompareLabelType {
