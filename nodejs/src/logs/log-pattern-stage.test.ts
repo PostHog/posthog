@@ -70,8 +70,6 @@ describe('log-pattern-stage', () => {
 
     it('keeps the batch when masking throws, so a measurement fault cannot DLQ customer logs', async () => {
         const stage = makePatternMaskingStage(1024, 1024)
-        // A throwing getter stands in for any masking fault. Uncontained, this rejects
-        // `processLogMessageBuffer` and sends the whole message to the DLQ.
         const record = makeRecord(null)
         Object.defineProperty(record, 'body', {
             get: () => {
@@ -79,7 +77,6 @@ describe('log-pattern-stage', () => {
             },
         })
 
-        // A throw escaping here fails the test, which is the regression being guarded.
         await stage.run([record])
 
         expect((await logsPatternStageErrorCounter.get()).values[0].value).toEqual(1)

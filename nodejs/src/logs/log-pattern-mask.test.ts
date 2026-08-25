@@ -74,10 +74,7 @@ describe('log-pattern-mask', () => {
 
         it.each([
             ['null body', null, 'empty', ''],
-            // A record decoded from a schema with no `body` field yields undefined, not null.
             ['missing body', undefined, 'empty', ''],
-            // `parseLogBodyForIngestion` calls '' invalid JSON; a body with no pattern in it must
-            // not land on the prose side of the structured-versus-prose split.
             ['empty body', '', 'empty', ''],
             [
                 'json object with message',
@@ -113,7 +110,6 @@ describe('log-pattern-mask', () => {
                 const expected = `<JSON:${keys.slice(0, 32).join(',')},+8>`
                 expect(patternOf(forward)).toEqual(expected)
                 expect(patternOf(reversed)).toEqual(expected)
-                // The key-count metric sees the uncapped count.
                 expect(computeLogPattern(forward, NO_CAP, NO_CAP).jsonKeyCount).toEqual(40)
             })
 
@@ -140,10 +136,6 @@ describe('log-pattern-mask', () => {
     })
 
     describe('PATTERN_VERSION ratchet', () => {
-        // A stored pattern only compares to another from the same rule set, so PATTERN_VERSION has to
-        // move whenever the rules or their order do. Nothing reads the constant yet, so nothing else
-        // notices a rule change that forgot the bump. When this fails, bump PATTERN_VERSION and the
-        // digest below together, in the same commit.
         it('moves whenever MASK_RULES changes', () => {
             const digest = createHash('sha256')
                 .update(MASK_RULES.map((rule) => `${rule.name}\0${rule.pattern}\0${rule.replacement}`).join('\x01'))
@@ -166,7 +158,6 @@ describe('log-pattern-mask', () => {
     })
 
     describe('node/ClickHouse agreement', () => {
-        // The rule set was validated in ClickHouse as a sequential replaceRegexpAll chain.
         const sequentialChain = (input: string): string =>
             MASK_RULES.reduce((acc, rule) => acc.replace(new RE2(rule.pattern, 'g'), rule.replacement), input)
 

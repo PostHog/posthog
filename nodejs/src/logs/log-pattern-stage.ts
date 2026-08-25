@@ -6,12 +6,6 @@ import { MASK_RULES, computeLogPattern } from './log-pattern-mask'
 import type { LogRecord } from './log-record-avro'
 import type { PipelineStage } from './pipeline/log-processing-pipeline'
 
-/**
- * Measure-only stage: computes a pattern per surviving record, records metrics, discards the
- * pattern. It re-parses each body because earlier stages can mutate it after normalize.
- * No `team_id` labels: per-team labels would blow up Prometheus cardinality.
- */
-
 export const logsPatternBodyKindCounter = new Counter({
     name: 'logs_ingestion_pattern_body_kind_total',
     help: 'Log bodies seen by the pattern masking stage, split by parse outcome. The structured-versus-prose split.',
@@ -62,16 +56,12 @@ const positiveIntOr = (value: number, fallback: number): number =>
     Number.isInteger(value) && value > 0 ? value : fallback
 
 export function makePatternMaskingStage(maxInputChars: number, maxOutputChars: number): PipelineStage {
-    // A NaN cap would silently disable both limits and a negative one hits negative-slice semantics.
     const inputCap = positiveIntOr(maxInputChars, DEFAULT_PATTERN_MAX_INPUT_CHARS)
     const outputCap = positiveIntOr(maxOutputChars, DEFAULT_PATTERN_MAX_OUTPUT_CHARS)
     return {
         kind: 'mutate',
         name: 'pattern_masking',
         run: (records) => {
-            // Contained: this stage produces measurements, not records. Letting a throw out would
-            // reject the message and DLQ customer logs to protect a number, so lose the batch's
-            // metrics instead and count that it happened.
             try {
                 measureBatch(records, inputCap, outputCap)
             } catch {
@@ -104,7 +94,6 @@ function measureBatch(records: LogRecord[], inputCap: number, outputCap: number)
         }
     }
 
-    // One increment per label per batch (not per record) to keep the hot path cheap.
     for (const [kind, count] of kindCounts) {
         logsPatternBodyKindCounter.inc({ kind }, count)
     }

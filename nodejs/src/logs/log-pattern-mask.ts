@@ -1,28 +1,17 @@
-/**
- * Replace the variable parts of a log body with placeholders so the remaining shape is a stable
- * pattern identity. One combined alternation regex, one pass; alternation order is rule priority.
- * Rules must stay RE2-safe (bodies are attacker-controlled); a test ratchet enforces this.
- */
 import { createTrackedRE2 } from '~/common/utils/tracked-re2'
 
 import { parseLogBodyForIngestion } from './log-body-parse'
 
-/** A rule change re-keys every pattern, so bump this in the same commit as any rule change. */
 export const PATTERN_VERSION = 1
 
 export type MaskRuleName = 'timestamp' | 'uuid' | 'email' | 'hex0x' | 'hex' | 'ipv4' | 'num'
 
 export type MaskRule = {
     name: MaskRuleName
-    /** RE2-safe source with no capturing groups; the combined regex wraps it in one. */
     pattern: string
     replacement: string
 }
 
-/**
- * Order is load-bearing: `timestamp` and `ipv4` before `num`, `email` before anything claiming
- * part of an address. `num` drops the trailing `\b` on purpose so `7141ms` masks to `<N>ms`.
- */
 export const MASK_RULES: readonly MaskRule[] = [
     {
         name: 'timestamp',
@@ -34,7 +23,6 @@ export const MASK_RULES: readonly MaskRule[] = [
         pattern: '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}',
         replacement: '<UUID>',
     },
-    // Copied from `log-pii-scrub.ts` on purpose: sharing it would tie scrub edits to PATTERN_VERSION.
     { name: 'email', pattern: '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}', replacement: '<EMAIL>' },
     { name: 'hex0x', pattern: '\\b0x[0-9a-fA-F]+\\b', replacement: '<HEX>' },
     { name: 'hex', pattern: '\\b[0-9a-fA-F]{16,}\\b', replacement: '<HEX>' },
@@ -42,10 +30,8 @@ export const MASK_RULES: readonly MaskRule[] = [
     { name: 'num', pattern: '\\b\\d+', replacement: '<N>' },
 ]
 
-/** Bucket for JSON array bodies; key-set identity only applies to objects. */
 export const JSON_ARRAY = '<JSON_ARRAY>'
 
-/** Over the cap, the key-set pattern keeps the first keys after sorting and appends `,+N`. */
 const KEY_SET_MAX_KEYS = 32
 
 const MASK_COMBINED_RE = createTrackedRE2(
@@ -56,7 +42,6 @@ const MASK_COMBINED_RE = createTrackedRE2(
 
 export type MaskResult = {
     masked: string
-    /** Match counts aligned with `MASK_RULES` by index. */
     ruleFires: number[]
 }
 
@@ -77,14 +62,10 @@ export function maskString(input: string): MaskResult {
 export type PatternBodyKind = 'empty' | 'invalid_json' | 'json_object_or_array' | 'json_string' | 'primitive'
 
 export type LogPatternResult = {
-    /** Masked, then truncated to `maxOutputChars`. */
     pattern: string
     bodyKind: PatternBodyKind
-    /** True when the body exceeded `maxInputChars` and was cut before masking. */
     inputCapped: boolean
-    /** Masked length before truncation. */
     maskedLength: number
-    /** Top-level key count when the pattern is a key-set identity; absent otherwise. */
     jsonKeyCount?: number
     ruleFires: number[]
 }
@@ -104,11 +85,6 @@ function extractJsonMessage(value: object): string | null {
     return null
 }
 
-/**
- * Sorted top-level key list as a deterministic identity for message-less JSON objects: sort so
- * source key order does not matter, top-level only, keys verbatim. Keys are schema, not values,
- * so the mask rules never run on this pattern.
- */
 function jsonKeySetPattern(value: object): string {
     const keys = Object.keys(value).sort()
     const kept = keys.slice(0, KEY_SET_MAX_KEYS)
@@ -116,23 +92,15 @@ function jsonKeySetPattern(value: object): string {
     return `<JSON:${kept.join(',')}${overflow > 0 ? `,+${overflow}` : ''}>`
 }
 
-/**
- * Cap the input, mask, then truncate the masked result. Mask before truncate so masking shortens
- * the line first and more real content survives the cut.
- */
 export function computeLogPattern(
     body: string | null | undefined,
     maxInputChars: number,
     maxOutputChars: number
 ): LogPatternResult {
-    // Nullish, not `=== null`: a record decoded from a schema with no `body` field yields undefined.
-    // `''` belongs here too — `parseLogBodyForIngestion` calls it invalid JSON, which would file a
-    // body carrying no pattern on the prose side of the structured-versus-prose split.
     if (body === null || body === undefined || body === '') {
         return { pattern: '', bodyKind: 'empty', inputCapped: false, maskedLength: 0, ruleFires: [] }
     }
 
-    // Cap before parsing so the ceiling guards the JSON.parse too; a capped JSON body parses as prose.
     const inputCapped = body.length > maxInputChars
     const cappedBody = inputCapped ? body.slice(0, maxInputChars) : body
     const parsed = parseLogBodyForIngestion(cappedBody)
