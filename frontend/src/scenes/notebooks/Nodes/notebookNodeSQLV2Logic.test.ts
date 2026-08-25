@@ -9,7 +9,7 @@ import { initKeaTests } from '~/test/init'
 import { buildMarkdownNotebookContent, serializeMarkdownNotebookComponent } from '../Notebook/markdownNotebookV2'
 import { notebookSettingsLogic } from '../Notebook/notebookSettingsLogic'
 import { NotebookNodeType } from '../types'
-import { collectSqlV2Refs, notebookNodeSQLV2Logic } from './notebookNodeSQLV2Logic'
+import { collectSqlV2Refs, notebookNodeSQLV2Logic, pollIntervalMs } from './notebookNodeSQLV2Logic'
 
 describe('notebookNodeSQLV2Logic', () => {
     let logic: ReturnType<typeof notebookNodeSQLV2Logic.build>
@@ -135,6 +135,22 @@ describe('notebookNodeSQLV2Logic', () => {
             // Without a persisted nodeId the cell falls back to its parsed fingerprint id.
             expect(refs.df3?.node_id).toMatch(/^mdn-/)
             expect(refs.new_events).toEqual(local('py'))
+        })
+    })
+
+    describe('pollIntervalMs', () => {
+        // The steps are ordered slowest first and the lookup takes the first match, so
+        // reordering them silently returns one cadence for every wait. That changes how many
+        // requests a long-running cell makes by several times over, and nothing else catches it.
+        it.each([
+            [0, 1_000],
+            [29_999, 1_000],
+            [30_000, 2_000],
+            [119_999, 2_000],
+            [120_000, 5_000],
+            [20 * 60 * 1_000, 5_000],
+        ])('waits %ims into a run, so it polls every %ims', (waitedMs, expected) => {
+            expect(pollIntervalMs(waitedMs)).toEqual(expected)
         })
     })
 
