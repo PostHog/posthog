@@ -6,6 +6,7 @@ from typing import Optional, Union
 
 from django.db.models import F, Q
 
+import sqlparse
 import structlog
 from pydantic import ValidationError
 
@@ -230,10 +231,14 @@ def sanitize_prompt(raw: str | None) -> str:
 def _extract_embedded_hogql(prompt: str) -> list[str]:
     """Return each valid fenced HogQL query within the plan-step limit."""
     matches = list(_EMBEDDED_HOGQL_RE.finditer(prompt))
-    if not matches or len(matches) > MAX_QUERY_PLAN_STEPS:
+    if not matches:
         return []
-    hogql_queries = [match.group("hogql").strip() for match in matches]
-    if any(";" in hogql or len(hogql) > 5000 for hogql in hogql_queries):
+    hogql_queries = [statement.strip() for match in matches for statement in sqlparse.split(match.group("hogql"))]
+    if (
+        not hogql_queries
+        or len(hogql_queries) > MAX_QUERY_PLAN_STEPS
+        or any(not re.match(r"(?:SELECT|WITH)\b", hogql, re.IGNORECASE) or len(hogql) > 5000 for hogql in hogql_queries)
+    ):
         return []
     return hogql_queries
 

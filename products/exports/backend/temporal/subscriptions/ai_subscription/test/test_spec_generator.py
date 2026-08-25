@@ -152,14 +152,13 @@ WITH recent AS (SELECT * FROM events WHERE timestamp >= now() - INTERVAL 7 DAY) 
             "WITH recent AS (SELECT * FROM events WHERE timestamp >= now() - INTERVAL 7 DAY) SELECT count() FROM recent",
         ]
 
-    @pytest.mark.parametrize(
-        "prompt",
-        [
-            "```sql\nSELECT 1; SELECT 2\n```",
-        ],
-    )
-    def test_ignores_multi_statement_sql(self, prompt: str) -> None:
-        assert _extract_embedded_hogql(prompt) == []
+    def test_extracts_multiple_hogql_statements_from_one_fenced_block(self) -> None:
+        prompt = "```sql\nSELECT 1; SELECT 2\n```"
+
+        assert _extract_embedded_hogql(prompt) == ["SELECT 1;", "SELECT 2"]
+
+    def test_ignores_non_select_statements(self) -> None:
+        assert _extract_embedded_hogql("```sql\nSELECT 1; DELETE FROM events\n```") == []
 
 
 class TestNoDataEventNames(APIBaseTest):
