@@ -19,7 +19,12 @@ from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.exceptions import OAuthTokenError, SandboxExecutionError, SandboxMissingRepositoryError
 from products.tasks.backend.logic.services.connection_token import create_sandbox_event_ingest_token
-from products.tasks.backend.logic.services.sandbox import REPO_READY_FILE, Sandbox, SandboxBase, sandbox_repo_path
+from products.tasks.backend.logic.services.sandbox import (
+    REPO_READY_FILE,
+    SandboxBase,
+    get_sandbox_class_for_sandbox_id,
+    sandbox_repo_path,
+)
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.metrics import (
     StepTimer,
@@ -489,7 +494,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
     ):
         emit_agent_log(ctx.run_id, "debug", "Starting agent server")
 
-        sandbox = Sandbox.get_by_id(input.sandbox_id)
+        sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
         # Classic (non-deferred) path only: any clone has already happened by now, so a missing
         # repo directory can never appear later. The deferred/overlap path clones in parallel
         # and gates the session on the repo-ready barrier instead.
@@ -538,7 +543,7 @@ def launch_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
     ):
         emit_agent_log(ctx.run_id, "debug", "Launching agent server (deferred readiness)")
 
-        sandbox = Sandbox.get_by_id(input.sandbox_id)
+        sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
         params = _prepare_launch(ctx, input.posthog_mcp_scopes, input.sandbox_id)
 
         repo_ready_file = REPO_READY_FILE if input.defer_for_clone else None
@@ -559,7 +564,7 @@ def launch_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
 @activity.defn
 @asyncify
 def mark_repo_ready(input: MarkRepoReadyInput) -> None:
-    sandbox = Sandbox.get_by_id(input.sandbox_id)
+    sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
     for repository in input.failed_repositories or []:
         repo_path = sandbox_repo_path(repository)
         result = sandbox.execute(f"mkdir -p {shlex.quote(repo_path)}", timeout_seconds=10)
@@ -588,7 +593,7 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
         sandbox_id=input.sandbox_id,
         **ctx.to_log_context(),
     ):
-        sandbox = Sandbox.get_by_id(input.sandbox_id)
+        sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
         agentsh_domains = _agentsh_domains_for(ctx)
         attempt = current_activity_attempt()
         runtime = sandbox_runtime_label(ctx.use_modal_vm_sandbox)

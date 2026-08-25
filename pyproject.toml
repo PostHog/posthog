@@ -205,6 +205,7 @@ dependencies = [
     "wrapt==1.17.3",
     "limits==5.8.0",
     "deltalite==0.1.7",
+    "posthog-hogland==0.3.1",
 ]
 
 [dependency-groups]

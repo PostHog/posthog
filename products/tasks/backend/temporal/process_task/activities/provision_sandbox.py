@@ -57,6 +57,7 @@ from products.tasks.backend.logic.services.sandbox import (
     SandboxConfig,
     SandboxTemplate,
     get_sandbox_class,
+    get_sandbox_class_for_sandbox_id,
     sandbox_repo_path,
     workload_for_origin_product,
 )
@@ -923,7 +924,10 @@ async def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) 
                 )
 
     if creation_after_cancellation is not None:
-        sandbox = await asyncio.to_thread(Sandbox.get_by_id, creation_after_cancellation.sandbox_id)
+        sandbox = await asyncio.to_thread(
+            get_sandbox_class_for_sandbox_id(creation_after_cancellation.sandbox_id).get_by_id,
+            creation_after_cancellation.sandbox_id,
+        )
         try:
             await asyncio.to_thread(sandbox.destroy)
         finally:
@@ -950,7 +954,7 @@ def clone_repository_in_sandbox(input: CloneRepositoryInSandboxInput) -> CloneRe
         **ctx.to_log_context(),
     ):
         emit_agent_log(ctx.run_id, "debug", f"Cloning {input.repository} into sandbox")
-        sandbox = Sandbox.get_by_id(input.sandbox_id)
+        sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
 
         state = ctx.state or {}
         is_resume = bool(state.get("resume_from_run_id") or state.get("handoff_resumed"))
@@ -1032,7 +1036,7 @@ def checkout_branch_in_sandbox(input: CheckoutBranchInSandboxInput) -> CheckoutB
         **ctx.to_log_context(),
     ):
         emit_agent_log(ctx.run_id, "debug", f"Checking out branch {input.branch}")
-        sandbox = Sandbox.get_by_id(input.sandbox_id)
+        sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
 
         org, repo = input.repository.lower().split("/")
         repo_path = f"/tmp/workspace/repos/{org}/{repo}"
@@ -1197,7 +1201,7 @@ def inject_fresh_tokens_on_resume(input: InjectFreshTokensOnResumeInput) -> None
                 cause=e,
             )
 
-        sandbox = Sandbox.get_by_id(input.sandbox_id)
+        sandbox = get_sandbox_class_for_sandbox_id(input.sandbox_id).get_by_id(input.sandbox_id)
 
         if input.repository:
             set_git_remote_token(sandbox, input.repository, github_token or None)
