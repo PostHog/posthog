@@ -174,12 +174,11 @@ def _create_observation(inputs: CreateObservationInputs) -> CreateObservationOut
             # the cap; uncapped scanners keep the lock-free path. The limit is re-read under the lock.
             if scanner.credit_limit is not None:
                 lock_started = time.monotonic()
-                # nowait: a contended admission fails fast and retries via the activity's backoff
-                # (1s..10s, jittered) instead of camping on the scanner row. Queueing here is what
-                # convoyed the writer during the 2026-08 lock storms: dozens of admissions parked on
-                # one row, each holding its own locks while waiting, and activities killed at
-                # start_to_close (30s) left their statements waiting server-side. Failing fast keeps
-                # cap enforcement fully serialized while letting Temporal spread the herd.
+                # nowait: a contended admission fails fast (retryable ScannerAdmissionBusy) and
+                # retries via the activity's jittered backoff instead of queueing on the scanner
+                # row. Queueing here lets waiters hold their own locks while parked — and an
+                # activity killed at start_to_close leaves its statement waiting server-side —
+                # so failing fast keeps cap enforcement serialized without a lock queue.
                 locked = (
                     ReplayScanner.objects.select_for_update(nowait=True)
                     .filter(pk=scanner.pk)

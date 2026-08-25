@@ -546,16 +546,26 @@ class TestCreateObservationActivity:
         def admit(session_id: str) -> None:
             barrier.wait()
             try:
-                created[session_id] = create_observation_activity(
-                    CreateObservationInputs(
-                        scanner_id=scanner.id,
-                        team_id=scanner.team_id,
-                        session_id=session_id,
-                        triggered_by=ObservationTrigger.SCHEDULE,
-                        triggered_by_user_id=None,
-                        workflow_id=f"wf-{session_id}",
-                    )
-                ).was_created
+                # The contended admission now fails fast with a retryable ScannerAdmissionBusy
+                # instead of queueing on the scanner row; retry like Temporal's activity retry
+                # would, then assert the cap invariant exactly as before.
+                for _ in range(50):
+                    try:
+                        created[session_id] = create_observation_activity(
+                            CreateObservationInputs(
+                                scanner_id=scanner.id,
+                                team_id=scanner.team_id,
+                                session_id=session_id,
+                                triggered_by=ObservationTrigger.SCHEDULE,
+                                triggered_by_user_id=None,
+                                workflow_id=f"wf-{session_id}",
+                            )
+                        ).was_created
+                        break
+                    except ApplicationError as e:
+                        if e.type != "ScannerAdmissionBusy":
+                            raise
+                        time.sleep(0.05)
             finally:
                 # Dropping the worker's own connection avoids stranding its lock transaction past teardown.
                 connections.close_all()
