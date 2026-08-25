@@ -333,6 +333,28 @@ describe('integrationsLogic', () => {
                 expect(successSpy.mock.calls).toEqual(expectSuccess ? [['Integration successful.']] : [])
                 expect(errorSpy).toHaveBeenCalledTimes(expectSuccess ? 0 : 1)
             })
+
+            it('reads the baseline and recovery lists against the team that started the flow', async () => {
+                // The create targets the initiating team, so both reads that decide "did a new
+                // integration appear?" must query that same team. A read against the current team
+                // would miss a create that succeeded in the initiating team and toast an error over
+                // a working connection.
+                const scopedState =
+                    'next=%2Fproject%2F228502%2Fsettings%2Fproject-integrations&token=csrf-tok&team_id=228502'
+                createSpy.mockRejectedValue(new ApiError('Bad request', 400))
+                const listSpy = jest.spyOn(apiReal.integrations, 'list').mockResolvedValue({ results: [] })
+                jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast')
+
+                await expectLogic(logic, () => {
+                    logic.actions.handleOauthCallback('slack' as IntegrationKind, {
+                        state: scopedState,
+                        code: 'scoped-code',
+                    })
+                }).toFinishAllListeners()
+
+                // Baseline (before the create) and recovery (after the failed create) both hit 228502.
+                expect(listSpy.mock.calls.filter((call) => call[0] === 228502)).toHaveLength(2)
+            })
         })
     })
 })

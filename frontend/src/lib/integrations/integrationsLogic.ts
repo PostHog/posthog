@@ -1105,12 +1105,14 @@ export const integrationsLogic = kea<integrationsLogicType>([
             // Snapshot the integrations of this kind that exist before this attempt, so a failed
             // create can tell a newly connected integration from one that already existed. This is a
             // fresh full-page mount, so values.integrations is usually still null here (the initial
-            // load is racing) — read the server directly instead of trusting the loader. If the
-            // baseline read fails we leave it null, and a later create failure stays a failure rather
-            // than a false success.
+            // load is racing) — read the server directly instead of trusting the loader. Scope the
+            // read to the team that started the flow (the team the create targets), so both sides of
+            // the comparison describe the same project even when the SPA re-resolved to a different
+            // current team. If the baseline read fails we leave it null, and a later create failure
+            // stays a failure rather than a false success.
             let priorIds: Set<IntegrationType['id']> | null = null
             try {
-                const priorList = await api.integrations.list()
+                const priorList = await api.integrations.list(initiatingTeamId)
                 priorIds = new Set(priorList.results.filter((i) => i.kind === resolvedKind).map((i) => i.id))
             } catch {
                 priorIds = null
@@ -1136,7 +1138,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 if (priorIds) {
                     const baseline = priorIds
                     try {
-                        const res = await api.integrations.list()
+                        const res = await api.integrations.list(initiatingTeamId)
                         connected = res.results.some((i) => i.kind === resolvedKind && !baseline.has(i.id))
                     } catch {
                         // Fall through to the original error if we can't confirm.
