@@ -189,19 +189,24 @@ export const getNuxtServerSteps = (ctx: OnboardingComponentsContext): StepDefini
     ]
 }
 
-export const getNuxtSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
-    const { snippets } = ctx
-    const JSEventCapture = snippets?.JSEventCapture
+export const getNuxtInstallSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getNuxtClientSteps(ctx),
+    ...getNuxtServerSteps(ctx),
+]
 
-    return [
-        ...getNuxtClientSteps(ctx),
-        ...getNuxtServerSteps(ctx),
-        {
-            title: 'Send events',
-            badge: undefined,
-            content: <>{JSEventCapture && <JSEventCapture />}</>,
-        },
-    ]
+export const getNuxtEventStep = (ctx: OnboardingComponentsContext): StepDefinition => {
+    const JSEventCapture = ctx.snippets?.JSEventCapture
+
+    return {
+        title: 'Send events',
+        badge: undefined,
+        content: <>{JSEventCapture && <JSEventCapture />}</>,
+    }
 }
+
+export const getNuxtSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => [
+    ...getNuxtInstallSteps(ctx),
+    getNuxtEventStep(ctx),
+]
 
 export const NuxtInstallation = createInstallation(getNuxtSteps)

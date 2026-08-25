@@ -3,6 +3,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import type { ContentBlock } from "@agentclientprotocol/sdk";
+import { LRUCache } from "lru-cache";
 import { isNotification, POSTHOG_NOTIFICATIONS } from "../../../acp-extensions";
 import { DEFAULT_GATEWAY_MODEL } from "../../../gateway-models";
 import type { PostHogAPIClient } from "../../../posthog-api";
@@ -557,6 +558,24 @@ interface HydrationLog {
   warn: (msg: string, data?: unknown) => void;
 }
 
+// Every reconnect re-runs sanitize, and the read + per-line parse of a large
+// transcript costs seconds. Files whose stat matches the last clean pass are
+// skipped; the SDK only ever appends, which changes size and mtime.
+const sanitizedFileStats = new LRUCache<
+  string,
+  { mtimeMs: number; size: number }
+>({ max: 256 });
+
+function recordSanitized(
+  jsonlPath: string,
+  stat: { mtimeMs: number; size: number },
+): void {
+  sanitizedFileStats.set(jsonlPath, {
+    mtimeMs: stat.mtimeMs,
+    size: stat.size,
+  });
+}
+
 // Heals a persisted transcript that would otherwise 400 on every resume:
 // empty content blocks, missing tool_use.input, and images the API can't
 // process (unsupported type or over the per-image byte limit). The image case
@@ -569,6 +588,14 @@ export async function sanitizeSessionJsonl(
   let statBefore: { mtimeMs: number; size: number };
   try {
     statBefore = await fs.stat(jsonlPath);
+    const lastClean = sanitizedFileStats.get(jsonlPath);
+    if (
+      lastClean &&
+      lastClean.mtimeMs === statBefore.mtimeMs &&
+      lastClean.size === statBefore.size
+    ) {
+      return false;
+    }
     raw = await fs.readFile(jsonlPath, "utf8");
   } catch {
     return false;
@@ -607,12 +634,19 @@ export async function sanitizeSessionJsonl(
     return JSON.stringify(parsed);
   });
 
-  if (!changed) return false;
+  if (!changed) {
+    recordSanitized(jsonlPath, statBefore);
+    return false;
+  }
 
   const tmpPath = `${jsonlPath}.tmp.${Date.now()}`;
   let renamed = false;
   try {
     await fs.writeFile(tmpPath, sanitized.join("\n"));
+    // Memoize the tmp file's stat: rename preserves it, so recording it after
+    // the rename leaves no window where bytes appended by a concurrent writer
+    // could be certified clean (they would already mismatch this stat).
+    const statTmp = await fs.stat(tmpPath);
     // A concurrent writer may still own the file; abort rather than clobber
     // lines appended since the read. The next resume retries.
     const statNow = await fs.stat(jsonlPath);
@@ -624,6 +658,7 @@ export async function sanitizeSessionJsonl(
     }
     await fs.rename(tmpPath, jsonlPath);
     renamed = true;
+    recordSanitized(jsonlPath, statTmp);
     return true;
   } finally {
     if (!renamed) {

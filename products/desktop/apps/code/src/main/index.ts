@@ -104,6 +104,7 @@ import { isMacosPackagedUnsafeBundleLocation } from "./utils/macos-packaged-inst
 import { installMainFetchLogging } from "./utils/network-fetch-logger";
 import { installRendererNetworkLogging } from "./utils/network-webrequest-logger";
 import { createWindow, onMainWindowClosed } from "./window";
+import { installYoutubeEmbedReferrer } from "./youtube-embed-referrer";
 
 type FileWatcherEventsByKind = {
   [K in FileWatcherEvent["kind"]]: Extract<FileWatcherEvent, { kind: K }>;
@@ -368,6 +369,7 @@ app.whenReady().then(async () => {
     session.fromPartition("persist:main").webRequest,
     container.get<DevNetworkService>(DEV_NETWORK_SERVICE),
   );
+  installYoutubeEmbedReferrer(session.fromPartition("persist:main").webRequest);
   createWindow();
   setupQuickAsk();
   // The hidden quick-ask panel must not keep the app alive after the main

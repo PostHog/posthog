@@ -237,6 +237,8 @@ def _apply_filters(
             account_links__account_id__in=account_filter_ids,
             account_links__unlinked_at__isnull=True,
         )
+    if filters.created_by_ids:
+        queryset = queryset.filter(created_by_id__in=filters.created_by_ids)
     if filters.archive_state == "active":
         queryset = queryset.filter(archived_at__isnull=True)
     elif filters.archive_state == "archived":
@@ -421,6 +423,7 @@ def _ensure_initial_history(
     *,
     accounts: list[Account] | None = None,
     product_areas: list[FeatureRequestProductArea] | None = None,
+    evidence: FeatureRequestEvidence | None = None,
 ) -> None:
     if accounts is None:
         accounts = list(
@@ -435,21 +438,30 @@ def _ensure_initial_history(
                 request_links__feature_request=feature_request
             )
         )
+    changes: list[contracts.FeatureRequestHistoryChange] = [
+        {"field": "status", "before": None, "after": feature_request.status},
+        {"field": "priority", "before": None, "after": feature_request.priority},
+        {"field": "accounts", "before": [], "after": _account_snapshots(accounts)},
+        {
+            "field": "product_areas",
+            "before": [],
+            "after": _product_area_snapshots(product_areas),
+        },
+    ]
+    if evidence is not None:
+        changes.append(
+            {
+                "field": "evidence",
+                "before": None,
+                "after": _evidence_snapshot(evidence),
+            }
+        )
     FeatureRequestHistory.objects.for_team(feature_request.team_id).get_or_create(
         team_id=feature_request.team_id,
         feature_request=feature_request,
         is_initial=True,
         defaults={
-            "changes": [
-                {"field": "status", "before": None, "after": feature_request.status},
-                {"field": "priority", "before": None, "after": feature_request.priority},
-                {"field": "accounts", "before": [], "after": _account_snapshots(accounts)},
-                {
-                    "field": "product_areas",
-                    "before": [],
-                    "after": _product_area_snapshots(product_areas),
-                },
-            ],
+            "changes": changes,
             "source": FeatureRequestHistorySource.MANUAL,
             "actor_id": feature_request.created_by_id,
             "changed_at": feature_request.created_at,
@@ -576,6 +588,10 @@ def create_feature_request(
     if not input.product_area_ids:
         raise FeatureRequestValidationError("product_area_ids", "Select at least one product area.")
 
+    evidence_input = input.evidence
+    validated_evidence = (
+        _validate_evidence(team_id=team_id, input=evidence_input) if evidence_input is not None else None
+    )
     existing = FeatureRequest.objects.for_team(team_id).filter(idempotency_key=input.idempotency_key).first()
     if existing is not None:
         accessible_existing = _feature_request_queryset(team_id, user_access_control).filter(id=existing.id).first()
@@ -613,11 +629,25 @@ def create_feature_request(
             },
         )
         if created:
-            FeatureRequestAccountLink.objects.for_team(team_id).create(
+            account_link = FeatureRequestAccountLink.objects.for_team(team_id).create(
                 team_id=team_id,
                 feature_request=feature_request,
                 account=accessible_account,
             )
+            initial_evidence = None
+            if validated_evidence is not None and evidence_input is not None:
+                initial_evidence = FeatureRequestEvidence.objects.for_team(team_id).create(
+                    team_id=team_id,
+                    account_link=account_link,
+                    summary=validated_evidence.summary,
+                    customer_quote=validated_evidence.customer_quote,
+                    source=validated_evidence.source,
+                    source_url=validated_evidence.source_url,
+                    requested_on=evidence_input.requested_on,
+                    image_ids=list(validated_evidence.image_ids),
+                    created_by_id=actor_id,
+                    updated_by_id=actor_id,
+                )
             FeatureRequestProductAreaLink.objects.for_team(team_id).bulk_create(
                 [
                     FeatureRequestProductAreaLink(
@@ -632,6 +662,7 @@ def create_feature_request(
                 feature_request,
                 accounts=[accessible_account],
                 product_areas=product_areas,
+                evidence=initial_evidence,
             )
 
     return contracts.FeatureRequestCreateOutcome(
@@ -827,8 +858,17 @@ def _validate_evidence(
         if requested_image_ids is None
         else _validate_image_ids(team_id=team_id, image_ids=requested_image_ids)
     )
-    if not summary and not customer_quote and not source_url and not image_ids:
-        raise FeatureRequestValidationError("evidence", "Enter a summary, customer quote, source URL, or image.")
+    if (
+        not summary
+        and not customer_quote
+        and not source_url
+        and not image_ids
+        and input.requested_on is None
+        and input.evidence_source == "conversation"
+    ):
+        raise FeatureRequestValidationError(
+            "evidence", "Enter a summary, customer quote, source URL, image, request date, or change the source."
+        )
     if source_url:
         parsed_url = urlparse(source_url)
         if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:

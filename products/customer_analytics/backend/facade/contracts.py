@@ -290,6 +290,79 @@ AccountTableFilter = (
 )
 
 
+class AccountTrackRuleFieldKind(str, Enum):
+    ACCOUNT_FIELD = "account_field"
+    CUSTOM_PROPERTY = "custom_property"
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRuleField:
+    kind: AccountTrackRuleFieldKind
+    field: AccountTableField | None = None
+    definition_id: UUID | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRuleCondition:
+    field: AccountTrackRuleField
+    operator: str
+    values: tuple[float | bool | str, ...] = ()
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRuleGroup:
+    conditions: tuple[AccountTrackRuleCondition, ...]
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRulesConfig:
+    schema_version: int = 1
+    version: int = 0
+    enabled: bool = False
+    groups: tuple[AccountTrackRuleGroup, ...] = ()
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRuleSample:
+    id: UUID
+    name: str
+    external_id: str | None
+    rule_values: dict[str, float | bool | str | None]
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRulePreview:
+    config_version: int
+    eligible_active: int
+    skipped_churned: int
+    tracked: int
+    ignored: int
+    newly_ignored: int
+    restored: int
+    tracked_samples: tuple[AccountTrackRuleSample, ...]
+    ignored_samples: tuple[AccountTrackRuleSample, ...]
+    validation_errors: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, kw_only=True)
+class AccountTrackRuleRunView:
+    id: UUID
+    config_version: int
+    trigger: str
+    status: str
+    eligible_active: int
+    skipped_churned: int
+    tracked: int
+    ignored: int
+    newly_ignored: int
+    restored: int
+    started_at: datetime | None
+    finished_at: datetime | None
+    error: str | None
+    created_by: int | None
+    created_at: datetime
+
+
 class AccountTableSortKind(str, Enum):
     ACCOUNT_FIELD = "account_field"
     TAGS = "tags"
@@ -672,8 +745,19 @@ class FeatureRequestListFilters:
     priorities: tuple[str, ...] = ()
     product_area_ids: tuple[UUID, ...] = ()
     account_ids: tuple[UUID, ...] = ()
+    created_by_ids: tuple[int, ...] = ()
     archive_state: str = "active"
     ordering: str = "-updated_at"
+
+
+@dataclass(frozen=True)
+class FeatureRequestEvidenceInput:
+    summary: str
+    customer_quote: str
+    evidence_source: str
+    source_url: str
+    requested_on: date | None
+    image_ids: tuple[UUID, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -683,6 +767,7 @@ class CreateFeatureRequestInput:
     account_id: UUID
     product_area_ids: tuple[UUID, ...]
     idempotency_key: UUID
+    evidence: FeatureRequestEvidenceInput | None = None
 
 
 @dataclass(frozen=True)
@@ -701,16 +786,6 @@ class UpdateFeatureRequestInput:
     request_status: str | None = None
     request_priority: str | None = None
     request_priority_is_set: bool = False
-
-
-@dataclass(frozen=True)
-class FeatureRequestEvidenceInput:
-    summary: str
-    customer_quote: str
-    evidence_source: str
-    source_url: str
-    requested_on: date | None
-    image_ids: tuple[UUID, ...] = ()
 
 
 @dataclass(frozen=True)

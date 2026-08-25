@@ -512,6 +512,9 @@ const visionScannersEstimateCreate = (): ToolBase<
         if (params.model !== undefined) {
             body['model'] = params.model
         }
+        if (params.experiment_targeting !== undefined) {
+            body['experiment_targeting'] = params.experiment_targeting
+        }
         const result = await context.api.request<Schemas.EstimateResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/estimate/`,

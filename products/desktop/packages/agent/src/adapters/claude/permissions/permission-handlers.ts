@@ -16,6 +16,7 @@ import {
 import { text } from "../../../utils/acp-content";
 import type { Logger } from "../../../utils/logger";
 import { qualifiedLocalToolName } from "../../local-tools";
+import { SHOW_ACTIONS_TOOL_NAME } from "../../local-tools/tools/show-actions";
 import { SPEAK_TOOL_NAME } from "../../local-tools/tools/speak";
 import { toolInfoFromToolUse } from "../conversion/tool-use-to-acp";
 import {
@@ -42,7 +43,13 @@ import {
   buildPermissionOptions,
 } from "./permission-options";
 
-const SPEAK_TOOL_ID = qualifiedLocalToolName(SPEAK_TOOL_NAME);
+// Local tools whose handler only acknowledges: the agent process cannot reach the user's
+// speakers or window, so the desktop renderer does the work off the surfaced call. Prompting
+// for these asks the user to approve something that has already happened to them.
+const NO_OP_LOCAL_TOOL_IDS = new Set([
+  qualifiedLocalToolName(SPEAK_TOOL_NAME),
+  qualifiedLocalToolName(SHOW_ACTIONS_TOOL_NAME),
+]);
 
 export type ToolPermissionResult =
   | {
@@ -826,10 +833,8 @@ export async function canUseTool(
       return { behavior: "deny", message, interrupt: false };
     }
 
-    // Narration is a fire-and-forget no-op on the agent side; a permission
-    // prompt for it interrupts the user to approve a line they may never hear.
     // An explicit do_not_use block above still wins.
-    if (toolName === SPEAK_TOOL_ID) {
+    if (NO_OP_LOCAL_TOOL_IDS.has(toolName)) {
       return {
         behavior: "allow",
         updatedInput: toolInput as Record<string, unknown>,
