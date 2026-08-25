@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   href: "/",
   navigate: vi.fn(),
   navigateToActivity: vi.fn(),
+  navigateToCanvases: vi.fn(),
   navigateToSpaces: vi.fn(),
   navigateToChannel: vi.fn(),
   navigateToHome: vi.fn(),
@@ -66,6 +67,7 @@ vi.mock("@posthog/ui/features/settings/hooks/useOpenSettings", () => ({
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   getCurrentMatches: () => [{ fullPath: mocks.fullPath }],
   navigateToActivity: (...a: unknown[]) => mocks.navigateToActivity(...a),
+  navigateToCanvases: (...a: unknown[]) => mocks.navigateToCanvases(...a),
   navigateToSpaces: (...a: unknown[]) => mocks.navigateToSpaces(...a),
   navigateToChannel: (...a: unknown[]) => mocks.navigateToChannel(...a),
   navigateToHome: (...a: unknown[]) => mocks.navigateToHome(...a),
@@ -432,10 +434,11 @@ describe("NavRail", () => {
     const labels = [...container.querySelectorAll("button")]
       .map((button) => button.getAttribute("aria-label"))
       .filter((label) => label !== "Search");
-    expect(labels.slice(0, 5)).toEqual([
+    expect(labels.slice(0, 6)).toEqual([
       "Home",
       "Spaces",
       "Command Center",
+      "Canvases",
       "Self-driving",
       "Activity",
     ]);

@@ -99,6 +99,10 @@ export const listComponentsInput = z.object({
   search: z.string().optional(),
 });
 
+export const listAllCanvasesInput = z.object({
+  search: z.string().optional(),
+});
+
 export const createDashboardInput = z.object({
   channelId: z.string().min(1),
   name: z.string().min(1),

@@ -12,6 +12,7 @@ export type NavRailPane =
   | "home"
   | "spaces"
   | "activity"
+  | "canvases"
   | "inbox"
   | "command-center"
   | "loops"
@@ -28,6 +29,7 @@ export const RAIL_PANE_ROOT: Readonly<Record<NavRailPane, string>> = {
   home: "/",
   spaces: "/spaces",
   activity: "/activity",
+  canvases: "/canvases",
   inbox: "/inbox",
   "command-center": "/command-center",
   loops: "/loops",
@@ -39,6 +41,7 @@ export const RAIL_PANE_ROOT: Readonly<Record<NavRailPane, string>> = {
 const CLAIMED: readonly NavRailPane[] = [
   "home",
   "activity",
+  "canvases",
   "inbox",
   "command-center",
   "loops",
@@ -71,7 +74,11 @@ export function getRailPane(): NavRailPane {
 // Home, Inbox, Command Center and Loops are whole-screen destinations: no
 // route under them may put a second nav on the screen. Spaces owns the space
 // tree, Activity owns the feed.
-const PANES_WITH_SIDEBAR = new Set<NavRailPane>(["spaces", "activity"]);
+const PANES_WITH_SIDEBAR = new Set<NavRailPane>([
+  "spaces",
+  "activity",
+  "canvases",
+]);
 
 export function railPaneHasSidebar(pane: NavRailPane): boolean {
   return PANES_WITH_SIDEBAR.has(pane);
