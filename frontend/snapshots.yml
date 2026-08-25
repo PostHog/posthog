@@ -5628,6 +5628,18 @@ snapshots:
         hash: v1.k794b7964.5cdaae6b72efa77261704903c3b14197bd4996f9db290718a4a585758aaa6cf2.xbF6ujFL2OI5SqKxuBM4wYp4MT4t2IC_HjI5-9mkT4c
     scenes-app-ai-observability-prompts--prompts-list--light:
         hash: v1.k794b7964.f4a3e9e0c94c327fbf41ea4698bb4d9cb92b5112848b3ee7f31c57466f0075b2.MoyySImBvALTiYl2FHqO1UG4XLCdcaJJzoUG56t_7gI
+    scenes-app-ai-observability-redacted-media-placeholder--audio--dark:
+        hash: v1.k794b7964.033a00b2dba30f23eb78439e091493ce9882d8e93bf3931b74c06a2b3baa8bdc.q2eqo0JCAfpaZw91QmzH16t5IDUxFvwzXGHrvliQg5c
+    scenes-app-ai-observability-redacted-media-placeholder--audio--light:
+        hash: v1.k794b7964.1f6f1b3393b7c81370811d174b4e4be2d15ffb4ea05cb1f520ae5f3f51db480b.E0iutulZCgpw_CjBq9e3v21MEgZAHq9ItfT_rrGCMXU
+    scenes-app-ai-observability-redacted-media-placeholder--file--dark:
+        hash: v1.k794b7964.e44b97723e4a306b6efe828d965f5bf92cdea10a813747631492ad5878edd609.BKJYx84LCaCubTyfk6jBP1ntA5XR2t4ZEVcbi7aoIgI
+    scenes-app-ai-observability-redacted-media-placeholder--file--light:
+        hash: v1.k794b7964.66dffafc8d3bc8beda0089977a92437f09c92f20f796af7abbe1a9415484c41e.q_20mytUBABuA-EIIxCF0yqBXbklK1hyro1K7VEc6UU
+    scenes-app-ai-observability-redacted-media-placeholder--image--dark:
+        hash: v1.k794b7964.600a87118accb7b93bef8591fb8ea95232f457c2a6c89d101bc536a39454e307.M_0N_XTHy_DrANm8eNM0scyzCQapj-gyWVp09OwRj3I
+    scenes-app-ai-observability-redacted-media-placeholder--image--light:
+        hash: v1.k794b7964.79d952276af1610b08389fad8cbed951da9a6d9943727fdaf7958d565694f747.vhVcjG9Vo1GI6vXuPGPxrdS8f-uccR3Pa-z2YxEK-M4
     scenes-app-ai-observability-self-driving-signal-source-toggle--load-failed--dark:
         hash: v1.k794b7964.594419147aefa58da5dddcb6b52c77c2f0c89f4830115a85cb93be8a719cfcc3.-0XtR5ua7OLwsi_LNT4ez5y9XsLqX4eQLrRsOX25y9U
     scenes-app-ai-observability-self-driving-signal-source-toggle--load-failed--light:
