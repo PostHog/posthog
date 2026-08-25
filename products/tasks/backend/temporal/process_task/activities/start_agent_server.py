@@ -13,8 +13,9 @@ from posthog.models import Integration
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.temporal.common.activity_context import current_activity_attempt
+from posthog.temporal.common.db_errors import is_transient_db_error
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.common.utils import asyncify
+from posthog.temporal.common.utils import asyncify, retry_on_db_connection_drop
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.exceptions import OAuthTokenError, SandboxExecutionError, SandboxMissingRepositoryError
@@ -232,13 +233,15 @@ def _include_personal_mcp_for_task(task: Task) -> bool:
 
 
 def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbox_id: str) -> _LaunchParams:
+    task = retry_on_db_connection_drop(lambda: Task.objects.select_related("created_by", "team").get(id=ctx.task_id))
     try:
-        task = Task.objects.select_related("created_by", "team").get(id=ctx.task_id)
         actor_user = get_task_run_credential_user(task, ctx.state)
         access_token = create_oauth_access_token_for_run(task, ctx.state, scopes=scopes)
     except OAuthTokenError:
         raise
     except Exception as e:
+        if is_transient_db_error(e):
+            raise
         raise OAuthTokenError(
             f"Failed to create OAuth access token for MCP auth in task {ctx.task_id}",
             {"task_id": ctx.task_id, "error": str(e)},
