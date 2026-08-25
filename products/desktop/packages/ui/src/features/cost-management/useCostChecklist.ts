@@ -16,23 +16,36 @@ import { useMemo } from "react";
 export function useCostChecklist(): CostChecklistItem[] {
   const defaultModelId = useSettingsStore((state) => state.lastUsedModel);
   const completed = useSettingsStore((state) => state.costChecklistDone);
-  const { images } = useSandboxCustomImages();
+  const { images, customImagesEnabled, customImagesDisabled } =
+    useSandboxCustomImages();
+  const skills = useSkills();
   const installed = useInstalledLeanSkills();
 
-  // Only a ready image can be a session's base image, which is the same filter
-  // the base-image pickers apply. A draft, scanning, building, failed, or
-  // archived image cannot start a run, so the recommendation stands until a
-  // build actually lands.
-  const hasCustomImage = images.some((image) => image.status === "ready");
+  // Custom images are usable only when the feature is on, its list has loaded,
+  // and the org has not disabled it — the same signal the base-image pickers
+  // use. Until then hasCustomImage is null so no row is shown, rather than a
+  // permanent build suggestion the user cannot act on. Once usable, only a
+  // ready image checks the row off, matching the pickers' ready filter.
+  const customImagesReady = customImagesEnabled && !customImagesDisabled;
+  const hasCustomImage = customImagesReady
+    ? images.some((image) => image.status === "ready")
+    : null;
+
+  // Wait for the installed-skills list before deriving skill rows; an empty
+  // list before it loads would mislabel installed skills as installable and
+  // invite a duplicate install that fails.
+  const skillsLoaded = skills.data !== undefined;
 
   return buildCostChecklist({
     defaultModelId,
     hasCustomImage,
-    skills: LEAN_SKILLS.map((skill) => ({
-      skillId: skill.skillId,
-      name: skill.name,
-      installed: installed.has(skill.skillId),
-    })),
+    skills: skillsLoaded
+      ? LEAN_SKILLS.map((skill) => ({
+          skillId: skill.skillId,
+          name: skill.name,
+          installed: installed.has(skill.skillId),
+        }))
+      : [],
     completed,
   });
 }
