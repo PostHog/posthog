@@ -71,6 +71,10 @@ def build_publish_copy_sql(schema_name: str, table_name: str, destination_uri: s
     ).format(psql.Identifier(schema_name), psql.Identifier(table_name), psql.Literal(destination_uri))
 
 
+def build_publish_nonempty_probe_sql(schema_name: str, table_name: str) -> psql.Composed:
+    return psql.SQL("SELECT 1 FROM {}.{} LIMIT 1").format(psql.Identifier(schema_name), psql.Identifier(table_name))
+
+
 def _s3_client() -> Any:
     import boto3  # noqa: PLC0415 — keeps the heavy dep off the import path
 

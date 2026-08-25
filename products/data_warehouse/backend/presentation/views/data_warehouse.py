@@ -1384,6 +1384,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         detail=False,
         url_path="managed-warehouse-modeled-tables",
         required_scopes=["warehouse_view:read"],
+        requires_resource_level_access=True,
     )
     def managed_warehouse_modeled_tables(self, request: Request, **kwargs) -> Response:
         try:
@@ -1404,6 +1405,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         detail=False,
         url_path="managed-warehouse-published-tables",
         required_scopes=["warehouse_view:read"],
+        requires_resource_level_access=True,
     )
     def managed_warehouse_published_tables(self, request: Request, **kwargs) -> Response:
         publications = managed_warehouse_publish.list_publications(self.team_id)
@@ -1414,6 +1416,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         responses={
             201: OpenApiResponse(response=PublishedTableSerializer, description="Publication created."),
             400: OpenApiResponse(description="The modeled table or publication name is invalid."),
+            503: OpenApiResponse(description="The publication could not be started."),
         },
         summary="Publish a managed warehouse table",
         description="Copy a modeled Duckgres table into the ClickHouse-queryable PostHog data warehouse.",
@@ -1423,6 +1426,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         detail=False,
         url_path="managed-warehouse-publish-table",
         required_scopes=["warehouse_view:write"],
+        requires_resource_level_access=True,
     )
     def managed_warehouse_publish_table(self, request: Request, **kwargs) -> Response:
         try:
@@ -1435,8 +1439,18 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             )
         except managed_warehouse_publish.PublishValidationError as error:
             raise serializers.ValidationError(str(error)) from error
+        except managed_warehouse_publish.ModeledTableDiscoveryError as error:
+            return Response({"detail": str(error)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
-        managed_warehouse_publish.start_publish_workflow(publication)
+        try:
+            managed_warehouse_publish.start_publish_workflow(publication)
+        except Exception:
+            logger.exception("Managed warehouse publication workflow start failed", publication_id=str(publication.id))
+            managed_warehouse_publish.delete_publication(publication)
+            return Response(
+                {"detail": "The publication could not be started. Try again."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
         return Response(PublishedTableSerializer(publication).data, status=status.HTTP_201_CREATED)
 
     @validated_request(
@@ -1457,6 +1471,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         detail=False,
         url_path="managed-warehouse-republish-table",
         required_scopes=["warehouse_view:write"],
+        requires_resource_level_access=True,
     )
     def managed_warehouse_republish_table(self, request: Request, **kwargs) -> Response:
         publication = managed_warehouse_publish.get_publication(self.team_id, request.validated_data["id"])
@@ -1489,6 +1504,7 @@ class DataWarehouseViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         detail=False,
         url_path="managed-warehouse-published-table",
         required_scopes=["warehouse_view:write"],
+        requires_resource_level_access=True,
     )
     def managed_warehouse_delete_published_table(self, request: Request, **kwargs) -> Response:
         publication = managed_warehouse_publish.get_publication(self.team_id, request.validated_query_data["id"])

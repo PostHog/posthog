@@ -44,7 +44,7 @@ def save_table_registration(
     row_count: int,
     size_in_s3_mib: float,
 ) -> DataWarehouseTable:
-    table = DataWarehouseTable.objects.filter(team_id=team_id, id=table_id).first()
+    table = DataWarehouseTable.objects.select_for_update(of=("self",)).filter(team_id=team_id, id=table_id).first()
     if table is None:
         table = DataWarehouseTable(
             id=table_id,
@@ -58,6 +58,8 @@ def save_table_registration(
         table.format = DataWarehouseTable.TableFormat.Parquet
         table.url_pattern = url_pattern
         table.created_via = DataWarehouseTable.CreatedVia.MATERIALIZED_VIEW
+        table.deleted = False
+        table.deleted_at = None
 
     table.save(internally_computed_url_pattern=True)
     table.set_columns(dict(columns))
@@ -69,7 +71,7 @@ def save_table_registration(
 
 @transaction.atomic
 def soft_delete_table_if_exists(*, team_id: int, table_id: UUID) -> bool:
-    table = DataWarehouseTable.objects.filter(team_id=team_id, id=table_id).first()
+    table = DataWarehouseTable.objects.select_for_update(of=("self",)).filter(team_id=team_id, id=table_id).first()
     if table is None:
         return False
     table.soft_delete()

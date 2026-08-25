@@ -89,7 +89,9 @@ def get_managed_warehouse_saved_query(
 
 
 @transaction.atomic
-def start_managed_warehouse_saved_query_publish(team_id: int, saved_query_id: UUID | str, workflow_id: str) -> UUID:
+def start_managed_warehouse_saved_query_publish(
+    team_id: int, saved_query_id: UUID | str, workflow_id: str, workflow_run_id: str
+) -> UUID:
     saved_query = DataWarehouseSavedQuery.objects.select_for_update().get(
         team_id=team_id,
         id=saved_query_id,
@@ -105,6 +107,7 @@ def start_managed_warehouse_saved_query_publish(team_id: int, saved_query_id: UU
             saved_query=saved_query,
             status=DataModelingJob.Status.RUNNING,
             workflow_id=workflow_id,
+            workflow_run_id=workflow_run_id,
         )
         .order_by("-created_at")
         .first()
@@ -118,6 +121,7 @@ def start_managed_warehouse_saved_query_publish(team_id: int, saved_query_id: UU
         engine=DataModelingJob.Engine.DUCKGRES,
         run_mode=DataModelingJobRunMode.FULL_REFRESH,
         workflow_id=workflow_id,
+        workflow_run_id=workflow_run_id,
     )
     return job.id
 

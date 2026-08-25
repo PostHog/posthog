@@ -4,6 +4,7 @@ import json
 import asyncio
 import datetime as dt
 from datetime import timedelta
+from uuid import UUID
 
 from django.db import close_old_connections, transaction
 from django.db.models import Q, QuerySet
@@ -14,10 +15,12 @@ import temporalio.activity
 import temporalio.workflow
 from structlog.contextvars import bind_contextvars
 from temporalio.common import RetryPolicy
+from temporalio.exceptions import ApplicationError
 
 from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.errors import unwrap_temporal_cause
 from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.logger import get_logger
 
@@ -29,10 +32,13 @@ from products.managed_warehouse.backend.common import (
     get_org_config,
     validate_duckgres_identifier,
 )
+from products.managed_warehouse.backend.facade.team_state import resolve_events_persons_tables
 from products.managed_warehouse.backend.models import ManagedWarehousePublishedTable
 from products.managed_warehouse.backend.publish import (
     build_publish_copy_sql,
+    build_publish_nonempty_probe_sql,
     delete_stale_publish_versions,
+    is_publishable_table,
     publish_folder,
     publish_s3_uri,
     publish_url_pattern,
@@ -43,6 +49,10 @@ from products.warehouse_sources.backend.facade import api as warehouse_sources
 from products.warehouse_sources.backend.facade.constants import S3_DELETE_TIME_BUFFER
 
 LOGGER = get_logger(__name__)
+
+
+def build_publish_table_workflow_id(publication_id: UUID | str) -> str:
+    return f"duckgres-publish-{publication_id}"
 
 
 def _publication_queryset(team_id: int, publication_id: str) -> QuerySet[ManagedWarehousePublishedTable]:
@@ -87,6 +97,7 @@ class PrunePublishedSnapshotInputs:
     # cycle so readers that resolved the old url_pattern just before the repoint
     # don't lose their files mid-query.
     superseded_version: str | None = None
+    skip_delete_buffer: bool = False
 
 
 @frozen
@@ -103,19 +114,34 @@ def publish_table_copy_activity(inputs: PublishTableInputs) -> PublishCopyResult
     logger = LOGGER.bind(publication_id=inputs.publication_id)
     close_old_connections()
     publication = _publication_queryset(inputs.team_id, inputs.publication_id).get(deleted=False)
-    source_team_id = ducklake_data_modeling_schema_team_id(publication.source_schema_name)
+    try:
+        source_team_id = ducklake_data_modeling_schema_team_id(publication.source_schema_name)
+    except ValueError as error:
+        raise ApplicationError("Choose a modeled table from this project.", non_retryable=True) from error
     source_team = Team.objects.only("id", "parent_team_id").filter(id=source_team_id).first()
     source_project_id = source_team.parent_team_id or source_team.id if source_team is not None else None
     if source_project_id != publication.team_id:
-        raise ValueError("Choose a modeled table from this project.")
-    validate_duckgres_identifier(publication.source_schema_name)
-    validate_duckgres_identifier(publication.source_table_name)
+        raise ApplicationError("Choose a modeled table from this project.", non_retryable=True)
+    try:
+        validate_duckgres_identifier(publication.source_schema_name)
+        validate_duckgres_identifier(publication.source_table_name)
+    except ValueError as error:
+        raise ApplicationError(str(error), non_retryable=True) from error
+    managed_tables = resolve_events_persons_tables(source_team_id)
+    if not is_publishable_table(
+        publication.source_schema_name,
+        publication.source_table_name,
+        reserved_table_names=frozenset({managed_tables.events_table, managed_tables.persons_table}),
+    ):
+        raise ApplicationError("Choose a publishable modeled table from this project.", non_retryable=True)
 
     if publication.saved_query_id is not None:
+        workflow_run_id = temporalio.activity.info().workflow_run_id
         publication.active_job_id = data_modeling.start_managed_warehouse_saved_query_publish(
             inputs.team_id,
             publication.saved_query_id,
-            f"duckgres-publish-{publication.id}",
+            build_publish_table_workflow_id(publication.id),
+            workflow_run_id,
         )
     publication.status = ManagedWarehousePublishedTable.Status.PUBLISHING
     publication.save(update_fields=["active_job_id", "status", "updated_at"])
@@ -150,15 +176,18 @@ def publish_table_copy_activity(inputs: PublishTableInputs) -> PublishCopyResult
             keepalives_count=4,
         ) as conn:
             setup_duckgres_session(conn, extensions=("httpfs",))
-            # COPY TO returns the rows it copied — using it instead of a separate
-            # count(*) keeps the count on the same snapshot as the copied data.
+            probe = conn.execute(
+                build_publish_nonempty_probe_sql(publication.source_schema_name, publication.source_table_name)
+            )
+            if probe.fetchone() is None:
+                raise ApplicationError("Empty modeled tables cannot be published yet.", non_retryable=True)
             cursor = conn.execute(
                 build_publish_copy_sql(publication.source_schema_name, publication.source_table_name, destination)
             )
             row = cursor.fetchone()
             row_count = int(row[0]) if row else 0
             if row_count == 0:
-                raise ValueError("Empty modeled tables cannot be published yet.")
+                raise ApplicationError("Empty modeled tables cannot be published yet.", non_retryable=True)
 
     return PublishCopyResult(folder_version=version, row_count=row_count, bucket=bucket, bucket_region=bucket_region)
 
@@ -190,8 +219,11 @@ def publish_table_register_activity(inputs: PublishRegisterInputs) -> str | None
     )
     size_in_s3_mib = sum_publish_version_size_bytes(inputs.bucket, folder, inputs.folder_version) / (1024 * 1024)
 
-    superseded_version = publication.folder_version
     with transaction.atomic():
+        publication = (
+            _publication_queryset(inputs.team_id, inputs.publication_id).select_for_update().get(deleted=False)
+        )
+        superseded_version = publication.folder_version
         table = warehouse_sources.save_published_table_registration(
             registration,
             row_count=inputs.row_count,
@@ -257,7 +289,7 @@ def prune_published_snapshot_activity(inputs: PrunePublishedSnapshotInputs) -> N
             for version in (publication.folder_version, inputs.completed_version, inputs.superseded_version)
             if version is not None
         }
-        min_age_seconds = S3_DELETE_TIME_BUFFER
+        min_age_seconds = 0 if inputs.skip_delete_buffer else S3_DELETE_TIME_BUFFER
     delete_stale_publish_versions(
         bucket,
         publish_folder(inputs.team_id, publication.id.hex),
@@ -297,6 +329,10 @@ async def _prune_published_snapshot_best_effort(inputs: PrunePublishedSnapshotIn
         )
     except Exception:
         temporalio.workflow.logger.warning(warning_message)
+
+
+def _workflow_error_message(error: BaseException) -> str:
+    return str(unwrap_temporal_cause(error) or error)[:512]
 
 
 @temporalio.workflow.defn(name="duckgres-publish-table")
@@ -347,7 +383,7 @@ class DuckgresPublishTableWorkflow(PostHogWorkflow):
                 PrunePublishedSnapshotInputs(
                     team_id=inputs.team_id,
                     publication_id=inputs.publication_id,
-                    completed_version=copy_result.folder_version if copy_result else None,
+                    skip_delete_buffer=True,
                 ),
                 "Publish failure prune failed; stale files may remain",
             )
@@ -356,7 +392,7 @@ class DuckgresPublishTableWorkflow(PostHogWorkflow):
                 PublishMarkFailedInputs(
                     team_id=inputs.team_id,
                     publication_id=inputs.publication_id,
-                    error=str(error)[:512],
+                    error=_workflow_error_message(error),
                 ),
                 start_to_close_timeout=timedelta(minutes=1),
                 retry_policy=RetryPolicy(maximum_attempts=3),

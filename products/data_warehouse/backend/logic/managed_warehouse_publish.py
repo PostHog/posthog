@@ -26,7 +26,11 @@ from products.managed_warehouse.backend.facade.contracts import (
     ManagedWarehousePublishedTableRecord,
 )
 from products.managed_warehouse.backend.facade.team_state import resolve_events_persons_tables
-from products.managed_warehouse.backend.facade.temporal import PrunePublishedSnapshotInputs, PublishTableInputs
+from products.managed_warehouse.backend.facade.temporal import (
+    PrunePublishedSnapshotInputs,
+    PublishTableInputs,
+    build_publish_table_workflow_id,
+)
 from products.warehouse_sources.backend.facade import api as warehouse_sources
 
 LOGGER = get_logger(__name__)
@@ -98,11 +102,19 @@ def create_publication(
     except ValueError as error:
         raise PublishValidationError(str(error)) from error
 
-    source_team_id = managed_warehouse.ducklake_data_modeling_schema_team_id(source_schema_name)
-    source_team = Team.objects.only("id", "parent_team_id").filter(id=source_team_id).first()
-    source_project_id = source_team.parent_team_id or source_team.id if source_team is not None else None
-    if source_project_id != canonical_team.pk:
-        raise PublishValidationError("Choose a modeled table from this project.")
+    try:
+        source_team_id = managed_warehouse.ducklake_data_modeling_schema_team_id(source_schema_name)
+    except ValueError as error:
+        raise PublishValidationError("Choose a modeled table from this environment.") from error
+    if source_team_id != team.pk:
+        raise PublishValidationError("Choose a modeled table from this environment.")
+
+    publishable_tables = list_modeled_tables(team.pk)
+    if not any(
+        table.schema_name == source_schema_name and table.table_name == source_table_name
+        for table in publishable_tables
+    ):
+        raise PublishValidationError("Choose a publishable modeled table from this environment.")
 
     resolved_name = name or managed_warehouse.sanitize_ducklake_identifier(
         f"{source_schema_name}_{source_table_name}", default_prefix="published"
@@ -168,7 +180,7 @@ def get_publication(team_id: int, publication_id: UUID | str) -> ManagedWarehous
 
 def start_publish_workflow(publication: ManagedWarehousePublishedTableRecord) -> None:
     inputs = PublishTableInputs(team_id=publication.team_id, publication_id=str(publication.id))
-    _start_workflow("duckgres-publish-table", f"duckgres-publish-{publication.id}", inputs)
+    _start_workflow("duckgres-publish-table", build_publish_table_workflow_id(publication.id), inputs)
 
 
 def start_snapshot_prune_workflow(publication: ManagedWarehousePublishedTableRecord) -> None:
@@ -178,17 +190,22 @@ def start_snapshot_prune_workflow(publication: ManagedWarehousePublishedTableRec
 
 def delete_publication(publication: ManagedWarehousePublishedTableRecord) -> None:
     with transaction.atomic():
-        if publication.table_id is not None:
-            warehouse_sources.soft_delete_table_if_exists(team_id=publication.team_id, table_id=publication.table_id)
+        current = managed_warehouse.get_managed_warehouse_published_table_for_update(
+            publication.team_id, publication.id
+        )
+        if current is None or current.deleted:
+            return
+        if current.table_id is not None:
+            warehouse_sources.soft_delete_table_if_exists(team_id=current.team_id, table_id=current.table_id)
 
-        managed_warehouse.mark_managed_warehouse_published_table_deleted(publication.team_id, publication.id)
-        if publication.saved_query_id is not None:
-            data_modeling.delete_managed_warehouse_saved_query(publication.team_id, publication.saved_query_id)
+        managed_warehouse.mark_managed_warehouse_published_table_deleted(current.team_id, current.id)
+        if current.saved_query_id is not None:
+            data_modeling.delete_managed_warehouse_saved_query(current.team_id, current.saved_query_id)
 
         # The parquet snapshot in the org bucket must go too, but only the temporal
         # workers hold the cross-account DeleteObject grant — schedule the prune and
         # let a failed schedule surface in Sentry rather than break the delete.
-        transaction.on_commit(lambda: _start_snapshot_prune_best_effort(publication))
+        transaction.on_commit(lambda: _start_snapshot_prune_best_effort(current))
 
 
 def _start_snapshot_prune_best_effort(publication: ManagedWarehousePublishedTableRecord) -> None:

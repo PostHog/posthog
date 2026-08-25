@@ -28,6 +28,7 @@ from products.managed_warehouse.backend.temporal.publish_table_workflow import (
     DuckgresPublishTableWorkflow,
     PrunePublishedSnapshotInputs,
     PublishTableInputs,
+    build_publish_table_workflow_id,
 )
 from products.managed_warehouse.backend.temporal.types import DataModelingDuckLakeCopyInputs, DuckLakeCopyModelInput
 
@@ -47,4 +48,5 @@ __all__ = [
     "PrunePublishedSnapshotInputs",
     "PublishTableInputs",
     "build_register_data_imports_workflow_id",
+    "build_publish_table_workflow_id",
 ]

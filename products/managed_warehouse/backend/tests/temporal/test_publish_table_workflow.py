@@ -4,11 +4,12 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
 
 from posthog.models import Team
 
 from products.data_modeling.backend.facade import api as data_modeling
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataModelingJob, DataWarehouseSavedQuery
 from products.managed_warehouse.backend.models import ManagedWarehousePublishedTable
 from products.managed_warehouse.backend.publish import PUBLISHED_PREFIX, publish_folder
 from products.managed_warehouse.backend.temporal.publish_table_workflow import (
@@ -89,9 +90,9 @@ class TestPublishTableActivities(BaseTest):
         connection = MagicMock()
         connection.__enter__.return_value = connection
         connection.__exit__.return_value = False
-        copy_cursor = MagicMock()
-        copy_cursor.fetchone.return_value = (0,)
-        connection.execute.side_effect = [copy_cursor]
+        probe_cursor = MagicMock()
+        probe_cursor.fetchone.return_value = None
+        connection.execute.side_effect = [probe_cursor]
 
         with (
             patch(f"{_WORKFLOW_MODULE}.close_old_connections"),
@@ -112,13 +113,19 @@ class TestPublishTableActivities(BaseTest):
             patch(f"{_WORKFLOW_MODULE}.psycopg.connect", return_value=connection),
             patch(f"{_WORKFLOW_MODULE}.setup_duckgres_session"),
             patch(f"{_WORKFLOW_MODULE}.HeartbeaterSync"),
-            self.assertRaisesRegex(ValueError, "Empty modeled tables cannot be published yet"),
+            patch(
+                f"{_WORKFLOW_MODULE}.resolve_events_persons_tables",
+                return_value=MagicMock(events_table="events", persons_table="persons"),
+            ),
+            patch(f"{_WORKFLOW_MODULE}.temporalio.activity.info") as activity_info,
+            self.assertRaisesRegex(ApplicationError, "Empty modeled tables cannot be published yet"),
         ):
+            activity_info.return_value.workflow_run_id = "run-1"
             publish_table_copy_activity(PublishTableInputs(team_id=self.team.pk, publication_id=str(publication.id)))
 
-        # COPY runs once and its returned row count drives the rejection — no
-        # separate count(*) scan on a different snapshot.
         assert connection.execute.call_count == 1
+        job = DataModelingJob.objects.get(saved_query_id=publication.saved_query_id)
+        assert job.workflow_run_id == "run-1"
 
     def test_copy_rejects_sibling_project_schema_before_connect(self) -> None:
         publication = self._publication()
@@ -128,7 +135,7 @@ class TestPublishTableActivities(BaseTest):
         with (
             patch(f"{_WORKFLOW_MODULE}.close_old_connections"),
             patch(f"{_WORKFLOW_MODULE}.psycopg.connect") as connect,
-            self.assertRaisesRegex(ValueError, "Choose a modeled table from this project"),
+            self.assertRaisesRegex(ApplicationError, "Choose a modeled table from this project"),
         ):
             publish_table_copy_activity(PublishTableInputs(team_id=self.team.pk, publication_id=str(publication.id)))
 
@@ -175,8 +182,14 @@ class TestPublishTableActivities(BaseTest):
             patch(f"{_WORKFLOW_MODULE}.psycopg.connect", return_value=connection) as connect,
             patch(f"{_WORKFLOW_MODULE}.setup_duckgres_session"),
             patch(f"{_WORKFLOW_MODULE}.HeartbeaterSync"),
-            self.assertRaisesRegex(ValueError, "Empty modeled tables cannot be published yet"),
+            patch(
+                f"{_WORKFLOW_MODULE}.resolve_events_persons_tables",
+                return_value=MagicMock(events_table="events", persons_table="persons"),
+            ),
+            patch(f"{_WORKFLOW_MODULE}.temporalio.activity.info") as activity_info,
+            self.assertRaisesRegex(ApplicationError, "Empty modeled tables cannot be published yet"),
         ):
+            activity_info.return_value.workflow_run_id = "run-child"
             publish_table_copy_activity(PublishTableInputs(team_id=self.team.pk, publication_id=str(publication.id)))
 
         connect.assert_called_once()
@@ -217,6 +230,45 @@ class TestPublishTableActivities(BaseTest):
         table = DataWarehouseTable.objects.get(team_id=self.team.pk, id=publication.table_id)
         assert "/20260721120000/**.parquet" in table.url_pattern
         assert table.row_count == 7
+
+    def test_register_restores_soft_deleted_table_on_republish(self) -> None:
+        publication = self._publication()
+
+        with (
+            patch(f"{_WORKFLOW_MODULE}.close_old_connections"),
+            patch(f"{_WORKFLOW_MODULE}.sum_publish_version_size_bytes", return_value=0),
+            patch.object(DataWarehouseTable, "get_columns", return_value=_FAKE_COLUMNS),
+        ):
+            publish_table_register_activity(
+                PublishRegisterInputs(
+                    team_id=self.team.pk,
+                    publication_id=str(publication.id),
+                    folder_version="20260720120000",
+                    row_count=5,
+                    bucket=_BUCKET,
+                    bucket_region=_BUCKET_REGION,
+                )
+            )
+            publication.refresh_from_db()
+            assert publication.table_id is not None
+            table = DataWarehouseTable.objects.get(id=publication.table_id, team_id=self.team.pk)
+            table.soft_delete()
+
+            publish_table_register_activity(
+                PublishRegisterInputs(
+                    team_id=self.team.pk,
+                    publication_id=str(publication.id),
+                    folder_version="20260721120000",
+                    row_count=7,
+                    bucket=_BUCKET,
+                    bucket_region=_BUCKET_REGION,
+                )
+            )
+
+        table.refresh_from_db()
+        assert table.deleted is False
+        assert table.deleted_at is None
+        assert "/20260721120000/**.parquet" in table.url_pattern
 
     def test_register_describe_failure_leaves_no_trace(self) -> None:
         publication = self._publication()
@@ -292,14 +344,6 @@ class TestPublishTableActivities(BaseTest):
                 "20260719120000",
                 ["20260718120000"],
             ),
-            (
-                "failed_first_publish_prunes_partial_attempts",
-                False,
-                None,
-                None,
-                None,
-                ["20260718120000", "20260719120000", "20260720120000", "20260721120000"],
-            ),
         ]
     )
     def test_prune_published_snapshot(
@@ -346,6 +390,29 @@ class TestPublishTableActivities(BaseTest):
             )
         else:
             s3.delete_objects.assert_not_called()
+
+    def test_failed_publish_prunes_recent_partial_attempt(self) -> None:
+        publication = self._publication()
+        folder = publish_folder(self.team.pk, publication.id.hex)
+        version = dt.datetime.now(dt.UTC).strftime("%Y%m%d%H%M%S")
+        key = f"{PUBLISHED_PREFIX}/{folder}/{version}/part-0.parquet"
+
+        with (
+            patch(f"{_WORKFLOW_MODULE}.close_old_connections"),
+            patch(f"{_WORKFLOW_MODULE}.get_org_config", return_value={"DUCKLAKE_BUCKET": _BUCKET}),
+            patch("boto3.client") as mock_boto_client,
+        ):
+            s3 = mock_boto_client.return_value
+            s3.get_paginator.return_value.paginate.return_value = [{"Contents": [{"Key": key}]}]
+            prune_published_snapshot_activity(
+                PrunePublishedSnapshotInputs(
+                    team_id=self.team.pk,
+                    publication_id=str(publication.id),
+                    skip_delete_buffer=True,
+                )
+            )
+
+        s3.delete_objects.assert_called_once_with(Bucket=_BUCKET, Delete={"Objects": [{"Key": key}]})
 
     def test_prune_spares_recently_written_versions(self) -> None:
         publication = self._publication()

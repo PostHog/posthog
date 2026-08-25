@@ -10,11 +10,14 @@ from parameterized import parameterized
 from rest_framework import status
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.models import Team
+
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery, Node, NodeType
 from products.managed_warehouse.backend.facade import api as managed_warehouse
 from products.managed_warehouse.backend.facade.contracts import (
     DuckLakeQueryResult,
     DucklingTables,
+    ManagedWarehouseModeledTable,
     ManagedWarehousePublishedTableRecord,
     ManagedWarehousePublishedTableStatus,
 )
@@ -47,6 +50,9 @@ class TestManagedWarehousePublish(APIBaseTest):
             name=name,
             table_id=table_id,
         )
+
+    def _modeled_table(self) -> list[ManagedWarehouseModeledTable]:
+        return [ManagedWarehouseModeledTable(schema_name=self._model_schema(), table_name="customer_arr")]
 
     @patch(
         f"{_LOGIC}.resolve_events_persons_tables",
@@ -101,8 +107,12 @@ class TestManagedWarehousePublish(APIBaseTest):
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         assert response.json() == {"detail": "The managed warehouse is temporarily unavailable."}
 
+    @patch(f"{_LOGIC}.list_modeled_tables")
     @patch(f"{_LOGIC}.start_publish_workflow")
-    def test_publish_creates_publication_and_starts_workflow(self, mock_start: MagicMock) -> None:
+    def test_publish_creates_publication_and_starts_workflow(
+        self, mock_start: MagicMock, mock_list_modeled_tables: MagicMock
+    ) -> None:
+        mock_list_modeled_tables.return_value = self._modeled_table()
         response = self.client.post(
             f"{self._base()}/managed-warehouse-publish-table/",
             {"source_schema_name": self._model_schema(), "source_table_name": "customer_arr"},
@@ -125,8 +135,12 @@ class TestManagedWarehousePublish(APIBaseTest):
         assert Node.objects.get(team_id=self.team.pk, saved_query=saved_query).type == NodeType.MAT_VIEW
         mock_start.assert_called_once_with(publication)
 
+    @patch(f"{_LOGIC}.list_modeled_tables")
     @patch(f"{_LOGIC}.start_publish_workflow")
-    def test_publish_rejects_duplicate_warehouse_table_name(self, mock_start: MagicMock) -> None:
+    def test_publish_rejects_duplicate_warehouse_table_name(
+        self, mock_start: MagicMock, mock_list_modeled_tables: MagicMock
+    ) -> None:
+        mock_list_modeled_tables.return_value = self._modeled_table()
         DataWarehouseTable.objects.create(
             team_id=self.team.pk,
             name=f"{self._model_schema()}_customer_arr",
@@ -156,7 +170,40 @@ class TestManagedWarehousePublish(APIBaseTest):
         mock_start.assert_not_called()
 
     @patch(f"{_LOGIC}.start_publish_workflow")
-    def test_publish_returns_bad_request_when_concurrent_create_wins(self, mock_start: MagicMock) -> None:
+    def test_publish_rejects_sibling_environment_source(self, mock_start: MagicMock) -> None:
+        child = Team.objects.create(organization=self.organization, name="Child", parent_team=self.team)
+        sibling = Team.objects.create(organization=self.organization, name="Sibling", parent_team=self.team)
+
+        response = self.client.post(
+            f"/api/environments/{child.pk}/data_warehouse/managed-warehouse-publish-table/",
+            {
+                "source_schema_name": f"posthog_data_modeling_team_{sibling.pk}",
+                "source_table_name": "customer_arr",
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_start.assert_not_called()
+
+    @patch(f"{_LOGIC}.list_modeled_tables", return_value=[])
+    @patch(f"{_LOGIC}.start_publish_workflow")
+    def test_publish_rejects_source_missing_from_discovery(
+        self, mock_start: MagicMock, _mock_list_modeled_tables: MagicMock
+    ) -> None:
+        response = self.client.post(
+            f"{self._base()}/managed-warehouse-publish-table/",
+            {"source_schema_name": self._model_schema(), "source_table_name": "missing_table"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        mock_start.assert_not_called()
+
+    @patch(f"{_LOGIC}.list_modeled_tables")
+    @patch(f"{_LOGIC}.start_publish_workflow")
+    def test_publish_returns_bad_request_when_concurrent_create_wins(
+        self, mock_start: MagicMock, mock_list_modeled_tables: MagicMock
+    ) -> None:
+        mock_list_modeled_tables.return_value = self._modeled_table()
         with patch(
             f"{_MANAGED_WAREHOUSE_FACADE}.create_managed_warehouse_published_table",
             side_effect=IntegrityError("duplicate key"),
@@ -168,6 +215,23 @@ class TestManagedWarehousePublish(APIBaseTest):
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         mock_start.assert_not_called()
+
+    @patch(f"{_LOGIC}.list_modeled_tables")
+    @patch(f"{_LOGIC}.start_publish_workflow", side_effect=RuntimeError("temporal unavailable"))
+    def test_publish_start_failure_releases_the_name(
+        self, _mock_start: MagicMock, mock_list_modeled_tables: MagicMock
+    ) -> None:
+        mock_list_modeled_tables.return_value = self._modeled_table()
+
+        response = self.client.post(
+            f"{self._base()}/managed-warehouse-publish-table/",
+            {"source_schema_name": self._model_schema(), "source_table_name": "customer_arr"},
+        )
+
+        assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+        name = f"{self._model_schema()}_customer_arr"
+        assert not managed_warehouse.managed_warehouse_published_table_name_exists(self.team.pk, name)
+        assert not DataWarehouseSavedQuery.objects.filter(team_id=self.team.pk, name=name, deleted=False).exists()
 
     def test_list_published_tables(self) -> None:
         self._publication(name="z_customer_arr")

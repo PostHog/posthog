@@ -59,6 +59,7 @@ __all__ = [
     "get_team_backfill_state",
     "get_warehouse_provision_status",
     "get_managed_warehouse_published_table",
+    "get_managed_warehouse_published_table_for_update",
     "has_provisioned_warehouse",
     "is_dev_mode",
     "is_publishable_table",
@@ -109,70 +110,20 @@ def _to_stored_server_config(server: DuckgresServer) -> DuckgresStoredServerConf
 def _to_published_table_record(
     publication: ManagedWarehousePublishedTable,
 ) -> ManagedWarehousePublishedTableRecord:
-    saved_query = None
-    if publication.saved_query_id is not None:
-        from products.data_modeling.backend.facade import api as data_modeling  # noqa: PLC0415
-
-        saved_query = data_modeling.get_managed_warehouse_saved_query(publication.team_id, publication.saved_query_id)
-        # An older Temporal worker can finish after the web process creates the saved query but before
-        # that worker knows how to update it. Reconcile the legacy terminal state when the publication
-        # is next resolved so the saved query does not remain unusable after a rolling deployment.
-        if (
-            saved_query is not None
-            and publication.status == publication.Status.COMPLETED
-            and publication.table_id is not None
-            and saved_query.table_id is None
-        ):
-            saved_query = data_modeling.complete_managed_warehouse_saved_query_publish(
-                team_id=publication.team_id,
-                saved_query_id=publication.saved_query_id,
-                table_id=publication.table_id,
-                job_id=None,
-            )
-        elif (
-            saved_query is not None
-            and publication.status == publication.Status.FAILED
-            and saved_query.status != "Failed"
-        ):
-            data_modeling.fail_managed_warehouse_saved_query_publish(
-                team_id=publication.team_id,
-                saved_query_id=publication.saved_query_id,
-                error=publication.last_error or "Publish failed. Publish the table again.",
-                job_id=None,
-            )
-            saved_query = data_modeling.get_managed_warehouse_saved_query(
-                publication.team_id, publication.saved_query_id
-            )
-
-    status_by_saved_query_status = {
-        "Modified": ManagedWarehousePublishedTableStatus.PENDING,
-        "Running": ManagedWarehousePublishedTableStatus.PUBLISHING,
-        "Completed": ManagedWarehousePublishedTableStatus.COMPLETED,
-        "Failed": ManagedWarehousePublishedTableStatus.FAILED,
-        "Cancelled": ManagedWarehousePublishedTableStatus.FAILED,
-    }
-    if saved_query is None:
-        publication_status = ManagedWarehousePublishedTableStatus(publication.status)
-    elif saved_query.status == "Modified" and publication.status == publication.Status.PUBLISHING:
-        publication_status = ManagedWarehousePublishedTableStatus.PUBLISHING
-    else:
-        publication_status = status_by_saved_query_status.get(
-            saved_query.status, ManagedWarehousePublishedTableStatus.PENDING
-        )
     return ManagedWarehousePublishedTableRecord(
         id=publication.id,
-        saved_query_id=saved_query.id if saved_query is not None else publication.saved_query_id,
+        saved_query_id=publication.saved_query_id,
         team_id=publication.team_id,
         source_schema_name=publication.source_schema_name,
         source_table_name=publication.source_table_name,
-        name=saved_query.name if saved_query is not None else publication.name,
-        status=publication_status,
-        last_published_at=saved_query.last_run_at if saved_query is not None else publication.last_published_at,
-        last_error=saved_query.latest_error if saved_query is not None else publication.last_error,
-        row_count=saved_query.row_count if saved_query is not None else publication.row_count,
+        name=publication.name,
+        status=ManagedWarehousePublishedTableStatus(publication.status),
+        last_published_at=publication.last_published_at,
+        last_error=publication.last_error,
+        row_count=publication.row_count,
         folder_version=publication.folder_version,
-        table_id=saved_query.table_id if saved_query is not None else publication.table_id,
-        deleted=publication.deleted or (saved_query.deleted if saved_query is not None else False),
+        table_id=publication.table_id,
+        deleted=publication.deleted,
     )
 
 
@@ -253,6 +204,20 @@ def get_managed_warehouse_published_table(
 
     publication = (
         ManagedWarehousePublishedTable.objects.for_team(team_id)
+        .filter(Q(id=publication_id) | Q(saved_query_id=publication_id))
+        .first()
+    )
+    return _to_published_table_record(publication) if publication is not None else None
+
+
+def get_managed_warehouse_published_table_for_update(
+    team_id: int, publication_id: UUID | str
+) -> ManagedWarehousePublishedTableRecord | None:
+    from products.managed_warehouse.backend.models import ManagedWarehousePublishedTable  # noqa: PLC0415
+
+    publication = (
+        ManagedWarehousePublishedTable.objects.for_team(team_id)
+        .select_for_update()
         .filter(Q(id=publication_id) | Q(saved_query_id=publication_id))
         .first()
     )
