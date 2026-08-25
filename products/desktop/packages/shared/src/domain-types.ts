@@ -657,6 +657,12 @@ export interface SignalReport {
   source_products?: string[];
   /** PR URL from the latest implementation task run, if available. */
   implementation_pr_url?: string | null;
+  /**
+   * Whether that PR merged (GitHub webhook). A merged PR is history, not work
+   * in flight: a report can outlive its fix when evidence keeps arriving, and
+   * its old PR must not read as reviewable or continuable.
+   */
+  implementation_pr_merged?: boolean;
   /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
   charts?: SignalReportChart[];
   /** The report's PR refund, when one exists (one refund per report, ever). */
@@ -665,6 +671,8 @@ export interface SignalReport {
   billing_exempt_reason?: string | null;
   /** Backend-owned refund eligibility: why a refund would be rejected right now, null when it would be accepted. */
   refund_ineligibility_reason?: string | null;
+  /** The space (task channel) this report is assigned to, or null when unassigned. The general view lists every report regardless of this value. */
+  channel_id?: string | null;
 }
 
 export type SignalReportRefundReason =
@@ -1010,6 +1018,8 @@ export interface SignalReportsQueryParams {
    * reports, `false` only non-PR reports. Pair with `limit: 1` to count PR reports cheaply.
    */
   has_implementation_pr?: boolean;
+  /** A space (task channel) UUID — only returns reports assigned to that space. Omit for the general view, which returns every report. */
+  channel_id?: string;
 }
 
 export interface SignalTeamConfig {

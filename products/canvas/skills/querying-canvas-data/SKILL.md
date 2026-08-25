@@ -4,9 +4,9 @@ description: >
   Get PostHog data into a canvas correctly: the host-injected `ph` SDK (loadInsight, query,
   capture, state, openExternal, navigate), the data hierarchy (saved insights first, typed query nodes
   second, inline HogQL last), verifiability (insight-backed metrics link their saved insight in
-  PostHog; ad-hoc queries expose the exact query that ran), per-insight-type result shapes, date-range wiring, and event
-  capture from a canvas. Use whenever a canvas shows metrics, charts, tables, or any PostHog data, or
-  needs to send analytics events.
+  PostHog; ad-hoc queries expose the exact query that ran), per-insight-type result shapes,
+  progressive per-query loading, date-range wiring, and event capture from a canvas. Use whenever a
+  canvas shows metrics, charts, tables, or any PostHog data, or needs to send analytics events.
 ---
 
 # Querying canvas data
@@ -83,12 +83,34 @@ await ph.query(queryNode, {}, { refresh: 30 })
   `days: string[]` (ISO), `labels: string[]`, `count` (sum), `aggregated_value` (single-value
   total), `label`, and optional `compare_label: "current" | "previous"`. A KPI total is
   `results[0].count` (or `.aggregated_value`); a line chart plots `results[0].data` over
-  `results[0].days`. With a compare period, find the prior series by `compare_label === "previous"`
+  `results[0].days`. `count` sums the per-interval values, which double-counts a unique-users
+  series (`math: "dau"`) for anyone active on several days — for a period-unique KPI, set
+  `trendsFilter: { display: "BoldNumber" }` on the query and read `aggregated_value` instead.
+  With a compare period, find the prior series by `compare_label === "previous"`
   — never by index. `columns` is empty here.
 - **SQL results**: `{ columns: string[], results: rows[][] }` — each row an array of cell values in
   `columns` order.
 
-Load data in `useEffect` with `useState`, show a loading state, and aggregate in the query; never
+## Load progressively — render each section when its own data lands
+
+PostHog queries can take several seconds each, and a board usually runs several. Never gate
+rendering on all of them:
+
+- Fire independent queries concurrently on mount; never chain unrelated queries with sequential
+  `await`s. The host caps a canvas at 8 in-flight data requests and rejects the ninth ("Canvas
+  data request exceeds runtime limits") rather than queuing it — a board that needs more than 8
+  consolidates them (one query returning every row, sliced client-side) or throttles the overflow
+  behind a small concurrency limiter, still with one state per section.
+- Give every query its own `{ loading, error, data }` state and let each card, chart, or table
+  swap its skeleton for data the moment its own result arrives. One shared `loading` flag or a
+  single `Promise.all` across independent queries makes the fastest metric wait for the slowest —
+  the canvas must fill in progressively, not appear all at once.
+- Render the static chrome (heading, date picker, card frames with skeletons inside) immediately;
+  only the value inside each section waits for its query.
+- Defer queries the first paint doesn't need: content behind a tab, a collapsed section, or a
+  drill-down runs its query when the user reveals it, not on mount.
+
+Load data in `useEffect` with `useState`, and aggregate in the query; never
 fetch raw event dumps. Treat a rejected query and an empty result as different states: `.catch`
 must set an error state that renders visibly (message + retry), never fall through to zeros, an
 empty chart, or a "no data" message — a swallowed error makes real breakage (a missing table, an

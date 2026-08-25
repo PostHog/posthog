@@ -45,12 +45,14 @@ from posthog.models import User
 from posthog.models.activity_logging.activity_log import Change, changes_between, load_activity
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.utils import UUIDT
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.utils import relative_date_parse
 
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.notebooks.backend import collab_stream, markdown_collab, presence
 from products.notebooks.backend.activity_logging import log_notebook_activity
 from products.notebooks.backend.analytics import (
@@ -80,7 +82,7 @@ from products.notebooks.backend.sql_v2_references import (
     resolve_python_node_inputs,
     resolve_sql_node_run,
 )
-from products.notebooks.backend.sql_v2_runs import finish_node_run
+from products.notebooks.backend.sql_v2_runs import expire_stale_kernel_run, finish_node_run
 from products.notebooks.backend.sql_v2_serializers import (
     NotebookKernelConfigResponseSerializer,
     NotebookKernelStatusResponseSerializer,
@@ -91,7 +93,11 @@ from products.notebooks.backend.sql_v2_serializers import (
     NotebookSQLV2RunStatusResponseSerializer,
     NotebookSQLV2StateResponseSerializer,
 )
-from products.notebooks.backend.sql_v2_state import build_notebook_cell_state
+from products.notebooks.backend.sql_v2_state import (
+    NotebookCellLimitExceeded,
+    build_notebook_cell_state,
+    validate_cell_count,
+)
 from products.notebooks.backend.temporal.client import start_sql_v2_run_workflow
 from products.notebooks.backend.temporal.sql_v2 import SQLV2RunInput
 from products.tasks.backend.facade.exceptions import SandboxProvisionError
@@ -381,6 +387,12 @@ class NotebookSerializer(NotebookMinimalSerializer):
     def validate_content(self, value: Any) -> Any:
         if not isinstance(value, dict):
             return value
+        # self.instance is set on update and None on create, so a new notebook is measured
+        # against an empty document and an edit against what it currently holds.
+        try:
+            validate_cell_count(self.instance.content if self.instance else None, value)
+        except NotebookCellLimitExceeded as err:
+            raise serializers.ValidationError(str(err))
         try:
             return normalize_notebook_query_nodes(value)
         except InvalidNotebookQueryError as err:
@@ -1336,6 +1348,10 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         # caller lost access mid-query. Advancing the row leaks nothing — the gate below still
         # decides whether any of it is returned.
         rows = sync_direct_run(run)
+        # The kernel lane's equivalent, and here for the same reason: the sandbox delivers its
+        # envelope once with no retry, so a lost delivery leaves a run nothing else can move.
+        # The two are mutually exclusive — each is a no-op for the other's node types.
+        expire_stale_kernel_run(run)
         self._require_run_connection_access(run, user)
 
         # Interrupted runs keep their envelope too: the walkthrough (Journey 9) promises the
@@ -1672,6 +1688,14 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
                     current_version=locked_notebook.version,
                 )
             else:
+                # Checked against the locked row rather than in the serializer, so two saves
+                # racing to add a cell cannot both read the same under-limit count and pass.
+                # This is the path the MCP cell tools write through, so it is the one an agent
+                # adding cells in a loop actually meets.
+                try:
+                    validate_cell_count(locked_notebook.content, submitted_content)
+                except NotebookCellLimitExceeded as err:
+                    raise serializers.ValidationError(str(err))
                 annotated_content = annotate_python_nodes(submitted_content)
                 diff = markdown_collab.build_markdown_update_diff(locked_notebook.content, annotated_content)
                 result = markdown_collab.submit_markdown_update(

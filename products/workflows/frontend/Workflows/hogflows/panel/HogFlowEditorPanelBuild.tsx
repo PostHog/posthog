@@ -19,7 +19,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { PERSON_DEPENDENT_ACTION_TYPES, workflowLogic } from '../../workflowLogic'
 import { getRegisteredActionNodeCategories } from '../registry/actions/actionNodeRegistry'
 import { useHogFlowStep } from '../steps/HogFlowSteps'
-import { getDelayDescription } from '../steps/stepDelayLogic'
+import { DEFAULT_DELAY_DURATION, getDelayDescription } from '../steps/stepDelayLogic'
 import { HogFlowAction } from '../types'
 
 export const ACTION_NODES_TO_SHOW: CreateActionType[] = [
@@ -76,13 +76,12 @@ const AI_TASK_ACTION_NODE: CreateActionType = {
     output_variable: { key: 'task', result_path: null, label: 'Task' },
 }
 
-const DEFAULT_DELAY = '10m'
 export const DELAY_NODES_TO_SHOW: CreateActionType[] = [
     {
         type: 'delay',
         name: 'Delay',
-        description: getDelayDescription(DEFAULT_DELAY),
-        config: { delay_duration: DEFAULT_DELAY },
+        description: getDelayDescription({ delay_duration: DEFAULT_DELAY_DURATION }),
+        config: { delay_duration: DEFAULT_DELAY_DURATION },
     },
     {
         type: 'wait_until_time_window',

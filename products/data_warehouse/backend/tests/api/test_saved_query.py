@@ -1880,7 +1880,7 @@ class TestSavedQuery(APIBaseTest):
             },
         )
         assert response.status_code == 400
-        assert response.json()["detail"] == "A table with this name already exists."
+        assert response.json()["detail"] == "A table or view with this name already exists. Choose a different name."
 
     def test_update_saved_query_with_managed_viewset_fails(self):
         """Test that updating a saved query with managed viewset fails with correct error message"""

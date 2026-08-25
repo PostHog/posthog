@@ -15,6 +15,7 @@ from posthog.schema import (
     BaseMathType,
     DateRange,
     EventsNode,
+    FunnelsQuery,
     HogQLQueryModifiers,
     InsightActorsQuery,
     MathGroupTypeIndex,
@@ -511,3 +512,16 @@ class TestInsightActorsQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         runner = InsightActorsQueryRunner(query=query, team=self.team)
         self.assertEqual(runner.group_type_index, 2)
+
+    def test_group_type_index_property_plain_insight_actors_wrapping_funnels(self):
+        # A plain InsightActorsQuery can wrap a FunnelsQuery. group_type_index must read the source
+        # aggregation instead of failing on the wrapper node type.
+        query = InsightActorsQuery(
+            source=FunnelsQuery(
+                aggregation_group_type_index=0,
+                series=[EventsNode(event="$pageview"), EventsNode(event="$pageview")],
+            )
+        )
+
+        runner = InsightActorsQueryRunner(query=query, team=self.team)
+        self.assertEqual(runner.group_type_index, 0)

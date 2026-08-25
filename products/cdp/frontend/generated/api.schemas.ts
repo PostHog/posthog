@@ -749,6 +749,21 @@ export interface HogFunctionRevisionRestoreRequestApi {
     overwrite?: boolean
 }
 
+export interface HogFunctionMaskedSecretApi {
+    /** ID of the hog function. */
+    id: string
+    /** Name of the hog function. */
+    name: string
+    /** Hog function type, for example 'destination'. */
+    type: string
+    /** Whether the hog function is enabled. */
+    enabled: boolean
+    /** Keys of the live secret inputs to enter again. Only keys are returned, never values. */
+    input_keys: string[]
+    /** Keys of the staged draft's secret inputs to enter again. Only keys are returned. */
+    draft_input_keys: string[]
+}
+
 /**
  * Map of hog function UUIDs to their new execution_order values.
  */

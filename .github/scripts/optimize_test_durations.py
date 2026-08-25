@@ -31,7 +31,7 @@ import logging
 import argparse
 import statistics
 import subprocess
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -86,6 +86,7 @@ _JUNIT_ARTIFACT_PREFIX = {
     "CorePOE": "junit-results-backend-core-poe",
     "Temporal": "junit-results-backend-temporal",
     "Products": "product-junit-results",
+    "Dagster": "junit-results-dagster",
 }
 
 
@@ -102,6 +103,8 @@ class JUnitShard:
 
     name: str
     call_times: dict[str, float]
+    # An XML of this shard (any attempt) did not parse, so call_times is incomplete.
+    unreadable: bool = False
 
     @classmethod
     def load_all(cls, junit_dir: Path, segment: str | None = None) -> list["JUnitShard"]:
@@ -111,40 +114,64 @@ class JUnitShard:
         Segment match is anchored at the artifact prefix so "Core" doesn't
         accidentally pick up "core-poe" or any future "*-core-*" name, and
         "CorePOE" matches "core-poe" instead of the absent substring "corepoe".
+
+        Re-run attempts upload as `<shard>-attempt<N>` (attempt 1 carries no
+        suffix). Attempts of one shard merge into one entry under the base
+        shard name, so downstream shard-set matching sees one entry per shard.
+        The newest attempt's time wins for a test every attempt ran; a test
+        only an earlier attempt ran stays, because a rerun without the pinned
+        plan can reshard it into a shard that is not rerun at all.
         """
-        shards = []
+        # Group re-run attempt dirs by base shard name (attempt 1 is the
+        # unsuffixed dir), oldest attempt first.
+        by_base: dict[str, list[tuple[int, Path]]] = defaultdict(list)
         for shard_dir in sorted(junit_dir.iterdir()):
             if not shard_dir.is_dir():
                 continue
+            match = re.match(r"^(.*?)(?:-attempt(\d+))?$", shard_dir.name.lower())
+            if not match:
+                continue
+            base, attempt_n = match.group(1), int(match.group(2) or 1)
+            by_base[base].append((attempt_n, shard_dir))
 
+        shards = []
+        for base, attempts in sorted(by_base.items()):
             if segment:
                 artifact_prefix = _JUNIT_ARTIFACT_PREFIX.get(segment, f"junit-results-backend-{segment.lower()}")
                 # Anchor with `\d+$` so the Core prefix doesn't accidentally
                 # eat core-poe-N (which also starts with junit-results-backend-core-).
                 pattern = re.compile(rf"^{re.escape(artifact_prefix)}-\d+$")
-                if not pattern.match(shard_dir.name.lower()):
+                if not pattern.match(base):
                     continue
 
-            xml_files = sorted(shard_dir.glob("*.xml"))
-            if not xml_files:
-                continue
-
             call_times: dict[str, float] = {}
-            for xml_file in xml_files:
-                for test_id, call_time in cls._parse_call_times(xml_file).items():
-                    call_times[test_id] = max(call_times.get(test_id, 0.0), call_time)
-            shards.append(cls(name=shard_dir.name, call_times=call_times))
+            found_xml = False
+            unreadable = False
+            for _attempt_n, shard_dir in sorted(attempts):
+                attempt_times: dict[str, float] = {}
+                for xml_file in sorted(shard_dir.glob("*.xml")):
+                    found_xml = True
+                    parsed = cls._parse_call_times(xml_file)
+                    if parsed is None:
+                        unreadable = True
+                        continue
+                    for test_id, call_time in parsed.items():
+                        attempt_times[test_id] = max(attempt_times.get(test_id, 0.0), call_time)
+                call_times.update(attempt_times)
+            if not found_xml:
+                continue
+            shards.append(cls(name=base, call_times=call_times, unreadable=unreadable))
 
         return shards
 
     @staticmethod
-    def _parse_call_times(xml_path: Path) -> dict[str, float]:
-        """Extract {pytest_id: call_time} for every parseable testcase."""
+    def _parse_call_times(xml_path: Path) -> dict[str, float] | None:
+        """Extract {pytest_id: call_time} for every parseable testcase, None when the XML does not parse."""
         try:
             tree = ET.parse(xml_path)
         except ParseError as e:
             logger.warning("  Could not parse JUnit XML %s: %s", xml_path, e)
-            return {}
+            return None
         call_times: dict[str, float] = {}
         for tc in tree.getroot().iter("testcase"):
             pytest_id = _junit_to_pytest_id(tc.get("classname", ""), tc.get("name", ""))
@@ -513,6 +540,92 @@ def collect_existing_tests(segment: str | None = None) -> set[str]:
     return tests
 
 
+PRODUCTS_SCALED_MARKER = "products/.junit-scaled"
+
+
+def product_junit_work(junit_dir: Path) -> dict[str, float]:
+    """Sum raw testcase seconds per product module from junit-product-*.xml files.
+
+    Product jobs run without junit_duration_report=call, so testcase times include
+    fixture setup and teardown and track real runner work. Raw sum on purpose:
+    JUnitShard._parse_call_times collapses repeated pytest ids (parametrize) to
+    their max, which under-counts a total. Keys are product module dir names.
+    """
+    work: dict[str, float] = defaultdict(float)
+    for xml_path in sorted(junit_dir.rglob("junit-product-*.xml")):
+        module = xml_path.stem[len("junit-product-") :]
+        try:
+            tree = ET.parse(xml_path)
+        except ParseError as e:
+            logger.warning("  Could not parse product JUnit %s: %s", xml_path, e)
+            continue
+        for tc in tree.getroot().iter("testcase"):
+            try:
+                work[module] += float(tc.get("time") or 0.0)
+            except ValueError:
+                continue
+    return dict(work)
+
+
+def product_module(test_id: str) -> str | None:
+    """The products/<module>/ directory a nodeid lives in, or None outside products/."""
+    parts = test_id.split("/", 2)
+    if parts[0] != "products" or len(parts) < 3:
+        return None
+    return parts[1]
+
+
+def scope_products_to_junit(durations: dict[str, float], ran: set[str], products_dir: Path) -> dict[str, float]:
+    """Keep the nodeids the product jobs ran, plus every product no job ran at all.
+
+    A product a run skips (SKIP_PRODUCT_TESTS, the quarantine file) still has a
+    complete shard set, so it reaches here with no entries in ran. Dropping it
+    would make the products/ replace-merge forget its timings, and once the skip
+    lifts it sizes from the per-file fallback until the next run. A product whose
+    directory is gone is stale, not skipped, so it is dropped.
+    """
+    ran_modules = {module for module in map(product_module, ran) if module}
+    absent_modules = {module for module in map(product_module, durations) if module} - ran_modules
+    skipped_modules = {module for module in absent_modules if (products_dir / module).is_dir()}
+    return {
+        test_id: duration
+        for test_id, duration in durations.items()
+        if test_id in ran or product_module(test_id) in skipped_modules
+    }
+
+
+def scale_products_to_junit(durations: dict[str, float], junit_dir: Path) -> dict[str, float]:
+    """Scale each product's entries so their sum equals the JUnit-measured work.
+
+    The recorded durations are call-only, which under-reports fixture-heavy
+    suites several-fold, and shard sizing reads these sums as magnitudes. Scaling
+    per product keeps the relative weights pytest-split needs while making the
+    sums track real runner work.
+    Call this on a junit-scoped durations dict (the Products branch scopes first),
+    so every prefixed entry is one the product job really ran — suites another job
+    records under the same prefix (a product's temporal tests running in the
+    Django Temporal segment) are already scoped away and keep their own values in
+    the union merge. Writes PRODUCTS_SCALED_MARKER so turbo-discover.js knows the
+    sums are trustworthy; the marker key is not a real file and is ignored by
+    pytest-split.
+    """
+    junit_work = product_junit_work(junit_dir)
+    scaled = dict(durations)
+    for module, target in sorted(junit_work.items()):
+        prefix = f"products/{module}/"
+        keys = [k for k in scaled if k.startswith(prefix)]
+        current = sum(scaled[k] for k in keys)
+        if current <= 0 or target <= 0:
+            continue
+        factor = target / current
+        for k in keys:
+            scaled[k] *= factor
+        if abs(factor - 1) > 0.05:
+            logger.info("  Scaled %s by %.2fx to junit work %.1f min", module, factor, target / 60)
+    scaled[PRODUCTS_SCALED_MARKER] = 1.0
+    return scaled
+
+
 def run_merge_files(input_files: list[Path], output_file: Path, replace_prefix: str | None = None) -> None:
     """Merge mode: outlier-merge already-merged per-segment files into one output.
 
@@ -722,6 +835,14 @@ def main():
         if not junit_shards:
             logger.error("--scope-to-junit requires --junit-dir with matching artifacts")
             sys.exit(1)
+        # A timing shard whose JUnit never uploaded, or uploaded truncated (the
+        # parser turns that into an empty shard), would read as "nothing ran" and
+        # lose every nodeid it owns, so scoping needs one readable JUnit per
+        # shard. The workflow retries unscoped on this exit.
+        unreadable = [shard.name for shard in junit_shards if shard.unreadable or not shard.call_times]
+        if not shard_sets_match(shards, junit_shards) or unreadable:
+            logger.error("--scope-to-junit needs a readable JUnit artifact for every timing shard: %s", unreadable)
+            sys.exit(1)
         ran = set().union(*(s.call_times.keys() for s in junit_shards))
         before_count = len(durations)
         durations = {k: v for k, v in durations.items() if k in ran}
@@ -735,14 +856,19 @@ def main():
         if shard_sets_match(shards, junit_shards):
             ran = set().union(*(shard.call_times.keys() for shard in junit_shards))
             before_count = len(durations)
-            durations = {test_id: duration for test_id, duration in durations.items() if test_id in ran}
+            durations = scope_products_to_junit(durations, ran, Path("products"))
             logger.info(
                 "  Scoped Products to complete JUnit coverage (%d shards, dropped %d stale nodeids)",
                 len(junit_shards),
                 before_count - len(durations),
             )
+            # Scaling needs the scoped dict: prefix-wide scaling is then exactly
+            # "entries this product's job ran".
+            durations = scale_products_to_junit(durations, args.junit_dir)
         else:
-            logger.warning("Product JUnit coverage incomplete; retaining unscoped timings")
+            logger.warning(
+                "Product JUnit coverage incomplete; retaining unscoped timings — sums stay call-only undercounts"
+            )
 
     # Filter to only existing tests if requested
     if args.filter_existing:

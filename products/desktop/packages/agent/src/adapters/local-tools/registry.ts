@@ -53,6 +53,7 @@ export interface LocalToolGateMeta {
    * endpoints re-check authorization server-side on every call.
    */
   peerMessaging?: boolean;
+  taskOriginProduct?: string;
 }
 
 /**
