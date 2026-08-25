@@ -60,15 +60,25 @@ export class TeamManager {
 
     public async setTeamIngestedEvent(team: Team, properties: Properties): Promise<void> {
         if (!team.ingested_event) {
-            await this.postgres.query(
+            // The cached team can be stale: during backfills many workers see ingested_event=false
+            // long after the first write, and an unguarded UPDATE rewrites the same hot posthog_team
+            // row (exclusive row lock + dead tuple) thousands of times. The WHERE guard makes the
+            // repeat writes match zero rows, which takes no row lock and writes nothing.
+            const updateResult = await this.postgres.query(
                 PostgresUse.COMMON_WRITE,
-                `UPDATE posthog_team SET ingested_event = $1 WHERE id = $2`,
+                `UPDATE posthog_team SET ingested_event = $1 WHERE id = $2 AND NOT ingested_event`,
                 [true, team.id],
                 'setTeamIngestedEvent'
             )
 
             // Invalidate the cache for this team
             this.lazyLoader.markForRefresh(String(team.id))
+
+            if (!updateResult.rowCount) {
+                // Another worker (or an earlier event seen through a stale cache) already flipped
+                // the flag - skip the first-event side effects so they fire exactly once per team.
+                return
+            }
 
             const organizationMembers = await this.postgres.query(
                 PostgresUse.COMMON_WRITE,
