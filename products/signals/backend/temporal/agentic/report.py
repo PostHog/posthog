@@ -115,10 +115,10 @@ def _parse_confidence(stored: dict | None) -> "ConfidenceLedger | None":
         return None
 
 
-async def _load_previous_research(report_id: str) -> ReportResearchOutput | None:
-    """Reconstruct the previous report state."""
+async def _load_previous_research(team_id: int, report_id: str) -> ReportResearchOutput | None:
+    """Reconstruct the previous report state, scoped to the owning team like every other read here."""
     report = (
-        await SignalReport.objects.filter(id=report_id)
+        await SignalReport.objects.filter(id=report_id, team_id=team_id)
         .only(
             "title",
             "summary",
@@ -586,7 +586,7 @@ async def run_agentic_report_activity(input: RunAgenticReportInput) -> RunAgenti
                 input.team_id
             )
             # 2. Load previous research if this is a re-promoted report
-            previous_research = await _load_previous_research(input.report_id)
+            previous_research = await _load_previous_research(input.team_id, input.report_id)
             # 2b. Load the resolved report this one recurred from, if any, as extra research context
             resolved_report_title, resolved_report_summary = await _load_resolved_report_context(
                 input.team_id, input.report_id

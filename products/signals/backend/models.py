@@ -539,7 +539,10 @@ class SignalReport(UUIDModel):
         report. The scout report-authoring channel needs one: `emit_report` writes them at creation
         (a report born READY, not transitioned there) and `edit_report` rewrites them afterwards.
 
-        Only the provided fields change; passing neither is a no-op. Returns the modified field names
+        Only the provided fields change, with one asymmetry: a summary rewrite withdraws any
+        presentation field not re-authored in the same call — those one-liners describe the
+        previous summary, and a stale headline beside new prose is worse than none (same
+        withdraw-on-rewrite rule as the pipeline's transition path). Returns the modified field names
         (with `updated_at`) for a targeted `save(update_fields=...)`; does NOT call `.save()` — the
         caller owns the write so it can batch this with other changes in one transaction.
         """
@@ -566,6 +569,21 @@ class SignalReport(UUIDModel):
             if value is not None and value != getattr(self, field):
                 setattr(self, field, value)
                 updated_fields.add(field)
+        if "summary" in updated_fields:
+            provided = {
+                "headline": headline,
+                "impact": impact,
+                "recommended_action": recommended_action,
+                "cause": cause,
+                "cause_location": cause_location,
+                "fix_size": fix_size,
+                "not_this": not_this,
+                "confidence": confidence,
+            }
+            for field in self.PRESENTATION_FIELD_NAMES:
+                if provided[field] is None and getattr(self, field) is not None:
+                    setattr(self, field, None)
+                    updated_fields.add(field)
         if updated_fields:
             updated_fields.add("updated_at")
         return list(updated_fields)

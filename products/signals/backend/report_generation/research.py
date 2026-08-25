@@ -485,7 +485,11 @@ Decide whether the updated set of signal findings changes that priority.
 """
 
 
-def _render_previous_presentation_context(previous_title: str | None, previous_summary: str | None) -> str:
+def _render_previous_presentation_context(
+    previous_title: str | None,
+    previous_summary: str | None,
+    previous_research: ReportResearchOutput | None = None,
+) -> str:
     if not previous_title and not previous_summary:
         return ""
 
@@ -501,7 +505,41 @@ def _render_previous_presentation_context(previous_title: str | None, previous_s
             "If the new findings change the shape of the report, update them.",
         ]
     )
+    record_lines = _render_previous_record_lines(previous_research)
+    if record_lines:
+        parts.extend(
+            [
+                "",
+                "The previous run also authored these structured fields describing that summary:",
+                *record_lines,
+                "",
+                "An update pass validates rather than re-researches, so the prior confidence ledger's "
+                "verified and measured claims came from fuller research: carry them forward unless the "
+                "new findings contradict or supersede them, and extend the ledger with what this run "
+                "learned. Apply the same keep-if-still-accurate rule to the other fields.",
+            ]
+        )
     return "\n".join(parts)
+
+
+def _render_previous_record_lines(previous_research: ReportResearchOutput | None) -> list[str]:
+    if previous_research is None:
+        return []
+    lines: list[str] = []
+    for label, value in (
+        ("Headline", previous_research.headline),
+        ("Impact", previous_research.impact),
+        ("Recommended action", previous_research.recommended_action),
+        ("Cause", previous_research.cause),
+        ("Where", previous_research.cause_location),
+        ("Fix size", previous_research.fix_size),
+        ("Not this", previous_research.not_this),
+    ):
+        if value:
+            lines.append(f"- **{label}:** {value}")
+    if previous_research.confidence is not None:
+        lines.append(f"- **Confidence ledger:** {previous_research.confidence.model_dump_json()}")
+    return lines
 
 
 # Chart-authoring guidance for the presentation step, adapted from the scout channel's
@@ -849,6 +887,7 @@ def build_report_presentation_prompt(
     previous_title: str | None = None,
     previous_summary: str | None = None,
     previous_charts: list[ReportChart] | None = None,
+    previous_research: ReportResearchOutput | None = None,
     charts_enabled: bool = False,
 ) -> str:
     schema_dict = ReportPresentationOutput.model_json_schema()
@@ -862,7 +901,9 @@ def build_report_presentation_prompt(
         schema_dict.get("properties", {}).pop("charts", None)
         _prune_unreferenced_defs(schema_dict)
     schema = json.dumps(schema_dict, indent=2)
-    previous_presentation_context = _render_previous_presentation_context(previous_title, previous_summary)
+    previous_presentation_context = _render_previous_presentation_context(
+        previous_title, previous_summary, previous_research
+    )
 
     # The charts guidance (and any previous-charts context) is rendered only when the team is opted in.
     charts_sections = ""
@@ -1114,6 +1155,7 @@ async def run_multi_turn_research(
             previous_title=title or (previous_report_research.title if previous_report_research else None),
             previous_summary=summary or (previous_report_research.summary if previous_report_research else None),
             previous_charts=previous_report_research.charts if previous_report_research else None,
+            previous_research=previous_report_research,
             charts_enabled=charts_enabled,
         )
         presentation_result = await session.send_followup(

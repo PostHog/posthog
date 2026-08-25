@@ -66,6 +66,43 @@ class TestReportPresentationFields(BaseTest):
         for field in SignalReport.PRESENTATION_FIELD_NAMES:
             assert getattr(report, field) is None, field
 
+    def test_summary_rewrite_withdraws_presentation_fields_it_did_not_reauthor(self) -> None:
+        # A scout editing the prose without re-authoring the record must not leave
+        # one-liners describing the previous summary beside the new one.
+        report = self._report(SignalReport.Status.READY)
+        report.save(
+            update_fields=report.transition_to(
+                SignalReport.Status.READY, title="t", summary="s", presentation=FULL_RECORD
+            )
+            if report.status != SignalReport.Status.READY
+            else []
+        )
+        for field in SignalReport.PRESENTATION_FIELD_NAMES:
+            setattr(report, field, getattr(FULL_RECORD, field))
+        report.summary = "s"
+        report.save()
+
+        updated = report.update_authored_content(summary="rewritten prose", headline="New headline")
+        report.save(update_fields=updated)
+        report.refresh_from_db()
+        assert report.summary == "rewritten prose"
+        assert report.headline == "New headline"
+        for field in ("impact", "recommended_action", "cause", "cause_location", "fix_size", "not_this", "confidence"):
+            assert getattr(report, field) is None, field
+
+    def test_title_only_edit_keeps_the_presentation_record(self) -> None:
+        report = self._report(SignalReport.Status.READY)
+        for field in SignalReport.PRESENTATION_FIELD_NAMES:
+            setattr(report, field, getattr(FULL_RECORD, field))
+        report.summary = "s"
+        report.save()
+
+        updated = report.update_authored_content(title="sharper title")
+        report.save(update_fields=updated)
+        report.refresh_from_db()
+        assert report.headline == FULL_RECORD.headline
+        assert report.confidence == LEDGER
+
     def test_update_authored_content_sets_changed_fields_and_noops_identical(self) -> None:
         report = self._report(SignalReport.Status.READY)
         report.title = "t"
