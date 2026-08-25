@@ -97,6 +97,7 @@
     'posthog.tasks.remote_config.sync_all_remote_configs',
     'posthog.tasks.remote_config.update_team_remote_config',
     'posthog.tasks.split_person.split_person',
+    'posthog.tasks.stripe_marketplace_token_audit.audit_stripe_marketplace_tokens_task',
     'posthog.tasks.surveys.sync_all_surveys_cache',
     'posthog.tasks.surveys.update_team_surveys_cache',
     'posthog.tasks.sync_billing.sync_from_billing',
