@@ -66,8 +66,13 @@ def to_printed_hogql(
     modifiers: "HogQLQueryModifiers | None" = None,
     *,
     bypass_warehouse_access_control: bool = False,
+    database: Database | None = None,
 ) -> str:
-    """Prints the HogQL query without mutating the node"""
+    """Prints the HogQL query without mutating the node.
+
+    Pass `database` to reuse an already-built schema instead of building a new one — building the
+    full database is the dominant cost of printing on teams with many warehouse tables.
+    """
     return prepare_and_print_ast(
         clone_expr(query),
         dialect="hogql",
@@ -76,6 +81,7 @@ def to_printed_hogql(
             enable_select_queries=True,
             modifiers=create_default_modifiers_for_team(team, modifiers),
             bypass_warehouse_access_control=bypass_warehouse_access_control,
+            database=database,
         ),
         pretty=True,
     )[0]

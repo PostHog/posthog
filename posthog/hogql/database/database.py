@@ -200,6 +200,10 @@ if TYPE_CHECKING:
 
 tracer = trace.get_tracer(__name__)
 
+# Process-wide rather than per-instance so no lock lives in the model's copyable state. The build
+# runs at most once per database, so cross-instance contention is negligible.
+_FOREIGN_KEYS_BUILD_LOCK = threading.Lock()
+
 
 @dataclasses.dataclass
 class SerializedField:
@@ -605,7 +609,10 @@ class Database(BaseModel):
     # warehouse table is accessed (see get_table / _ensure_foreign_keys_built).
     _deferred_foreign_key_tables: list[Any] = []
     _foreign_keys_built: bool = True
-    _foreign_keys_building: bool = False
+    # Thread ident of the thread currently running the build pass, for recursion detection. A
+    # database can be shared by several query threads (e.g. trends series), so the guard must
+    # distinguish same-thread re-entry from a concurrent thread that has to wait.
+    _foreign_keys_building_thread: Optional[int] = None
     # Lowercased, because Snowflake nodes resolve case-insensitively and a query may name a table with
     # casing that differs from the canonical catalog name.
     _foreign_key_trigger_names: Optional[set[str]] = None
@@ -640,7 +647,7 @@ class Database(BaseModel):
         self._data_warehouse_sync_warnings = {}
         self._deferred_foreign_key_tables = []
         self._foreign_keys_built = True
-        self._foreign_keys_building = False
+        self._foreign_keys_building_thread = None
         self._foreign_key_trigger_names = None
         self._deferred_overridable_expression_field_ids = set()
         self._serialization_errors: dict[str, str] = {}  # table_key -> error_message
@@ -711,31 +718,38 @@ class Database(BaseModel):
 
         The full graph is built in a single pass (not just the accessed table) so reverse joins and
         field precedence match the eager path exactly. Resolving a foreign-key target re-enters
-        get_table, so `_foreign_keys_building` guards that recursion rather than the built flag — the
-        work stays pending until the pass finishes, so a mid-pass failure doesn't leave a half-wired
-        graph behind. Callers that swallow resolution errors retry on their next access instead.
+        get_table, so `_foreign_keys_building_thread` guards that recursion rather than the built
+        flag — the work stays pending until the pass finishes, so a mid-pass failure doesn't leave a
+        half-wired graph behind. Callers that swallow resolution errors retry on their next access
+        instead. A database can be shared by concurrent query threads, so a thread that isn't the
+        builder blocks on the lock and observes the finished graph rather than a half-wired one.
         Saved expressions were applied at build time (before this runs), so foreign keys are allowed
         to replace a colliding saved-expression field — preserving the eager "saved expressions never
         shadow a join field" invariant. Only fields saved expressions created are overridable; the
         id/timestamp mappings event modifiers write stay put, as they did in the eager order.
         """
-        if self._foreign_keys_built or self._foreign_keys_building:
+        if self._foreign_keys_built or self._foreign_keys_building_thread == threading.get_ident():
             return
-        self._foreign_keys_building = True
-        try:
-            with tracer.start_as_current_span("warehouse_foreign_keys"):
-                for hogql_table, warehouse_table_model in self._deferred_foreign_key_tables:
-                    add_postgres_foreign_key_lazy_joins(
-                        hogql_table=hogql_table,
-                        warehouse_table=warehouse_table_model,
-                        database=self,
-                        schemas=_get_active_external_data_schemas(warehouse_table_model),
-                        overridable_expression_field_ids=self._deferred_overridable_expression_field_ids,
-                    )
-        finally:
-            self._foreign_keys_building = False
-        self._foreign_keys_built = True
-        self._deferred_foreign_key_tables = []
+        with _FOREIGN_KEYS_BUILD_LOCK:
+            # Re-check under the lock: another thread may have finished the build while this one
+            # waited. mypy's flow analysis cannot see cross-thread mutation.
+            if self._foreign_keys_built:
+                return  # type: ignore[unreachable]
+            self._foreign_keys_building_thread = threading.get_ident()
+            try:
+                with tracer.start_as_current_span("warehouse_foreign_keys"):
+                    for hogql_table, warehouse_table_model in self._deferred_foreign_key_tables:
+                        add_postgres_foreign_key_lazy_joins(
+                            hogql_table=hogql_table,
+                            warehouse_table=warehouse_table_model,
+                            database=self,
+                            schemas=_get_active_external_data_schemas(warehouse_table_model),
+                            overridable_expression_field_ids=self._deferred_overridable_expression_field_ids,
+                        )
+            finally:
+                self._foreign_keys_building_thread = None
+            self._foreign_keys_built = True
+            self._deferred_foreign_key_tables = []
 
     def _suggest_table_names(self, name: str, *, limit: int = 3) -> list[str]:
         """Return up to `limit` close matches for a mistyped table name.
