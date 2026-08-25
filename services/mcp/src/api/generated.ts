@@ -83053,6 +83053,13 @@ export namespace Schemas {
       notes: string[];
     }
 
+    export interface VerifyEmail {
+      /** UUID of the user whose email address is being verified. */
+      uuid: string;
+      /** Email verification token sent to the user's email address. */
+      token: string;
+    }
+
     export interface ViewLinkValidation {
       /**
          * Name of the table or view being joined onto the source table.
