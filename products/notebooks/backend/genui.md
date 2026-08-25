@@ -4,14 +4,18 @@ The `GenUI` notebook block turns a prompt into a sandboxed React visualization. 
 
 ## Generation path
 
-1. The browser sends a prompt and up to four dataframe names.
-2. The backend resolves the latest successful run for each dataframe and rechecks the caller's query and warehouse-source access.
-3. Claude Haiku receives only dataframe names, columns, and types. It never receives row values.
-4. The model returns one `src/canvas.tsx` file. Invalid source gets one repair attempt.
+1. The browser sends a prompt, generation identifier, and the selected model.
+2. The backend makes the latest successful result from each SQL or Python cell in the notebook available and rechecks the caller's query and warehouse-source access.
+3. The visualization model receives only dataframe names, columns, and types. It never receives row values.
+4. The model streams one `src/canvas.tsx` file. Invalid source gets one repair attempt. Canceling closes the model stream before any source is published.
 5. The existing Canvas publisher validates, stores, and builds the source.
 6. The browser polls Canvas-derived status while the build is active, then loads the signed artifact URL in a script-only sandbox.
 
 There is no GenUI task, snapshot, run history, or persisted lifecycle state. `NotebookGenUI` only associates a notebook node with its Canvas and allowed dataframe names. Existing migration columns from the earlier implementation remain unused for migration compatibility.
+
+The Canvas document root and generated component fill the notebook block's available width and height and respond when the block is resized. Every visualization includes suitable interaction controls, such as camera controls for 3D output or data exploration controls for 2D output. Generation uses explicit visual-quality criteria for composition, recognizable form, and data storytelling. Three-dimensional subjects with visible surface detail use procedural texture maps; self-contained assets prohibit downloads, not textures generated in code.
+
+Blocks offer fast, balanced, and best-quality models. Balanced is the default. The backend accepts only the models shown in the block settings, disables extended reasoning for this single-file generation task, and gives each model a separate output budget and timeout with headroom beyond its expected response time.
 
 ## Reading dataframe results
 

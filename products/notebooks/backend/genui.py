@@ -2,6 +2,8 @@ import re
 import json
 import math
 from collections.abc import Callable
+from time import monotonic
+from uuid import UUID
 
 from django.core.cache import cache
 from django.db import transaction
@@ -17,7 +19,6 @@ from products.notebooks.backend.util import (
     _parse_markdown_component_props,
 )
 
-MAX_INPUTS = 4
 MAX_INPUT_NAME_LENGTH = 128
 MAX_PROMPT_LENGTH = 20_000
 MAX_COLUMNS = 100
@@ -25,6 +26,7 @@ MAX_ROWS = 100
 MAX_CELL_STRING_LENGTH = 4_096
 MAX_FRAME_BYTES = 512 * 1_024
 MAX_GENERATIONS_PER_USER_PER_MINUTE = 5
+GENERATION_CANCELLATION_TTL_SECONDS = 60 * 10
 
 _INPUT_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -102,8 +104,6 @@ def normalize_inputs(inputs: list[str]) -> list[str]:
             raise GenUIError(f'Dataframe "{name}" is listed more than once.', "duplicate_input_name")
         seen.add(name)
         normalized.append(name)
-    if len(normalized) > MAX_INPUTS:
-        raise GenUIError(f"Choose no more than {MAX_INPUTS} dataframes.", "too_many_inputs")
     return normalized
 
 
@@ -118,12 +118,22 @@ def assert_genui_node_exists(notebook: Notebook, node_id: str) -> None:
 
 def _dataframe_owners(notebook: Notebook) -> dict[str, str]:
     cells = extract_cells(notebook.content)
-    owners: dict[str, str] = {}
+    eligible_cells = [cell for cell in cells if _INPUT_NAME.fullmatch(cell.dataframe_name)]
+    preferred_owners: dict[str, str] = {}
     for cell_type in ("sql", "python"):
-        for cell in cells:
-            if cell.cell_type == cell_type and _INPUT_NAME.fullmatch(cell.dataframe_name):
-                owners.setdefault(cell.dataframe_name, cell.node_id)
+        for cell in eligible_cells:
+            if cell.cell_type == cell_type:
+                preferred_owners.setdefault(cell.dataframe_name, cell.node_id)
+    owners: dict[str, str] = {}
+    for cell in eligible_cells:
+        if preferred_owners[cell.dataframe_name] == cell.node_id:
+            owners.setdefault(cell.dataframe_name, cell.node_id)
     return owners
+
+
+def infer_genui_inputs(notebook: Notebook, node_id: str) -> list[str]:
+    assert_genui_node_exists(notebook, node_id)
+    return list(_dataframe_owners(notebook))
 
 
 def _columns_from_run(run: NotebookNodeRun) -> list[dict[str, str]]:
@@ -152,8 +162,12 @@ def inspect_genui_inputs(
     notebook: Notebook,
     inputs: list[str],
     authorize_run: Callable[[NotebookNodeRun], None],
+    node_id: str | None = None,
+    require_all: bool = True,
 ) -> GenUIInputInspection:
     normalized_inputs = normalize_inputs(inputs)
+    if node_id is not None:
+        assert_genui_node_exists(notebook, node_id)
     owners = _dataframe_owners(notebook)
     missing = [name for name in normalized_inputs if name not in owners]
     if missing:
@@ -171,7 +185,7 @@ def inspect_genui_inputs(
         .distinct("node_id")
     }
     unresolved = [name for name in normalized_inputs if owners[name] not in latest_runs]
-    if unresolved:
+    if unresolved and require_all:
         raise GenUIConflictError(
             f'Run the cell that exports "{unresolved[0]}" before generating this visualization.',
             "input_not_ready",
@@ -185,6 +199,7 @@ def inspect_genui_inputs(
             total_row_count=_total_row_count(latest_runs[owners[name]]),
         )
         for name in normalized_inputs
+        if owners[name] in latest_runs
     ]
     for resolved in resolved_inputs:
         authorize_run(resolved.run)
@@ -242,6 +257,27 @@ def _check_generation_rate(team_id: int, user_id: int) -> None:
         count = 1
     if count > MAX_GENERATIONS_PER_USER_PER_MINUTE:
         raise GenUIRateLimitError("Too many visualizations were generated. Try again in a minute.", "rate_limited")
+
+
+def _generation_cancellation_key(
+    *, team_id: int, user_id: int, notebook_id: UUID, node_id: str, generation_id: UUID
+) -> str:
+    return f"notebook_genui_cancel:{team_id}:{user_id}:{notebook_id}:{node_id}:{generation_id}"
+
+
+def cancel_genui_generation(*, notebook: Notebook, node_id: str, generation_id: UUID, user_id: int) -> None:
+    assert_genui_node_exists(notebook, node_id)
+    cache.set(
+        _generation_cancellation_key(
+            team_id=notebook.team_id,
+            user_id=user_id,
+            notebook_id=notebook.id,
+            node_id=node_id,
+            generation_id=generation_id,
+        ),
+        True,
+        timeout=GENERATION_CANCELLATION_TTL_SECONDS,
+    )
 
 
 def _is_ai_usage_limited(team_api_token: str) -> bool:
@@ -307,11 +343,14 @@ def generate_genui(
     inputs: list[str],
     user_id: int,
     inspection: GenUIInputInspection,
+    model: str,
+    generation_id: UUID,
 ) -> GenUIStatus:
     from products.canvas.backend import (
         notebook_integration as canvas_facade,  # noqa: PLC0415 — keeps Canvas build imports off the notebook API import path
     )
     from products.notebooks.backend.genui_generation import (  # noqa: PLC0415 — keeps the OpenAI SDK off the notebook API import path
+        GenUISourceGenerationCancelled,
         GenUISourceGenerationError,
         generate_genui_source,
     )
@@ -328,53 +367,82 @@ def generate_genui(
             "usage_limit_exceeded",
         )
 
-    try:
-        source = generate_genui_source(
-            team_id=notebook.team_id,
-            trace_id=f"notebook-genui-{notebook.id}-{node_id}",
-            prompt=normalized_prompt,
-            schemas=inspection.schemas,
-            input_names=normalized_inputs,
-        )
-    except GenUISourceGenerationError as error:
-        raise GenUIError("The visualization could not be generated. Try again.", "generation_failed") from error
-
-    assert_genui_node_exists(notebook, node_id)
-    row = _get_or_create_canvas(
-        notebook=notebook,
-        node_id=node_id,
-        inputs=normalized_inputs,
-        prompt=normalized_prompt,
+    cancellation_key = _generation_cancellation_key(
+        team_id=notebook.team_id,
         user_id=user_id,
+        notebook_id=notebook.id,
+        node_id=node_id,
+        generation_id=generation_id,
     )
-    canvas_id = row.canvas_id
-    if canvas_id is None:
-        raise GenUIError("The visualization could not be prepared. Try again.", "canvas_missing")
-    state = canvas_facade.get_canvas_generation_state(team_id=notebook.team_id, canvas_id=canvas_id)
-    if state is None:
-        raise GenUIError("The visualization could not be prepared. Try again.", "canvas_missing")
+    cancellation_checked_at = 0.0
+    cancellation_requested = False
+
+    def is_cancelled() -> bool:
+        nonlocal cancellation_checked_at, cancellation_requested
+        checked_at = monotonic()
+        if checked_at - cancellation_checked_at >= 0.25:
+            cancellation_requested = bool(cache.get(cancellation_key))
+            cancellation_checked_at = checked_at
+        return cancellation_requested
+
     try:
-        canvas_facade.publish_notebook_canvas_source(
-            team_id=notebook.team_id,
-            canvas_id=canvas_id,
-            user_id=user_id,
-            source=source,
-            input_names=normalized_inputs,
+        try:
+            source = generate_genui_source(
+                team_id=notebook.team_id,
+                trace_id=f"notebook-genui-{notebook.id}-{node_id}-{generation_id}",
+                prompt=normalized_prompt,
+                schemas=inspection.schemas,
+                input_names=normalized_inputs,
+                model=model,
+                is_cancelled=is_cancelled,
+            )
+        except GenUISourceGenerationCancelled as error:
+            raise GenUIError("Visualization generation was canceled.", "generation_canceled") from error
+        except GenUISourceGenerationError as error:
+            raise GenUIError("The visualization could not be generated. Try again.", "generation_failed") from error
+
+        if cache.get(cancellation_key):
+            raise GenUIError("Visualization generation was canceled.", "generation_canceled")
+        assert_genui_node_exists(notebook, node_id)
+        row = _get_or_create_canvas(
+            notebook=notebook,
+            node_id=node_id,
+            inputs=normalized_inputs,
             prompt=normalized_prompt,
-            name=_display_name(normalized_prompt),
-            expected_current_version_id=state.current_source_version_id,
+            user_id=user_id,
         )
-    except canvas_facade.NotebookCanvasVersionConflictError as error:
-        raise GenUIConflictError(
-            "This visualization changed while it was being generated. Try again.", "generation_conflict"
-        ) from error
-    except canvas_facade.NotebookCanvasBuildCapacityError as error:
-        raise GenUIRateLimitError(
-            "Visualization build capacity is full. Try again shortly.", "build_capacity"
-        ) from error
-    except canvas_facade.NotebookCanvasError as error:
-        raise GenUIError("The visualization could not be built. Try again.", "build_failed") from error
-    return get_genui_status(notebook=notebook, node_id=node_id)
+        canvas_id = row.canvas_id
+        if canvas_id is None:
+            raise GenUIError("The visualization could not be prepared. Try again.", "canvas_missing")
+        state = canvas_facade.get_canvas_generation_state(team_id=notebook.team_id, canvas_id=canvas_id)
+        if state is None:
+            raise GenUIError("The visualization could not be prepared. Try again.", "canvas_missing")
+        if cache.get(cancellation_key):
+            raise GenUIError("Visualization generation was canceled.", "generation_canceled")
+        try:
+            canvas_facade.publish_notebook_canvas_source(
+                team_id=notebook.team_id,
+                canvas_id=canvas_id,
+                user_id=user_id,
+                source=source,
+                input_names=normalized_inputs,
+                prompt=normalized_prompt,
+                name=_display_name(normalized_prompt),
+                expected_current_version_id=state.current_source_version_id,
+            )
+        except canvas_facade.NotebookCanvasVersionConflictError as error:
+            raise GenUIConflictError(
+                "This visualization changed while it was being generated. Try again.", "generation_conflict"
+            ) from error
+        except canvas_facade.NotebookCanvasBuildCapacityError as error:
+            raise GenUIRateLimitError(
+                "Visualization build capacity is full. Try again shortly.", "build_capacity"
+            ) from error
+        except canvas_facade.NotebookCanvasError as error:
+            raise GenUIError("The visualization could not be built. Try again.", "build_failed") from error
+        return get_genui_status(notebook=notebook, node_id=node_id)
+    finally:
+        cache.delete(cancellation_key)
 
 
 def get_genui_status(*, notebook: Notebook, node_id: str) -> GenUIStatus:
@@ -436,6 +504,6 @@ def read_genui_frame(
     row = NotebookGenUI.objects.for_team(notebook.team_id).filter(notebook=notebook, node_id=node_id).first()
     if row is None or frame_name not in row.inputs:
         raise GenUIError("This visualization cannot read that dataframe.", "frame_not_allowed")
-    inspection = inspect_genui_inputs(notebook, [frame_name], authorize_run)
+    inspection = inspect_genui_inputs(notebook, [frame_name], authorize_run, node_id=node_id)
     resolved = inspection.resolved_inputs[0]
     return GenUIFrameRead(run=resolved.run, frame=_frame_from_run(frame_name, resolved.run))

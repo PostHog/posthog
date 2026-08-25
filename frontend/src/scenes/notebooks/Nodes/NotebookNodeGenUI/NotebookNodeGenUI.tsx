@@ -11,14 +11,14 @@ import { NotebookNodeProps, NotebookNodeType } from '../../types'
 import { notebookNodeLogic } from '../notebookNodeLogic'
 import { confirmGenUIGeneration } from './confirmGenUIGeneration'
 import { GenUIArtifactFrame } from './GenUIArtifactFrame'
-import { validateGenUIInputs } from './genUIInputs'
+import { DEFAULT_GENUI_MODEL, GenUIModel } from './genUIModels'
 import { getGenUIName } from './genUIName'
 import { loadGenUIFrame, notebookNodeGenUILogic } from './notebookNodeGenUILogic'
 import { NotebookNodeGenUISettings } from './NotebookNodeGenUISettings'
 
 export type NotebookNodeGenUIAttributes = {
     prompt?: string
-    inputs?: string
+    model?: GenUIModel
 }
 
 function EmptyState({ children }: { children: ReactNode }): JSX.Element {
@@ -33,18 +33,24 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeGenUIAttributes
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { expanded, isEditable, notebookLogic } = useValues(nodeLogic)
     const notebookShortId = notebookLogic.props.shortId
-    const inputValidation = validateGenUIInputs(attributes.inputs ?? '')
     const logic = notebookNodeGenUILogic({
         notebookShortId,
         nodeId: attributes.nodeId,
         prompt: attributes.prompt ?? '',
-        inputs: inputValidation.names,
-        inputValidationError: inputValidation.error,
+        model: attributes.model ?? DEFAULT_GENUI_MODEL,
         isEditable,
     })
-    const { currentTeamId, error, frameRevision, generationInFlight, runtimeError, status, statusLoading } =
-        useValues(logic)
-    const { generateVisualization, loadStatus, refreshData, setRuntimeError } = useActions(logic)
+    const {
+        cancellationInFlight,
+        currentTeamId,
+        error,
+        frameRevision,
+        generationInFlight,
+        runtimeError,
+        status,
+        statusLoading,
+    } = useValues(logic)
+    const { cancelGeneration, generateVisualization, loadStatus, setRuntimeError } = useActions(logic)
 
     if (!expanded) {
         return null
@@ -59,35 +65,11 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeGenUIAttributes
     }
 
     const isBuilding = status?.lifecycle_status === 'building'
-    const isWorking = generationInFlight || isBuilding
-    const canGenerate = Boolean((attributes.prompt ?? '').trim()) && !inputValidation.error
+    const canGenerate = Boolean((attributes.prompt ?? '').trim())
 
     if (status?.artifact_url && currentTeamId) {
         return (
             <div className="flex h-full min-h-0 w-full flex-col">
-                <div className="flex shrink-0 items-center justify-between gap-2 border-b border-primary px-2 py-1">
-                    <span className="truncate text-xs text-muted">
-                        {generationInFlight ? 'Generating updated visualization…' : 'Generated visualization'}
-                    </span>
-                    {isEditable ? (
-                        <div className="flex shrink-0 items-center gap-1">
-                            <LemonButton size="xsmall" type="tertiary" onClick={refreshData} disabled={isWorking}>
-                                Reload data
-                            </LemonButton>
-                            <LemonButton
-                                size="xsmall"
-                                type="tertiary"
-                                onClick={() => confirmGenUIGeneration(generateVisualization)}
-                                loading={generationInFlight}
-                                disabledReason={
-                                    !canGenerate ? inputValidation.error || 'Add a prompt first' : undefined
-                                }
-                            >
-                                Regenerate
-                            </LemonButton>
-                        </div>
-                    ) : null}
-                </div>
                 {error ? (
                     <LemonBanner type="error" className="m-2">
                         {error}
@@ -122,9 +104,16 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeGenUIAttributes
     if (generationInFlight || isBuilding) {
         return (
             <EmptyState>
-                <div className="flex items-center gap-2" role="status" aria-live="polite">
-                    <Spinner />
-                    <span>{generationInFlight ? 'Generating visualization…' : 'Building visualization…'}</span>
+                <div className="flex flex-col items-center gap-3">
+                    <div className="flex items-center gap-2" role="status" aria-live="polite">
+                        <Spinner />
+                        <span>{generationInFlight ? 'Generating visualization…' : 'Building visualization…'}</span>
+                    </div>
+                    {generationInFlight && isEditable ? (
+                        <LemonButton onClick={cancelGeneration} loading={cancellationInFlight}>
+                            Cancel
+                        </LemonButton>
+                    ) : null}
                 </div>
             </EmptyState>
         )
@@ -140,7 +129,7 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeGenUIAttributes
                             type="primary"
                             onClick={() => confirmGenUIGeneration(generateVisualization)}
                             loading={generationInFlight}
-                            disabledReason={!canGenerate ? inputValidation.error || 'Add a prompt first' : undefined}
+                            disabledReason={!canGenerate ? 'Add a prompt first' : undefined}
                         >
                             Try again
                         </LemonButton>
@@ -158,12 +147,7 @@ function Component({ attributes }: NotebookNodeProps<NotebookNodeGenUIAttributes
             <div className="flex flex-col items-center gap-3">
                 <div>This visualization has not been generated yet.</div>
                 {isEditable ? (
-                    <LemonButton
-                        type="primary"
-                        onClick={generateVisualization}
-                        loading={generationInFlight}
-                        disabledReason={inputValidation.error || undefined}
-                    >
+                    <LemonButton type="primary" onClick={generateVisualization} loading={generationInFlight}>
                         Generate visualization
                     </LemonButton>
                 ) : null}
@@ -184,6 +168,6 @@ export const NotebookNodeGenUI = createPostHogWidgetNode<NotebookNodeGenUIAttrib
     expandable: false,
     attributes: {
         prompt: { default: '' },
-        inputs: { default: '' },
+        model: { default: DEFAULT_GENUI_MODEL },
     },
 })

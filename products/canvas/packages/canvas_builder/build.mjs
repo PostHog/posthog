@@ -226,6 +226,16 @@ const platformStylesheet = `
 @import "@posthog/quill/primitives.css";
 @import "@posthog/quill/tailwind.css";
 @custom-variant dark (&:where(.dark, .dark *));
+
+@layer base {
+    html,
+    body,
+    #root {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+    }
+}
 `
 
 // Entry references (module scripts, stylesheets) parsed attribute-order-

@@ -1,6 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 
-import { LemonButton, LemonTag, LemonTextArea } from '@posthog/lemon-ui'
+import { LemonButton, LemonSelect, LemonTextArea } from '@posthog/lemon-ui'
 
 import { wasNotebookNodeJustInserted } from 'lib/components/MarkdownNotebook/freshlyInserted'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
@@ -8,7 +8,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { NotebookNodeAttributeProperties } from '../../types'
 import { notebookNodeLogic } from '../notebookNodeLogic'
 import { confirmGenUIGeneration } from './confirmGenUIGeneration'
-import { validateGenUIInputs } from './genUIInputs'
+import { DEFAULT_GENUI_MODEL, GENUI_MODEL_OPTIONS } from './genUIModels'
 import type { NotebookNodeGenUIAttributes } from './NotebookNodeGenUI'
 import { notebookNodeGenUILogic } from './notebookNodeGenUILogic'
 
@@ -18,26 +18,24 @@ export function NotebookNodeGenUISettings({
 }: NotebookNodeAttributeProperties<NotebookNodeGenUIAttributes>): JSX.Element {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { isEditable, notebookLogic } = useValues(nodeLogic)
-    const inputValidation = validateGenUIInputs(attributes.inputs ?? '')
     const logic = notebookNodeGenUILogic({
         notebookShortId: notebookLogic.props.shortId,
         nodeId: attributes.nodeId,
         prompt: attributes.prompt ?? '',
-        inputs: inputValidation.names,
-        inputValidationError: inputValidation.error,
+        model: attributes.model ?? DEFAULT_GENUI_MODEL,
         isEditable,
     })
-    const { error, generationInFlight, status } = useValues(logic)
-    const { generateVisualization, refreshData } = useActions(logic)
+    const { cancellationInFlight, error, generationInFlight, status } = useValues(logic)
+    const { cancelGeneration, generateVisualization, refreshData } = useActions(logic)
     const promptId = `genui-prompt-${attributes.nodeId}`
-    const inputsId = `genui-inputs-${attributes.nodeId}`
+    const modelId = `genui-model-${attributes.nodeId}`
     const isBuilding = status?.lifecycle_status === 'building'
     const isWorking = generationInFlight || isBuilding
     const disabledReason = isWorking
         ? 'Wait for the visualization to finish'
         : !(attributes.prompt ?? '').trim()
           ? 'Add a prompt first'
-          : inputValidation.error || undefined
+          : undefined
 
     const generate = (): void => {
         if (status?.lifecycle_status === 'ready' || status?.lifecycle_status === 'failed') {
@@ -62,45 +60,44 @@ export function NotebookNodeGenUISettings({
                     className="mt-1"
                 />
             </div>
+            <div className="text-xs text-muted">
+                Results from SQL and Python cells in this notebook are included automatically.
+            </div>
             <div>
-                <LemonLabel htmlFor={inputsId}>Dataframes</LemonLabel>
-                <LemonTextArea
-                    id={inputsId}
-                    value={attributes.inputs ?? ''}
-                    onChange={(value) => updateAttributes({ inputs: value || undefined })}
-                    placeholder="orders, weekly_revenue"
-                    minRows={2}
+                <LemonLabel htmlFor={modelId}>Model</LemonLabel>
+                <LemonSelect
+                    id={modelId}
+                    value={attributes.model ?? DEFAULT_GENUI_MODEL}
+                    options={GENUI_MODEL_OPTIONS}
+                    onChange={(model) => updateAttributes({ model })}
+                    fullWidth
                     disabled={!isEditable}
                     className="mt-1"
+                    // pinned: this selector is part of the browser automation contract
+                    data-attr="genui-model-select"
                 />
-                <div className="mt-1 text-xs text-muted">Use up to four dataframe names from SQL or Python cells.</div>
             </div>
-            {inputValidation.names.length > 0 ? (
-                <div className="flex flex-wrap items-center gap-1 text-xs text-muted">
-                    <span>Available to the visualization:</span>
-                    {inputValidation.names.map((name) => (
-                        <LemonTag key={name} size="small">
-                            {name}
-                        </LemonTag>
-                    ))}
-                </div>
-            ) : null}
             <div className="flex flex-wrap items-center gap-2">
                 {status?.lifecycle_status === 'ready' ? (
                     <LemonButton type="primary" onClick={refreshData} disabled={isWorking}>
                         Reload data
                     </LemonButton>
                 ) : null}
-                <LemonButton
-                    type={status?.lifecycle_status === 'ready' ? 'secondary' : 'primary'}
-                    onClick={generate}
-                    loading={generationInFlight || isBuilding}
-                    disabledReason={disabledReason}
-                >
-                    {status?.lifecycle_status === 'ready' ? 'Regenerate' : 'Generate visualization'}
-                </LemonButton>
+                {generationInFlight ? (
+                    <LemonButton onClick={cancelGeneration} loading={cancellationInFlight}>
+                        Cancel
+                    </LemonButton>
+                ) : (
+                    <LemonButton
+                        type={status?.lifecycle_status === 'ready' ? 'secondary' : 'primary'}
+                        onClick={generate}
+                        loading={isBuilding}
+                        disabledReason={disabledReason}
+                    >
+                        {status?.lifecycle_status === 'ready' ? 'Regenerate' : 'Generate visualization'}
+                    </LemonButton>
+                )}
             </div>
-            {inputValidation.error ? <div className="text-xs text-danger">{inputValidation.error}</div> : null}
             {error ? <div className="text-xs text-danger">{error}</div> : null}
         </div>
     )

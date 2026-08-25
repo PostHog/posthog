@@ -208,21 +208,32 @@ export const NotebooksCollabSaveCreateBody = /* @__PURE__ */ zod.object({
 /**
  * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
  */
+export const NotebooksGenuiCancelBody = /* @__PURE__ */ zod.object({
+    generation_id: zod.uuid().describe('Identifier of the generation request to cancel.'),
+})
+
+/**
+ * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
+ */
 export const notebooksGenuiGenerateBodyPromptMax = 20000
 
-export const notebooksGenuiGenerateBodyInputsItemMax = 128
-
-export const notebooksGenuiGenerateBodyInputsMax = 4
+export const notebooksGenuiGenerateBodyModelDefault = `claude-sonnet-4-6`
 
 export const NotebooksGenuiGenerateBody = /* @__PURE__ */ zod.object({
     prompt: zod
         .string()
         .max(notebooksGenuiGenerateBodyPromptMax)
         .describe('Instructions for the generated visualization.'),
-    inputs: zod
-        .array(zod.string().max(notebooksGenuiGenerateBodyInputsItemMax))
-        .max(notebooksGenuiGenerateBodyInputsMax)
-        .describe('Dataframe names the generated visualization may read.'),
+    generation_id: zod.uuid().describe('Unique identifier used to cancel this generation request.'),
+    model: zod
+        .enum(['claude-haiku-4-5', 'claude-sonnet-4-6', 'claude-sonnet-5'])
+        .describe(
+            '\* `claude-haiku-4-5` - claude-haiku-4-5\n\* `claude-sonnet-4-6` - claude-sonnet-4-6\n\* `claude-sonnet-5` - claude-sonnet-5'
+        )
+        .default(notebooksGenuiGenerateBodyModelDefault)
+        .describe(
+            'AI model used to generate the visualization.\n\n\* `claude-haiku-4-5` - claude-haiku-4-5\n\* `claude-sonnet-4-6` - claude-sonnet-4-6\n\* `claude-sonnet-5` - claude-sonnet-5'
+        ),
 })
 
 /**

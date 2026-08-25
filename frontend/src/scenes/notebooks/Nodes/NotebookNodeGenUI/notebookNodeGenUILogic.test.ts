@@ -4,12 +4,17 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 
-import { notebooksGenuiGenerate, notebooksGenuiStatus } from 'products/notebooks/frontend/generated/api'
+import {
+    notebooksGenuiCancel,
+    notebooksGenuiGenerate,
+    notebooksGenuiStatus,
+} from 'products/notebooks/frontend/generated/api'
 import type { GenUIStatusApi } from 'products/notebooks/frontend/generated/api.schemas'
 
 import { notebookNodeGenUILogic } from './notebookNodeGenUILogic'
 
 jest.mock('products/notebooks/frontend/generated/api', () => ({
+    notebooksGenuiCancel: jest.fn(),
     notebooksGenuiFrame: jest.fn(),
     notebooksGenuiGenerate: jest.fn(),
     notebooksGenuiStatus: jest.fn(),
@@ -29,14 +34,14 @@ describe('notebookNodeGenUILogic', () => {
         notebookShortId: 'notebook-1',
         nodeId: 'globe',
         prompt: 'Render a globe',
-        inputs: ['locations_df'],
-        inputValidationError: null,
+        model: 'claude-sonnet-4-6' as const,
         isEditable: true,
     }
     let logic: ReturnType<typeof notebookNodeGenUILogic.build>
 
     beforeEach(() => {
         initKeaTests()
+        jest.mocked(notebooksGenuiCancel).mockReset()
         jest.mocked(notebooksGenuiGenerate).mockReset()
         jest.mocked(notebooksGenuiStatus).mockReset()
     })
@@ -56,21 +61,62 @@ describe('notebookNodeGenUILogic', () => {
         expect(notebooksGenuiGenerate).not.toHaveBeenCalled()
     })
 
-    it('generates only after an explicit action', async () => {
+    it('waits for an explicit action after the prompt changes', async () => {
         jest.mocked(notebooksGenuiStatus).mockResolvedValue(status('awaiting_generation'))
         jest.mocked(notebooksGenuiGenerate).mockResolvedValue(status('building'))
         logic = notebookNodeGenUILogic(props)
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
 
+        notebookNodeGenUILogic({ ...props, prompt: 'Render a constellation' })
+        await Promise.resolve()
+
+        expect(notebooksGenuiGenerate).not.toHaveBeenCalled()
+
         logic.actions.generateVisualization()
         await expectLogic(logic).toFinishAllListeners()
 
-        expect(notebooksGenuiGenerate).toHaveBeenCalledWith(String(MOCK_TEAM_ID), 'notebook-1', 'globe', {
-            prompt: 'Render a globe',
-            inputs: ['locations_df'],
-        })
+        expect(notebooksGenuiGenerate).toHaveBeenCalledWith(
+            String(MOCK_TEAM_ID),
+            'notebook-1',
+            'globe',
+            {
+                prompt: 'Render a constellation',
+                generation_id: expect.any(String),
+                model: 'claude-sonnet-4-6',
+            },
+            { signal: expect.any(AbortSignal) }
+        )
         expect(logic.values.status?.lifecycle_status).toBe('building')
+    })
+
+    it('cancels the active request and clears the loading state', async () => {
+        jest.mocked(notebooksGenuiStatus).mockResolvedValue(status('awaiting_generation'))
+        jest.mocked(notebooksGenuiCancel).mockResolvedValue(undefined)
+        jest.mocked(notebooksGenuiGenerate).mockImplementation(
+            (_projectId, _shortId, _nodeId, _request, options) =>
+                new Promise((_resolve, reject) => {
+                    options?.signal?.addEventListener('abort', () => reject(new DOMException('Canceled', 'AbortError')))
+                })
+        )
+        logic = notebookNodeGenUILogic(props)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.generateVisualization()
+        await Promise.resolve()
+        const generationId = jest.mocked(notebooksGenuiGenerate).mock.calls[0][3].generation_id
+        expect(logic.values.generationInFlight).toBe(true)
+
+        logic.actions.cancelGeneration()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(notebooksGenuiCancel).toHaveBeenCalledWith(String(MOCK_TEAM_ID), 'notebook-1', 'globe', {
+            generation_id: generationId,
+        })
+        expect(logic.values.cancellationInFlight).toBe(false)
+        expect(logic.values.generationInFlight).toBe(false)
+        expect(logic.values.error).toBeNull()
     })
 
     it('deduplicates generation while the request is in flight', async () => {

@@ -274,6 +274,18 @@ export interface NotebookCollabSaveApi {
     cursor_head?: number | null
 }
 
+export interface GenUICancelRequestApi {
+    /** Identifier of the generation request to cancel. */
+    generation_id: string
+}
+
+export interface GenUIErrorApi {
+    /** Stable machine-readable error code. */
+    code: string
+    /** Error detail with a next action. */
+    detail: string
+}
+
 export interface GenUIInputColumnApi {
     /** Dataframe column name. */
     name: string
@@ -302,12 +314,19 @@ export interface GenUIFrameApi {
     truncated: boolean
 }
 
-export interface GenUIErrorApi {
-    /** Stable machine-readable error code. */
-    code: string
-    /** Error detail with a next action. */
-    detail: string
-}
+/**
+ * * `claude-haiku-4-5` - claude-haiku-4-5
+ * * `claude-sonnet-4-6` - claude-sonnet-4-6
+ * * `claude-sonnet-5` - claude-sonnet-5
+ */
+export type GenUIGenerateRequestModelEnumApi =
+    (typeof GenUIGenerateRequestModelEnumApi)[keyof typeof GenUIGenerateRequestModelEnumApi]
+
+export const GenUIGenerateRequestModelEnumApi = {
+    ClaudeHaiku45: 'claude-haiku-4-5',
+    ClaudeSonnet46: 'claude-sonnet-4-6',
+    ClaudeSonnet5: 'claude-sonnet-5',
+} as const
 
 export interface GenUIGenerateRequestApi {
     /**
@@ -315,12 +334,14 @@ export interface GenUIGenerateRequestApi {
      * @maxLength 20000
      */
     prompt: string
-    /**
-     * Dataframe names the generated visualization may read.
-     * @maxItems 4
-     * @items.maxLength 128
-     */
-    inputs: string[]
+    /** Unique identifier used to cancel this generation request. */
+    generation_id: string
+    /** AI model used to generate the visualization.
+     *
+     * * `claude-haiku-4-5` - claude-haiku-4-5
+     * * `claude-sonnet-4-6` - claude-sonnet-4-6
+     * * `claude-sonnet-5` - claude-sonnet-5 */
+    model?: GenUIGenerateRequestModelEnumApi
 }
 
 /**

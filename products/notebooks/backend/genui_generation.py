@@ -1,22 +1,42 @@
 import re
 import json
+from collections.abc import Callable
 
-from openai import OpenAI, OpenAIError
+from openai import OpenAI, OpenAIError, Stream
+from openai.types.chat import ChatCompletionChunk
 
 from posthog.llm.gateway_client import build_openai_client
 
 from products.canvas.backend import notebook_integration as canvas_facade
+from products.notebooks.backend.genui_models import DEFAULT_GENUI_MODEL, GENUI_MODEL_CHOICES
 
-GENUI_MODEL = "claude-haiku-4-5"
 MAX_GENERATION_ATTEMPTS = 2
-GENERATION_TIMEOUT_SECONDS = 60.0
-MAX_GENERATION_TOKENS = 8_192
 MAX_DIAGNOSTIC_MESSAGE_CHARS = 1_000
+
+GENUI_MODEL_TIMEOUT_SECONDS: dict[str, float] = {
+    "claude-haiku-4-5": 90.0,
+    "claude-sonnet-4-6": 120.0,
+    "claude-sonnet-5": 180.0,
+}
+GENUI_MODEL_MAX_TOKENS: dict[str, int] = {
+    "claude-haiku-4-5": 4_096,
+    "claude-sonnet-4-6": 6_144,
+    "claude-sonnet-5": 8_192,
+}
+GENUI_MODEL_TEMPERATURE: dict[str, float] = {
+    "claude-haiku-4-5": 0.2,
+    "claude-sonnet-4-6": 0.2,
+    "claude-sonnet-5": 1,
+}
 
 _JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.DOTALL)
 
 
 class GenUISourceGenerationError(Exception):
+    pass
+
+
+class GenUISourceGenerationCancelled(GenUISourceGenerationError):
     pass
 
 
@@ -36,13 +56,24 @@ def _generation_prompt(*, prompt: str, schemas: list[dict[str, object]], input_n
 
 Return exactly one JSON object with a single string field named `source`. Do not use markdown fences or commentary.
 
+Before producing the source, privately plan the visual composition, implementation, and interaction model. Prefer a focused implementation with enough detail for a polished result, without unnecessary repetition. Keep the complete source under 350 lines.
+
 The source must:
 - Default-export one React component that takes no props. Do not import `react-dom` or call `createRoot`.
-- Use only static imports from `react`, `@posthog/quill`, `recharts`, `lucide-react`, `dayjs`, or `three`.
+- Use only static imports from `react`, `@posthog/quill`, `recharts`, `lucide-react`, `dayjs`, `d3`, `three`, or `framer-motion`. Do not import package subpaths.
 - Read notebook data only with `await ph.readFrame("literal_name")`, using one of {json.dumps(input_names)}.
+- Read only the available frames that help answer the request. Do not read every frame by default, and use none when the request does not need notebook data.
 - Treat `ph.readFrame` as returning {json.dumps(read_frame_contract, separators=(",", ":"))}.
 - Never use `fetch`, `XMLHttpRequest`, dynamic `import()`, `require()`, inline scripts, external assets, `ph.query`, `ph.loadInsight`, or `ph.capture`.
 - Handle loading, errors, empty rows, and truncated data.
+- Make the requested subject or data story immediately recognizable. Match its distinctive silhouette, proportions, spatial relationships, material cues, and visual hierarchy. Do not reduce a complex subject to one generic primitive or a placeholder symbol.
+- For illustrative or 3D scenes, compose complex forms from appropriate geometry and procedural details. Deliberately frame the focal point and use lighting, depth, color, and motion to communicate its form.
+- When a 3D subject normally has visible surface detail, generate texture maps in code with `THREE.CanvasTexture`, `THREE.DataTexture`, layered noise, gradients, bands, spots, craters, or similar procedural techniques. Apply color maps and, where useful, bump or roughness maps. Self-contained means no downloaded assets, not flat or textureless materials. Never render planets, terrain, fruit, or other naturally textured subjects with only solid-color materials. In solar systems, give every planet a distinct procedural surface using recognizable bands, clouds, continents, craters, storms, or ice where appropriate. Dispose every generated texture on unmount.
+- For data visualizations, choose encodings that fit the data and include useful context, labels, legends, and formatting without clutter.
+- Fill 100% of the available width and height. Do not impose a fixed size, aspect ratio, maximum width, or maximum height on the root layout.
+- Respond to container resizes with `ResizeObserver`. For HTML canvas or WebGL output, resize the renderer and update the camera or coordinate system without leaving whitespace.
+- Always provide controls for interacting with the visualization. For 3D output, support camera orbit, pan, and zoom with pointer and touch input, using only the allowed imports. For 2D output, provide controls for exploring or manipulating the data, such as filters, zoom, ranges, parameters, or series toggles.
+- Keep scene initialization stable. Update mutable camera, object, and interaction state without rebuilding the entire scene on every pointer movement or control change.
 - Be responsive and work in light and dark themes using PostHog theme tokens.
 - Clean up timers, listeners, animation frames, Three.js resources, and renderers on unmount.
 - Keep fixed styling in Tailwind classes. Use inline styles only for runtime-computed values.
@@ -100,6 +131,19 @@ def _validation_errors(source: str, input_names: list[str]) -> list[dict[str, ob
     ]
 
 
+def _read_stream(stream: Stream[ChatCompletionChunk], is_cancelled: Callable[[], bool]) -> str:
+    content: list[str] = []
+    try:
+        for chunk in stream:
+            if is_cancelled():
+                raise GenUISourceGenerationCancelled("The visualization generation was canceled.")
+            if chunk.choices and chunk.choices[0].delta.content:
+                content.append(chunk.choices[0].delta.content)
+    finally:
+        stream.close()
+    return "".join(content)
+
+
 def generate_genui_source(
     *,
     team_id: int,
@@ -107,8 +151,13 @@ def generate_genui_source(
     prompt: str,
     schemas: list[dict[str, object]],
     input_names: list[str],
+    model: str = DEFAULT_GENUI_MODEL,
     client: OpenAI | None = None,
+    is_cancelled: Callable[[], bool] = lambda: False,
 ) -> str:
+    if model not in GENUI_MODEL_CHOICES:
+        raise GenUISourceGenerationError("The selected visualization model is not supported.")
+
     resolved_client = client or build_openai_client(
         "posthog_ai",
         ai_product="posthog_ai",
@@ -119,6 +168,8 @@ def generate_genui_source(
     diagnostics: list[dict[str, object]] = []
 
     for attempt in range(MAX_GENERATION_ATTEMPTS):
+        if is_cancelled():
+            raise GenUISourceGenerationCancelled("The visualization generation was canceled.")
         request = (
             _generation_prompt(prompt=prompt, schemas=schemas, input_names=input_names)
             if source is None
@@ -131,30 +182,34 @@ def generate_genui_source(
             )
         )
         try:
-            response = resolved_client.with_options(
-                timeout=GENERATION_TIMEOUT_SECONDS,
+            stream = resolved_client.with_options(
+                timeout=GENUI_MODEL_TIMEOUT_SECONDS[model],
                 max_retries=0,
             ).chat.completions.create(
-                model=GENUI_MODEL,
+                model=model,
                 messages=[
                     {
                         "role": "system",
-                        "content": "You generate secure, self-contained React TypeScript visualizations for PostHog notebooks.",
+                        "content": "You are an expert visualization engineer and technical artist. You generate secure, polished, self-contained React TypeScript visualizations for PostHog notebooks.",
                     },
                     {"role": "user", "content": request},
                 ],
                 response_format={"type": "json_object"},
-                temperature=0.2,
-                max_tokens=MAX_GENERATION_TOKENS,
+                temperature=GENUI_MODEL_TEMPERATURE[model],
+                max_tokens=GENUI_MODEL_MAX_TOKENS[model],
                 user=f"team-{team_id}",
+                extra_body={"thinking": {"type": "disabled"}},
+                stream=True,
             )
+            content = _read_stream(stream, is_cancelled)
+        except GenUISourceGenerationCancelled:
+            raise
         except OpenAIError as error:
             raise GenUISourceGenerationError("The model request failed.") from error
-        content = response.choices[0].message.content if response.choices else None
         try:
-            source = _parse_source(content or "")
+            source = _parse_source(content)
         except GenUISourceGenerationError:
-            source = content or ""
+            source = content
             diagnostics = [
                 {
                     "severity": "error",

@@ -64,14 +64,17 @@ from products.notebooks.backend.genui import (
     GenUIConflictError,
     GenUIError,
     GenUIRateLimitError,
+    cancel_genui_generation,
     generate_genui,
     get_genui_status,
+    infer_genui_inputs,
     inspect_genui_inputs,
     read_genui_frame,
 )
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.notebooks.backend.presentation.genui_serializers import (
+    GenUICancelRequestSerializer,
     GenUIErrorSerializer,
     GenUIFrameSerializer,
     GenUIGenerateRequestSerializer,
@@ -749,22 +752,66 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         notebook = self.get_object()
         self._require_query_access()
         try:
+            input_candidates = infer_genui_inputs(notebook, node_id)
             inspection = inspect_genui_inputs(
                 notebook,
-                serializer.validated_data["inputs"],
+                input_candidates,
                 self._authorize_genui_run,
+                node_id=node_id,
+                require_all=False,
             )
+            inputs = [resolved.name for resolved in inspection.resolved_inputs]
             result = generate_genui(
                 notebook=notebook,
                 node_id=node_id,
                 prompt=serializer.validated_data["prompt"],
-                inputs=serializer.validated_data["inputs"],
+                inputs=inputs,
                 user_id=user.id,
                 inspection=inspection,
+                model=serializer.validated_data["model"],
+                generation_id=serializer.validated_data["generation_id"],
             )
         except GenUIError as error:
             return self._genui_error_response(error)
         return Response(GenUIStatusSerializer(result).data)
+
+    @extend_schema(
+        operation_id="notebooks_genui_cancel",
+        request=GenUICancelRequestSerializer,
+        responses={204: None, 400: GenUIErrorSerializer, 404: GenUIErrorSerializer},
+        parameters=[
+            OpenApiParameter(
+                "node_id",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.PATH,
+                description="Stable identifier of the generated visualization node.",
+            )
+        ],
+    )
+    @action(
+        methods=["POST"],
+        url_path="genui/(?P<node_id>[^/.]+)/cancel",
+        detail=True,
+        required_scopes=["notebook:write"],
+    )
+    def genui_cancel(self, request: Request, node_id: str | None = None, **kwargs) -> Response:
+        if node_id is None:
+            raise Http404()
+        user = self._current_user()
+        if user is None:
+            raise PermissionDenied("A user is required to cancel visualization generation.")
+        serializer = GenUICancelRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        try:
+            cancel_genui_generation(
+                notebook=self.get_object(),
+                node_id=node_id,
+                generation_id=serializer.validated_data["generation_id"],
+                user_id=user.id,
+            )
+        except GenUIError as error:
+            return self._genui_error_response(error)
+        return Response(status=204)
 
     @extend_schema(
         operation_id="notebooks_genui_status",

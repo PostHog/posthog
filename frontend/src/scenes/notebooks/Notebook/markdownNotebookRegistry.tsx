@@ -229,10 +229,9 @@ function getMarkdownNodeOptions(tagName: string): CreatePostHogWidgetNodeOptions
     return nodeType ? KNOWN_NODES[nodeType] : null
 }
 
-// A code cell's `filters` panel is its code editor, and the shell leaves that panel closed
-// unless the node carries `showFilters`. A cell the user just inserted holds no code and no
-// result, so without this it renders as an empty box with nothing to type into.
-const CODE_CELL_EDITOR_OPEN_PROPS: NotebookComponentProps = { showFilters: true }
+// The notebook shell closes input panels unless the node carries `showFilters`. New programmable
+// blocks need immediate input, so opening the panel avoids an empty block with no visible next step.
+const INPUT_PANEL_OPEN_PROPS: NotebookComponentProps = { showFilters: true }
 
 export const MARKDOWN_NODE_DEFINITIONS: {
     tagName: string
@@ -260,7 +259,7 @@ export const MARKDOWN_NODE_DEFINITIONS: {
             aliases: ['python', 'py'],
             defaultProps: () => ({
                 ...getDefaultPropsForNodeType(NotebookNodeType.PythonV2),
-                ...CODE_CELL_EDITOR_OPEN_PROPS,
+                ...INPUT_PANEL_OPEN_PROPS,
                 nodeId: uuid(),
             }),
         },
@@ -286,7 +285,7 @@ export const MARKDOWN_NODE_DEFINITIONS: {
             // writes runId/result) would orphan the cell's run history and cross-cell refs.
             defaultProps: () => ({
                 ...getDefaultPropsForNodeType(NotebookNodeType.SQLV2),
-                ...CODE_CELL_EDITOR_OPEN_PROPS,
+                ...INPUT_PANEL_OPEN_PROPS,
                 nodeId: uuid(),
             }),
         },
@@ -297,7 +296,11 @@ export const MARKDOWN_NODE_DEFINITIONS: {
         label: 'Custom visualization',
         insertCommand: {
             aliases: ['genui', 'visualization', '3d'],
-            defaultProps: () => ({ ...getDefaultPropsForNodeType(NotebookNodeType.GenUI), nodeId: uuid() }),
+            defaultProps: () => ({
+                ...getDefaultPropsForNodeType(NotebookNodeType.GenUI),
+                ...INPUT_PANEL_OPEN_PROPS,
+                nodeId: uuid(),
+            }),
         },
     },
     { tagName: 'RecordingPlaylist', category: 'Data', label: 'Session recordings' },

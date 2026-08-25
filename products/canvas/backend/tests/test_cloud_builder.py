@@ -55,6 +55,8 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertIn(".md\\:grid-cols-2", stylesheet["content"])
         self.assertIn(".quill-button", stylesheet["content"])
         self.assertIn("--background", stylesheet["content"])
+        self.assertIn("html, body, #root", stylesheet["content"])
+        self.assertIn("height: 100%", stylesheet["content"])
 
     def test_publication_validation_allows_relative_worker_and_asset_imports(self) -> None:
         payload = synthetic_source_project(

@@ -88,13 +88,13 @@ describe('markdownNotebookRegistry', () => {
             ).toEqual([{ key: 'component-GenUI', category: 'Code' }])
         })
 
-        // An inserted code cell holds no code and no result, so a closed editor panel leaves the
-        // user an empty box. Resolving through getInsertedComponentPanelVisibility rather than
-        // reading the prop keeps this honest if the panel prop is renamed again.
+        // The panel visibility resolver is the notebook shell's public behavior. Testing through it
+        // keeps new programmable blocks usable even if the persisted panel prop changes.
         it.each([
             ['SQL', 'component-SQLV2'],
             ['Python', 'component-PythonV2'],
-        ])('inserts a %s cell with its code editor open', (_label, commandKey) => {
+            ['Custom visualization', 'component-GenUI'],
+        ])('inserts a %s block with its input panel open', (_label, commandKey) => {
             const insertedNodes: NotebookComponentBlockNode[] = []
             const noop = (): void => {}
             const commands = buildInsertCommands(

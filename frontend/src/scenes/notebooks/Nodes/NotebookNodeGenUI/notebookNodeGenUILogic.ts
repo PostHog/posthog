@@ -12,16 +12,20 @@ import {
     reducers,
 } from 'kea'
 import posthog from 'posthog-js'
+import { v4 as uuidv4 } from 'uuid'
 
 import { ApiError } from 'lib/api'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
+    notebooksGenuiCancel,
     notebooksGenuiFrame,
     notebooksGenuiGenerate,
     notebooksGenuiStatus,
 } from 'products/notebooks/frontend/generated/api'
 import type { GenUIFrameApi, GenUIStatusApi } from 'products/notebooks/frontend/generated/api.schemas'
+
+import type { GenUIModel } from './genUIModels'
 
 const STATUS_POLL_INTERVAL_MS = 1_000
 const STATUS_POLL_MAX_ATTEMPTS = 120
@@ -30,13 +34,13 @@ export type NotebookNodeGenUILogicProps = {
     notebookShortId: string
     nodeId: string
     prompt: string
-    inputs: string[]
-    inputValidationError: string | null
+    model: GenUIModel
     isEditable: boolean
 }
 
 export interface notebookNodeGenUILogicValues {
     currentTeamId: number | null
+    cancellationInFlight: boolean
     error: string | null
     frameRevision: number
     generationInFlight: boolean
@@ -47,7 +51,11 @@ export interface notebookNodeGenUILogicValues {
 }
 
 export interface notebookNodeGenUILogicActions {
+    cancelGeneration: () => { value: true }
+    cancellationFailed: (error: string) => { error: string }
+    cancellationStarted: () => { value: true }
     generateVisualization: () => { value: true }
+    generationCanceled: () => { value: true }
     generationFailed: (error: string) => { error: string }
     generationStarted: () => { value: true }
     loadStatus: () => { value: true }
@@ -78,6 +86,14 @@ function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : 'The visualization request failed.'
 }
 
+function isCancellationError(error: unknown): boolean {
+    if (error instanceof ApiError) {
+        const response = error.data as { code?: unknown } | undefined
+        return response?.code === 'generation_canceled'
+    }
+    return error instanceof Error && error.name === 'AbortError'
+}
+
 function shouldPoll(status: GenUIStatusApi | null): boolean {
     return status?.lifecycle_status === 'building'
 }
@@ -97,7 +113,11 @@ export const notebookNodeGenUILogic: LogicWrapper<notebookNodeGenUILogicType> = 
     path((key) => ['scenes', 'notebooks', 'Nodes', 'notebookNodeGenUILogic', key]),
     connect({ values: [teamLogic, ['currentTeamId']] }),
     actions({
+        cancelGeneration: true,
+        cancellationFailed: (error: string) => ({ error }),
+        cancellationStarted: true,
         generateVisualization: true,
+        generationCanceled: true,
         generationFailed: (error: string) => ({ error }),
         generationStarted: true,
         loadStatus: true,
@@ -107,6 +127,14 @@ export const notebookNodeGenUILogic: LogicWrapper<notebookNodeGenUILogicType> = 
         statusReceived: (status: GenUIStatusApi) => ({ status }),
     }),
     reducers({
+        cancellationInFlight: [
+            false,
+            {
+                cancellationStarted: () => true,
+                cancellationFailed: () => false,
+                generationCanceled: () => false,
+            },
+        ],
         status: [
             null as GenUIStatusApi | null,
             {
@@ -125,6 +153,7 @@ export const notebookNodeGenUILogic: LogicWrapper<notebookNodeGenUILogicType> = 
             false,
             {
                 generationStarted: () => true,
+                generationCanceled: () => false,
                 generationFailed: () => false,
                 statusReceived: () => false,
             },
@@ -133,6 +162,8 @@ export const notebookNodeGenUILogic: LogicWrapper<notebookNodeGenUILogicType> = 
             null as string | null,
             {
                 generationStarted: () => null,
+                cancellationFailed: (_, { error }) => error,
+                generationCanceled: () => null,
                 generationFailed: (_, { error }) => error,
                 statusFailed: (_, { error }) => error,
                 statusReceived: () => null,
@@ -174,6 +205,29 @@ export const notebookNodeGenUILogic: LogicWrapper<notebookNodeGenUILogicType> = 
         }
 
         return {
+            cancelGeneration: async () => {
+                const generationId = cache.activeGenerationId
+                if (!generationId || !values.currentTeamId || cache.cancellationInFlight) {
+                    return
+                }
+                cache.cancellationInFlight = true
+                actions.cancellationStarted()
+                try {
+                    await notebooksGenuiCancel(String(values.currentTeamId), props.notebookShortId, props.nodeId, {
+                        generation_id: generationId,
+                    })
+                    cache.generationAbortController?.abort()
+                    actions.generationCanceled()
+                } catch (error) {
+                    const message = errorMessage(error)
+                    posthog.captureException(error instanceof Error ? error : new Error(message), {
+                        action: 'cancel notebook visualization generation',
+                    })
+                    actions.cancellationFailed(message)
+                } finally {
+                    cache.cancellationInFlight = false
+                }
+            },
             generateVisualization: async () => {
                 if (!props.isEditable || cache.generationInFlight) {
                     return
@@ -182,15 +236,16 @@ export const notebookNodeGenUILogic: LogicWrapper<notebookNodeGenUILogicType> = 
                     actions.generationFailed('The current project is unavailable. Refresh and try again.')
                     return
                 }
-                if (props.inputValidationError) {
-                    actions.generationFailed(props.inputValidationError)
-                    return
-                }
                 if (!props.prompt.trim()) {
                     actions.generationFailed('Add a prompt before generating the visualization.')
                     return
                 }
                 cache.generationInFlight = true
+                const generationId = uuidv4()
+                const abortController = new AbortController()
+                cache.activeGenerationId = generationId
+                cache.generationAbortController = abortController
+                cache.disposables.add(() => () => abortController.abort(), 'generationRequest')
                 actions.generationStarted()
                 try {
                     actions.statusReceived(
@@ -198,16 +253,26 @@ export const notebookNodeGenUILogic: LogicWrapper<notebookNodeGenUILogicType> = 
                             String(values.currentTeamId),
                             props.notebookShortId,
                             props.nodeId,
-                            { prompt: props.prompt, inputs: props.inputs }
+                            { prompt: props.prompt, generation_id: generationId, model: props.model },
+                            { signal: abortController.signal }
                         )
                     )
                 } catch (error) {
-                    const message = errorMessage(error)
-                    posthog.captureException(error instanceof Error ? error : new Error(message), {
-                        action: 'generate notebook visualization',
-                    })
-                    actions.generationFailed(message)
+                    if (isCancellationError(error)) {
+                        actions.generationCanceled()
+                    } else {
+                        const message = errorMessage(error)
+                        posthog.captureException(error instanceof Error ? error : new Error(message), {
+                            action: 'generate notebook visualization',
+                        })
+                        actions.generationFailed(message)
+                    }
                 } finally {
+                    cache.disposables.dispose('generationRequest')
+                    if (cache.activeGenerationId === generationId) {
+                        cache.activeGenerationId = null
+                        cache.generationAbortController = null
+                    }
                     cache.generationInFlight = false
                 }
             },

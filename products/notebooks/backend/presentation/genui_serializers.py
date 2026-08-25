@@ -2,6 +2,8 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
+from products.notebooks.backend.genui_models import DEFAULT_GENUI_MODEL, GENUI_MODEL_CHOICES
+
 
 class GenUIGenerateRequestSerializer(serializers.Serializer):
     prompt = serializers.CharField(
@@ -9,11 +11,16 @@ class GenUIGenerateRequestSerializer(serializers.Serializer):
         trim_whitespace=False,
         help_text="Instructions for the generated visualization.",
     )
-    inputs = serializers.ListField(
-        child=serializers.CharField(max_length=128),
-        max_length=4,
-        help_text="Dataframe names the generated visualization may read.",
+    generation_id = serializers.UUIDField(help_text="Unique identifier used to cancel this generation request.")
+    model = serializers.ChoiceField(
+        choices=GENUI_MODEL_CHOICES,
+        default=DEFAULT_GENUI_MODEL,
+        help_text="AI model used to generate the visualization.",
     )
+
+
+class GenUICancelRequestSerializer(serializers.Serializer):
+    generation_id = serializers.UUIDField(help_text="Identifier of the generation request to cancel.")
 
 
 class GenUIStatusSerializer(serializers.Serializer):

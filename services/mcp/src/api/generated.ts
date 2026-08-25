@@ -39371,6 +39371,11 @@ export namespace Schemas {
       last_used_at: string | null;
     }
 
+    export interface GenUICancelRequest {
+      /** Identifier of the generation request to cancel. */
+      generation_id: string;
+    }
+
     export interface GenUIError {
       /** Stable machine-readable error code. */
       code: string;
@@ -39406,18 +39411,34 @@ export namespace Schemas {
       truncated: boolean;
     }
 
+    /**
+     * * `claude-haiku-4-5` - claude-haiku-4-5
+     * * `claude-sonnet-4-6` - claude-sonnet-4-6
+     * * `claude-sonnet-5` - claude-sonnet-5
+     */
+    export type GenUIGenerateRequestModelEnum = typeof GenUIGenerateRequestModelEnum[keyof typeof GenUIGenerateRequestModelEnum];
+
+
+    export const GenUIGenerateRequestModelEnum = {
+      ClaudeHaiku45: 'claude-haiku-4-5',
+      ClaudeSonnet46: 'claude-sonnet-4-6',
+      ClaudeSonnet5: 'claude-sonnet-5',
+    } as const;
+
     export interface GenUIGenerateRequest {
       /**
          * Instructions for the generated visualization.
          * @maxLength 20000
          */
       prompt: string;
-      /**
-         * Dataframe names the generated visualization may read.
-         * @maxItems 4
-         * @items.maxLength 128
-         */
-      inputs: string[];
+      /** Unique identifier used to cancel this generation request. */
+      generation_id: string;
+      /** AI model used to generate the visualization.
+       *
+       * * `claude-haiku-4-5` - claude-haiku-4-5
+       * * `claude-sonnet-4-6` - claude-sonnet-4-6
+       * * `claude-sonnet-5` - claude-sonnet-5 */
+      model?: GenUIGenerateRequestModelEnum;
     }
 
     /**
