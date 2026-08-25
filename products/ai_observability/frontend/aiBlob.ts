@@ -123,6 +123,7 @@ observeBlobTimings()
  */
 function awaitBlobTiming(url: string): Promise<PerformanceResourceTiming | undefined> {
     const known = blobTimings.get(url)
+    blobTimings.delete(url)
     if (known || typeof PerformanceObserver === 'undefined') {
         return Promise.resolve(known)
     }

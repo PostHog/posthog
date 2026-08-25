@@ -145,6 +145,24 @@ describe('aiBlob', () => {
             })
         })
 
+        it('reports the second render of a blob from its own entry, not the retained first one', async () => {
+            const src = `/api/projects/1/ai_blob/v1/sha256/${'9'.repeat(64)}`
+            const handlers = aiBlob.aiBlobRenderHandlers(src, 'image')
+
+            deliver([resourceEntry(src, 2048, 4096)])
+            handlers.onLoad!()
+            await settle()
+
+            handlers.onError!()
+            deliver([resourceEntry(src, 0, 0)])
+            await settle()
+
+            expect(capture).toHaveBeenCalledWith(
+                'llma ai blob render',
+                expect.objectContaining({ outcome: 'error', transfer_size_bytes: 0, decoded_body_bytes: 0 })
+            )
+        })
+
         it('falls back to null timing when no entry arrives for the rendered blob', async () => {
             jest.useFakeTimers()
             const src = `/api/projects/1/ai_blob/v1/sha256/${'f'.repeat(64)}`
