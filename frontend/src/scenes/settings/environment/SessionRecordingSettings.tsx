@@ -140,19 +140,39 @@ export function ReplayNetworkCapture(): JSX.Element {
     })
 
     return (
-        <LemonSwitch
-            data-attr="opt-in-capture-performance-switch"
-            onChange={(checked) => {
-                updateCurrentTeam({ capture_performance_opt_in: checked })
-            }}
-            label="Capture network requests"
-            bordered
-            checked={!!currentTeam?.capture_performance_opt_in}
-            disabledReason={
-                !currentTeam?.session_recording_opt_in ? 'Session replay must be enabled' : restrictedReason
-            }
-            loading={currentTeamLoading}
-        />
+        <div className="flex flex-col gap-y-2">
+            <LemonSwitch
+                data-attr="opt-in-capture-performance-switch"
+                onChange={(checked) => {
+                    updateCurrentTeam({ capture_performance_opt_in: checked })
+                }}
+                label="Capture network requests"
+                bordered
+                checked={!!currentTeam?.capture_performance_opt_in}
+                disabledReason={
+                    !currentTeam?.session_recording_opt_in ? 'Session replay must be enabled' : restrictedReason
+                }
+                loading={currentTeamLoading}
+            />
+            {currentTeam?.capture_performance_opt_in && (
+                <LemonBanner type="warning">
+                    <p>
+                        PostHog captures each request URL in full, including its query string. An auth token or a signed
+                        parameter in a URL is then visible in the recording.
+                    </p>
+                    <p className="mb-0">
+                        We do not redact URLs. To mask them, set <code>maskCapturedNetworkRequestFn</code> when you
+                        initialize PostHog.{' '}
+                        <Link
+                            to="https://posthog.com/docs/session-replay/network-recording#sensitive-information"
+                            target="blank"
+                        >
+                            Learn how to mask network requests in our docs
+                        </Link>
+                    </p>
+                </LemonBanner>
+            )}
+        </div>
     )
 }
 

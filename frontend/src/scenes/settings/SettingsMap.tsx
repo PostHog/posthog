@@ -1132,7 +1132,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'replay-network',
                 title: 'Network capture',
                 description:
-                    'Capture network request timings alongside session recordings to identify slow or failing API calls.',
+                    'Capture network request timings alongside session recordings to identify slow or failing API calls. Request URLs are captured in full, including their query string.',
                 docsUrl: 'https://posthog.com/docs/session-replay/network-recording',
                 platformSupport: FEATURE_SUPPORT.sessionReplayCaptureRequests,
                 component: <ReplayNetworkCapture />,
@@ -1142,7 +1142,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'replay-network-headers-payloads',
                 title: 'Network headers & payloads',
                 description:
-                    'Capture request and response headers and body content alongside network timings. Sensitive data is automatically scrubbed.',
+                    'Capture request and response headers and body content alongside network timings. Some sensitive data in headers and bodies is automatically scrubbed. Request URLs are not scrubbed.',
                 docsUrl: 'https://posthog.com/docs/session-replay/network-recording',
                 platformSupport: FEATURE_SUPPORT.sessionReplayCaptureHeadersAndPayloads,
                 component: <ReplayNetworkHeadersPayloads />,
