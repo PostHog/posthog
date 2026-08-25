@@ -1048,7 +1048,7 @@ describe('Workflows E2E (postgres-v2)', () => {
                                 // Requires $autocapture with "reload" in elements_chain_texts — won't match
                                 filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters,
                             },
-                            max_wait_duration: '2s',
+                            max_wait_duration: '0.5s',
                         },
                     },
                     function_1: fetchAction('https://example.com/after-wait-timeout'),
@@ -1079,7 +1079,7 @@ describe('Workflows E2E (postgres-v2)', () => {
             // Fetch should NOT be called yet — still waiting for condition
             expect(mockFetch).not.toHaveBeenCalled()
 
-            // After max_wait (2s) expires, the condition times out and the workflow
+            // After max_wait expires, the condition times out and the workflow
             // continues to the function action via the continue edge
             await waitForExpect(() => {
                 expect(mockFetch).toHaveBeenCalledTimes(1)
@@ -1195,7 +1195,7 @@ describe('Workflows E2E (postgres-v2)', () => {
             await createWaitUntilWorkflow({
                 condition: { filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters },
                 events: [eventNameFilter('never_fires')],
-                max_wait_duration: '2s',
+                max_wait_duration: '0.5s',
             })
             await triggerWorkflow(createGlobals())
 
@@ -1256,7 +1256,7 @@ describe('Workflows E2E (postgres-v2)', () => {
             // immediately. With no events and no real condition it must park and time out instead.
             await createWaitUntilWorkflow({
                 condition: { filters: emptyConditionFilters() },
-                max_wait_duration: '2s',
+                max_wait_duration: '0.5s',
             })
             await triggerWorkflow(createGlobals())
 
