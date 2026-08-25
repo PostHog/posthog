@@ -195,12 +195,12 @@ Reading the artefact a trusted source named, on its default branch, is what make
 
 Now compare the code against `latest_policy`. The divergence is the finding:
 
-| Code vs reports                                    | What it means                                                 | What to file                                                                                                                     |
-| -------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
-| Agree                                              | The shipped default has the gap                               | Corroborated. Write the delta against the code. PR-shaped when the domain also clears vetting                                    |
-| Code already allows the blocked host               | The fix landed and has not reached the reporting deployments  | **Not a policy gap.** Upgrade or deploy lag — name the commit that added it, record a `followup:`, do not file a widen           |
-| Reports show a header the code cannot produce      | A proxy or per-deployment override owns it, or reports are forged | No code-side delta exists. Report the ownership boundary, or drop it                                                          |
-| No policy in code, reports agree across deployments | The header comes from somewhere else                          | Keep looking before filing — an unfound artefact is `pattern:` memory, not a report against a target you guessed                 |
+| Code vs reports                                     | What it means                                                     | What to file                                                                                                           |
+| --------------------------------------------------- | ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Agree                                               | The shipped default has the gap                                   | Corroborated. Write the delta against the code. PR-shaped when the domain also clears vetting                          |
+| Code already allows the blocked host                | The fix landed and has not reached the reporting deployments      | **Not a policy gap.** Upgrade or deploy lag — name the commit that added it, record a `followup:`, do not file a widen |
+| Reports show a header the code cannot produce       | A proxy or per-deployment override owns it, or reports are forged | No code-side delta exists. Report the ownership boundary, or drop it                                                   |
+| No policy in code, reports agree across deployments | The header comes from somewhere else                              | Keep looking before filing — an unfound artefact is `pattern:` memory, not a report against a target you guessed       |
 
 The second row is the one that saves a wrong report: a scout reading only telemetry re-files a gap that was fixed weeks ago and is merely undeployed.
 Check in-flight work the same way before filing anything PR-shaped — an open PR touching the policy path is the same story one step earlier, and the run prompt's `gh` section says what that does to the report.
