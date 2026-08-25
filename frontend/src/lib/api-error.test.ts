@@ -94,6 +94,10 @@ describe('api-error', () => {
             ['a 502', { status: 502 }, false],
             ['a 503', { status: 503 }, false],
             ['a 504', { status: 504 }, false],
+            // Deterministic query errors the user fixes in the input, not app defects.
+            ['a HogQL syntax 400', { status: 400, code: 'hogql_syntax_error' }, false],
+            ['a HogQL query 400', { status: 400, code: 'hogql_query_error' }, false],
+            ['a table-access-denied 400', { status: 400, code: 'table_access_denied' }, false],
             // Only the listed codes are excused: a 403 the app does not recover from is still a
             // signal, and read-only mode is dropped later by its own `before_send` filter.
             ['a 403 with no code', { status: 403 }, true],

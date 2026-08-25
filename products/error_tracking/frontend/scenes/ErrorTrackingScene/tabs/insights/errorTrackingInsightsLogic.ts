@@ -1,9 +1,10 @@
-import { MakeLogicType, afterMount, connect, kea, listeners, path, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
+import { ApiError, isHogQLValidationError } from 'lib/api-error'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 
 import {
@@ -72,6 +73,7 @@ export interface errorTrackingInsightsLogicValues {
     insightQueryFilters: InsightQueryFilters
     insightsFilterGroup: UniversalFiltersGroup
     summaryStats: InsightsSummaryStats | null
+    summaryStatsError: string | null
     summaryStatsLoading: boolean
 }
 
@@ -120,6 +122,9 @@ export interface errorTrackingInsightsLogicActions {
             totalSessions: number
         } | null
         payload?: any
+    }
+    setSummaryStatsError: (error: string | null) => {
+        error: string | null
     }
 }
 
@@ -177,6 +182,19 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
         ],
     })),
 
+    actions({
+        setSummaryStatsError: (error: string | null) => ({ error }),
+    }),
+
+    reducers({
+        summaryStatsError: [
+            null as string | null,
+            {
+                setSummaryStatsError: (_, { error }) => error,
+            },
+        ],
+    }),
+
     selectors({
         insightsFilterGroup: [
             (s) => [s.mergedFilterGroup],
@@ -230,31 +248,54 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
         ],
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ values, actions }) => ({
         summaryStats: [
             null as InsightsSummaryStats | null,
             {
                 loadSummaryStats: async (_, breakpoint) => {
                     await breakpoint(10)
-                    const response = await api.query({
-                        kind: NodeKind.HogQLQuery,
-                        query: `
-                            SELECT
-                                countIf(event = '$exception') as total_exceptions,
-                                uniqIf(person_id, event = '$exception') as affected_users,
-                                uniqIf($session_id, notEmpty($session_id)) as total_sessions,
-                                uniqIf($session_id, event = '$exception' AND notEmpty($session_id)) as crash_sessions
-                            FROM events
-                            WHERE {filters}
-                        `,
-                        filters: {
-                            dateRange: values.effectiveDateRange,
-                            filterTestAccounts: values.filterTestAccounts,
-                            properties: values.effectiveProperties,
-                        },
-                        tags: { productKey: ProductKey.ERROR_TRACKING },
-                    })
-                    const row = (response as HogQLQueryResponse)?.results?.[0]
+                    actions.setSummaryStatsError(null)
+                    let response: HogQLQueryResponse
+                    try {
+                        response = (await api.query({
+                            kind: NodeKind.HogQLQuery,
+                            query: `
+                                SELECT
+                                    countIf(event = '$exception') as total_exceptions,
+                                    uniqIf(person_id, event = '$exception') as affected_users,
+                                    uniqIf($session_id, notEmpty($session_id)) as total_sessions,
+                                    uniqIf($session_id, event = '$exception' AND notEmpty($session_id)) as crash_sessions
+                                FROM events
+                                WHERE {filters}
+                            `,
+                            filters: {
+                                dateRange: values.effectiveDateRange,
+                                filterTestAccounts: values.filterTestAccounts,
+                                properties: values.effectiveProperties,
+                            },
+                            tags: { productKey: ProductKey.ERROR_TRACKING },
+                        })) as HogQLQueryResponse
+                    } catch (error) {
+                        // A filter the user typed can make the query invalid (for example a full
+                        // `SELECT` pasted into the SQL expression filter). That is a user input
+                        // error, so surface it on the card instead of letting it escape to the
+                        // global loader handler, which would toast and file an error tracking issue.
+                        // Only deterministic HogQL validation 400s qualify; any other 400 (an internal
+                        // resolver failure, a malformed request payload) is an app defect that must
+                        // rethrow so it still reaches error tracking.
+                        if (error instanceof ApiError && isHogQLValidationError(error)) {
+                            // A superseded request must not paint a stale error over the card a
+                            // newer filter already loaded. A slow 400 can arrive after a faster
+                            // query has succeeded, so drop it if a later load has started.
+                            breakpoint()
+                            actions.setSummaryStatsError(error.detail ?? 'Could not load summary stats')
+                            return null
+                        }
+                        throw error
+                    }
+                    // Same guard for a superseded success: a late result must not replace a newer one.
+                    breakpoint()
+                    const row = response?.results?.[0]
                     if (!row) {
                         return null
                     }

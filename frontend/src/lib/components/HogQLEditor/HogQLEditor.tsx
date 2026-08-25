@@ -27,6 +27,13 @@ export interface HogQLEditorProps {
 // Hint is only helpful once the expression is long enough to look unreadable as a column header.
 const BREAKDOWN_LABEL_HINT_MIN_LENGTH = 20
 
+// This field takes a SQL expression, not a whole statement. People paste a full query here and get
+// a cryptic parse error ("trailing tokens after expression"), so catch the common statement
+// keywords up front and explain the difference.
+function looksLikeSqlStatement(expression: string): boolean {
+    return /^\s*(SELECT|WITH|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP)\b/i.test(expression)
+}
+
 function hasBreakdownLabel(expression: string): boolean {
     // Strip quoted string literals first so a `--` sequence inside a string value
     // (e.g. `if(x = '--disabled', ...)`) doesn't falsely look like a SQL comment.
@@ -59,6 +66,8 @@ export function HogQLEditor({
         bufferedValue.trim().length > BREAKDOWN_LABEL_HINT_MIN_LENGTH &&
         !hasBreakdownLabel(bufferedValue)
 
+    const isSqlStatement = looksLikeSqlStatement(bufferedValue)
+
     return (
         <>
             <CodeEditorInline
@@ -74,7 +83,7 @@ export function HogQLEditor({
                 sourceQuery={metadataSource}
                 globals={globals}
                 onPressCmdEnter={
-                    disableCmdEnter
+                    disableCmdEnter || isSqlStatement
                         ? undefined
                         : () => {
                               onChange(bufferedValue)
@@ -95,12 +104,24 @@ export function HogQLEditor({
                     use a readable label for this breakdown.
                 </div>
             )}
+            {isSqlStatement && (
+                <div className="text-danger mt-2 text-xs">
+                    This field takes a SQL expression, not a full query. Enter something like{' '}
+                    <code>properties.$browser</code>, not a <code>SELECT</code> statement.
+                </div>
+            )}
             <LemonButton
                 className="mt-2"
                 fullWidth
                 type="primary"
                 onClick={() => onChange(bufferedValue)}
-                disabledReason={!bufferedValue ? 'Please enter a SQL expression' : null}
+                disabledReason={
+                    !bufferedValue
+                        ? 'Please enter a SQL expression'
+                        : isSqlStatement
+                          ? 'Enter a SQL expression, not a full SELECT statement'
+                          : null
+                }
                 center
             >
                 {submitText ?? 'Update SQL expression'}
