@@ -504,7 +504,8 @@ jobs:
                   # describe block, so make it the file path instead.
                   JEST_JUNIT_SUITE_NAME: '{filepath}'
                   JEST_JUNIT_ADD_FILE_ATTRIBUTE: 'true'
-              run: bin/turbo run test --filter=@posthog/nodejs
+              # Timings need a real Jest execution; a Turbo cache hit has no fresh JUnit XML.
+              run: bin/turbo run test --filter=@posthog/nodejs --force
 
             - name: Test postgres-parity (isolated DB)
               id: run-parity
@@ -840,6 +841,7 @@ jobs:
             - name: Render test-speed report
               if: steps.test-reporter.outputs.available == 'true'
               run: |
+                  set -o pipefail
                   bin/report-jest-timings --artifacts ./junit-artifacts --markdown | tee nodejs-test-speed.md
                   cat nodejs-test-speed.md >> "$GITHUB_STEP_SUMMARY"
 
