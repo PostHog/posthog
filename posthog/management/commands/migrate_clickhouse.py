@@ -17,6 +17,11 @@ from posthog.settings.data_stores import CLICKHOUSE_MIGRATIONS_CLUSTER
 
 MIGRATIONS_PACKAGE_NAME = "posthog.clickhouse.migrations"
 
+# infi's default request timeout is 60 seconds. ON CLUSTER statements and slow
+# migrations can run longer than that, so give the migration connection a
+# generous timeout instead of failing the whole run.
+CLICKHOUSE_MIGRATIONS_TIMEOUT = 600
+
 
 class Command(BaseCommand):
     help = "Migrate clickhouse"
@@ -53,9 +58,14 @@ class Command(BaseCommand):
         self.migrate(CLICKHOUSE_HTTP_URL, options)
 
     def migrate(self, host, options):
+        # The pre-create depends on the migrations cluster topology, not on the
+        # MULTINODE_CLICKHOUSE flag. Read it once from system.clusters.
+        multi_node = self._migrations_cluster_is_multi_node(CLICKHOUSE_MIGRATIONS_CLUSTER)
         # Infi only creates the DB in one node, but not the rest. Create it before running migrations.
-        self._create_database_if_not_exists(CLICKHOUSE_DATABASE, CLICKHOUSE_MIGRATIONS_CLUSTER)
-        self._create_migration_tracking_tables_if_not_exist(CLICKHOUSE_DATABASE, CLICKHOUSE_MIGRATIONS_CLUSTER)
+        self._create_database_if_not_exists(CLICKHOUSE_DATABASE, CLICKHOUSE_MIGRATIONS_CLUSTER, multi_node)
+        self._create_migration_tracking_tables_if_not_exist(
+            CLICKHOUSE_DATABASE, CLICKHOUSE_MIGRATIONS_CLUSTER, multi_node
+        )
         database = Database(
             CLICKHOUSE_DATABASE,
             db_url=host,
@@ -63,6 +73,7 @@ class Command(BaseCommand):
             password=CLICKHOUSE_PASSWORD,
             cluster=CLICKHOUSE_MIGRATIONS_CLUSTER,
             verify_ssl_cert=False,
+            timeout=CLICKHOUSE_MIGRATIONS_TIMEOUT,
             randomize_replica_paths=settings.TEST or settings.E2E_TESTING,
             # don't use the egress proxy, clickhouse is internal
             trust_env=False,
@@ -120,33 +131,47 @@ class Command(BaseCommand):
     def get_applied_migrations(self, database) -> set[str]:
         return database._get_applied_migrations(MIGRATIONS_PACKAGE_NAME, replicated=True)
 
-    def _create_database_if_not_exists(self, database: str, cluster: str):
-        # MULTINODE_CLICKHOUSE: infi.clickhouse_orm creates the Distributed
-        # migration-tracking table across the migrations cluster before the
-        # first migration runs, so the database has to exist on every node up
-        # front — otherwise the CREATE TABLE fans out to satellites that have
-        # no `posthog` database yet and fails with UNKNOWN_DATABASE.
-        if settings.TEST or settings.E2E_TESTING or settings.MULTINODE_CLICKHOUSE:
+    def _migrations_cluster_is_multi_node(self, cluster: str) -> bool:
+        # The hazard is the cluster topology, not MULTINODE_CLICKHOUSE. infi's
+        # replicated migrate() selects from the Distributed tracking table.
+        # That query fans out to every node in the migrations cluster. When the
+        # cluster has more than one node, the local tables must already exist on
+        # all of them. A single-node cluster, or no cluster at all, needs no
+        # pre-create. infi's auto-create lands on the one node and the SELECT
+        # reads it back.
+        with default_client() as client:
+            [(node_count,)] = client.execute(
+                "SELECT count() FROM system.clusters WHERE cluster = %(cluster)s",
+                {"cluster": cluster},
+            )
+        return node_count > 1
+
+    def _create_database_if_not_exists(self, database: str, cluster: str, multi_node: bool):
+        # infi.clickhouse_orm creates the Distributed migration-tracking table
+        # across the migrations cluster before the first migration runs, so the
+        # database has to exist on every node up front — otherwise the CREATE
+        # TABLE fans out to satellites that have no `posthog` database yet and
+        # fails with UNKNOWN_DATABASE.
+        if settings.TEST or settings.E2E_TESTING or multi_node:
             with default_client() as client:
                 client.execute(
                     f"CREATE DATABASE IF NOT EXISTS {database} ON CLUSTER {cluster}",
                 )
 
-    def _create_migration_tracking_tables_if_not_exist(self, database: str, cluster: str):
-        # MULTINODE_CLICKHOUSE only: infi.clickhouse_orm's auto-create path
-        # issues `CREATE TABLE` without `ON CLUSTER`, so the underlying
-        # ReplicatedMergeTree only lands on the migrations host. With a real
-        # multi-node `posthog_migrations` cluster, the Distributed tracking
-        # table fans out to every shard and trips UNKNOWN_TABLE on satellites
-        # that never received the local replica. Pre-create both tables on
-        # the cluster so the very first SELECT in infi's migrate() succeeds
-        # and the auto-create branch never runs.
+    def _create_migration_tracking_tables_if_not_exist(self, database: str, cluster: str, multi_node: bool):
+        # infi.clickhouse_orm's auto-create path issues `CREATE TABLE` without
+        # `ON CLUSTER`, so the underlying ReplicatedMergeTree only lands on the
+        # migrations host. With a real multi-node `posthog_migrations` cluster,
+        # the Distributed tracking table fans out to every shard and trips
+        # UNKNOWN_TABLE on satellites that never received the local replica.
+        # Pre-create both tables on the cluster so the very first SELECT in
+        # infi's migrate() succeeds and the auto-create branch never runs.
         #
         # Schema (`package_name String, module_name String, applied Date`) and
         # the ZK path mirror `infi.clickhouse_orm.migrations.MigrationHistory`
         # / `MigrationHistoryReplicated`. If `infi` ever changes those, this
         # pre-create will silently diverge — keep the two in sync.
-        if not settings.MULTINODE_CLICKHOUSE:
+        if not multi_node:
             return
         with default_client() as client:
             client.execute(
