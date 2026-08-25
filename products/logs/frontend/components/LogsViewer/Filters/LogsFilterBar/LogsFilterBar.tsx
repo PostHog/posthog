@@ -25,12 +25,13 @@ import {
     AnyPropertyFilter,
     FilterLogicalOperator,
     PropertyFilterType,
+    PropertyFilterValue,
     PropertyOperator,
     UniversalFiltersGroup,
 } from '~/types'
 
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
-import { isSameFilterTarget } from 'products/logs/frontend/components/LogsViewer/FacetRail/facetFilters'
+import { filterValues, isSameFilterTarget } from 'products/logs/frontend/components/LogsViewer/FacetRail/facetFilters'
 import {
     filterTarget,
     logsSelection,
@@ -240,10 +241,16 @@ const FilterGroupValues = ({
         return null
     }
 
+    // One chip at a time: an attribute can hold a chip per polarity (`= api` beside `≠ worker`), and
+    // matching every chip on the target would open both popovers over each other.
+    const focusedIndex = focusable
+        ? filterGroup.values.findIndex((entry) => isSameFilterTarget(filterTarget(entry), focusedFilter))
+        : -1
+
     return (
         <>
             {filterGroup.values.map((filterOrGroup, index) => {
-                const isFocused = focusable && isSameFilterTarget(filterTarget(filterOrGroup), focusedFilter)
+                const isFocused = focusedIndex >= 0 && index === focusedIndex
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group index={index} key={index} group={filterOrGroup}>
                         <FilterGroupValues allowInitiallyOpen={allowInitiallyOpen} />
@@ -253,9 +260,24 @@ const FilterGroupValues = ({
                         key={index}
                         index={index}
                         filter={filterOrGroup}
-                        onRemove={() => removeGroupValue(index)}
+                        onRemove={() => {
+                            // Nothing else clears it, and a target left pointing at a chip that is
+                            // gone opens the next chip on that attribute the moment one appears.
+                            if (isFocused) {
+                                focusFilter(null)
+                            }
+                            removeGroupValue(index)
+                        }}
                         onChange={(value) => replaceGroupValue(index, value)}
-                        initiallyOpen={allowInitiallyOpen && filterOrGroup.type != PropertyFilterType.HogQL}
+                        // Only a chip that still needs a value opens itself: that is the one the
+                        // user just added from the picker and has to fill in. A chip that arrives
+                        // complete came from the facet rail or a recent, and popping an editor over
+                        // the page on every rail click is noise.
+                        initiallyOpen={
+                            allowInitiallyOpen &&
+                            filterOrGroup.type != PropertyFilterType.HogQL &&
+                            filterValues(filterOrGroup as { value?: PropertyFilterValue }).length === 0
+                        }
                         open={isFocused ? true : undefined}
                         onOpenChange={
                             isFocused
