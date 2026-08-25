@@ -12,7 +12,7 @@ from posthog.session_recordings.models.session_recording_playlist import Session
 
 from products.actions.backend.models.action import Action
 from products.replay_vision.backend.queries.scanner_volume_estimate import ScannerVolumeEstimate
-from products.replay_vision.backend.queries.top_visited_paths import RankedPath
+from products.replay_vision.backend.queries.visited_paths import RankedPath
 from products.replay_vision.backend.scope_resolution import resolve_scope
 
 _MODULE = "products.replay_vision.backend.scope_resolution"
@@ -39,7 +39,7 @@ def _visited_page_values(query: dict[str, Any] | None) -> list[str]:
 class TestScopeResolution(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        self.paths = self._patch(f"{_MODULE}.fetch_top_visited_paths", return_value=())
+        self.paths = self._patch(f"{_MODULE}.fetch_matching_paths", return_value=())
         # Counting is ClickHouse's job with its own tests; these assert what gets counted.
         self.estimate = self._patch(
             f"{_MODULE}.estimate_scanner_session_volume",

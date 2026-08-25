@@ -22,7 +22,7 @@ from products.replay_vision.backend.queries.scanner_volume_estimate import (
     EstimateBudget,
     estimate_scanner_session_volume,
 )
-from products.replay_vision.backend.queries.top_visited_paths import fetch_top_visited_paths
+from products.replay_vision.backend.queries.visited_paths import fetch_matching_paths
 
 logger = structlog.get_logger(__name__)
 
@@ -252,12 +252,25 @@ def _detail(text: str | None) -> str:
     return (text or "").strip()[:_MAX_DETAIL_CHARS]
 
 
+def _search_stems(scope_tokens: Sequence[str]) -> tuple[str, ...]:
+    """Substrings for the database to select candidate paths on.
+
+    Truncated to the prefix length the scoring rules accept, so a path the caller would score as a
+    match cannot be missed: `_tokens_match` pairs "bill" with "billing", so searching the whole word
+    "billing" would never find the page "/bill".
+    """
+    return tuple(dict.fromkeys(token[:_MIN_PREFIX_MATCH_CHARS] for token in scope_tokens))
+
+
 def _page_surfaces(
     team: Team, scope_tokens: Sequence[str], phrase: str, ch_user: ClickHouseUser
 ) -> tuple[SurfaceMatch, ...]:
+    # The database selects on the scope terms, never on how busy a page is. A page that launched
+    # yesterday must be scannable, so volume orders the matches and never decides which ones exist.
+    paths = fetch_matching_paths(team=team, terms=_search_stems(scope_tokens), ch_user=ch_user)
     matches = [
         SurfaceMatch(kind="page", key=path.pathname, name=path.pathname, detail="", score=score, sessions=path.sessions)
-        for path in fetch_top_visited_paths(team=team, ch_user=ch_user)
+        for path in paths
         if (score := _score(scope_tokens, phrase, path.pathname))
     ]
     # Volume breaks ties: between two equally-named pages, the busier one is the one users mean.

@@ -14,7 +14,7 @@ from products.replay_vision.backend.queries.scanner_volume_estimate import (
     PREVIEW_ESTIMATE_BUDGET,
     estimate_scanner_session_volume,
 )
-from products.replay_vision.backend.queries.top_visited_paths import fetch_top_visited_paths
+from products.replay_vision.backend.queries.visited_paths import fetch_matching_paths
 
 _NOW = dt.datetime(2026, 5, 1, 12, 0, 0, tzinfo=dt.UTC)
 
@@ -57,7 +57,7 @@ class TestTopVisitedPaths(ClickhouseTestMixin):
         self._produce(team.id, "b", ["https://ex.test/billing"], ago=dt.timedelta(minutes=30))
         self._produce(team.id, "c", ["https://ex.test/rare"])
 
-        results = fetch_top_visited_paths(team=team)
+        results = fetch_matching_paths(team=team, terms=["billing", "rare", "deep", "land", "anci"])
 
         assert [(r.pathname, r.sessions) for r in results] == [("/billing", 2), ("/rare", 1)]
 
@@ -65,7 +65,7 @@ class TestTopVisitedPaths(ClickhouseTestMixin):
     def test_urls_normalize_to_path(self, team) -> None:
         self._produce(team.id, "a", ["https://app.ex.test/billing?tab=1", "https://other.ex.test/billing"])
 
-        results = fetch_top_visited_paths(team=team)
+        results = fetch_matching_paths(team=team, terms=["billing", "rare", "deep", "land", "anci"])
 
         assert [(r.pathname, r.sessions) for r in results] == [("/billing", 1)]
 
@@ -74,9 +74,32 @@ class TestTopVisitedPaths(ClickhouseTestMixin):
         self._produce(team.id, "recent", ["https://ex.test/billing"])
         self._produce(team.id, "stale", ["https://ex.test/ancient"], ago=dt.timedelta(days=8))
 
-        results = fetch_top_visited_paths(team=team)
+        results = fetch_matching_paths(team=team, terms=["billing", "rare", "deep", "land", "anci"])
 
         assert [r.pathname for r in results] == ["/billing"]
+
+    @pytest.mark.django_db
+    def test_a_quiet_page_is_found_among_far_busier_ones(self, team) -> None:
+        # A page that launched yesterday has almost no traffic. Selecting candidates by volume would
+        # hide it behind every popular page, so a team could never scan their newest flow.
+        self._produce(team.id, "new", ["https://ex.test/billing-v2"])
+        for i in range(50):
+            self._produce(team.id, f"busy-{i}", ["https://ex.test/home"])
+
+        results = fetch_matching_paths(team=team, terms=["bill"], limit=5)
+
+        assert [(r.pathname, r.sessions) for r in results] == [("/billing-v2", 1)]
+
+    @pytest.mark.django_db
+    def test_volume_orders_the_matches(self, team) -> None:
+        # Volume still decides which matching page the caller most likely meant.
+        self._produce(team.id, "quiet", ["https://ex.test/billing-legacy"])
+        for i in range(3):
+            self._produce(team.id, f"main-{i}", ["https://ex.test/billing"])
+
+        results = fetch_matching_paths(team=team, terms=["bill"])
+
+        assert [r.pathname for r in results] == ["/billing", "/billing-legacy"]
 
     @pytest.mark.django_db
     def test_sessions_a_scanner_cannot_observe_are_not_counted(self, team) -> None:
@@ -92,7 +115,7 @@ class TestTopVisitedPaths(ClickhouseTestMixin):
                 length=dt.timedelta(seconds=3),
             )
 
-        results = fetch_top_visited_paths(team=team)
+        results = fetch_matching_paths(team=team, terms=["billing", "rare", "deep", "land", "anci"])
 
         assert [(r.pathname, r.sessions) for r in results] == [("/deep", 1)]
 

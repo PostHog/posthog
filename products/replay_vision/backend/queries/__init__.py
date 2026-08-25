@@ -17,7 +17,7 @@ from products.replay_vision.backend.queries.scanner_volume_estimate import (
     project_monthly_observations,
     refresh_scanner_estimate,
 )
-from products.replay_vision.backend.queries.top_visited_paths import RankedPath, fetch_top_visited_paths
+from products.replay_vision.backend.queries.visited_paths import RankedPath, fetch_matching_paths
 
 __all__ = [
     "DEFAULT_CANDIDATE_LIMIT",
@@ -34,7 +34,7 @@ __all__ = [
     "ScannerCandidateQuery",
     "ScannerVolumeEstimate",
     "estimate_scanner_session_volume",
-    "fetch_top_visited_paths",
+    "fetch_matching_paths",
     "project_monthly_observations",
     "refresh_scanner_estimate",
 ]
