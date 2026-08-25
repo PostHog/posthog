@@ -69,9 +69,9 @@ export interface ForkFlagEvaluationsStepInput {
  *
  * Every failure path continues toward the events table, including a produce
  * that fails permanently: the row is counted and dropped, never retried. The ack
- * rides as a side effect, so a produce still in flight holds the batch. Pipe
- * this step without a retry envelope, because a retry would queue the produce
- * again.
+ * rides as a side effect, so the batch does not commit its offsets until the
+ * broker answers. Pipe this step without a retry envelope, because a retry
+ * would queue the produce again.
  */
 export function createForkFlagEvaluationsStep<T extends ForkFlagEvaluationsStepInput>(
     outputs: IngestionOutputs<FlagEvaluationsOutput>,

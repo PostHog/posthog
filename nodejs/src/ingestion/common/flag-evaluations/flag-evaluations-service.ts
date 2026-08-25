@@ -21,9 +21,10 @@ export interface FlagEvaluationsConfig {
  * the ClickHouse flag_evaluations table (via the clickhouse_flag_evaluations
  * topic) while the event continues to the events table unchanged.
  *
- * The shadow write is never load-bearing for an individual event, and a produce
- * still in flight holds the batch. See createForkFlagEvaluationsStep for the ack
- * contract and flagEvaluationsPendingAcks for the stall it can cause.
+ * The shadow write is never load-bearing for an individual event, but the batch
+ * does not commit its offsets until the broker answers. See
+ * createForkFlagEvaluationsStep for the ack contract and
+ * flagEvaluationsPendingAcks for the stall it can cause.
  *
  * Shedding that dependency during an incident takes BOTH env vars, not just the
  * mode: the mode stops a running consumer from forking, but startup topic
