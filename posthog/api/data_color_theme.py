@@ -12,7 +12,7 @@ from posthog.constants import AvailableFeature
 from posthog.models import DataColorTheme
 from posthog.permissions import TeamMemberStrictManagementPermission
 
-from products.access_control.backend.facade.user_access_control import UserAccessControlSerializerMixin
+from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 
 
 class GlobalThemePermission(BasePermission):

@@ -16,12 +16,12 @@ from products.access_control.backend.facade.user_access_control import (
     RESOURCE_INHERITANCE_MAP,
     AccessSource,
     UserAccessControl,
-    UserAccessControlSerializerMixin,
     get_field_access_control_map,
     model_to_resource,
 )
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
+from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource

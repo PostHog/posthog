@@ -29,7 +29,7 @@ from posthog.models import User
 from posthog.permissions import AccessControlPermission, get_authenticator_scopes
 from posthog.rate_limit import BurstRateThrottle, PersonalApiKeyOrUserRateThrottle, SustainedRateThrottle
 
-from products.access_control.backend.facade.access_control import AccessControlViewSetMixin
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.ai_observability.backend.api.metrics import llma_track_latency
 
 from ..marketplace.adapters import MARKETPLACE_NAME, PLUGIN_NAME, load_skill_export

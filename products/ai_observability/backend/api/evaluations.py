@@ -36,8 +36,10 @@ from posthog.temporal.ai_observability.run_evaluation import extract_event_io, r
 from posthog.temporal.ai_observability.run_session_evaluation import run_hog_eval_over_recent_sessions
 from posthog.temporal.ai_observability.run_trace_evaluation import run_hog_eval_over_recent_traces
 
-from products.access_control.backend.facade.access_control import AccessControlViewSetMixin
-from products.access_control.backend.facade.user_access_control import UserAccessControlSerializerMixin
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 
 from ..hog import compile_ai_observability_hog
 from ..llm import DEFAULT_MODEL_BY_PROVIDER

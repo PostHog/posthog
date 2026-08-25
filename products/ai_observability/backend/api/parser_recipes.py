@@ -13,7 +13,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.models import User
 from posthog.permissions import AccessControlPermission
 
-from products.access_control.backend.facade.access_control import AccessControlViewSetMixin
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.ai_observability.backend.models.parser_recipe import MAX_SOURCE_LENGTH, ParserRecipe
 
 

@@ -89,7 +89,7 @@ class YourResourceViewSet(
 
 ```python
 # posthog/api/your_resource.py
-from products.access_control.backend.facade.user_access_control import UserAccessControlSerializerMixin
+from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 
 class YourResourceSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     class Meta:

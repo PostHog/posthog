@@ -34,7 +34,7 @@ from posthog.temporal.ai_observability.message_utils import extract_text_from_me
 from posthog.temporal.ai_observability.run_evaluation import extract_event_io
 from posthog.temporal.ai_observability.run_tagger import run_hog_tagger
 
-from products.access_control.backend.facade.access_control import AccessControlViewSetMixin
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 
 from ..hog import compile_ai_observability_hog
 from ..models.model_configuration import LLMModelConfiguration

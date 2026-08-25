@@ -12,7 +12,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.permissions import AccessControlPermission
 
-from products.access_control.backend.facade.access_control import AccessControlViewSetMixin
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.cohorts.backend.models.cohort import Cohort
 
 from ..models.clustering_job import ClusteringJob

@@ -22,7 +22,7 @@ from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.permissions import AccessControlPermission
 
-from products.access_control.backend.facade.access_control import AccessControlViewSetMixin
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.ai_observability.backend.models.score_definitions import ScoreDefinition, StaleScoreDefinitionVersion
 from products.ai_observability.backend.score_definition_configs import ScoreDefinitionConfigField
 

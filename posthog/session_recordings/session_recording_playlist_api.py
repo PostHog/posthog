@@ -51,9 +51,9 @@ from posthog.session_recordings.synthetic_playlists import (
 )
 from posthog.utils import relative_date_parse
 
-from products.access_control.backend.facade.access_control import AccessControlViewSetMixin
-from products.access_control.backend.facade.user_access_control import (
-    UserAccessControlError,
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
 

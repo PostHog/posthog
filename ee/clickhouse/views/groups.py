@@ -47,7 +47,7 @@ from posthog.personhog_client.converters import GroupTypeMappingResult
 from posthog.ph_client import feature_enabled_or_false
 from posthog.utils import str_to_bool
 
-from products.access_control.backend.facade.user_access_control import UserAccessControlSerializerMixin
+from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 from products.event_definitions.backend.models.property_definition import PropertyType
 from products.notebooks.backend.facade import api as notebooks
 from products.notebooks.backend.facade.content import (

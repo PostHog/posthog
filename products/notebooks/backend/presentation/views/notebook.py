@@ -49,8 +49,10 @@ from posthog.renderers import SafeJSONRenderer, ServerSentEventRenderer
 from posthog.settings import SERVER_GATEWAY_INTERFACE
 from posthog.utils import relative_date_parse
 
-from products.access_control.backend.facade.access_control import AccessControlViewSetMixin
-from products.access_control.backend.facade.user_access_control import UserAccessControlSerializerMixin
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.notebooks.backend import collab_stream, markdown_collab, presence
 from products.notebooks.backend.activity_logging import log_notebook_activity
 from products.notebooks.backend.analytics import (

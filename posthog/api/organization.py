@@ -56,11 +56,8 @@ from posthog.tasks.email import send_posthog_ai_access_request
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_safe_cache, safe_cache_set
 
-from products.access_control.backend.facade.user_access_control import (
-    UserAccessControl,
-    UserAccessControlSerializerMixin,
-    visible_teams_for_user,
-)
+from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
+from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 
 
 class PremiumMultiorganizationPermission(permissions.BasePermission):

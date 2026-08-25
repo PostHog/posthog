@@ -22,8 +22,10 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.models.user import User
 
-from products.access_control.backend.facade.access_control import AccessControlViewSetMixin
-from products.access_control.backend.facade.user_access_control import UserAccessControlSerializerMixin
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.data_warehouse.backend.facade.api import get_s3_client
 from products.warehouse_sources.backend.facade.api import (
     FILE_FORMAT_READ_HINTS,

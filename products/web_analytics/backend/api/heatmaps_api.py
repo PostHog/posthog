@@ -57,9 +57,9 @@ from posthog.rate_limit import (
 from posthog.security.url_validation import is_url_allowed
 from posthog.utils import relative_date_parse_with_delta_mapping
 
-from products.access_control.backend.facade.access_control import AccessControlViewSetMixin
-from products.access_control.backend.facade.user_access_control import (
-    AccessControlLevel,
+from products.access_control.backend.facade.user_access_control import AccessControlLevel
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
 from products.cohorts.backend.models.cohort import Cohort

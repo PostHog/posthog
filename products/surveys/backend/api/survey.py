@@ -63,8 +63,10 @@ from posthog.models.user import User
 from posthog.models.utils import UUIDT
 from posthog.utils_cors import cors_response
 
-from products.access_control.backend.facade.access_control import AccessControlViewSetMixin
-from products.access_control.backend.facade.user_access_control import UserAccessControlSerializerMixin
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.actions.backend.api.action import ActionSerializer, ActionStepJSONSerializer
 from products.actions.backend.models.action import Action
 from products.feature_flags.backend.api.feature_flag import (

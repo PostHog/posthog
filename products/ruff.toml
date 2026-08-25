@@ -62,8 +62,8 @@ extend-select = ["ANN001", "ANN201", "ANN202", "ANN204"]
 "warehouse_sources/backend/**" = ["ANN"]
 "workflows/backend/**" = ["ANN"]
 
-"access_control/backend/facade/access_control.py" = ["ANN"]
-"access_control/backend/facade/access_control_settings.py" = ["ANN"]
+"access_control/backend/presentation/access_control.py" = ["ANN"]
+"access_control/backend/presentation/access_control_settings.py" = ["ANN"]
 "access_control/backend/facade/user_access_control.py" = ["ANN"]
 
 # PLC0415 exemptions. New products not listed here are enforced.

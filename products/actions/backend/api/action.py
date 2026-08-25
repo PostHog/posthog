@@ -33,8 +33,10 @@ from posthog.models.event.event import Selector
 from posthog.models.property.util import build_selector_regex
 from posthog.resource_limits import LimitKey, check_count_limit
 
-from products.access_control.backend.facade.access_control import AccessControlViewSetMixin
-from products.access_control.backend.facade.user_access_control import UserAccessControlSerializerMixin
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.actions.backend.models.action import ACTION_STEP_MATCHING_OPTIONS, Action
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.cohorts.backend.models.cohort import Cohort

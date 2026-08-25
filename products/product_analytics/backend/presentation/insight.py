@@ -133,11 +133,13 @@ from posthog.utils import (
     variables_override_requested_by_client,
 )
 
-from products.access_control.backend.facade.access_control import AccessControlViewSetMixin
 from products.access_control.backend.facade.user_access_control import (
     UserAccessControlError,
-    UserAccessControlSerializerMixin,
     access_level_satisfied_for_resource,
+)
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
 )
 from products.alerts.backend.facade.api import delete_insight_alerts, insight_alerts_prefetch, serialize_insight_alerts
 from products.dashboards.backend.facade.access import (

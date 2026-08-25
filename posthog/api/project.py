@@ -104,13 +104,15 @@ from posthog.session_recordings.data_retention import (
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_instance_realm, get_ip_address, get_week_start_for_country_code
 
-from products.access_control.backend.facade.access_control import AccessControlViewSetMixin
-from products.access_control.backend.facade.access_control_settings import AccessControlSettingsViewSetMixin
 from products.access_control.backend.facade.user_access_control import (
-    UserAccessControlSerializerMixin,
     get_field_access_control_map,
     resource_to_display_name,
 )
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
+from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
 from products.feature_flags.backend.models.evaluation_context import (
     EvaluationContext,

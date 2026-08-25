@@ -25,7 +25,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.models.user import User
 
-from products.access_control.backend.facade.access_control import AccessControlViewSetMixin
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.data_tools.backend.facade.models import DataWarehouseJoin
 
 MATCH_RATE_SAMPLE_SIZE = 10_000

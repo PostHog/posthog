@@ -110,8 +110,10 @@ from posthog.session_recordings.utils import (
 )
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
 
-from products.access_control.backend.facade.access_control import AccessControlViewSetMixin
-from products.access_control.backend.facade.user_access_control import UserAccessControlSerializerMixin
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 
 from ..models.product_intent.product_intent import ProductIntent
 from .queries.combine_session_ids_for_filtering import combine_session_id_filters

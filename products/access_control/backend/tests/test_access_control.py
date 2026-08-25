@@ -19,13 +19,13 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 from posthog.utils import render_template
 
-from products.access_control.backend.facade.access_control_settings import (
-    _display_model,
-    resources_with_object_access_controls,
-)
 from products.access_control.backend.facade.user_access_control import AccessSource
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
+from products.access_control.backend.presentation.access_control_settings import (
+    _display_model,
+    resources_with_object_access_controls,
+)
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.cohorts.backend.models.cohort import Cohort
 from products.conversations.backend.models import Ticket
@@ -415,7 +415,7 @@ class TestAccessControlObjectCap(BaseAccessControlTest):
         self._org_membership(OrganizationMembership.Level.ADMIN)
         # Patch the cap to a small value so tests don't have to create 1000 rows.
         self.cap_patcher = patch(
-            "products.access_control.backend.facade.access_control.ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE", 3
+            "products.access_control.backend.presentation.access_control.ACCESS_CONTROL_MAX_OBJECTS_PER_RESOURCE", 3
         )
         self.cap_patcher.start()
         self.addCleanup(self.cap_patcher.stop)

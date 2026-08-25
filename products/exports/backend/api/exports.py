@@ -34,8 +34,10 @@ from posthog.temporal.session_replay.rasterize_recording.types import (
     RasterizeRecordingInputs,
 )
 
-from products.access_control.backend.facade.access_control import AccessControlViewSetMixin
-from products.access_control.backend.facade.user_access_control import UserAccessControlSerializerMixin
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.exports.backend.models.exported_asset import (
     ExportedAsset,
     get_content_response,

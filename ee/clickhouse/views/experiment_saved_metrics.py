@@ -8,8 +8,10 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.tagged_item import TaggedItemSerializerMixin
 
-from products.access_control.backend.facade.access_control import AccessControlViewSetMixin
-from products.access_control.backend.facade.user_access_control import UserAccessControlSerializerMixin
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event, refresh_action_names_in_metric
 from products.experiments.backend.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric

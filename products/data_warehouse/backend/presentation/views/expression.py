@@ -20,7 +20,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.models.user import User
 
-from products.access_control.backend.facade.access_control import AccessControlViewSetMixin
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.data_tools.backend.facade.models import DataWarehouseExpression
 
 # Same simple-identifier shape as `escape_hogql_identifier`. A whitelist rather than a

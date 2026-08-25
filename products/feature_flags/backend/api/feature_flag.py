@@ -77,8 +77,10 @@ from posthog.settings.feature_flags import REMOTE_CONFIG_RATE_LIMITS
 from posthog.utils import is_valid_regex, str_to_bool
 from posthog.views import format_bytes
 
-from products.access_control.backend.facade.access_control import AccessControlViewSetMixin
-from products.access_control.backend.facade.user_access_control import UserAccessControlSerializerMixin
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.approvals.backend.decorators import approval_gate
 from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.cohorts.backend.models.cohort import Cohort, CohortType

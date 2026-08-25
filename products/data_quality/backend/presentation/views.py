@@ -26,7 +26,7 @@ from posthog.api.utils import action
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 
-from products.access_control.backend.facade.access_control import AccessControlViewSetMixin
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 
 from ..facade import api
 from ..facade.enums import CheckRunStatus, SubjectType

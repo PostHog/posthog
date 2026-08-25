@@ -84,9 +84,9 @@ from posthog.plugins.plugin_server_api import (
 from posthog.synthetic_user import SyntheticUser
 from posthog.utils import relative_date_parse_with_delta_mapping
 
-from products.access_control.backend.facade.access_control import AccessControlViewSetMixin
-from products.access_control.backend.facade.user_access_control import (
-    UserAccessControl,
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
     UserAccessControlSerializerMixin,
 )
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate

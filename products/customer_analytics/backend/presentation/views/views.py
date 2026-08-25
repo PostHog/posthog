@@ -46,8 +46,8 @@ from posthog.permissions import (
 )
 from posthog.rate_limit import RunSavedQueryRateThrottle
 
-from products.access_control.backend.facade.access_control import AccessControlViewSetMixin
 from products.access_control.backend.facade.user_access_control import UserAccessControl, model_to_resource
+from products.access_control.backend.presentation.access_control import AccessControlViewSetMixin
 from products.customer_analytics.backend.facade import api, contracts
 from products.customer_analytics.backend.facade.constants import (
     CUSTOMER_ANALYTICS_FEATURE_REQUESTS_FLAG,
