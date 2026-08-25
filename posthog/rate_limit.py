@@ -981,6 +981,13 @@ class UserEmailVerificationThrottle(UserOrEmailRateThrottle):
     rate = "6/day"
 
 
+class VerifyEmailIPThrottle(IPThrottle):
+    """Aggregate cap per source, so rotating target uuids cannot multiply the per-account budget."""
+
+    scope = "verify_email_ip"
+    rate = "30/hour"
+
+
 class UserVerifyEmailThrottle(UserOrEmailRateThrottle):
     scope = "user_verify_email"
     rate = "6/20minutes"

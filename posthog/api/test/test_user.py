@@ -3223,6 +3223,15 @@ class TestEmailVerificationCodeAPI(APIBaseTest):
         response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": code})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    def test_guesses_are_capped_per_source_across_target_accounts(self):
+        # Rotating target uuids must not multiply the guess budget: the per-source cap holds.
+        self._request_code()
+        for _ in range(30):
+            self.client.post("/api/users/verify_email/", {"uuid": uuid.uuid4(), "code": "000000"})
+
+        response = self.client.post("/api/users/verify_email/", {"uuid": self.user.uuid, "code": "000000"})
+        self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+
     def test_numeric_json_code_is_a_normal_guess(self):
         # A client that sends the six digits as a JSON number must get a 400, not a 500, and the
         # coerced string counts as an ordinary attempt.

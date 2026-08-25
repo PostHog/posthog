@@ -128,6 +128,7 @@ from posthog.rate_limit import (
     UserAuthenticationThrottle,
     UserEmailVerificationThrottle,
     UserVerifyEmailThrottle,
+    VerifyEmailIPThrottle,
 )
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.session.activity import (
@@ -1177,7 +1178,12 @@ class UserViewSet(
         return Response({"revoked_count": revoked_count})
 
     @extend_schema(request=VerifyEmailRequestSerializer)
-    @action(methods=["POST"], detail=False, permission_classes=[AllowAny], throttle_classes=[UserVerifyEmailThrottle])
+    @action(
+        methods=["POST"],
+        detail=False,
+        permission_classes=[AllowAny],
+        throttle_classes=[UserVerifyEmailThrottle, VerifyEmailIPThrottle],
+    )
     def verify_email(self, request, **kwargs):
         body = VerifyEmailRequestSerializer(data=request.data if isinstance(request.data, dict) else {})
         body.is_valid(raise_exception=True)
