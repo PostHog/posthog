@@ -313,8 +313,16 @@ def handler500(request):
     error = sys.exc_info()[1]
     error_id = capture_exception(error) if error is not None else None
 
+    # Guard the "Try again" link against an open redirect: get_full_path() can carry a
+    # protocol-relative path like //evil.com that a browser resolves as an external origin.
+    retry_url = request.get_full_path()
+    if not url_has_allowed_host_and_scheme(retry_url, allowed_hosts=None):
+        retry_url = "/"
+
     template = loader.get_template("500.html")
-    return HttpResponseServerError(template.render({"request": request, "error_id": error_id}, request))
+    return HttpResponseServerError(
+        template.render({"request": request, "error_id": error_id, "retry_url": retry_url}, request)
+    )
 
 
 APP_POSTHOG_HOST = "app.posthog.com"

@@ -1,8 +1,10 @@
 import uuid
+from io import BytesIO
 
 from posthog.test.base import APIBaseTest
 from unittest import mock
 
+from django.core.handlers.wsgi import WSGIRequest
 from django.test import RequestFactory, SimpleTestCase, override_settings
 from django.urls import resolve
 
@@ -228,6 +230,36 @@ class TestHandler500(SimpleTestCase):
 
         self.assertEqual(response.status_code, 500)
         self.assertNotIn("Error reference", response.content.decode())
+
+    @parameterized.expand(
+        [
+            ("safe_path_preserved", "/some/failing/page", "/some/failing/page"),
+            ("protocol_relative_rejected", "//evil.com", "/"),
+            ("triple_slash_rejected", "///evil.com", "/"),
+        ]
+    )
+    def test_retry_link_only_allows_local_paths(self, _name, path_info, expected_href):
+        # A raw WSGI environ preserves a protocol-relative path that RequestFactory would
+        # normalize away, so get_full_path() returns the // prefix a browser reads as external.
+        environ = {
+            "REQUEST_METHOD": "GET",
+            "PATH_INFO": path_info,
+            "QUERY_STRING": "",
+            "SERVER_NAME": "testserver",
+            "SERVER_PORT": "80",
+            "wsgi.input": BytesIO(b""),
+            "wsgi.url_scheme": "http",
+        }
+        request = WSGIRequest(environ)
+        with mock.patch("posthog.urls.capture_exception", return_value=None):
+            try:
+                raise ValueError("boom")
+            except ValueError:
+                response = handler500(request)
+
+        body = response.content.decode()
+        self.assertIn(f'href="{expected_href}"', body)
+        self.assertNotIn("evil.com", body)
 
 
 class TestLegacyDuckgresAdminUrls(SimpleTestCase):
