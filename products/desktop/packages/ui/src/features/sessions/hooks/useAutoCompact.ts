@@ -4,7 +4,10 @@ import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { toast } from "@posthog/ui/primitives/toast";
 import { useEffect, useRef } from "react";
 
-interface AutoCompactArgs {
+export interface AutoCompactArgs {
+  /** Identifies the session the latch belongs to. The view can swap sessions
+   *  without remounting, so the latch resets when this changes. */
+  sessionKey: string;
   usage: ContextUsage | null;
   isCompacting: boolean;
   isRunning: boolean;
@@ -19,6 +22,7 @@ interface AutoCompactArgs {
  * the default.
  */
 export function useAutoCompact({
+  sessionKey,
   usage,
   isCompacting,
   isRunning,
@@ -30,6 +34,16 @@ export function useAutoCompact({
   const armedRef = useRef(true);
   // Held in a ref so a re-render mid-send cannot start a second compaction.
   const sendingRef = useRef(false);
+
+  // This view can receive a different session without remounting, so the latch
+  // is scoped to the session by hand. Without this reset the old session's
+  // disarmed latch would carry over and suppress the new session's compaction.
+  const sessionKeyRef = useRef(sessionKey);
+  if (sessionKeyRef.current !== sessionKey) {
+    sessionKeyRef.current = sessionKey;
+    armedRef.current = true;
+    sendingRef.current = false;
+  }
 
   useEffect(() => {
     const decision = decideAutoCompact({
@@ -43,8 +57,12 @@ export function useAutoCompact({
     if (!decision.compact) return;
 
     sendingRef.current = true;
+    // The session can change while the send is in flight; the completion must
+    // not touch the latch or toast of whatever session is shown by then.
+    const sentForKey = sessionKey;
     void sendPrompt("/compact")
       .then((sent) => {
+        if (sessionKeyRef.current !== sentForKey) return;
         if (!sent) {
           // Re-arm so a rejected send is retried at the next resting point
           // rather than silently disabling the setting for this session.
@@ -56,7 +74,9 @@ export function useAutoCompact({
         });
       })
       .finally(() => {
-        sendingRef.current = false;
+        if (sessionKeyRef.current === sentForKey) {
+          sendingRef.current = false;
+        }
       });
-  }, [thresholdPercent, usage, isCompacting, isRunning, sendPrompt]);
+  }, [sessionKey, thresholdPercent, usage, isCompacting, isRunning, sendPrompt]);
 }
