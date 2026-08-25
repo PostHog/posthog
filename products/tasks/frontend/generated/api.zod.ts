@@ -2532,6 +2532,59 @@ export const TasksRunsAppendLogCreateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Approve a staged babysit wake-up so the agent fixes failing checks and review comments on the PR. Only meaningful in "ask" mode; in other modes the workflow does not wait for consent.
+ * @summary Approve PR babysitting
+ */
+export const TasksRunsApproveBabysitCreateBody = /* @__PURE__ */ zod
+    .object({
+        id: zod.uuid(),
+        task: zod.uuid().describe('Parent task id this run belongs to.'),
+        stage: zod.string().nullable(),
+        branch: zod.string().nullable(),
+        status: zod.string(),
+        environment: zod.string(),
+        runtime_adapter: zod
+            .union([zod.enum(['claude', 'codex']).describe('\* `claude` - claude\n\* `codex` - codex'), zod.null()])
+            .optional()
+            .describe(
+                "Configured runtime adapter for this run, such as 'claude' or 'codex'.\n\n\* `claude` - claude\n\* `codex` - codex"
+            ),
+        provider: zod
+            .union([
+                zod.enum(['anthropic', 'openai']).describe('\* `anthropic` - anthropic\n\* `openai` - openai'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "Configured LLM provider for this run, such as 'anthropic' or 'openai'.\n\n\* `anthropic` - anthropic\n\* `openai` - openai"
+            ),
+        model: zod.string().nullish().describe('Configured LLM model identifier for this run.'),
+        reasoning_effort: zod
+            .union([
+                zod
+                    .enum(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+                    .describe(
+                        '\* `off` - off\n\* `minimal` - minimal\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                    ),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                'Configured reasoning effort for this run when the selected model supports it.\n\n\* `off` - off\n\* `minimal` - minimal\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+            ),
+        log_url: zod.url().nullish().describe('Presigned S3 URL for log access (valid for 1 hour).'),
+        error_message: zod.string().nullable(),
+        output: zod.record(zod.string(), zod.unknown()).nullable(),
+        state: zod.record(zod.string(), zod.unknown()),
+        created_at: zod.iso.datetime({ offset: true }).nullish(),
+        updated_at: zod.iso.datetime({ offset: true }).nullish(),
+        completed_at: zod.iso.datetime({ offset: true }).nullish(),
+    })
+    .describe(
+        'Detail response for a task run.\n\nReads from a frozen ``TaskRunDetailDTO`` produced by the facade mapper (which computes the\npresigned ``log_url`` and parses ``runtime_adapter`` \/ ``provider`` \/ ``model`` \/\n``reasoning_effort`` off the run state). ``task`` is the parent task id. Reused as the nested\n``latest_run`` shape by the task detail response.'
+    )
+
+/**
  * Persist task artifacts to S3 and attach them to the run manifest.
  * @summary Upload artifacts for a task run
  */

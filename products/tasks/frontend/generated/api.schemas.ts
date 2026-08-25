@@ -3568,6 +3568,25 @@ export interface TaskRunPostHogReferencesResponseApi {
     artifacts: TaskRunArtifactResponseApi[]
 }
 
+/**
+ * Attention items: failing checks, review threads, comments, conflict
+ */
+export type TaskRunBabysitAttentionApiAttention = { [key: string]: unknown }
+
+/**
+ * The staged PR attention waiting for consent in 'ask' babysit mode, or null.
+ */
+export interface TaskRunBabysitAttentionApi {
+    /** The PR URL the attention is about */
+    pr_url?: string
+    /** Lowercased GitHub PR state */
+    pr_state?: string
+    /** Head commit SHA the attention was staged at */
+    head_sha?: string
+    /** Attention items: failing checks, review threads, comments, conflict */
+    attention?: TaskRunBabysitAttentionApiAttention
+}
+
 export interface TaskRunCancelRequestApi {
     /**
      * Optional reason for the cancellation, recorded on the run and shown to run watchers.

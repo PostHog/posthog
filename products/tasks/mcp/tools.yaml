@@ -514,6 +514,9 @@ tools:
     tasks-runs-append-log-create:
         operation: tasks_runs_append_log_create
         enabled: false
+    tasks-runs-approve-babysit-create:
+        operation: tasks_runs_approve_babysit_create
+        enabled: false
     tasks-runs-artifacts-create:
         operation: tasks_runs_artifacts_create
         enabled: false
@@ -540,6 +543,9 @@ tools:
         enabled: false
     tasks-runs-artifacts-references-create:
         operation: tasks_runs_artifacts_references_create
+        enabled: false
+    tasks-runs-babysit-attention-retrieve:
+        operation: tasks_runs_babysit_attention_retrieve
         enabled: false
     tasks-runs-cancel-create:
         operation: tasks_runs_cancel_create
