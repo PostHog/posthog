@@ -37,7 +37,19 @@ export function CostManagementSettings() {
   const deleteSkill = useDeleteSkill();
   const [openSkillId, setOpenSkillId] = useState<string | null>(null);
   const [buildingImage, setBuildingImage] = useState(false);
-  const [busySkillId, setBusySkillId] = useState<string | null>(null);
+  // A set, not one slot, so overlapping installs each disable and re-enable
+  // only their own row instead of clobbering each other's busy state.
+  const [busySkillIds, setBusySkillIds] = useState<ReadonlySet<string>>(
+    new Set(),
+  );
+  const markSkillBusy = (skillId: string) =>
+    setBusySkillIds((prev) => new Set(prev).add(skillId));
+  const clearSkillBusy = (skillId: string) =>
+    setBusySkillIds((prev) => {
+      const next = new Set(prev);
+      next.delete(skillId);
+      return next;
+    });
   const openSkill = openSkillId === null ? null : leanSkillById(openSkillId);
 
   if (!spendAnalysisEnabled) {
@@ -75,7 +87,7 @@ export function CostManagementSettings() {
   const installById = async (skillId: string) => {
     const skill = leanSkillById(skillId);
     if (!skill) return;
-    setBusySkillId(skillId);
+    markSkillBusy(skillId);
     try {
       await installSkill.mutateAsync({
         source: skill.source,
@@ -91,7 +103,7 @@ export function CostManagementSettings() {
         description: skillErrorDescription(error),
       });
     } finally {
-      setBusySkillId(null);
+      clearSkillBusy(skillId);
     }
   };
 
@@ -99,7 +111,7 @@ export function CostManagementSettings() {
     const skill = leanSkillById(skillId);
     const skillPath = installedSkills.get(skillId);
     if (!skill || !skillPath) return;
-    setBusySkillId(skillId);
+    markSkillBusy(skillId);
     try {
       await deleteSkill.mutateAsync({ skillPath });
       toast.success(`${skill.name} uninstalled`, {
@@ -110,7 +122,7 @@ export function CostManagementSettings() {
         description: skillErrorDescription(error),
       });
     } finally {
-      setBusySkillId(null);
+      clearSkillBusy(skillId);
     }
   };
 
@@ -123,7 +135,7 @@ export function CostManagementSettings() {
         onInstallSkill={(skillId) => void installById(skillId)}
         onUninstallSkill={(skillId) => void uninstallById(skillId)}
         onOpenSkill={setOpenSkillId}
-        busySkillId={busySkillId}
+        busySkillIds={busySkillIds}
       />
       {buildingImage && (
         <CustomImageBuildDialog
@@ -135,7 +147,7 @@ export function CostManagementSettings() {
         <LeanSkillDialog
           skill={openSkill}
           installed={installedSkills.has(openSkill.skillId)}
-          busy={busySkillId === openSkill.skillId}
+          busy={busySkillIds.has(openSkill.skillId)}
           onInstall={() => void installById(openSkill.skillId)}
           onUninstall={() => void uninstallById(openSkill.skillId)}
           onClose={() => setOpenSkillId(null)}

@@ -15,8 +15,8 @@ interface CostChecklistPanelProps {
   onUninstallSkill: (skillId: string) => void;
   /** Opens one skill's details, with its links. */
   onOpenSkill: (skillId: string) => void;
-  /** The skill an install or removal is in flight for. */
-  busySkillId: string | null;
+  /** The skills an install or removal is in flight for. */
+  busySkillIds: ReadonlySet<string>;
 }
 
 /**
@@ -31,7 +31,7 @@ export function CostChecklistPanel({
   onInstallSkill,
   onUninstallSkill,
   onOpenSkill,
-  busySkillId,
+  busySkillIds,
 }: CostChecklistPanelProps) {
   if (items.length === 0) {
     return (
@@ -63,7 +63,7 @@ export function CostChecklistPanel({
               onInstallSkill,
               onUninstallSkill,
               onOpenSkill,
-              busySkillId,
+              busySkillIds,
             })}
           />
         ))}
@@ -83,7 +83,7 @@ interface RowHandlers {
   onInstallSkill: (skillId: string) => void;
   onUninstallSkill: (skillId: string) => void;
   onOpenSkill: (skillId: string) => void;
-  busySkillId: string | null;
+  busySkillIds: ReadonlySet<string>;
 }
 
 interface RowContent {
@@ -163,7 +163,7 @@ function rowContent(item: CostChecklistItem, h: RowHandlers): RowContent {
 
     case "install-skill": {
       const skill = leanSkillById(item.skillId);
-      const busy = h.busySkillId === item.skillId;
+      const busy = h.busySkillIds.has(item.skillId);
       const details = (
         <button
           type="button"

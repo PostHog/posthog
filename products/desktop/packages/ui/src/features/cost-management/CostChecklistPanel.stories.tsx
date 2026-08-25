@@ -11,7 +11,7 @@ const meta: Meta<typeof CostChecklistPanel> = {
     onInstallSkill: () => {},
     onUninstallSkill: () => {},
     onOpenSkill: () => {},
-    busySkillId: null,
+    busySkillIds: new Set(),
   },
   decorators: [
     (Story) => (

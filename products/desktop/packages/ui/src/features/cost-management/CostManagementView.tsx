@@ -11,7 +11,7 @@ interface CostManagementViewProps {
   onInstallSkill: (skillId: string) => void;
   onUninstallSkill: (skillId: string) => void;
   onOpenSkill: (skillId: string) => void;
-  busySkillId: string | null;
+  busySkillIds: ReadonlySet<string>;
 }
 
 export function CostManagementView({
@@ -21,7 +21,7 @@ export function CostManagementView({
   onInstallSkill,
   onUninstallSkill,
   onOpenSkill,
-  busySkillId,
+  busySkillIds,
 }: CostManagementViewProps) {
   return (
     <div className="flex flex-col gap-8">
@@ -38,7 +38,7 @@ export function CostManagementView({
           onInstallSkill={onInstallSkill}
           onUninstallSkill={onUninstallSkill}
           onOpenSkill={onOpenSkill}
-          busySkillId={busySkillId}
+          busySkillIds={busySkillIds}
         />
       </SettingsSubsection>
     </div>
