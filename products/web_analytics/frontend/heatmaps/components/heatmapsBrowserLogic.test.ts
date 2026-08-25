@@ -2,6 +2,7 @@ import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { heatmapDataLogic } from 'lib/components/heatmaps/heatmapDataLogic'
 
 import { initKeaTests } from '~/test/init'
 
@@ -98,6 +99,44 @@ describe('heatmapsBrowserLogic', () => {
 
             expect(logic.values.displayUrl).toBe('')
             expect(router.values.searchParams.pageURL).toBeUndefined()
+        })
+    })
+
+    describe('recording background href', () => {
+        beforeEach(() => {
+            initKeaTests()
+            jest.spyOn(api, 'queryHogQL').mockResolvedValue({ results: [] } as any)
+            jest.spyOn(global, 'fetch').mockResolvedValue({
+                status: 200,
+                json: async () => ({ results: [] }),
+            } as any)
+            router.actions.push('/heatmaps/recording')
+        })
+
+        afterEach(() => {
+            jest.restoreAllMocks()
+        })
+
+        // The recording path has no dataUrl; the href comes from the snapshot. onIframeLoad used to
+        // overwrite it with an empty string, so the query never ran and the heatmap loaded forever.
+        it('keeps the snapshot href when the iframe loads without a dataUrl', async () => {
+            const logic = heatmapsBrowserLogic({ iframeRef: { current: null } })
+            logic.mount()
+            const dataLogic = heatmapDataLogic({ context: 'in-app' })
+
+            logic.actions.setReplayIframeData({
+                html: '<html></html>',
+                width: 100,
+                height: 100,
+                startDateTime: undefined,
+                url: 'https://example.com/pricing',
+            })
+            await expectLogic(logic).toFinishAllListeners()
+            expect(dataLogic.values.href).toBe('https://example.com/pricing')
+
+            logic.actions.onIframeLoad()
+            await expectLogic(logic).toFinishAllListeners()
+            expect(dataLogic.values.href).toBe('https://example.com/pricing')
         })
     })
 

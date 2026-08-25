@@ -27,7 +27,12 @@ import {
     recordingMetaJson,
     setupSessionRecordingTest,
 } from './__mocks__/test-setup'
-import { findNewEvents, findSegmentForTimestamp, stripRrwebScriptShims } from './sessionRecordingPlayerLogic'
+import {
+    findNewEvents,
+    findSegmentForTimestamp,
+    isUsableHeatmapUrl,
+    stripRrwebScriptShims,
+} from './sessionRecordingPlayerLogic'
 import { markLoaded } from './snapshot-store/test-utils'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import { deleteRecording as deleteRecordingMock } from './utils/playerUtils'
@@ -90,6 +95,19 @@ describe('findNewEvents', () => {
         const currentEvents = current.map((ts) => makeEvent(ts))
         const result = findNewEvents(allSnapshots, currentEvents)
         expect(result.map((e) => e.timestamp)).toEqual(expected)
+    })
+})
+
+describe('isUsableHeatmapUrl', () => {
+    it.each([
+        [undefined, false],
+        ['', false],
+        ['   ', false],
+        // mobile snapshots with no captured href resolve to the literal 'unknown'
+        ['unknown', false],
+        ['https://example.com/pricing', true],
+    ] as const)('isUsableHeatmapUrl(%s) → %s', (input, expected) => {
+        expect(isUsableHeatmapUrl(input)).toBe(expected)
     })
 })
 

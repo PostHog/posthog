@@ -239,6 +239,8 @@ export function stripRrwebScriptShims(html: string): string {
 }
 
 const SNAPSHOT_REJECTION_PROBLEM = {
+    not_ready: 'This recording has not finished loading this frame yet.',
+    no_url: 'This moment has no page address to build a heatmap for.',
     too_large: 'This part of the recording is too large to use as a heatmap background.',
     storage_failed: "Couldn't save this moment as a heatmap background.",
 } as const
@@ -248,6 +250,13 @@ function rejectHeatmapSnapshot(reason: keyof typeof SNAPSHOT_REJECTION_PROBLEM, 
     lemonToast.error(
         `${SNAPSHOT_REJECTION_PROBLEM[reason]} Try a different moment, or create a heatmap from the page URL instead.`
     )
+}
+
+// Mobile snapshots with no captured href resolve to the literal 'unknown', which the heatmap query
+// cannot match, so treat it and an empty URL as unusable.
+export function isUsableHeatmapUrl(url: string | undefined): url is string {
+    const trimmed = url?.trim()
+    return !!trimmed && trimmed !== 'unknown'
 }
 
 /**
@@ -3126,6 +3135,13 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             const rawIframeHtml = iframe?.contentWindow?.document?.documentElement?.innerHTML
             const resolution = values.resolution
             if (!rawIframeHtml || !resolution) {
+                rejectHeatmapSnapshot('not_ready', rawIframeHtml?.length ?? 0)
+                return
+            }
+
+            const url = values.currentURL
+            if (!isUsableHeatmapUrl(url)) {
+                rejectHeatmapSnapshot('no_url', rawIframeHtml.length)
                 return
             }
 
@@ -3141,7 +3157,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 width: resolution.width,
                 height: resolution.height,
                 startDateTime: values.sessionPlayerMetaData?.start_time,
-                url: values.currentURL,
+                url,
             }
             const key = persistReplayIframeData(data)
             if (!key) {

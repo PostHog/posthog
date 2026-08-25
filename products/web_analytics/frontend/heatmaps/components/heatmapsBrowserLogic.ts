@@ -698,18 +698,17 @@ export const heatmapsBrowserLogic = kea<heatmapsBrowserLogicType>([
         onIframeLoad: () => {
             actions.stopTrackingLoading()
 
-            // it should be impossible to load an iframe without a dataUrl
-            // right?!
-            const url = values.dataUrl ?? ''
-            actions.setHref(url)
-
-            // Ensure match type is set correctly when iframe loads
-            const isPattern = isUrlPattern(url)
-            actions.setHrefMatchType(isPattern ? 'pattern' : 'exact')
+            // The recording background path has no dataUrl; its href comes from the snapshot. Setting
+            // href to an empty string here would blank the query and leave the heatmap loading forever.
+            const url = values.dataUrl?.trim()
+            if (url) {
+                actions.setHref(url)
+                actions.setHrefMatchType(isUrlPattern(url) ? 'pattern' : 'exact')
+            }
 
             actions.loadHeatmap()
             posthog.capture('in-app heatmap iframe loaded', {
-                inapp_heatmap_page_url_visited: values.dataUrl,
+                inapp_heatmap_page_url_visited: values.dataUrl ?? values.replayIframeData?.url,
                 inapp_heatmap_filters: values.heatmapFilters,
                 inapp_heatmap_color_palette: values.heatmapColorPalette,
                 inapp_heatmap_fixed_position_mode: values.heatmapFixedPositionMode,
