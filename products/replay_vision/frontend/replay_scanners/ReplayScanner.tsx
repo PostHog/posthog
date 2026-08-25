@@ -191,7 +191,7 @@ function QuotaBanner(): JSX.Element | null {
         <LemonBanner type="warning">
             {state.kind === 'exhausted'
                 ? `${
-                      onFreePlan ? 'Free credits used up' : 'Monthly spend limit reached'
+                      onFreePlan ? 'Free credits used up' : 'Spend limit reached'
                   }: ${formatCreditsRange(state.quota.credits_used, state.quota.credit_limit ?? 0)}. New observations are paused until ${state.resetsOn}.`
                 : onFreePlan
                   ? `You've used ${Math.round(state.quota.credits_used).toLocaleString('en-US')} of your ${Math.round(state.quota.credit_limit ?? 0).toLocaleString('en-US')} free credits this billing period. New observations will pause once they run out. Resets ${state.resetsOn}.`
