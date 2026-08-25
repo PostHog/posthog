@@ -198,6 +198,16 @@ class TestAccessControlMinimumLevelValidation(BaseAccessControlTest):
         assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
         assert "cannot be set below the minimum 'viewer'" in res.json()["detail"]
 
+    def test_resource_access_controls_missing_resource_returns_400(self):
+        """A resource-level PUT without `resource` must return a 400, not a 500."""
+        self._org_membership(OrganizationMembership.Level.ADMIN)
+
+        res = self.client.put(
+            "/api/projects/@current/resource_access_controls",
+            {"access_level": "editor"},
+        )
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+
     def test_action_access_level_accepts_viewer_and_above(self):
         """Test that action access level accepts viewer, editor, and manager"""
         self._org_membership(OrganizationMembership.Level.ADMIN)

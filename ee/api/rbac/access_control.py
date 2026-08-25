@@ -160,7 +160,13 @@ class AccessControlSerializer(serializers.ModelSerializer):
 
     # Validate that access control is a valid option
     def validate_access_level(self, access_level):
-        resource = self.initial_data["resource"]
+        # `resource` can be absent from the request body. DRF runs field validators before it
+        # reports the missing required field, so read it defensively and let `validate` raise
+        # the normal 400 once `resource` has passed field validation.
+        resource = self.initial_data.get("resource")
+        if not resource:
+            return access_level
+
         levels = ordered_access_levels(resource)
 
         if access_level and access_level not in levels:
