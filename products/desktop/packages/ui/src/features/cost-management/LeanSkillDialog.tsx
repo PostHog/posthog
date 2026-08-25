@@ -1,4 +1,5 @@
 // Dialog for installing and removing lean skills from the cost management settings page.
+// Shows available skills with install/remove controls and links to their source repos.
 import { ArrowSquareOut } from "@phosphor-icons/react";
 import {
   type LeanSkill,
