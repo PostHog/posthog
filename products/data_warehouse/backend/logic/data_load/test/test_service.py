@@ -2,6 +2,8 @@ import uuid
 import random
 import logging
 import datetime as dt
+from collections.abc import Callable
+from typing import Any
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -359,7 +361,7 @@ def test_cdc_min_interval(intervals, expected):
 # --- CDC extraction schedule reads ---
 
 
-def _temporal_with_schedule(desc=None, describe_side=None):
+def _temporal_with_schedule(desc: MagicMock | None = None, describe_side: BaseException | None = None) -> Any:
     # Patched at the Temporal client, not at the schedule helper: a mocked helper is exactly what
     # hid a sync helper being awaited inside the event loop these functions run in.
     handle = MagicMock()
@@ -370,7 +372,7 @@ def _temporal_with_schedule(desc=None, describe_side=None):
 
 
 @pytest.mark.parametrize("paused", [True, False])
-def test_cdc_schedule_paused_reports_the_schedule_state(paused):
+def test_cdc_schedule_paused_reports_the_schedule_state(paused: bool) -> None:
     desc = MagicMock()
     desc.schedule.state.paused = paused
 
@@ -379,7 +381,7 @@ def test_cdc_schedule_paused_reports_the_schedule_state(paused):
 
 
 @pytest.mark.parametrize("running_actions,expected", [([], False), ([MagicMock()], True)])
-def test_cdc_schedule_running_action_reports_an_executing_run(running_actions, expected):
+def test_cdc_schedule_running_action_reports_an_executing_run(running_actions: list[MagicMock], expected: bool) -> None:
     desc = MagicMock()
     desc.info.running_actions = running_actions
 
@@ -391,7 +393,7 @@ def test_cdc_schedule_running_action_reports_an_executing_run(running_actions, e
     "read",
     [is_cdc_extraction_schedule_paused, cdc_extraction_schedule_has_running_action],
 )
-def test_a_missing_schedule_reads_as_neither_paused_nor_running(read):
+def test_a_missing_schedule_reads_as_neither_paused_nor_running(read: Callable[[str], bool]) -> None:
     with _temporal_with_schedule(describe_side=_not_found()):
         assert read("01a0393e-a79f-0000-0361-2cabb703888f") is False
 
