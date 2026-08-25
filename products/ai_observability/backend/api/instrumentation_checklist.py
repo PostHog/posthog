@@ -14,7 +14,8 @@ from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.models.scoping.manager import TeamScopedQuerySet
 from posthog.models.user import User
 
-from ..instrumentation_checklist import WINDOW_DAYS, CheckKey, CheckStatus, fetch_checklist_stats, grade_checklist
+from ..instrumentation_checklist.grading import CheckKey, CheckStatus, grade_checklist
+from ..instrumentation_checklist.stats import WINDOW_DAYS, fetch_checklist_stats
 from ..models.instrumentation_checklist import AIObservabilityChecklistItemState
 from .metrics import llma_track_latency
 
@@ -76,6 +77,12 @@ class AIObservabilityInstrumentationChecklistViewSet(TeamAndOrgViewSetMixin, vie
 
     schema = _SingletonSchema()
     scope_object = "llm_analytics"
+    # Without this, AccessControlPermission falls through to has_any_specific_access_for_resource, so
+    # a grant on one llm_analytics object (a single review queue, say) would let a user whose
+    # resource-level access is "none" read these project-wide aggregates and flip the project-wide
+    # dismissal state. Nothing catches it later: this is a plain ViewSet with no queryset and no
+    # get_object, so has_object_permission never runs as a second gate.
+    requires_resource_level_access = True
     # ScopeBasePermission maps only the default action names, so leaving a custom action off this list
     # gives it a null scope, which 403s every personal API key, OAuth token and MCP call while browser
     # sessions keep working. Note this replaces the default write actions rather than extending them,

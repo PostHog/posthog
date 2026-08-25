@@ -8,13 +8,20 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.query_tagging import Feature, get_query_tags
+from posthog.constants import AvailableFeature
 from posthog.models.ai_events.test_util import bulk_create_ai_events
+from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
+from posthog.models.user import User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
-from products.ai_observability.backend.instrumentation_checklist import VOLUME_FLOOR, WINDOW_DAYS, ChecklistStats
+from products.ai_observability.backend.instrumentation_checklist.grading import VOLUME_FLOOR, ChecklistStats
+from products.ai_observability.backend.instrumentation_checklist.stats import WINDOW_DAYS
 from products.ai_observability.backend.models.instrumentation_checklist import AIObservabilityChecklistItemState
+from products.ai_observability.backend.models.review_queues import ReviewQueue
+
+from ee.models.rbac.access_control import AccessControl
 
 CHECK_FIELDS = {"key", "status", "title", "detail", "docs_url", "stats"}
 
@@ -167,6 +174,47 @@ class TestInstrumentationChecklist(ClickhouseTestMixin, APIBaseTest):
         second = self.client.post(endpoint(environment.pk, "dismiss/"), {"check": "tool_calls"})
         assert second.status_code == status.HTTP_200_OK, second.content
         assert check(second.json(), "tool_calls")["status"] == "dismissed"
+
+
+class TestInstrumentationChecklistResourceLevelAccess(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        queue = ReviewQueue.objects.create(team=self.team, name="Support queue", created_by=self.user)
+        member = User.objects.create_and_join(self.organization, "queue-reviewer@posthog.com", "testtest")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_analytics",
+            access_level="none",
+            organization_member=membership,
+        )
+        # Granting editor rather than viewer on the queue clears has_any_specific_access_for_resource
+        # at both the viewer level the read needs and the editor level the writes need, so all three
+        # actions reach the requires_resource_level_access branch instead of being turned away for
+        # the wrong reason.
+        AccessControl.objects.create(
+            team=self.team,
+            resource="llm_analytics",
+            resource_id=str(queue.id),
+            access_level="editor",
+            organization_member=membership,
+        )
+        self.client.force_login(member)
+
+    @parameterized.expand([("list", ""), ("dismiss", "dismiss/"), ("restore", "restore/")])
+    def test_a_grant_on_one_object_does_not_reach_the_project_wide_checklist(self, _name: str, suffix: str) -> None:
+        if suffix:
+            response = self.client.post(endpoint(self.team.pk, suffix), {"check": "tool_calls"})
+        else:
+            response = self.client.get(endpoint(self.team.pk))
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        assert not AIObservabilityChecklistItemState.objects.for_team(self.team.pk).exists()
 
 
 class TestInstrumentationChecklistApiKeyAccess(ClickhouseTestMixin, APIBaseTest):
