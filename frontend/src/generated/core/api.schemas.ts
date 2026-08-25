@@ -4747,6 +4747,18 @@ export interface UserPushTokenUnregisterRequestApi {
     token: string
 }
 
+export interface RequestEmailVerificationApi {
+    /** UUID of the user to send an email verification link to. */
+    uuid: string
+}
+
+export interface VerifyEmailApi {
+    /** UUID of the user whose email address is being verified. */
+    uuid: string
+    /** Email verification token that was emailed to the user. */
+    token: string
+}
+
 export type CimdVerificationTokensListParams = {
     /**
      * Number of results to return per page.

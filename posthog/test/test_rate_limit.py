@@ -916,6 +916,19 @@ class TestLeakedKeyReportThrottle(SimpleTestCase):
             self.assertTrue(rate_limit.LeakedKeyReportThrottle().allow_request(other_request, view))
 
 
+class TestUserOrEmailRateThrottle(SimpleTestCase):
+    def test_get_cache_key_handles_top_level_json_array_body(self) -> None:
+        # DRF sets request.data to a list for a top-level JSON array, which has no .get().
+        # The throttle must fall back to the request origin instead of raising AttributeError
+        # (which surfaced as a 500 on public endpoints like request_email_verification).
+        throttle = rate_limit.UserEmailVerificationThrottle()
+        request = Mock(user=Mock(is_authenticated=False), data=[], META={"REMOTE_ADDR": "203.0.113.5"})
+
+        key = throttle.get_cache_key(request, Mock())
+
+        self.assertTrue(key.startswith("throttle_user_email_verification"))
+
+
 class _PSAKTeamThrottleForTest(rate_limit.ProjectSecretApiKeyTeamRateThrottle):
     scope = "test_psak_team"
     rate = "100/minute"

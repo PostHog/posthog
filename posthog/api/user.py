@@ -966,6 +966,15 @@ class UserGithubLoginSerializer(serializers.Serializer):
     )
 
 
+class RequestEmailVerificationSerializer(serializers.Serializer):
+    uuid = serializers.UUIDField(help_text="UUID of the user to send an email verification link to.")
+
+
+class VerifyEmailSerializer(serializers.Serializer):
+    uuid = serializers.UUIDField(help_text="UUID of the user whose email address is being verified.")
+    token = serializers.CharField(help_text="Email verification token that was emailed to the user.")
+
+
 @extend_schema(extensions={"x-product": "core"})
 @extend_schema_view(
     retrieve=extend_schema(
@@ -1136,17 +1145,21 @@ class UserViewSet(
         revoked_count = revoke_other_sessions(user, request.session.session_key)
         return Response({"revoked_count": revoked_count})
 
+    @extend_schema(request=VerifyEmailSerializer)
     @action(methods=["POST"], detail=False, permission_classes=[AllowAny])
     def verify_email(self, request, **kwargs):
-        token = request.data["token"] if "token" in request.data else None
-        user_uuid = request.data["uuid"]
+        # Special handling for E2E tests, whose sentinel uuid is not a real UUID.
+        if (
+            settings.E2E_TESTING
+            and request.data.get("uuid") == "e2e_test_user"
+            and request.data.get("token") == "e2e_test_token"
+        ):
+            return {"success": True, "token": "e2e_test_token"}
 
-        if not token:
-            raise serializers.ValidationError({"token": ["This field is required."]}, code="required")
-
-        # Special handling for E2E tests
-        if settings.E2E_TESTING and user_uuid == "e2e_test_user" and token == "e2e_test_token":
-            return {"success": True, "token": token}
+        serializer = VerifyEmailSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user_uuid = serializer.validated_data["uuid"]
+        token = serializer.validated_data["token"]
 
         try:
             user: Optional[User] = User.objects.filter(is_active=True).get(uuid=user_uuid)
@@ -1193,6 +1206,7 @@ class UserViewSet(
         report_user_logged_in(user)
         return Response({"success": True, "token": token})
 
+    @extend_schema(request=RequestEmailVerificationSerializer)
     @action(
         methods=["POST"],
         detail=False,
@@ -1200,7 +1214,9 @@ class UserViewSet(
         throttle_classes=[UserEmailVerificationThrottle],
     )
     def request_email_verification(self, request, **kwargs):
-        uuid = request.data["uuid"]
+        serializer = RequestEmailVerificationSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        uuid = serializer.validated_data["uuid"]
         if not is_email_available():
             raise serializers.ValidationError(
                 "Cannot verify email address because email is not configured for your instance. Please contact your administrator.",

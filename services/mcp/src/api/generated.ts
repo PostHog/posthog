@@ -71946,6 +71946,11 @@ export namespace Schemas {
       scan?: ScanEvidence;
     }
 
+    export interface RequestEmailVerification {
+      /** UUID of the user to send an email verification link to. */
+      uuid: string;
+    }
+
     export interface ResetPasswordResponse {
       username: string;
       password: string;
@@ -83203,6 +83208,13 @@ export namespace Schemas {
       lookback_days_used: number;
       /** Caveats and guidance about the suggestions */
       notes: string[];
+    }
+
+    export interface VerifyEmail {
+      /** UUID of the user whose email address is being verified. */
+      uuid: string;
+      /** Email verification token that was emailed to the user. */
+      token: string;
     }
 
     export interface ViewLinkValidation {

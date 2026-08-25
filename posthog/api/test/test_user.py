@@ -2950,6 +2950,20 @@ class TestEmailVerificationAPI(APIBaseTest):
             },
         )
 
+    @parameterized.expand(
+        [
+            ("verify_email_malformed_uuid", "verify_email", {"uuid": ["not", "a", "uuid"], "token": "x"}),
+            ("verify_email_missing_uuid", "verify_email", {"token": "x"}),
+            ("request_verification_malformed_uuid", "request_email_verification", {"uuid": ["not", "a", "uuid"]}),
+            ("request_verification_missing_uuid", "request_email_verification", {}),
+        ]
+    )
+    def test_invalid_uuid_returns_400(self, _name, endpoint, payload):
+        # A malformed or missing uuid used to raise an unhandled error and return a 500.
+        response = self.client.post(f"/api/users/{endpoint}/", payload, format="json")
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "uuid")
+
     def test_invalid_verification_token_returns_error(self):
         valid_token = default_token_generator.make_token(self.user)
 
