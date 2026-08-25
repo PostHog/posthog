@@ -606,6 +606,7 @@ ignore_imports = [
     "products.logs.backend.presentation.views.sampling_api -> products.logs.backend.models",
     "products.logs.backend.presentation.views.views_api -> products.logs.backend.models",
     "products.logs.backend.presentation.views.anomalies_api -> products.logs.backend.anomaly_scan",
+    "products.logs.backend.presentation.views.anomalies_api -> products.logs.backend.series_bands",
     # logs presentation isolation (temporary): cross-product imports the moved viewsets
     # still make directly. These resolve once cdp/exports expose the needed facades, so
     # they outlive the in-product cleanup above.
@@ -669,6 +670,11 @@ ignore_imports = [
     # (warehouse_sources, data_modeling, data_tools, cdp, revenue_analytics, batch_exports)
     # directly. Thin each viewset to parse -> facade -> serialize and delete each entry.
     # backend:contract-check stays off until this list is empty.
+    # TODO: access-control presentation wave — the consolidated RBAC viewsets carry their ORM
+    # access with them. Thin them to parse -> facade -> serialize and delete each entry.
+    "products.access_control.backend.presentation.access_control -> products.access_control.backend.models.access_control",
+    "products.access_control.backend.presentation.access_control_settings -> products.access_control.backend.models.access_control",
+    "products.access_control.backend.presentation.access_control_settings -> products.access_control.backend.models.role",
 ]
 
 # routes.py is the one module core reads to assemble a product's API router, so it is the

@@ -1852,15 +1852,17 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         ), query
 
     def test_selecting_persons_from_events_ignores_future_persons(self):
-        db = Database.create_for(team=self.team)
+        # disable PoE for the database too: the field layout comes from the
+        # database, so a context-only pin prints the team default's SQL
+        modifiers = create_default_modifiers_for_team(
+            self.team, HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED)
+        )
+        db = Database.create_for(team=self.team, modifiers=modifiers)
         context = HogQLContext(
             team_id=self.team.pk,
             enable_select_queries=True,
             database=db,
-            # disable PoE
-            modifiers=create_default_modifiers_for_team(
-                self.team, HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED)
-            ),
+            modifiers=modifiers,
         )
         sql = "select person.id from events"
         query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
@@ -1932,6 +1934,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             with self.assertNumQueries(num_queries):
                 Database.create_for(team=self.team)
 
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=False)
     def test_database_warehouse_joins_persons_poe_old_properties(self):
         DataWarehouseJoin.objects.create(
             team=self.team,

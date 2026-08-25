@@ -4,6 +4,7 @@ import { logger } from '~/common/utils/logger'
 
 import { FetchCandidate, MAX_HOPS, UrlDropReason, parseCollectedUrlsRecord } from './collected-urls-record'
 import { CrawlHistoryItem, CrawlHistoryStore, UrlCrawlHistoryItem, configurationCacheKey } from './crawl-history'
+import { deduplicateFetchCandidates } from './fetch-candidate-queue'
 import {
     AttemptOutcome,
     DELAY_TOO_LONG,
@@ -43,10 +44,12 @@ export class UrlFetchConsumer {
         const startedAt = process.hrtime.bigint()
         const republishDeadlineAtMonotonicMs = performance.now() + REPUBLISH_DEADLINE_FROM_BATCH_START_MS
         const drops = new Map<UrlDropReason, number>()
-        const candidatesByRef = new Map<string, FetchCandidate>()
+        const parsedCandidates: FetchCandidate[] = []
         let dedupedInBatch = 0
         let originCount = 0
         let registrableDomainCount = 0
+        let originCandidateCounts: number[] = []
+        let registrableDomainCandidateCounts: number[] = []
         ImageFetchConsumerMetrics.startBatch()
 
         try {
@@ -60,26 +63,25 @@ export class UrlFetchConsumer {
                 for (const rejected of parsed.rejected) {
                     drops.set(rejected.reason, (drops.get(rejected.reason) ?? 0) + 1)
                 }
-                for (const candidate of parsed.candidates) {
-                    const existing = candidatesByRef.get(candidate.originalRef)
-                    if (existing) {
-                        dedupedInBatch += 1
-                        candidatesByRef.set(candidate.originalRef, foldDuplicateCandidate(existing, candidate))
-                        continue
-                    }
-                    ImageFetchConsumerMetrics.observeAge(Math.max(0, nowMs - candidate.firstSeenAtMs) / 1000)
-                    candidatesByRef.set(candidate.originalRef, candidate)
-                }
+                parsedCandidates.push(...parsed.candidates)
             }
-            const candidates = [...candidatesByRef.values()]
-            const origins = new Set<string>()
-            const registrableDomains = new Set<string>()
+            const deduplicated = deduplicateFetchCandidates(parsedCandidates)
+            const candidates = deduplicated.candidates
+            dedupedInBatch = deduplicated.duplicateCount
+            const origins = new Map<string, number>()
+            const registrableDomains = new Map<string, number>()
             for (const candidate of candidates) {
-                origins.add(candidate.origin)
-                registrableDomains.add(candidate.registrableDomain)
+                ImageFetchConsumerMetrics.observeAge(Math.max(0, nowMs - candidate.firstSeenAtMs) / 1000)
+                origins.set(candidate.origin, (origins.get(candidate.origin) ?? 0) + 1)
+                registrableDomains.set(
+                    candidate.registrableDomain,
+                    (registrableDomains.get(candidate.registrableDomain) ?? 0) + 1
+                )
             }
             originCount = origins.size
             registrableDomainCount = registrableDomains.size
+            originCandidateCounts = [...origins.values()]
+            registrableDomainCandidateCounts = [...registrableDomains.values()]
 
             if (this.options.dryRun || candidates.length === 0) {
                 return
@@ -87,7 +89,7 @@ export class UrlFetchConsumer {
 
             const keys = [
                 ...candidates.map((candidate) => candidate.originalRef),
-                ...[...origins].flatMap((origin) => [
+                ...[...origins.keys()].flatMap((origin) => [
                     configurationCacheKey(origin, 'robots'),
                     configurationCacheKey(origin, 'tdmrep'),
                 ]),
@@ -139,7 +141,15 @@ export class UrlFetchConsumer {
             }
         } finally {
             ImageFetchConsumerMetrics.finishBatch()
-            this.recordMetrics(drops, dedupedInBatch, originCount, registrableDomainCount, startedAt)
+            this.recordMetrics(
+                drops,
+                dedupedInBatch,
+                originCount,
+                registrableDomainCount,
+                originCandidateCounts,
+                registrableDomainCandidateCounts,
+                startedAt
+            )
         }
     }
 
@@ -243,6 +253,8 @@ export class UrlFetchConsumer {
         dedupedInBatch: number,
         origins: number,
         registrableDomains: number,
+        originCandidateCounts: number[],
+        registrableDomainCandidateCounts: number[],
         startedAt: bigint
     ): void {
         if (dedupedInBatch > 0) {
@@ -251,33 +263,11 @@ export class UrlFetchConsumer {
         for (const [reason, count] of drops) {
             ImageFetchConsumerMetrics.incDropped(reason, count)
         }
+        ImageFetchConsumerMetrics.observeBatchDiversity(originCandidateCounts, registrableDomainCandidateCounts)
         ImageFetchConsumerMetrics.observeBatch(
             origins,
             registrableDomains,
             Number(process.hrtime.bigint() - startedAt) / 1e9
         )
-    }
-}
-
-function foldDuplicateCandidate(left: FetchCandidate, right: FetchCandidate): FetchCandidate {
-    let preferredRoute = left
-    if (
-        right.remainingHops < left.remainingHops ||
-        (right.remainingHops === left.remainingHops && right.republishCount > left.republishCount) ||
-        (right.remainingHops === left.remainingHops &&
-            right.republishCount === left.republishCount &&
-            right.fetchCount > left.fetchCount)
-    ) {
-        preferredRoute = right
-    }
-    const latestState = left.republishCount >= right.republishCount ? left : right
-    return {
-        ...preferredRoute,
-        remainingHops: Math.min(left.remainingHops, right.remainingHops),
-        notBeforeMs: Math.max(left.notBeforeMs, right.notBeforeMs),
-        firstSeenAtMs: Math.min(left.firstSeenAtMs, right.firstSeenAtMs),
-        fetchCount: Math.max(left.fetchCount, right.fetchCount),
-        republishCount: Math.max(left.republishCount, right.republishCount),
-        lastRepublishReason: latestState.lastRepublishReason,
     }
 }

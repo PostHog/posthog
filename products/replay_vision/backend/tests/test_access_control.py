@@ -7,16 +7,12 @@ from posthog.constants import AvailableFeature
 from posthog.models import OrganizationMembership, PersonalAPIKey, User
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
 from products.replay_vision.backend.tests.helpers import create_experiment, snapshot_for
 from products.replay_vision.backend.tests.test_api import _VisionAPITestCase
 from products.replay_vision.backend.tests.test_vision_actions_api import _VisionActionAPITestCase
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
 
 
 class _AccessControlTestCase(_VisionAPITestCase):
