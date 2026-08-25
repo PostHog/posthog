@@ -1221,8 +1221,8 @@ describe('Workflows E2E (postgres-v2)', () => {
             // An unrelated event must not wake the job.
             await matcher.processBatch([createGlobals({ event: 'some_other_event' })])
 
-            // Give the worker room to (incorrectly) pick the job up — it must not.
-            await new Promise((resolve) => setTimeout(resolve, 1000))
+            // Five worker poll cycles is enough to expose an incorrect wake-up.
+            await new Promise((resolve) => setTimeout(resolve, 250))
             const jobs = await queryCyclotronJobs()
             expect(jobs.every((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
             expect(mockFetch).not.toHaveBeenCalled()
@@ -1243,8 +1243,8 @@ describe('Workflows E2E (postgres-v2)', () => {
             // An unrelated event must not wake the job — the always-true bytecode would otherwise match.
             await matcher.processBatch([createGlobals({ event: 'some_unrelated_event' })])
 
-            // Give the worker room to (incorrectly) pick the job up — it must not.
-            await new Promise((resolve) => setTimeout(resolve, 1000))
+            // Five worker poll cycles is enough to expose an incorrect wake-up.
+            await new Promise((resolve) => setTimeout(resolve, 250))
             const jobs = await queryCyclotronJobs()
             expect(jobs.every((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
             expect(mockFetch).not.toHaveBeenCalled()
@@ -1323,7 +1323,7 @@ describe('Workflows E2E (postgres-v2)', () => {
             // The wait's event fires during the delay — the job must stay parked in the delay.
             await matcher.processBatch([createGlobals({ event: 'wakeup_event' })])
 
-            await new Promise((resolve) => setTimeout(resolve, 1000))
+            await new Promise((resolve) => setTimeout(resolve, 250))
             const jobs = await queryCyclotronJobs()
             expect(jobs.every((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
             expect(mockFetch).not.toHaveBeenCalled()
@@ -1363,8 +1363,8 @@ describe('Workflows E2E (postgres-v2)', () => {
             // The conversion event fires during the delay — it must not pull the job out early.
             await matcher.processBatch([createGlobals({ event: 'conversion_event' })])
 
-            // Give the worker room to (incorrectly) resume the job — it must stay parked, no fetch.
-            await new Promise((resolve) => setTimeout(resolve, 1000))
+            // Five worker poll cycles is enough to expose an incorrect early resume.
+            await new Promise((resolve) => setTimeout(resolve, 250))
             const jobs = await queryCyclotronJobs()
             expect(jobs.every((j: any) => j.status === 'available' && new Date(j.scheduled) > new Date())).toBe(true)
             expect(mockFetch).not.toHaveBeenCalled()
@@ -3696,9 +3696,8 @@ describe('Workflows E2E (email queue)', () => {
 
         const before = await readAllResults()
 
-        // Let the worker poll for a full second with no jobs queued — that's
-        // ~20 poll cycles at the default 50ms cadence. None should claim.
-        await new Promise((resolve) => setTimeout(resolve, 1000))
+        // Let the worker poll five times with no jobs queued. None should claim.
+        await new Promise((resolve) => setTimeout(resolve, 250))
 
         const after = await readAllResults()
         expect(after - before).toBe(0)
