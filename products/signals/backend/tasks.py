@@ -37,6 +37,7 @@ from products.signals.backend.scout_harness.slack_delivery import (
     DELIVERABLE_REPORT_STATUSES,
     ScoutSlackOutputType,
     ScoutSlackPermanentDeliveryError,
+    mark_latest_scout_report_delivery,
     post_scout_emission_to_slack,
     post_scout_report_to_slack,
     slack_api_error_code,
@@ -238,6 +239,10 @@ def enqueue_scout_slack_delivery(
             channel,
             **extra_kwargs,
         )
+        # Only a full report delivery supersedes an earlier one: a note-only update leaves the
+        # report message to the delivery that is still building it.
+        if output_type == "report" and edit_note is None:
+            mark_latest_scout_report_delivery(output_id, delivery_id)
     except Exception as exc:
         capture_exception(
             exc,

@@ -12,11 +12,14 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.models import Team
 from posthog.models.integration import Integration
+from posthog.redis import get_client
 
 from products.signals.backend.models import SignalReport, SignalScoutEmission, SignalScoutRun
 from products.signals.backend.scout_harness.slack_delivery import (
     ScoutSlackPermanentDeliveryError,
+    _latest_report_delivery_key,
     get_scout_slack_destination,
+    mark_latest_scout_report_delivery,
     post_scout_emission_to_slack,
 )
 from products.signals.backend.scout_harness.slack_delivery_queue import queue_configured_scout_slack_delivery
@@ -221,6 +224,33 @@ class TestScoutSlackDelivery(BaseTest):
 
         assert delay.call_args_list[0].kwargs == {}
         assert delay.call_args_list[1].kwargs == {"edit_note": "Re-validated on the next run"}
+
+    @parameterized.expand(
+        [
+            ("full_report", "report", None, "b316c1d1-6901-49eb-8223-96d4df69f67f"),
+            # A note-only update must not supersede the delivery still building the report message.
+            ("note_only", "report", "Re-validated on the next run", None),
+            ("finding", "finding", None, None),
+        ]
+    )
+    def test_enqueue_marks_only_a_full_report_delivery_as_the_latest(
+        self, _name, output_type, edit_note, expected_marker
+    ) -> None:
+        get_client().flushdb()
+        with patch.object(deliver_scout_slack_output, "delay"):
+            enqueue_scout_slack_delivery(
+                team_id=self.team.id,
+                output_type=output_type,
+                output_id="ddab8ee5-2bb8-4226-b145-6732d31dc344",
+                run_id="e3865391-bc89-44e6-86f7-2d4405627daf",
+                delivery_id="b316c1d1-6901-49eb-8223-96d4df69f67f",
+                integration_id=9,
+                channel="CSCOUTS|#scout-findings",
+                edit_note=edit_note,
+            )
+
+        marker = get_client().get(_latest_report_delivery_key("ddab8ee5-2bb8-4226-b145-6732d31dc344"))
+        assert (marker.decode() if marker is not None else None) == expected_marker
 
     def test_enqueue_omits_thread_reports_kwarg_when_off(self) -> None:
         # Same backward-compat contract as edit_note: the flag rides as a kwarg only when on, so a
@@ -537,6 +567,50 @@ class TestScoutSlackDelivery(BaseTest):
         assert builds["n"] == 2
         posted = fake_client.chat_postMessage.call_args_list[0].kwargs
         assert posted["blocks"][0]["text"]["text"] == "fresh"
+
+    def test_rebuilt_delivery_yields_to_a_newer_delivery_of_the_same_report(self) -> None:
+        # A scout edit that changes content enqueues its own full delivery. The delivery that was
+        # mid-render when it landed rebuilds, sees the newer one is queued, and posts nothing, so the
+        # channel gets the edited report once rather than from both.
+        get_client().flushdb()
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="Checkout failed",
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        delivery_id = "01864f4c-6957-7d3f-8d85-1d775e527265"
+        mark_latest_scout_report_delivery(str(report.id), delivery_id)
+
+        def _build(report_arg, run_arg, *, delivery_id=None, render_budget=None):
+            edited = SignalReport.objects.get(id=report_arg.id)
+            edited.title = "Checkout failures (edited)"
+            edited.save()
+            mark_latest_scout_report_delivery(str(report_arg.id), "0d1b6f3a-1d3f-4a6f-9d2c-7b3e2f1a9c44")
+            return [{"type": "header", "text": {"type": "plain_text", "text": "stale"}}], "stale"
+
+        with (
+            patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration,
+            patch(
+                "products.signals.backend.scout_harness.slack_delivery.build_scout_report_slack_message",
+                side_effect=_build,
+            ),
+        ):
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                delivery_id,
+                integration.id,
+                "CSCOUTS|#scout-findings",
+            )
+
+        fake_client.chat_postMessage.assert_not_called()
 
     def test_task_skips_report_suppressed_during_rebuild(self) -> None:
         # A content edit triggers a rebuild, and the report is then suppressed during that second

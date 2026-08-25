@@ -5,6 +5,7 @@ import hmac
 import json
 import hashlib
 from collections.abc import Callable
+from dataclasses import field
 from datetime import timedelta
 from time import monotonic
 
@@ -198,15 +199,17 @@ def _store_rendered_assets(cache_key: str | None, rendered_assets: dict[str, int
 
 @frozen(frozen=False)
 class ChartRenderBudget:
-    """What one Slack delivery may spend on chart renders: a start time and remaining renders.
+    """What one Slack delivery may spend on chart renders, and what it has rendered so far.
 
     Mutable and shared across a delivery's initial build and any rebuild, so a report edited
     mid-render cannot hand the rebuild a fresh clock and a fresh set of export workflows. Only a
     cache miss spends a render; reusing an asset the delivery already rendered costs nothing here,
-    so a rebuild whose charts are unchanged still shows them all."""
+    so a rebuild whose charts are unchanged still shows them all. The rendered assets live here
+    rather than only in the retry cache, so a rebuild keeps them even where that cache is off."""
 
     started: float
     renders_remaining: int = MAX_SLACK_REPORT_CHARTS
+    rendered_assets: dict[str, int] = field(default_factory=dict)
 
 
 def new_chart_render_budget(clock: Callable[[], float] = monotonic) -> ChartRenderBudget:
@@ -243,8 +246,12 @@ def build_scout_report_chart_blocks(
         return []
 
     cache_key = _rendered_assets_cache_key(delivery_id) if delivery_id else None
-    rendered_assets = _load_rendered_assets(cache_key)
     budget = new_chart_render_budget(clock) if budget is None else budget
+    # This delivery's own renders are authoritative; the retry cache only fills in what an earlier
+    # attempt of the same delivery rendered.
+    rendered_assets = budget.rendered_assets
+    for entry_key, cached_asset_id in _load_rendered_assets(cache_key).items():
+        rendered_assets.setdefault(entry_key, cached_asset_id)
     blocks: list[dict] = []
     shown = 0
     for chart in charts:
@@ -271,6 +278,10 @@ def build_scout_report_chart_blocks(
                 asset_id = _render_chart_asset_id(team=report.team, created_by=created_by, query=query)
                 if asset_id is None:
                     continue
+                rendered_assets[entry_key] = asset_id
+                # Persist each render as it lands: the delivery task acks late, so a retry after a
+                # worker loss mid-delivery must find the renders that had already finished.
+                _store_rendered_assets(cache_key, rendered_assets)
             # A cache-hit asset_id comes from the shared retry cache, so pin the URL mint to the
             # acting user: a tampered entry pointing at another same-team user's PNG mints nothing.
             image_url = get_delivery_image_url(
@@ -289,7 +300,5 @@ def build_scout_report_chart_blocks(
             continue
         if image_url is None:
             continue
-        rendered_assets[entry_key] = asset_id
         blocks.extend(_chart_blocks(chart, image_url))
-    _store_rendered_assets(cache_key, rendered_assets)
     return blocks

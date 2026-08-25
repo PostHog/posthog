@@ -245,13 +245,20 @@ class TestScoutSlackReportCharts(BaseTest):
         assert render_mock.call_count == 0
         assert [b for b in blocks if b["type"] == "image"] == []
 
-    def test_shared_budget_carries_the_render_count_across_builds(self) -> None:
+    @parameterized.expand(
+        [
+            ("retry_cache_on", ["signing-key"]),
+            # Unprovisioned key: the rebuild can only keep the unchanged charts from the budget itself.
+            ("retry_cache_off", []),
+        ]
+    )
+    def test_shared_budget_carries_the_render_count_across_builds(self, _name, signing_keys) -> None:
         get_client().flushdb()
         run = self._make_run(created_by=self.user)
         report = self._make_report([_chart(f"c{i}", _TRENDS) for i in range(MAX_SLACK_REPORT_CHARTS)])
         budget = ChartRenderBudget(started=0.0)
         render, url = self._patched_render()
-        with render as render_mock, url as url_mock:
+        with render as render_mock, url as url_mock, self.settings(SIGNALS_SLACK_CHART_CACHE_SIGNING_KEYS=signing_keys):
             render_mock.side_effect = lambda **kw: (MagicMock(id=render_mock.call_count), b"png")
             url_mock.side_effect = lambda **kw: f"https://img/{kw['asset_id']}"
             build_scout_report_chart_blocks(
@@ -269,9 +276,31 @@ class TestScoutSlackReportCharts(BaseTest):
 
         # A rebuild shares the delivery's render allowance, so the whole delivery launches at most
         # MAX_SLACK_REPORT_CHARTS export workflows. The changed chart is dropped for want of a render;
-        # the unchanged ones still show, reused from the delivery's cache.
+        # the unchanged ones still show, reused from the delivery's own renders.
         assert render_mock.call_count == MAX_SLACK_REPORT_CHARTS
         assert [b["image_url"] for b in rebuilt if b["type"] == "image"] == ["https://img/2", "https://img/3"]
+
+    def test_each_render_is_cached_before_the_next_starts(self) -> None:
+        # The delivery task acks late, so a worker lost between two renders must leave the first one
+        # behind for the retry to reuse, rather than only what a completed loop would have written.
+        get_client().flushdb()
+        run = self._make_run(created_by=self.user)
+        report = self._make_report([_chart("a", _TRENDS), _chart("b", _TRENDS)])
+        cached_before_second_render: list[int] = []
+        render, url = self._patched_render()
+
+        def _render(**kw):
+            if render_mock.call_count == 2:
+                raw = get_client().get(_rendered_assets_cache_key("delivery-wt"))
+                cached_before_second_render.extend(v[0] for v in json.loads(raw).values())
+            return (MagicMock(id=render_mock.call_count), b"png")
+
+        with render as render_mock, url as url_mock:
+            render_mock.side_effect = _render
+            url_mock.side_effect = lambda **kw: f"https://img/{kw['asset_id']}"
+            build_scout_report_chart_blocks(report, run, delivery_id="delivery-wt")
+
+        assert cached_before_second_render == [1]
 
     def test_cache_outage_still_delivers_charts(self) -> None:
         run = self._make_run(created_by=self.user)

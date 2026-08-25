@@ -11,6 +11,7 @@ from slack_sdk.errors import SlackApiError
 
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration, SlackIntegration
+from posthog.redis import get_client
 
 from products.signals.backend.models import SignalReport, SignalScoutEmission, SignalScoutRun
 from products.signals.backend.scout_harness.slack_charts import (
@@ -338,6 +339,36 @@ def _report_summary_chunks(report: SignalReport) -> list[str]:
     return chunks
 
 
+# A content edit made through the scout's edit tool enqueues a fresh full delivery of the report.
+# The latest such delivery is recorded per report so an older delivery that had to rebuild
+# mid-render can yield to it, instead of both posting the same edited report.
+_LATEST_REPORT_DELIVERY_TTL_SECONDS = 24 * 60 * 60
+
+
+def _latest_report_delivery_key(report_id: str) -> str:
+    return f"signals_scout:slack_report_latest_delivery:{report_id}"
+
+
+def mark_latest_scout_report_delivery(report_id: str, delivery_id: str) -> None:
+    try:
+        get_client().set(_latest_report_delivery_key(report_id), delivery_id, ex=_LATEST_REPORT_DELIVERY_TTL_SECONDS)
+    except Exception:
+        logger.warning("signals_scout.slack_report_latest_delivery_mark_failed", report_id=report_id, exc_info=True)
+
+
+def _newer_report_delivery_queued(report_id: str, delivery_id: str) -> bool:
+    """Fails open: an unreadable marker means post, since a duplicate message beats a lost report."""
+    try:
+        latest = get_client().get(_latest_report_delivery_key(report_id))
+    except Exception:
+        logger.warning("signals_scout.slack_report_latest_delivery_read_failed", report_id=report_id, exc_info=True)
+        return False
+    if latest is None:
+        return False
+    latest_id = latest.decode() if isinstance(latest, bytes) else str(latest)
+    return latest_id != delivery_id
+
+
 @frozen
 class ScoutReportThreadMessages:
     """A report delivery's Slack messages: the channel lead plus its ordered thread replies.
@@ -505,8 +536,11 @@ def post_scout_report_to_slack(
     # loop is bounded to one rebuild: a further edit racing the rebuild is ordinary last-writer
     # timing, and unchanged charts are reused from the render cache, so a rebuild only re-renders
     # charts the edit actually changed. A note-only message renders the passed-in note, not live
-    # content, so it has no revision to guard and never rebuilds.
+    # content, so it has no revision to guard and never rebuilds. An edit path that did enqueue a
+    # replacement delivery marks it as the report's latest, and a rebuilt delivery yields to that
+    # marker, so the channel gets the edited report once.
     messages = ScoutReportThreadMessages(lead_blocks=[], fallback="", reply_blocks=[])
+    rebuilt = False
     for _ in range(2):
         content_revision = None if edit_note is not None else report.updated_at
         messages = _build_report_message()
@@ -524,7 +558,15 @@ def post_scout_report_to_slack(
             return
         if content_revision is None or report.updated_at == content_revision:
             break
+        rebuilt = True
         logger.info("signals_scout.slack_delivery_report_rebuilt_after_content_change", report_id=str(report.id))
+    if rebuilt and _newer_report_delivery_queued(str(report.id), delivery_id):
+        logger.info(
+            "signals_scout.slack_delivery_yielded_to_newer_delivery",
+            report_id=str(report.id),
+            delivery_id=delivery_id,
+        )
+        return
 
     client = SlackIntegration(integration).client
     try:
