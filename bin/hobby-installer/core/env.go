@@ -9,6 +9,20 @@ import (
 	"time"
 )
 
+// auxTagGuidanceComment documents the pinnable auxiliary image tags. It matches
+// the block that bin/deploy-hobby and bin/upgrade-hobby write, so an operator
+// learns the same knobs whichever installer they used.
+const auxTagGuidanceComment = `# Auxiliary service image tags.
+# These pin the PostHog-built services that run next to the app.
+# Set them to run a reproducible stack that matches a pinned app version.
+# When unset, each service tracks its master or latest image.
+# Pin a service to the tag that the registry published for your commit:
+#   POSTHOG_NODE_TAG        full commit sha  (node services)
+#   POSTHOG_LIVESTREAM_TAG  full commit sha  (livestream)
+#   POSTHOG_RUST_TAG        sha-<short sha>  (capture, feature-flags, personhog, cymbal, ...)
+# The build publishes a tag for a commit only when that commit changes the service.
+# Not every app commit has a matching tag, so pick a tag that exists in the registry.`
+
 type EnvConfig struct {
 	PosthogSecret        string
 	EncryptionSaltKeys   string
@@ -64,7 +78,10 @@ REGISTRY_URL=%s
 CADDY_TLS_BLOCK=%s
 CADDY_HOST="%s, http://, https://"
 POSTHOG_APP_TAG=%s
+%s
 POSTHOG_NODE_TAG=%s
+# POSTHOG_LIVESTREAM_TAG=
+# POSTHOG_RUST_TAG=
 SESSION_RECORDING_V2_METADATA_SWITCHOVER=%s
 `,
 		c.PosthogSecret,
@@ -75,6 +92,7 @@ SESSION_RECORDING_V2_METADATA_SWITCHOVER=%s
 		c.TLSBlock,
 		c.Domain,
 		c.PosthogAppTag,
+		auxTagGuidanceComment,
 		c.PosthogNodeTag,
 		c.SessionRecordingDate,
 	)
@@ -151,7 +169,33 @@ func UpdateEnvForUpgrade(version string) error {
 		}
 	}
 
+	if err := AppendAuxTagGuidance(); err != nil {
+		return err
+	}
+
 	return nil
+}
+
+// AppendAuxTagGuidance surfaces the auxiliary image tag knobs on installs whose
+// .env predates them. The lines are commented, so the stack keeps tracking
+// master/latest until the operator uncomments and sets a tag.
+func AppendAuxTagGuidance() error {
+	data, err := os.ReadFile(".env")
+	if err != nil {
+		return err
+	}
+	if strings.Contains(string(data), "POSTHOG_RUST_TAG") {
+		return nil
+	}
+
+	f, err := os.OpenFile(".env", os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+
+	_, err = fmt.Fprintf(f, "%s\n# POSTHOG_LIVESTREAM_TAG=\n# POSTHOG_RUST_TAG=\n", auxTagGuidanceComment)
+	return err
 }
 
 func FixEnvQuoting() error {
