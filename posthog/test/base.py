@@ -239,7 +239,7 @@ from products.event_definitions.backend.models.property_definition import (
     DROP_PROPERTY_DEFINITIONS_TABLE_SQL,
     PROPERTY_DEFINITIONS_TABLE_SQL,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 # Make sure freezegun ignores our utils class that times functions, and heavy optional
 # deps (e.g. transformers) that can break when freezegun walks sys.modules.
@@ -1459,6 +1459,21 @@ def _format_sql_for_snapshot(query: str) -> str:
     return formatted
 
 
+class NewEventsSchemaSnapshotExtension(AmberSnapshotExtension):
+    """Amber extension that writes new-events-schema snapshots to `<test_file>.new_events_schema.ambr`.
+
+    These snapshots only get written when CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA is on
+    (the label-gated CI legs). Kept in the shared `.ambr` file, a legacy-schema
+    `--snapshot-update` run deletes them as unused: syrupy resolves both
+    `test_x[new_events_schema]` and `test_x` to the same owning test, so a run of the
+    other schema mode claims the name but never writes it. A snapshot file whose name
+    matches no test file is skipped by syrupy's unused-snapshot pass entirely, which
+    keeps each schema mode's snapshots safe from the other mode's update runs.
+    """
+
+    _file_extension = "new_events_schema.ambr"
+
+
 @pytest.mark.usefixtures("unittest_snapshot")
 class QueryMatchingTest:
     snapshot: Any
@@ -1477,7 +1492,7 @@ class QueryMatchingTest:
         snapshot_index = getattr(self, "_new_events_schema_snapshot_index", 0)
         self._new_events_schema_snapshot_index = snapshot_index + 1
         snapshot_name = "new_events_schema" if snapshot_index == 0 else f"new_events_schema.{snapshot_index}"
-        return self.snapshot(name=snapshot_name)
+        return self.snapshot(name=snapshot_name, extension_class=NewEventsSchemaSnapshotExtension)
 
     # :NOTE: Update snapshots by passing --snapshot-update to bin/tests
     def assertQueryMatchesSnapshot(self, query, params=None, replace_all_numbers=False):
@@ -2175,6 +2190,11 @@ class ClickhouseDestroyTablesMixin(BaseTest):
         reset_clickhouse_database_if_dirty()
 
 
+def skip_clickhouse_query_snapshots(fn: Callable) -> Callable:
+    cast(Any, fn)._skip_clickhouse_query_snapshots = True
+    return fn
+
+
 def snapshot_clickhouse_queries(fn_or_class):
     """
     Captures and snapshots SELECT queries from test using `syrupy` library.
@@ -2185,12 +2205,16 @@ def snapshot_clickhouse_queries(fn_or_class):
     Update snapshots via --snapshot-update.
     """
 
+    if getattr(fn_or_class, "_skip_clickhouse_query_snapshots", False):
+        return fn_or_class
+
     # check if fn_or_class is a class
     if inspect.isclass(fn_or_class):
         # wrap every class method that starts with test_ with this decorator
         for attr in dir(fn_or_class):
-            if callable(getattr(fn_or_class, attr)) and attr.startswith("test_"):
-                setattr(fn_or_class, attr, snapshot_clickhouse_queries(getattr(fn_or_class, attr)))
+            method = getattr(fn_or_class, attr)
+            if callable(method) and attr.startswith("test_"):
+                setattr(fn_or_class, attr, snapshot_clickhouse_queries(method))
         return fn_or_class
 
     @wraps(fn_or_class)

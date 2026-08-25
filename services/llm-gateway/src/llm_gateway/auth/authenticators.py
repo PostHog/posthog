@@ -110,6 +110,7 @@ class OAuthAccessTokenAuthenticator(Authenticator):
                 """
                 SELECT oat.id, oat.user_id, oat.scope, oat.expires,
                        oat.application_id, oat.scoped_teams, oat.scoped_organizations,
+                       oat.sandbox_task_id,
                        u.current_team_id, u.distinct_id, u.is_staff
                 FROM posthog_oauthaccesstoken oat
                 JOIN posthog_user u ON oat.user_id = u.id
@@ -143,4 +144,5 @@ class OAuthAccessTokenAuthenticator(Authenticator):
                 is_staff=row["is_staff"],
                 scoped_teams=row.get("scoped_teams"),
                 scoped_organizations=row.get("scoped_organizations"),
+                sandbox_task_id=str(row["sandbox_task_id"]) if row.get("sandbox_task_id") else None,
             )

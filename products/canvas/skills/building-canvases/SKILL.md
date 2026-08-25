@@ -1,12 +1,13 @@
 ---
 name: building-canvases
 description: >
-  Create or edit a PostHog canvas — a sandboxed browser application (data board, document, form,
-  small tool, graphics experiment) stored in PostHog and rendered by the desktop/web app. Use when
-  a task asks to build, generate, update, or fix a canvas, or when a canvas id is given as the
-  publish target. Covers resolving or creating the target canvas, choosing an implementation
-  approach (React + Quill vs plain HTML/browser APIs), the read → edit → validate → publish →
-  build loop, and which companion canvas skills to load for the details.
+  Create or edit a PostHog freeform canvas — a sandboxed browser application (data board, document,
+  form, small tool, graphics experiment) stored in PostHog and rendered by the desktop/web app. Use
+  when a task asks to build, generate, update, or fix a standalone canvas app, or when a freeform
+  canvas id is given as the publish target. For grid/home canvases, widget placements, or reusable
+  components, use composing-grid-canvases instead. Covers resolving or creating the target canvas,
+  choosing an implementation approach (React + Quill vs plain HTML/browser APIs), the read → edit →
+  validate → publish → build loop, and which companion canvas skills to load for the details.
 ---
 
 # Building canvases
@@ -19,6 +20,13 @@ saves it.
 Canvas work can start from any ordinary task. A dedicated canvas mode or pre-created canvas is
 not required. When the user asks for a board, document, form, visualization, or small app that
 should live in PostHog, treat that as a canvas request and follow this skill.
+
+This skill owns `freeform` canvases (standalone apps). Two other canvas kinds exist: `grid`
+canvases (widget grids, including the user's home canvas) and `component` canvases (reusable
+widgets grids place). When the target is a grid or home canvas, a placement, or a reusable
+widget/component, load `composing-grid-canvases` instead — it owns the store search → configure →
+fork → build ladder and the layout patch loop. Authoring a component's source still uses the
+implementation companions below.
 
 ## Resolve the target canvas
 
@@ -47,8 +55,9 @@ implementation contracts. Load every companion that applies before writing sourc
   `<canvas>`, or WebGL work where application components add no useful structure. It owns semantic
   markup, direct browser APIs, animation cleanup, and non-Quill theming.
 - **`querying-canvas-data`** whenever the canvas reads PostHog data, captures events, or navigates.
-  It owns the `ph` SDK, saved-insight preference, result shapes, variables, date ranges, and declared
-  data capabilities. Load it alongside either implementation skill when data is involved.
+  It owns the `ph` SDK, saved-insight preference, result shapes, variables, date ranges, progressive
+  per-query loading, and declared data capabilities. Load it alongside either implementation skill
+  when data is involved.
 - **`validating-and-publishing-canvases`** for every canvas. It owns project shape, capability
   declarations, validation diagnostics, guarded publishes, drafts, builds, and conflict recovery.
 
@@ -64,7 +73,10 @@ Use these as routing examples, not fixed templates:
 
 - **Product dashboard, web analytics board, or metric explorer:** React + Quill plus data querying.
 - **Checklist, form, or lightweight workflow:** React + Quill, plus data querying for PostHog reads,
-  event capture, or navigation. Do not imply persistence that the available APIs do not provide.
+  event capture, or navigation. For a checklist or runbook specifically, start from the worked
+  example in `building-react-quill-canvases` (`references/checklist-example.md`) — team-shared
+  progress via per-step `ph.state` keys. Do not imply persistence that the available APIs do not
+  provide.
 - **Document or narrative report:** HTML for a mostly static reading experience; React + Quill plus
   data querying when it needs live PostHog data, filters, or application-like interactions.
 - **Generative graphic or animation:** HTML and browser graphics APIs. Add React only when it
@@ -79,7 +91,9 @@ matching shape above. The pattern is a hint; the user's actual request remains a
    Remember `current_version_id` — your publish must be guarded on it.
 2. Edit the project files using the implementation companions selected above. For any PostHog data
    the canvas shows, follow `querying-canvas-data` (saved insights loaded via the `ph` SDK — never
-   fetch or your own PostHog client), and
+   fetch or your own PostHog client), make every figure verifiable — an insight-backed metric
+   links its saved insight in PostHog, an ad-hoc query shows the exact query that ran, per that
+   skill's "Verifiability" section — and
    **declare every `ph` call in `project.capabilities`** (insight short ids in
    `capabilities.posthog.insights`, captured events in `captureEvents`, `inlineQueries: true` for
    ad-hoc queries, and `agentRequests: true` for `ph.agent.request`) — the host enforces these at

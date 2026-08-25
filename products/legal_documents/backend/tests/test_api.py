@@ -750,11 +750,16 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
         ):
             yield
 
-    def test_signed_baa_opts_organization_out_of_ai_data_processing(self) -> None:
+    # Both flags send customer data to a third party the BAA does not cover: one to the LLM
+    # subprocessors, one to the replay ML training mirror. Signing a BAA has to clear both.
+    AI_OPT_OUT_FLAGS = [("is_ai_data_processing_approved",), ("is_ai_training_opted_in",)]
+
+    @parameterized.expand(AI_OPT_OUT_FLAGS)
+    def test_signed_baa_opts_organization_out(self, flag: str) -> None:
         self._swap_to_baa_document()
-        # New orgs default to True now — explicitly set so this isn't accidentally testing the default.
-        self.organization.is_ai_data_processing_approved = True
-        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        # Both default to True now — explicitly set so this isn't accidentally testing the default.
+        setattr(self.organization, flag, True)
+        self.organization.save(update_fields=[flag])
 
         body = json.dumps(self._completed_payload(template_id=self.BAA_TEMPLATE_ID)).encode("utf-8")
         with self._override(), self._fake_pdf_pipeline():
@@ -762,12 +767,13 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.organization.refresh_from_db()
-        self.assertFalse(self.organization.is_ai_data_processing_approved)
+        self.assertFalse(getattr(self.organization, flag))
 
-    def test_signed_dpa_does_not_change_ai_flag(self) -> None:
+    @parameterized.expand(AI_OPT_OUT_FLAGS)
+    def test_signed_dpa_leaves_ai_flags_alone(self, flag: str) -> None:
         # Default fixture is a DPA, so don't swap.
-        self.organization.is_ai_data_processing_approved = True
-        self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        setattr(self.organization, flag, True)
+        self.organization.save(update_fields=[flag])
 
         body = json.dumps(self._completed_payload()).encode("utf-8")
         with self._override(), self._fake_pdf_pipeline():
@@ -775,7 +781,7 @@ class TestLegalDocumentPandaDocWebhook(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.organization.refresh_from_db()
-        self.assertTrue(self.organization.is_ai_data_processing_approved)
+        self.assertTrue(getattr(self.organization, flag))
 
     def test_signed_baa_emails_org_owners(self) -> None:
         self._swap_to_baa_document()

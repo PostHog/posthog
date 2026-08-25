@@ -1,5 +1,6 @@
 import json
 from collections.abc import Mapping
+from dataclasses import field
 from typing import Literal
 from urllib.parse import urlparse
 from uuid import UUID, uuid5
@@ -209,7 +210,7 @@ def _gateway_misconfig(url: str, api_key: str) -> str | None:
 @frozen
 class AIGatewayConfig:
     url: str
-    api_key: str
+    api_key: str = field(repr=False)
 
 
 def resolve_ai_gateway_config() -> AIGatewayConfig | None:

@@ -33,7 +33,7 @@ export function AlertStateIndicator({ alert }: { alert: AlertType }): JSX.Elemen
         case AlertState.ERRORED:
             return <LemonTag type="danger">Errored</LemonTag>
         case AlertState.SNOOZED:
-            return <LemonTag type="muted">Snoozed</LemonTag>
+            return <LemonTag type="completion">Snoozed</LemonTag>
         case AlertState.NOT_FIRING:
             return <LemonTag type="success">Not firing</LemonTag>
     }

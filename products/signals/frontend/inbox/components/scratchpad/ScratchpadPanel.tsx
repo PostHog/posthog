@@ -14,13 +14,16 @@ import { ScratchpadEntryCard } from './ScratchpadEntryCard'
  * scratchpad is up top (the context scouts jot down + how much has accumulated), then lets the user
  * read it newest-first or clustered by topic, and search it via the endpoint's ILIKE.
  *
- * Read-only: the harness writes scratchpad notes on internal scope; humans inspect them here.
+ * Read-only: the harness writes scratchpad entries on internal scope; humans inspect them here.
  */
 export function ScratchpadPanel(): JSX.Element {
     const {
         entries,
         entriesLoading,
         loadFailed,
+        searchResultsLoading,
+        searchFailed,
+        visibleEntries,
         totalCount,
         lastUpdatedAt,
         groups,
@@ -28,10 +31,15 @@ export function ScratchpadPanel(): JSX.Element {
         grouping,
         expandedNamespaces,
     } = useValues(scratchpadLogic)
-    const { setSearchText, setGrouping, toggleNamespace, loadEntries } = useActions(scratchpadLogic)
+    const { setSearchText, setGrouping, toggleNamespace, loadEntries, loadSearchResults } = useActions(scratchpadLogic)
 
-    const isInitialLoad = entriesLoading && entries === null
     const isSearching = searchText.trim().length > 0
+    // The window loads once on mount; a search loads its own result set on top of it. Either
+    // list shows a skeleton until its first response, and its own retry when that response fails.
+    const isInitialLoad = isSearching ? visibleEntries === null && !searchFailed : entriesLoading && entries === null
+    const listFailed = isSearching ? searchFailed : loadFailed
+    const retry = isSearching ? loadSearchResults : loadEntries
+    const retryLoading = isSearching ? searchResultsLoading : entriesLoading
 
     return (
         <div className="flex flex-col gap-4 px-4 py-3">
@@ -63,9 +71,9 @@ export function ScratchpadPanel(): JSX.Element {
                     <ScratchpadEntryCardSkeleton />
                     <ScratchpadEntryCardSkeleton />
                 </div>
-            ) : loadFailed && (!entries || entries.length === 0) ? (
-                <ScratchpadErrorState onRetry={() => loadEntries()} loading={entriesLoading} />
-            ) : !entries || entries.length === 0 ? (
+            ) : listFailed && (!visibleEntries || visibleEntries.length === 0) ? (
+                <ScratchpadErrorState onRetry={() => retry()} loading={retryLoading} />
+            ) : !visibleEntries || visibleEntries.length === 0 ? (
                 <ScratchpadEmptyState isSearching={isSearching} />
             ) : grouping === 'topic' ? (
                 <div className="flex flex-col gap-3">
@@ -90,7 +98,7 @@ export function ScratchpadPanel(): JSX.Element {
                                         {group.label}
                                     </span>
                                     <span className="text-[11px] text-muted">
-                                        {pluralize(group.entries.length, 'note')}
+                                        {pluralize(group.entries.length, 'entry', 'entries')}
                                     </span>
                                 </button>
                                 {isExpanded &&
@@ -101,7 +109,7 @@ export function ScratchpadPanel(): JSX.Element {
                 </div>
             ) : (
                 <div className="flex flex-col gap-2">
-                    {entries.map((entry) => (
+                    {visibleEntries.map((entry) => (
                         <ScratchpadEntryCard key={entry.key} entry={entry} />
                     ))}
                 </div>
@@ -152,7 +160,7 @@ function ScratchpadHeader({
                     <LemonSkeleton className="h-3 w-36 rounded" />
                 ) : totalCount !== null && totalCount > 0 ? (
                     <span className="text-xs text-muted">
-                        {pluralize(totalCount, 'note')}
+                        {pluralize(totalCount, 'entry', 'entries')}
                         {lastUpdatedAt ? (
                             <>
                                 {' · last updated '}
@@ -183,8 +191,8 @@ function ScratchpadEmptyState({ isSearching }: { isSearching: boolean }): JSX.El
     return (
         <div className="rounded border border-dashed border-primary bg-bg-light px-4 py-8 text-center text-sm text-muted">
             {isSearching
-                ? 'No notes match your search.'
-                : "Your scouts haven't jotted anything down yet. As they scan your project, their notes show up here."}
+                ? 'No entries match your search.'
+                : "Your scouts haven't written anything down yet. As they scan your project, their entries show up here."}
         </div>
     )
 }

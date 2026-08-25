@@ -140,7 +140,7 @@ export function AccountRelationshipsExpansion({ accountId }: { accountId: string
                 rowKey="id"
                 loading={relationshipsLoading}
                 columns={columns}
-                pagination={{ pageSize: PAGE_SIZE }}
+                pagination={{ pageSize: PAGE_SIZE, useUrl: false }}
                 emptyState={
                     relationships === null ? 'Failed to load relationships.' : 'No assignments on this account yet.'
                 }

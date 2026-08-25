@@ -204,14 +204,20 @@ describe('workflowLogic email step "from" validation', () => {
         expect(result?.errors.email).toBeUndefined()
     })
 
-    it('does not flag a "from" error when a sender is picked, including valid templated overrides', async () => {
+    it.each([
+        [
+            'one sender with valid templated overrides',
+            {
+                integrationId: 42,
+                email: '{{ event.properties.sender_email }}',
+                name: 'Community team',
+            },
+        ],
+        ['a sender rotation', { integrationId: 42, integrationIds: [42, 43, 44] }],
+    ])('does not flag a "from" error when %s has been picked', async (_name, fromValue) => {
         useMocks({
             get: {
-                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow({
-                    integrationId: 42,
-                    email: '{{ event.properties.sender_email }}',
-                    name: 'Community team',
-                }),
+                '/api/environments/:team_id/hog_flows/:id/': makeWorkflow(fromValue),
                 '/api/projects/:team_id/hog_function_templates/': hangingTemplatesEndpoint,
             },
         })

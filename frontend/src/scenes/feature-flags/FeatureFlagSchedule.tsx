@@ -25,6 +25,7 @@ import {
 } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { describeCron } from 'lib/cron'
 import { dayjs } from 'lib/dayjs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
@@ -43,11 +44,11 @@ import {
 } from '~/types'
 
 import {
-    describeCron,
     featureFlagLogic,
     hasZeroRollout,
     PAIRED_PRESETS,
     validateFeatureFlagVariantKey,
+    validateVariantRolloutSum,
     variantKeyToIndexFeatureFlagPayloads,
 } from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
@@ -471,6 +472,37 @@ export default function FeatureFlagSchedule(): JSX.Element {
     const variantErrors = displayVariants.map(({ key: variantKey }) => ({
         key: validateFeatureFlagVariantKey(variantKey),
     }))
+
+    // A bad sum is rejected when the change fires. Other operations leave variants untouched.
+    const variantRolloutSumError =
+        scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants
+            ? validateVariantRolloutSum(displayVariants)
+            : undefined
+
+    function getScheduleDisabledReason(): string | undefined {
+        if (!scheduleDateMarker) {
+            return 'Select the scheduled date and time'
+        }
+        if (isRecurring && repeatsValue === 'none') {
+            return 'Select a repeat interval'
+        }
+        if (isRecurring && cronExpression !== null && cronExpression.trim() === '') {
+            return 'Enter a cron expression'
+        }
+        if (repeatsValue === 'cron' && cronPreview === 'Invalid cron expression') {
+            return 'Enter a valid cron expression'
+        }
+        if (hasFormErrors(schedulePayloadErrors)) {
+            return 'Fix release condition errors'
+        }
+        if (
+            scheduledChangeOperation === ScheduledChangeOperationType.UpdateVariants &&
+            variantErrors.some((error) => error.key != null)
+        ) {
+            return 'Fix schedule variant changes errors'
+        }
+        return variantRolloutSumError
+    }
 
     const supportsRecurring = RECURRING_SUPPORTED_OPERATIONS.has(scheduledChangeOperation)
 
@@ -906,23 +938,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
                             <LemonButton
                                 type="primary"
                                 onClick={createScheduledChange}
-                                disabledReason={
-                                    !scheduleDateMarker
-                                        ? 'Select the scheduled date and time'
-                                        : isRecurring && repeatsValue === 'none'
-                                          ? 'Select a repeat interval'
-                                          : isRecurring && cronExpression !== null && cronExpression.trim() === ''
-                                            ? 'Enter a cron expression'
-                                            : repeatsValue === 'cron' && cronPreview === 'Invalid cron expression'
-                                              ? 'Enter a valid cron expression'
-                                              : hasFormErrors(schedulePayloadErrors)
-                                                ? 'Fix release condition errors'
-                                                : scheduledChangeOperation ===
-                                                        ScheduledChangeOperationType.UpdateVariants &&
-                                                    variantErrors.some((error) => error.key != null)
-                                                  ? 'Fix schedule variant changes errors'
-                                                  : undefined
-                                }
+                                disabledReason={getScheduleDisabledReason()}
                             >
                                 Schedule
                             </LemonButton>

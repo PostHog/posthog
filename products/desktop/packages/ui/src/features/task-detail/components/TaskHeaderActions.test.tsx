@@ -81,6 +81,10 @@ vi.mock("@posthog/ui/features/sessions/components/StopCloudRunButton", () => ({
 vi.mock("@posthog/ui/features/diff-stats/DiffStatsBadge", () => ({
   DiffStatsBadge: () => null,
 }));
+// Needs an authenticated client, so a TRPC provider these renders don't set up.
+vi.mock("./TaskAnalysisButton", () => ({
+  TaskAnalysisButton: () => null,
+}));
 // Reads the route, which these renders don't provide. The Code scene's answer
 // is false, and that is the row this test covers.
 vi.mock("@posthog/ui/features/navigation/useReviewInRightPanel", () => ({

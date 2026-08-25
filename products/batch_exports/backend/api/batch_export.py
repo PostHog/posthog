@@ -80,6 +80,7 @@ from products.batch_exports.backend.temporal.destinations.constants import (
     AZURE_BLOB_SUPPORTED_COMPRESSIONS,
     S3_SUPPORTED_COMPRESSIONS,
 )
+from products.batch_exports.backend.temporal.sql.events import EXPORTABLE_EVENTS_MODEL_FIELDS
 
 logger = structlog.get_logger(__name__)
 
@@ -863,7 +864,7 @@ class BatchExportsField(TypedDict):
 
 class BatchExportsSchema(TypedDict):
     fields: list[BatchExportsField]
-    values: dict[str, str]
+    values: dict[str, Any]
     hogql_query: str
 
 
@@ -879,6 +880,24 @@ class _SubqueryFinder(TraversingVisitor):
 
     def visit_select_set_query(self, node: ast.SelectSetQuery):
         self.found = True
+
+
+class _DatabaseFieldFinder(TraversingVisitor):
+    """Walk an AST subtree and collect the names of the database fields it reads."""
+
+    def __init__(self, context: HogQLContext):
+        super().__init__()
+        self.context = context
+        self.names: set[str] = set()
+
+    def visit_field(self, node: ast.Field):
+        resolve = getattr(node.type, "resolve_database_field", None)
+        if resolve is not None:
+            database_field = resolve(self.context)
+            name = getattr(database_field, "name", None)
+            if name is not None:
+                self.names.add(name)
+        super().visit_field(node)
 
 
 INTERNAL_NETWORKS = (
@@ -1524,13 +1543,14 @@ class BatchExportSerializer(serializers.ModelSerializer):
         return batch_export_schema
 
     def validate_hogql_query(self, hogql_query: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery:
-        """Validate a HogQLQuery being used for batch exports.
+        """Validate a HogQL query being used for events batch exports.
 
         This method essentially checks that a query is supported by batch exports:
         1. UNION ALL is not supported.
         2. Any JOINs are not supported.
         3. Query must SELECT FROM events, and only from events.
         4. Subqueries in SELECT expressions are not supported.
+        5. Query must select only from those fields we expose from the events table.
         """
 
         if isinstance(hogql_query, ast.SelectSetQuery):
@@ -1561,6 +1581,18 @@ class BatchExportSerializer(serializers.ModelSerializer):
             subquery_finder.visit(field)
             if subquery_finder.found:
                 raise serializers.ValidationError("Subqueries in SELECT expressions are not supported")
+
+        # Check that the query only selects from those fields we expose from the events table.
+        field_finder = _DatabaseFieldFinder(HogQLContext(team_id=self.context["team_id"], enable_select_queries=True))
+        for field in parsed.select:
+            field_finder.visit(field)
+
+        unsupported = sorted(field_finder.names - EXPORTABLE_EVENTS_MODEL_FIELDS)
+        if unsupported:
+            raise serializers.ValidationError(
+                f"Batch exports cannot read these fields: {', '.join(unsupported)}. "
+                f"Supported fields are: {', '.join(sorted(EXPORTABLE_EVENTS_MODEL_FIELDS))}."
+            )
 
         return hogql_query
 

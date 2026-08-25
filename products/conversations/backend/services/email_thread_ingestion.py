@@ -214,6 +214,8 @@ def _ingest_customer_email_once(
     channel: EmailChannel,
     email: ParsedEmail,
     direction: EmailThreadMessageDirection,
+    source_type: str,
+    source_id: str | None,
 ) -> EmailThreadIngestionResult:
     existing_message = _find_existing_message(team_id=team_id, email=email)
     if existing_message is not None:
@@ -255,8 +257,8 @@ def _ingest_customer_email_once(
         cc_recipients=[recipient.as_dict() for recipient in email.cc_recipients],
         sender_authenticated=email.sender_authenticated,
         direction=direction,
-        source_type="mailgun",
-        source_id=_mailgun_source_id(email.message_id),
+        source_type=source_type,
+        source_id=source_id or _mailgun_source_id(email.message_id),
     )
     _upsert_participants(team_id=team_id, thread=thread, channel=channel, email=email)
     _update_thread_summary(thread=thread, email=email, content=content)
@@ -269,6 +271,8 @@ def ingest_customer_email(
     channel: EmailChannel,
     email: ParsedEmail,
     direction: EmailThreadMessageDirection,
+    source_type: str = "mailgun",
+    source_id: str | None = None,
 ) -> EmailThreadIngestionResult:
     try:
         with transaction.atomic():
@@ -277,6 +281,8 @@ def ingest_customer_email(
                 channel=channel,
                 email=email,
                 direction=direction,
+                source_type=source_type,
+                source_id=source_id,
             )
     except IntegrityError:
         existing_message = _find_existing_message(team_id=team_id, email=email)

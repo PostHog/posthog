@@ -14,7 +14,7 @@ Etcd gives us the building blocks we need without rolling our own consensus:
 
 - **Leases** for failure detection: pod keys auto-delete when a pod crashes, triggering reassignment
 - **Watches** for reactivity: components react to state changes instead of polling
-- **Transactions (CAS)** for leader election: only one coordinator runs at a time
+- **Transactions (CAS)** for leader election: only one coordinator runs at a time. Standby candidates watch the leader key rather than campaigning on a timer, so election traffic tracks how often leadership changes instead of how many candidates are running
 - **Strong consistency**: all participants see the same state
 
 ## Components
@@ -44,7 +44,7 @@ Partitions that need to move go through a four-phase state machine. The protocol
 Freezing --> Draining --> Warming --> Complete --> (deleted)
 ```
 
-1. **Freezing**: Coordinator creates the handoff, snapshotting the then-registered routers into the record's `freeze_quorum`. Routers begin buffering ("stashing") incoming writes for the partition and write a `RouterFreezeAck`. The old owner does *not* yet drain — it continues serving until the quorum has acked, because while a single router still forwards traffic to the old owner the inflight count cannot meaningfully be observed as zero. The required ackers are the creation-time snapshot intersected with the live registry, so the requirement only ever shrinks: a router that dies drops out, and one that registers later is never added (it anchors its watch after the handoff, may never see the `Freezing` event, and its table starts fail-closed, so its ack is neither obtainable nor needed). Once every required router has written an ack matching the current handoff's `handoff_id`, the coordinator advances to `Draining` via a compare-and-swap on the handoff key's `mod_revision`.
+1. **Freezing**: Coordinator creates the handoff, snapshotting the then-registered routers into a membership record the handoff refers to by `freeze_quorum_ref`. Routers begin buffering ("stashing") incoming writes for the partition and write a `RouterFreezeAck`. The old owner does *not* yet drain — it continues serving until the quorum has acked, because while a single router still forwards traffic to the old owner the inflight count cannot meaningfully be observed as zero. The required ackers are the creation-time snapshot intersected with the live registry, so the requirement only ever shrinks: a router that dies drops out, and one that registers later is never added (it anchors its watch after the handoff and its table starts fail-closed, so it cannot be routing to the old owner and its ack is not needed — it writes one anyway as it bootstraps, which is what keeps the pre-membership fallback satisfiable). Once every required router has written an ack matching the current handoff's `handoff_id`, the coordinator advances to `Draining` via a compare-and-swap on the handoff key's `mod_revision`.
 
 2. **Draining**: No router can forward new requests to the old owner anymore (every router is stashing). The old owner waits for its inflight request handlers to complete, then writes a `PodDrainedAck`. Because the leader's produce path awaits the Kafka delivery future before returning success, "no inflight" implies "every write this pod ever acked is durable in Kafka." When the ack arrives (or the old owner is no longer registered), the coordinator advances to `Warming`.
 
@@ -55,6 +55,26 @@ Freezing --> Draining --> Warming --> Complete --> (deleted)
 The handoff record carries `old_owner: Option<String>`. `None` denotes an initial assignment with no prior owner — there's nothing to drain, so the protocol short-circuits and skips `Draining` entirely, advancing `Freezing → Warming` once router quorum is met.
 
 Every handoff carries a unique `handoff_id`, and every ack (`RouterFreezeAck`, `PodDrainedAck`, `PodWarmedAck`) echoes it. Quorum checks count only acks whose id matches the current handoff, so a stale ack left over from an earlier handoff of the same partition can never satisfy a later one.
+
+#### Where the freeze quorum's membership lives
+
+Every handoff a plan creates shares one membership — the router registry as the coordinator saw it — so the plan writes it once under `freeze_quorums/{id}` and each handoff carries only that id. Written into each handoff instead, it grew with the fleet, and a plan transaction grew with the fleet times the partition count: at a few hundred of each it passed etcd's `--max-request-bytes`, which rejects the whole transaction, and it was paid again by every list of handoffs. The coordinator's reconcile tick deletes membership records no live handoff refers to, listing the ids before the handoffs so a record written mid-sweep is never a candidate.
+
+Resolution fails closed. An id whose record is missing reads as *unknown* membership, which falls back to requiring every live router — the same rule as a record that predates the field. Both are stricter than any recorded membership, so a lost or prematurely collected record can only delay a handoff. The distinction that matters is against *empty* membership, which requires nobody: that is a real snapshot (zero routers registered at creation), and it must never be what an unresolvable reference degrades to.
+
+Only the coordinator judges the quorum, and only one coordinator leads at a time, which is what makes the roll safe. A new leader reading a record written before this change uses the membership it carries inline. An old leader reading a record written after it sees no membership at all and falls back to requiring every live router — satisfiable, since a router that joins late acks in-progress handoffs as it bootstraps, so a mid-roll failover slows a handoff rather than wedging it.
+
+##### Accepted degradations
+
+Each is bounded by something that already exists, and none of them can advance a handoff early or lose an acked write. Detail lives at the code site.
+
+| What degrades | When it happens | What bounds it |
+| --- | --- | --- |
+| A handoff loses its membership reference and falls back to requiring every live router | An old-binary leader advances that handoff mid-roll: phase advances rewrite the whole record, and its struct has nowhere to carry the reference through | The roll — a finished one cannot produce it. The fallback is the stricter rule, so it only ever delays a handoff. Not counted: `unresolved_freeze_quorums_total` sees references that fail to resolve, never ones stripped |
+| A pod stays registered as `Draining`, and graceful handoffs toward it park until it expires | Both the drain's bounded setup and the bounded revoke time out against a hung etcd | One lease TTL, the same window a pod crashing right after registering already costs |
+| A cancelled session leaves a registered phantom — a pod phantom parks writes behind plans toward it, a router phantom stalls freezes created in its window | A session begin is cancelled after its registration may have landed, and the bounded revoke times out too | One lease TTL, as above |
+
+A watcher etcd cancels — compaction, watcher pressure — is delivered as an ordinary response with `canceled` set and nothing ever after it. Every watch loop that must stay live treats that response as a failed attempt (`live_watch_response`), so it surfaces in the same restart-and-rebuild path as a broken stream rather than parking the loop on a dead watcher. Two loops handle it differently: the pod's own-registration watch — best-effort acceleration of a teardown that completes without it — ends for the session instead, and the standby's leader watch waits out its fallback window and re-reads, so a cancelled watch never observes an opening slower than a stalled one and no failure mode costs etcd more than the healthy cadence.
 
 #### Why the Freezing/Draining split matters
 

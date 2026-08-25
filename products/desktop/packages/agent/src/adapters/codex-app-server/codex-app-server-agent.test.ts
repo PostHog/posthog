@@ -1,3 +1,6 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import type {
   AgentSideConnection,
   CancelNotification,
@@ -692,6 +695,33 @@ describe("CodexAppServerAgent", () => {
     expect(stub.requests).toContainEqual({
       method: "turn/interrupt",
       params: { threadId: "thr_1", turnId: "goal_tick_1" },
+    });
+  });
+
+  it("reports the lifecycle of a native goal turn as background generation", async () => {
+    const stub = makeStubRpc({
+      "thread/start": { thread: { id: "thr_1" } },
+    });
+    const { client, extNotifications } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/bundle/codex" },
+      rpcFactory: stub.factory,
+    });
+    await agent.newSession({ cwd: "/repo" } as unknown as NewSessionRequest);
+
+    stub.emit("turn/started", { turn: { id: "goal_tick_1" } });
+    stub.emit("turn/completed", {
+      turn: { id: "goal_tick_1", status: "completed" },
+    });
+    await Promise.resolve();
+
+    expect(extNotifications).toContainEqual({
+      method: "_posthog/background_turn_started",
+      params: { sessionId: "thr_1" },
+    });
+    expect(extNotifications).toContainEqual({
+      method: "_posthog/background_turn_complete",
+      params: { sessionId: "thr_1", stopReason: "end_turn" },
     });
   });
 
@@ -1563,14 +1593,13 @@ describe("CodexAppServerAgent", () => {
     },
   );
 
-  it("flattens the host's {append} systemPrompt and dedupes it against developerInstructions", async () => {
+  it("dedupes a system prompt contained in developerInstructions", async () => {
     const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
     const { client } = makeFakeClient();
     const agent = new CodexAppServerAgent(client, {
       processOptions: {
         binaryPath: "/x/codex",
-        // The host pre-flattens into developerInstructions AND sends the raw {append} form.
-        developerInstructions: "Be a careful engineer.",
+        developerInstructions: "Be a careful engineer.\n\nUse RTK.",
       },
       rpcFactory: stub.factory,
     });
@@ -1581,12 +1610,52 @@ describe("CodexAppServerAgent", () => {
     } as unknown as NewSessionRequest);
 
     const threadStart = stub.requests.find((r) => r.method === "thread/start");
-    // {append} is flattened (not "[object Object]") and, being identical, deduped to one copy.
     expect(
       (threadStart?.params as { developerInstructions?: string })
         .developerInstructions,
-    ).toBe("Be a careful engineer.");
+    ).toBe("Be a careful engineer.\n\nUse RTK.");
   });
+
+  // "env" is the cloud sandbox path (per-sandbox provisioning); "option" is
+  // the desktop path, where the mount travels per-session to avoid racing on
+  // shared process.env.
+  it.each(["env", "option"] as const)(
+    "appends the context-wiki instructions when a mount exists (via %s)",
+    async (source) => {
+      const mount = fs.mkdtempSync(path.join(os.tmpdir(), "context-wiki-"));
+      if (source === "env") {
+        process.env.POSTHOG_CONTEXT_LAYER_PATH = mount;
+      }
+      try {
+        const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+        const { client } = makeFakeClient();
+        const agent = new CodexAppServerAgent(client, {
+          processOptions: {
+            binaryPath: "/x/codex",
+            developerInstructions: "Codex base guidance.",
+            ...(source === "option" && {
+              contextWiki: { path: mount, commitsPath: "/commits/" },
+            }),
+          },
+          rpcFactory: stub.factory,
+        });
+
+        await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+
+        const threadStart = stub.requests.find(
+          (r) => r.method === "thread/start",
+        );
+        const instructions = (
+          threadStart?.params as { developerInstructions?: string }
+        ).developerInstructions;
+        expect(instructions).toContain("Codex base guidance.");
+        expect(instructions).toContain("# Context Wiki");
+        expect(instructions).toContain(mount);
+      } finally {
+        delete process.env.POSTHOG_CONTEXT_LAYER_PATH;
+      }
+    },
+  );
 
   it("appends a distinct {append} systemPrompt to developerInstructions", async () => {
     const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
@@ -2076,7 +2145,7 @@ describe("CodexAppServerAgent", () => {
     stub.emit("turn/completed", { turn: { status: "completed" } });
   });
 
-  it("finalizes the turn on a non-retried error notification", async () => {
+  it("rejects the prompt on a non-retried error notification", async () => {
     const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
     const { client } = makeFakeClient();
     const agent = new CodexAppServerAgent(client, {
@@ -2089,10 +2158,273 @@ describe("CodexAppServerAgent", () => {
       sessionId: "t",
       prompt: [{ type: "text", text: "go" }],
     } as unknown as PromptRequest);
-    // willRetry:false must resolve the turn rather than hang until stream close.
+    // willRetry:false must reject the turn rather than hang until stream close.
     stub.emit("error", { willRetry: false, error: { message: "boom" } });
 
+    await expect(done).rejects.toThrow(
+      "The agent stopped before completing this request. Please try again.",
+    );
+  });
+
+  it("renders a non-retried policy error as agent output", async () => {
+    const stub = makeStubRpc({
+      "thread/start": { thread: { id: "t" } },
+      "turn/start": { turn: { id: "turn_1", status: "inProgress" } },
+    });
+    const sessionUpdates: unknown[] = [];
+    const messageDelivery = new Promise<void>(() => {});
+    const client = {
+      sessionUpdate: async (notification: unknown) => {
+        sessionUpdates.push(notification);
+        await messageDelivery;
+      },
+      requestPermission: async () => ({
+        outcome: "selected" as const,
+        optionId: "allow",
+      }),
+      extNotification: async () => {},
+    } as unknown as AgentSideConnection;
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    stub.emit("error", {
+      willRetry: false,
+      error: {
+        message: "This content was flagged for possible cybersecurity risk.",
+        codexErrorInfo: "cyberPolicy",
+      },
+    });
+    stub.emit("turn/completed", {
+      turn: { id: "turn_1", status: "failed" },
+    });
+
     expect((await done).stopReason).toBe("refusal");
+    expect(sessionUpdates).toContainEqual({
+      sessionId: "t",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "This request was blocked because it may pose a cybersecurity risk. Revise the request and try again.",
+        },
+      },
+    });
+  });
+
+  it("renders a gateway usage policy error as agent output", async () => {
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client, sessionUpdates } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    stub.emit("error", {
+      willRetry: false,
+      error: {
+        message:
+          "Invalid prompt: your prompt was flagged as potentially violating our usage policy.",
+        codexErrorInfo: "other",
+      },
+    });
+
+    expect((await done).stopReason).toBe("refusal");
+    expect(sessionUpdates).toContainEqual({
+      sessionId: "t",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "This request was blocked by a safety policy. Revise the request and try again.",
+        },
+      },
+    });
+  });
+
+  it("renders a policy error after the turn already completed", async () => {
+    const stub = makeStubRpc({
+      "thread/start": { thread: { id: "t" } },
+      "turn/start": { turn: { id: "turn_1", status: "inProgress" } },
+    });
+    const { client, sessionUpdates } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    stub.emit("turn/completed", {
+      turn: { status: "failed" },
+    });
+    stub.emit("error", {
+      willRetry: false,
+      error: {
+        message: "This content was flagged for possible cybersecurity risk.",
+        codexErrorInfo: "cyberPolicy",
+      },
+    });
+
+    await vi.waitFor(() => {
+      expect(sessionUpdates).toContainEqual({
+        sessionId: "t",
+        update: {
+          sessionUpdate: "agent_message_chunk",
+          content: {
+            type: "text",
+            text: "This request was blocked because it may pose a cybersecurity risk. Revise the request and try again.",
+          },
+        },
+      });
+    });
+    await expect(done).resolves.toMatchObject({ stopReason: "refusal" });
+  });
+
+  it("ignores a policy error from a failed previous turn", async () => {
+    vi.useFakeTimers();
+    const stub = makeStubRpc({
+      "thread/start": { thread: { id: "t" } },
+      "turn/start": { turn: { id: "turn_1", status: "inProgress" } },
+    });
+    const { client, sessionUpdates } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const first = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "first" }],
+    } as unknown as PromptRequest);
+    stub.emit("turn/completed", {
+      turn: { id: "turn_1", status: "failed" },
+    });
+    await vi.advanceTimersByTimeAsync(250);
+    await expect(first).resolves.toMatchObject({ stopReason: "refusal" });
+
+    const second = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "second" }],
+    } as unknown as PromptRequest);
+    stub.emit("turn/started", { turn: { id: "turn_2" } });
+    stub.emit("error", {
+      turnId: "turn_1",
+      willRetry: false,
+      error: {
+        message: "This content was flagged for possible cybersecurity risk.",
+        codexErrorInfo: "cyberPolicy",
+      },
+    });
+
+    expect(sessionUpdates).not.toContainEqual({
+      sessionId: "t",
+      update: {
+        sessionUpdate: "agent_message_chunk",
+        content: {
+          type: "text",
+          text: "This request was blocked because it may pose a cybersecurity risk. Revise the request and try again.",
+        },
+      },
+    });
+    stub.emit("turn/completed", {
+      turn: { id: "turn_2", status: "completed" },
+    });
+    await expect(second).resolves.toMatchObject({ stopReason: "end_turn" });
+    vi.useRealTimers();
+  });
+
+  it("settles a failed completion when Codex omits turn/started", async () => {
+    vi.useFakeTimers();
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    stub.emit("turn/completed", {
+      turn: { id: "turn_1", status: "failed" },
+    });
+
+    await vi.advanceTimersByTimeAsync(250);
+    await expect(done).resolves.toMatchObject({ stopReason: "refusal" });
+    vi.useRealTimers();
+  });
+
+  it("does not let an ID-less failed completion refuse a later prompt", async () => {
+    vi.useFakeTimers();
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const first = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "first" }],
+    } as unknown as PromptRequest);
+    stub.emit("turn/completed", {
+      turn: { status: "failed" },
+    });
+    stub.emit("error", { willRetry: false, error: { message: "boom" } });
+    await expect(first).rejects.toThrow(
+      "The agent stopped before completing this request. Please try again.",
+    );
+
+    const second = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "second" }],
+    } as unknown as PromptRequest);
+    await vi.advanceTimersByTimeAsync(250);
+    stub.emit("turn/completed", {
+      turn: { status: "completed" },
+    });
+
+    await expect(second).resolves.toMatchObject({ stopReason: "end_turn" });
+    vi.useRealTimers();
+  });
+
+  it("rejects a malformed fatal error payload", async () => {
+    const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
+    const { client } = makeFakeClient();
+    const agent = new CodexAppServerAgent(client, {
+      processOptions: { binaryPath: "/x/codex" },
+      rpcFactory: stub.factory,
+    });
+
+    await agent.newSession({ cwd: "/r" } as unknown as NewSessionRequest);
+    const done = agent.prompt({
+      sessionId: "t",
+      prompt: [{ type: "text", text: "go" }],
+    } as unknown as PromptRequest);
+    stub.emit("error", { willRetry: false, error: { message: {} } });
+
+    await expect(done).rejects.toThrow(
+      "The agent stopped before completing this request. Please try again.",
+    );
   });
 
   it("rejects the prompt when the fatal error is a gateway billing denial", async () => {
@@ -2178,7 +2510,7 @@ describe("CodexAppServerAgent", () => {
     expect(stub.requests.some((r) => r.method === "turn/start")).toBe(false);
   });
 
-  it("finalizes a turn once when error and turn/completed both arrive", async () => {
+  it("settles a turn once when error and turn/completed both arrive", async () => {
     const stub = makeStubRpc({ "thread/start": { thread: { id: "t" } } });
     const outputs: Array<Record<string, unknown>> = [];
     const { client, extNotifications } = makeFakeClient();
@@ -2207,12 +2539,14 @@ describe("CodexAppServerAgent", () => {
     stub.emit("item/completed", {
       item: { type: "agentMessage", id: "a1", text: '{"ok":true}' },
     });
-    // error + turn/completed for one turn must not double-fire turn_complete (idempotent).
+    // error + turn/completed for one turn must settle the prompt and idle signal once.
     stub.emit("error", { willRetry: false, error: { message: "boom" } });
     stub.emit("turn/completed", { turn: { status: "failed" } });
-    await done;
+    await expect(done).rejects.toThrow(
+      "The agent stopped before completing this request. Please try again.",
+    );
 
-    // Structured output is gated on a clean end_turn: a refused turn records nothing.
+    // Structured output is gated on a clean end_turn: a failed turn records nothing.
     expect(outputs).toEqual([]);
     expect(
       extNotifications.filter((n) => n.method === "_posthog/turn_complete")
@@ -3288,12 +3622,14 @@ describe("CodexAppServerAgent", () => {
       sessionId: "t",
       prompt: [{ type: "text", text: "go" }],
     } as unknown as PromptRequest);
-    // A fatal error ends the turn before item/completed; the finalize-time recovery still fires the boundary.
+    // A fatal error ends the turn before item/completed; failure recovery still fires the boundary.
     stub.emit("item/started", {
       item: { type: "contextCompaction", id: "c1" },
     });
     stub.emit("error", { willRetry: false, error: { message: "boom" } });
-    await done;
+    await expect(done).rejects.toThrow(
+      "The agent stopped before completing this request. Please try again.",
+    );
 
     expect(
       extNotifications.find((n) => n.method === "_posthog/compact_boundary")

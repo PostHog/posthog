@@ -26,6 +26,7 @@ from products.warehouse_sources.backend.models.table import HIDDEN_COLUMNS, Data
 from products.warehouse_sources.backend.temporal.data_imports.external_product_hooks import (
     emit_signals_enabled_for,
     person_property_sync_enabled_for,
+    schema_binding,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.db_retry import (
     retry_on_operational_error,
@@ -232,8 +233,6 @@ def create_external_data_job_model_activity(
             raise Exception("Source or schema no longer exists - deleted temporal schedule")
 
         schema = ExternalDataSchema.objects.get(team_id=inputs.team_id, id=inputs.schema_id)
-        schema.status = ExternalDataSchema.Status.RUNNING
-        schema.save()
 
         source: ExternalDataSource = schema.source
 
@@ -242,6 +241,10 @@ def create_external_data_job_model_activity(
             pipeline_version = ExternalDataJob.PipelineVersion.V3
             _verify_v3_lock_still_held(inputs.team_id, inputs.schema_id)
 
+        # Persist the Running status only after the job row exists: a Running schema with no job
+        # behind it can never be finalized, so it would stay stuck on Running forever. With the job
+        # committed first, the workflow's finalizer can always resolve it and repaint the schema.
+        schema.status = ExternalDataSchema.Status.RUNNING
         job = _create_job(
             team_id=inputs.team_id,
             source_id=inputs.source_id,
@@ -250,6 +253,7 @@ def create_external_data_job_model_activity(
             billable=inputs.billable,
             schema_snapshot=_build_schema_snapshot(schema),
         )
+        schema.save(update_fields=["status", "updated_at"])
 
         logger.info(
             f"Created external data job for external data source {inputs.source_id}",
@@ -296,7 +300,7 @@ def create_external_data_job_model_activity(
 
         # Whether this schema feeds any enabled person-target Customer analytics source (owned by
         # customer_analytics via external_product_hooks; not imported here).
-        person_property_sync_enabled = person_property_sync_enabled_for(inputs.team_id, schema.id)
+        person_property_sync_enabled = person_property_sync_enabled_for(inputs.team_id, schema_binding(schema.id))
 
         return CreateExternalDataJobModelActivityOutputs(
             job_id=str(job.id),

@@ -31,6 +31,7 @@ from posthog.models.share_password import SharePassword
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models.alert import AlertConfiguration
 from products.dashboards.backend.access import DashboardAccessMethod
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -39,9 +40,7 @@ from products.dashboards.backend.models.dashboard_widget import DashboardWidget
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.exports.backend.models.exported_asset import ExportedAsset, get_render_access_token
 from products.notebooks.backend.models import Notebook
-from products.product_analytics.backend.models.insight import Insight
-
-from ee.models.rbac.access_control import AccessControl
+from products.product_analytics.backend.facade.models import Insight
 
 
 def mock_exporter_template(test_func):
@@ -1488,7 +1487,7 @@ class TestExportCacheKeyFlow(APIBaseTest):
         )
 
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
-    @patch("products.product_analytics.backend.api.insight.QueryCache")
+    @patch("products.product_analytics.backend.presentation.insight.QueryCache")
     @mock_exporter_template
     def test_cache_keys_parameter_triggers_direct_cache_lookup(self, mock_query_cache_cls, mock_calculate):
         """Test that cache_keys param causes InsightSerializer to use direct cache lookup and skip calculation."""
@@ -1505,7 +1504,7 @@ class TestExportCacheKeyFlow(APIBaseTest):
         mock_calculate.assert_not_called()
 
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
-    @patch("products.product_analytics.backend.api.insight.QueryCache")
+    @patch("products.product_analytics.backend.presentation.insight.QueryCache")
     @mock_exporter_template
     def test_cache_miss_falls_back_to_normal_calculation(self, mock_query_cache_cls, mock_calculate):
         """Test that cache miss on expected key falls back to normal calculation."""
@@ -1522,7 +1521,7 @@ class TestExportCacheKeyFlow(APIBaseTest):
         mock_calculate.assert_called_once()
 
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
-    @patch("products.product_analytics.backend.api.insight.QueryCache")
+    @patch("products.product_analytics.backend.presentation.insight.QueryCache")
     @mock_exporter_template
     def test_invalid_cache_keys_param_continues_without_it(self, mock_query_cache_cls, mock_calculate):
         """Test that invalid cache_keys parameter is ignored and normal flow continues."""
@@ -1542,7 +1541,7 @@ class TestExportCacheKeyFlow(APIBaseTest):
         ]
     )
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
-    @patch("products.product_analytics.backend.api.insight.QueryCache")
+    @patch("products.product_analytics.backend.presentation.insight.QueryCache")
     @mock_exporter_template
     def test_public_share_link_cannot_name_the_cache_key_to_read(
         self, _name: str, path: str, mock_query_cache_cls, mock_calculate
@@ -1561,7 +1560,7 @@ class TestExportCacheKeyFlow(APIBaseTest):
         mock_calculate.assert_called_once()
 
     @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
-    @patch("products.product_analytics.backend.api.insight.QueryCache")
+    @patch("products.product_analytics.backend.presentation.insight.QueryCache")
     @mock_exporter_template
     def test_cache_key_from_another_team_is_not_served(self, mock_query_cache_cls, mock_calculate):
         self._cached_entry(mock_query_cache_cls, "another-teams-cached-rows")
@@ -2015,7 +2014,6 @@ class TestSharingPublishGate(APIBaseTest):
         )
 
     def _deny_warehouse(self) -> None:
-
         AccessControl.objects.create(team=self.team, resource="warehouse_objects", access_level="none")
 
     def _enable_sharing(self, kind: str):
@@ -2066,7 +2064,6 @@ class TestSharingPublishGate(APIBaseTest):
         assert response.json()["enabled"] is True
 
     def test_system_table_denial_blocks_publishing(self):
-
         AccessControl.objects.create(team=self.team, resource="dashboard", access_level="none")
         self.insight.query = {
             "kind": "DataTableNode",
@@ -2114,7 +2111,6 @@ class TestSharingPublishGate(APIBaseTest):
 
     @parameterized.expand([("non_materialized",), ("materialized",)])
     def test_granted_view_over_denied_table_gates_unless_materialized(self, case: str):
-
         inner = DataWarehouseSavedQuery.objects.create(
             team=self.team,
             name="restricted_inner",

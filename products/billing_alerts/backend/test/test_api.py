@@ -34,6 +34,10 @@ class TestBillingAlertAPI(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         self.url = f"/api/organizations/{self.organization.id}/billing/alerts/"
+        # The API is gated behind the `billing-alerts` flag; enable it for the default test org.
+        ff_patcher = patch("posthoganalytics.feature_enabled", return_value=True)
+        ff_patcher.start()
+        self.addCleanup(ff_patcher.stop)
 
     def _payload(self, **overrides) -> dict:
         payload = {
@@ -322,6 +326,15 @@ class TestBillingAlertAPI(APIBaseTest):
         assert len(data[0]["destinations"][0]["hog_function_ids"]) == len(EVENT_KIND_CONFIG)
         assert len(data[1]["destinations"][0]["hog_function_ids"]) == len(EVENT_KIND_CONFIG)
         assert data[2]["destinations"] == []
+
+    def test_api_is_gated_behind_billing_alerts_flag(self) -> None:
+        with patch("posthoganalytics.feature_enabled", return_value=False):
+            listed = self.client.get(self.url)
+            created = self.client.post(self.url, self._payload(), format="json")
+
+        assert listed.status_code == status.HTTP_403_FORBIDDEN
+        assert created.status_code == status.HTTP_403_FORBIDDEN
+        assert not BillingAlertConfiguration.objects.exists()
 
     def test_non_admin_cannot_create(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.MEMBER

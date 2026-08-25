@@ -113,8 +113,8 @@ describe("buildInboxViewedProperties", () => {
     expect(props.report_count).toBe(2);
     expect(props.total_count).toBe(65);
     expect(props.ready_count).toBe(2);
-    expect(props.pulls_count).toBe(38);
-    expect(props.reports_count).toBe(62);
+    expect(props.pulls_tab_count).toBe(38);
+    expect(props.reports_tab_count).toBe(62);
     expect(props.is_empty).toBe(false);
     expect(props.status_filter_count).toBe(0);
   });

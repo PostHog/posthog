@@ -252,21 +252,28 @@ class TestServicesQueryDateRange(ClickhouseTestMixin, APIBaseTest):
     # whose date subclasses cannot be built while freezegun has datetime.date patched.
     def test_cap_limits_services_but_not_total_count(self):
         with patch.object(services_query_runner, "SERVICES_LIMIT", 5):
-            with patch.object(
-                services_query_runner,
-                "execute_hogql_query",
-                wraps=services_query_runner.execute_hogql_query,
-            ) as execute_spy:
-                result = self._services("2025-12-16T00:00:00Z", "2025-12-16T23:59:59Z")
+            result = self._services("2025-12-16T00:00:00Z", "2025-12-16T23:59:59Z")
 
         self.assertEqual(len(result["services"]), 5)
         self.assertEqual(result["total_services"], 12)
-        # Counting the services with a second, uncapped scan of the window instead
-        # of the aggregates query's window function added 20s on a large project.
-        self.assertEqual(execute_spy.call_count, 2, "expected only the aggregates and sparkline queries")
         # The cap keeps the highest-volume services: every kept fixture service has
         # 97+ rows, so the smallest two (11 and 3 rows) are the ones cut.
         self.assertTrue(all(s["log_count"] >= 97 for s in result["services"]))
+
+    def test_query_count_does_not_grow_with_the_number_of_services(self):
+        with patch.object(
+            services_query_runner,
+            "execute_hogql_query",
+            wraps=services_query_runner.execute_hogql_query,
+        ) as execute_spy:
+            result = self._services("2025-12-16T00:00:00Z", "2025-12-16T23:59:59Z")
+
+        # Runs on the shipped cap, so every fixture service comes back untruncated.
+        self.assertEqual(len(result["services"]), 12)
+        # Counting the services with a second, uncapped scan of the window instead
+        # of the aggregates query's window function added 20s on a large project.
+        # Fetching rules or sparklines per service would show up here too.
+        self.assertEqual(execute_spy.call_count, 2, "expected only the aggregates and sparkline queries")
 
     def test_sparkline_scoped_to_top_services_when_over_limit(self):
         with patch.object(services_query_runner, "SPARKLINE_SERVICES_LIMIT", 3):

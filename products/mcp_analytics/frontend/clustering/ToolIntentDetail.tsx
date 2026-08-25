@@ -23,11 +23,15 @@ interface ToolSwitchRow extends MCPClusterSwitchApi {
     clusterLabel: string
 }
 
-/** Every error switch across the snapshot that involves the given tool, worst first. */
+/**
+ * Every error switch across the snapshot that involves the given tool, worst first.
+ * Clusters stored before switches were captured carry none: the schema marks the field
+ * required, the stored JSONB does not, so it has to be treated as absent.
+ */
 function collectSwitches(tool: string, clusters: readonly MCPIntentClusterApi[]): ToolSwitchRow[] {
     const rows: ToolSwitchRow[] = []
     for (const cluster of clusters) {
-        for (const sw of cluster.switches) {
+        for (const sw of cluster.switches ?? []) {
             if (sw.from_tool === tool || sw.to_tool === tool) {
                 rows.push({ ...sw, clusterLabel: cluster.label })
             }
@@ -40,11 +44,17 @@ export function ToolIntentDetail({
     tool,
     clusters,
     showToolLink = true,
+    categories = [],
 }: {
     tool: MCPToolPivotApi
     /** The snapshot's clusters — the pivot's entries carry only ids and join against these. */
     clusters: readonly MCPIntentClusterApi[]
     showToolLink?: boolean
+    /**
+     * Categories the tool is called under. Passed in rather than read from the clustering
+     * logic, because the tool detail scene renders this without that logic mounted.
+     */
+    categories?: string[]
 }): JSX.Element {
     const switches = collectSwitches(tool.tool, clusters)
     const clusterRows = toolClusterRows(tool, clusters)
@@ -62,6 +72,15 @@ export function ToolIntentDetail({
                         ) : (
                             <h3 className="text-lg font-semibold leading-tight font-mono">{tool.tool}</h3>
                         )}
+                        {categories.length > 0 ? (
+                            <div className="flex flex-wrap items-center gap-1">
+                                {categories.map((category) => (
+                                    <Badge key={category} variant="info">
+                                        {category}
+                                    </Badge>
+                                ))}
+                            </div>
+                        ) : null}
                     </div>
                     <div className="flex flex-wrap items-center gap-2 shrink-0">
                         <Badge variant="default">{humanFriendlyNumber(tool.call_count)} calls</Badge>

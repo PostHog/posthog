@@ -26,7 +26,6 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.facade.api import (
@@ -862,8 +861,6 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     queryset = LogsAlertConfiguration.objects.all().order_by("-created_at")
     serializer_class = LogsAlertConfigurationSerializer
     lookup_field = "id"
-    posthog_feature_flag = "logs-alerting"
-    permission_classes = [PostHogFeatureFlagPermission]
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         if self.action == "list":

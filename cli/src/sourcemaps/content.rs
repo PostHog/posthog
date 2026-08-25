@@ -80,8 +80,13 @@ pub fn get_injected_release_id(source: &str, chunk_id: &str) -> Option<String> {
 pub struct SourceMapContent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub release_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "debugId")]
+    #[serde(alias = "chunkId", skip_serializing_if = "Option::is_none")]
     pub chunk_id: Option<String>,
+    /// Bundler-emitted ECMA-426 debug id. Kept separate from `chunk_id` so a bundler-stamped
+    /// map isn't mistaken for one we already processed (which would skip the mapping
+    /// adjustment on inject). Preserved on save for interop.
+    #[serde(rename = "debugId", skip_serializing_if = "Option::is_none")]
+    pub debug_id: Option<String>,
     #[serde(flatten)]
     pub fields: BTreeMap<String, Value>,
 }
@@ -151,6 +156,16 @@ impl SourceMapFile {
         self.inner.content.chunk_id.clone()
     }
 
+    pub fn get_debug_id(&self) -> Option<String> {
+        self.inner.content.debug_id.clone()
+    }
+
+    /// The id this map's symbol set uploads under: our stamped chunk id when present, else a
+    /// bundler-emitted debug id. Hermes maps built with Expo's tooling carry only the latter.
+    pub fn get_upload_chunk_id(&self) -> Option<String> {
+        self.get_chunk_id().or_else(|| self.get_debug_id())
+    }
+
     pub fn get_release_id(&self) -> Option<String> {
         self.inner.content.release_id.clone()
     }
@@ -200,6 +215,7 @@ impl SourceMapFile {
         let mut old_content = std::mem::replace(&mut self.inner.content, new_content);
         self.inner.content.chunk_id = old_content.chunk_id.take();
         self.inner.content.release_id = old_content.release_id.take();
+        self.inner.content.debug_id = old_content.debug_id.take();
         // Preserve extension fields (e.g. x_org_dartlang_dart2js for Flutter/Dart minified name mapping)
         // Skip "sections" since that's specific to index sourcemaps which we flatten above
         for (key, value) in old_content.fields {
@@ -237,6 +253,11 @@ impl MinifiedSourceFile {
 
     pub fn get_chunk_id(&self) -> Option<String> {
         let patterns = ["//# chunkId="];
+        self.get_comment_value(&patterns)
+    }
+
+    pub fn get_debug_id(&self) -> Option<String> {
+        let patterns = ["//# debugId="];
         self.get_comment_value(&patterns)
     }
 
@@ -324,19 +345,37 @@ impl MinifiedSourceFile {
     }
 
     pub fn get_sourcemap_reference(&self) -> Result<Option<String>> {
-        let patterns = ["//# sourceMappingURL=", "//@ sourceMappingURL="];
-        let Some(found) = self.get_comment_value(&patterns) else {
-            return Ok(None);
+        let found = if self.is_stylesheet() {
+            css_sourcemap_reference(&self.inner.content)
+        } else {
+            self.inner.content.lines().rev().find_map(|line| {
+                let line = line.trim();
+                ["//# sourceMappingURL=", "//@ sourceMappingURL="]
+                    .iter()
+                    .find_map(|prefix| line.strip_prefix(prefix))
+            })
         };
-        Ok(Some(urlencoding::decode(&found)?.into_owned()))
+
+        Ok(found
+            .map(|reference| urlencoding::decode(reference).map(|decoded| decoded.into_owned()))
+            .transpose()?)
     }
 
     pub fn remove_sourcemap_reference(&mut self) -> bool {
-        let Some(range) = trailing_sourcemap_reference_range(&self.inner.content) else {
+        let range = if self.is_stylesheet() {
+            css_sourcemap_reference_removal_range(&self.inner.content)
+        } else {
+            trailing_sourcemap_reference_range(&self.inner.content)
+        };
+        let Some(range) = range else {
             return false;
         };
         self.inner.content.replace_range(range, "");
         true
+    }
+
+    fn is_stylesheet(&self) -> bool {
+        self.inner.path.extension().is_some_and(|ext| ext == "css")
     }
 
     fn get_comment_value(&self, patterns: &[&str]) -> Option<String> {
@@ -406,6 +445,81 @@ impl MinifiedSourceFile {
     }
 }
 
+const CSS_SOURCEMAP_REFERENCE_PREFIX: &str = "/*# sourceMappingURL=";
+
+fn css_sourcemap_reference_range(line: &str) -> Option<std::ops::Range<usize>> {
+    let bytes = line.as_bytes();
+    let mut index = 0;
+    let mut quote = None;
+    let mut escaped = false;
+    let mut found = None;
+
+    while index < bytes.len() {
+        if escaped {
+            escaped = false;
+            index += 1;
+            continue;
+        }
+
+        if let Some(active_quote) = quote {
+            if bytes[index] == b'\\' {
+                escaped = true;
+            } else if bytes[index] == active_quote {
+                quote = None;
+            }
+            index += 1;
+            continue;
+        }
+
+        if bytes[index] == b'\\' {
+            escaped = true;
+            index += 1;
+            continue;
+        }
+
+        match bytes[index] {
+            b'\'' | b'"' => {
+                quote = Some(bytes[index]);
+                index += 1;
+            }
+            b'/' if bytes.get(index + 1) == Some(&b'*') => {
+                let comment_end = line[index + 2..].find("*/").map(|end| index + end + 4)?;
+                if line[index..].starts_with(CSS_SOURCEMAP_REFERENCE_PREFIX) {
+                    found = Some(index..comment_end);
+                }
+                index = comment_end;
+            }
+            _ => index += 1,
+        }
+    }
+
+    found
+}
+
+fn css_sourcemap_reference(content: &str) -> Option<&str> {
+    let range = css_sourcemap_reference_range(content)?;
+    let reference_start = range.start + CSS_SOURCEMAP_REFERENCE_PREFIX.len();
+    Some(content[reference_start..range.end - 2].trim_end())
+}
+
+fn css_sourcemap_reference_removal_range(content: &str) -> Option<std::ops::Range<usize>> {
+    let comment_range = css_sourcemap_reference_range(content)?;
+    let line_start = content[..comment_range.start]
+        .rfind('\n')
+        .map_or(0, |index| index + 1);
+    let line_end = content[comment_range.end..]
+        .find('\n')
+        .map_or(content.len(), |index| comment_range.end + index + 1);
+
+    if content[line_start..comment_range.start].trim().is_empty()
+        && content[comment_range.end..line_end].trim().is_empty()
+    {
+        Some(line_start..line_end)
+    } else {
+        Some(comment_range)
+    }
+}
+
 fn trailing_sourcemap_reference_range(content: &str) -> Option<std::ops::Range<usize>> {
     let mut line_start = 0;
     let mut lines = Vec::new();
@@ -417,7 +531,10 @@ fn trailing_sourcemap_reference_range(content: &str) -> Option<std::ops::Range<u
 
     for (line_start, line_end, line) in lines.into_iter().rev() {
         let trimmed_line = line.trim();
-        if trimmed_line.is_empty() || trimmed_line.starts_with("//# chunkId=") {
+        if trimmed_line.is_empty()
+            || trimmed_line.starts_with("//# chunkId=")
+            || trimmed_line.starts_with("//# debugId=")
+        {
             continue;
         }
         if trimmed_line.starts_with("//# sourceMappingURL=")
@@ -436,7 +553,7 @@ impl TryInto<SymbolSetUpload> for SourceMapFile {
 
     fn try_into(self) -> Result<SymbolSetUpload> {
         let chunk_id = self
-            .get_chunk_id()
+            .get_upload_chunk_id()
             .ok_or_else(|| anyhow!("Chunk ID not found"))?;
 
         let release_id = self.get_release_id();
@@ -468,10 +585,18 @@ mod tests {
         serde_json::from_value(value).expect("Failed to build SourceMapContent")
     }
 
-    fn minified_source(content: &str) -> MinifiedSourceFile {
+    fn source_file(path: &str, content: &str) -> MinifiedSourceFile {
         MinifiedSourceFile {
-            inner: SourceFile::new(PathBuf::from("chunk.js"), content.to_string()),
+            inner: SourceFile::new(PathBuf::from(path), content.to_string()),
         }
+    }
+
+    fn minified_source(content: &str) -> MinifiedSourceFile {
+        source_file("chunk.js", content)
+    }
+
+    fn stylesheet_source(content: &str) -> MinifiedSourceFile {
+        source_file("styles.css", content)
     }
 
     #[test]
@@ -627,6 +752,67 @@ mod tests {
     }
 
     #[test]
+    fn debug_id_is_not_conflated_with_chunk_id_and_round_trips() {
+        let sm = content_from(json!({
+            "version": 3,
+            "mappings": "AAAA",
+            "sources": ["a.ts"],
+            "names": [],
+            "debugId": "11111111-2222-4333-8444-555555555555",
+        }));
+
+        assert_eq!(
+            sm.debug_id.as_deref(),
+            Some("11111111-2222-4333-8444-555555555555")
+        );
+        assert!(sm.chunk_id.is_none());
+
+        let out = serde_json::to_value(&sm).expect("Failed to serialize");
+        assert_eq!(out["debugId"], "11111111-2222-4333-8444-555555555555");
+        assert!(out.get("chunk_id").is_none());
+    }
+
+    #[test]
+    fn hermes_upload_accepts_map_with_only_debug_id() {
+        let file = SourceMapFile {
+            inner: SourceFile::new(
+                PathBuf::from("bundle.js.map"),
+                content_from(json!({
+                    "version": 3,
+                    "mappings": "AAAA",
+                    "sources": ["a.ts"],
+                    "names": [],
+                    "debugId": "11111111-2222-4333-8444-555555555555",
+                    "x_hermes_function_offsets": {},
+                })),
+            ),
+        };
+
+        let upload: SymbolSetUpload = file.try_into().expect("Failed to convert to upload");
+        assert_eq!(upload.chunk_id, "11111111-2222-4333-8444-555555555555");
+    }
+
+    #[test]
+    fn hermes_upload_accepts_map_with_camel_case_chunk_id() {
+        let file = SourceMapFile {
+            inner: SourceFile::new(
+                PathBuf::from("bundle.js.map"),
+                content_from(json!({
+                    "version": 3,
+                    "mappings": "AAAA",
+                    "sources": ["a.ts"],
+                    "names": [],
+                    "chunkId": "11111111-2222-4333-8444-555555555555",
+                    "x_hermes_function_offsets": {},
+                })),
+            ),
+        };
+
+        let upload: SymbolSetUpload = file.try_into().expect("Failed to convert to upload");
+        assert_eq!(upload.chunk_id, "11111111-2222-4333-8444-555555555555");
+    }
+
+    #[test]
     fn remove_sourcemap_reference_strips_standard_comment() {
         let mut source = minified_source("console.log(1);\n//# sourceMappingURL=chunk.js.map\n");
 
@@ -643,6 +829,104 @@ mod tests {
     }
 
     #[test]
+    fn remove_sourcemap_reference_strips_css_comment() {
+        let mut source =
+            stylesheet_source(".app { color: black; }\n/*# sourceMappingURL=app.css.map*/\n");
+
+        assert_eq!(
+            source.get_sourcemap_reference().unwrap(),
+            Some("app.css.map".to_string())
+        );
+        assert!(source.remove_sourcemap_reference());
+        assert_eq!(source.inner.content, ".app { color: black; }\n");
+    }
+
+    #[test]
+    fn remove_sourcemap_reference_strips_inline_css_comment() {
+        let mut source = stylesheet_source(
+            ".app{content:\"/* not a comment */\"}/*# sourceMappingURL=app.css.map */\n",
+        );
+
+        assert_eq!(
+            source.get_sourcemap_reference().unwrap(),
+            Some("app.css.map".to_string())
+        );
+        assert!(source.remove_sourcemap_reference());
+        assert_eq!(
+            source.inner.content,
+            ".app{content:\"/* not a comment */\"}\n"
+        );
+    }
+
+    #[test]
+    fn remove_sourcemap_reference_ignores_css_string_contents() {
+        let original = ".example::after{content:\"/*# sourceMappingURL=app.css.map*/\"}\n";
+        let mut source = stylesheet_source(original);
+
+        assert_eq!(source.get_sourcemap_reference().unwrap(), None);
+        assert!(!source.remove_sourcemap_reference());
+        assert_eq!(source.inner.content, original);
+    }
+
+    #[test]
+    fn remove_sourcemap_reference_ignores_css_string_after_escaped_quote() {
+        let original = ".foo\\'bar{content:\"x'/*# sourceMappingURL=victim.map*/\"}\n";
+        let mut source = stylesheet_source(original);
+
+        assert_eq!(source.get_sourcemap_reference().unwrap(), None);
+        assert!(!source.remove_sourcemap_reference());
+        assert_eq!(source.inner.content, original);
+    }
+
+    #[test]
+    fn remove_sourcemap_reference_ignores_continued_css_string_contents() {
+        let original =
+            ".example::after{content:\"before\\\n/*# sourceMappingURL=app.css.map*/\"}\n";
+        let mut source = stylesheet_source(original);
+
+        assert_eq!(source.get_sourcemap_reference().unwrap(), None);
+        assert!(!source.remove_sourcemap_reference());
+        assert_eq!(source.inner.content, original);
+    }
+
+    #[test]
+    fn remove_sourcemap_reference_ignores_javascript_template_contents() {
+        let original = "const css = `body{}/*# sourceMappingURL=theme.css.map*/`;\n";
+        let mut source = minified_source(original);
+
+        assert_eq!(source.get_sourcemap_reference().unwrap(), None);
+        assert!(!source.remove_sourcemap_reference());
+        assert_eq!(source.inner.content, original);
+    }
+
+    #[test]
+    fn remove_sourcemap_reference_preserves_adjacent_css_license() {
+        let mut source =
+            stylesheet_source(".a{}/*# sourceMappingURL=app.css.map*/ /* license */\n");
+
+        assert_eq!(
+            source.get_sourcemap_reference().unwrap(),
+            Some("app.css.map".to_string())
+        );
+        assert!(source.remove_sourcemap_reference());
+        assert_eq!(source.inner.content, ".a{} /* license */\n");
+    }
+
+    #[test]
+    fn remove_sourcemap_reference_strips_css_comment_before_license() {
+        let mut source = stylesheet_source(
+            ".app{color:black}\n/*# sourceMappingURL=app.css.map */\n/* license */\n",
+        );
+
+        assert_eq!(
+            source.get_sourcemap_reference().unwrap(),
+            Some("app.css.map".to_string())
+        );
+        assert!(source.remove_sourcemap_reference());
+        assert_eq!(source.inner.content, ".app{color:black}\n/* license */\n");
+    }
+
+    #[test]
     fn remove_sourcemap_reference_strips_comment_with_injected_chunk_id() {
         let mut source = minified_source(
             "console.log(1);\n//# sourceMappingURL=chunk.js.map\n\n//# chunkId=00000",
@@ -650,6 +934,18 @@ mod tests {
 
         assert!(source.remove_sourcemap_reference());
         assert_eq!(source.inner.content, "console.log(1);\n\n//# chunkId=00000");
+    }
+
+    #[test]
+    fn remove_sourcemap_reference_strips_comment_with_trailing_debug_id() {
+        // sentry-cli appends its `//# debugId=` comment after the sourceMappingURL line, and
+        // `--delete-after` must still find and strip the reference behind it.
+        let mut source = minified_source(
+            "console.log(1);\n//# sourceMappingURL=chunk.js.map\n//# debugId=00000",
+        );
+
+        assert!(source.remove_sourcemap_reference());
+        assert_eq!(source.inner.content, "console.log(1);\n//# debugId=00000");
     }
 
     #[test]

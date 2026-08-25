@@ -30,6 +30,9 @@ export const POSTHOG_NOTIFICATIONS = {
    * the tracked prompt lifecycle that TURN_COMPLETE drives on the agent side. */
   BACKGROUND_TURN_COMPLETE: "_posthog/background_turn_complete",
 
+  /** Background/task-notification-triggered reply started without a prompt RPC. */
+  BACKGROUND_TURN_STARTED: "_posthog/background_turn_started",
+
   /** Error occurred during task execution */
   ERROR: "_posthog/error",
 
@@ -125,6 +128,13 @@ export const POSTHOG_METHODS = {
    * completed so the caller can safely send the next prompt.
    */
   REFRESH_SESSION: "_posthog/refresh_session",
+
+  /**
+   * One-shot side question ("/btw"): forks the live session's transcript into
+   * a single-turn, tool-less query and returns `{ answer }` without touching
+   * the main conversation. Payload: `{ question: string }`.
+   */
+  SIDE_QUESTION: "_posthog/side_question",
 } as const;
 
 type PosthogNotification =

@@ -17,7 +17,6 @@ from products.ai_observability.backend.api import (
     EvaluationReportViewSet,
     EvaluationRunViewSet,
     EvaluationViewSet,
-    LLMEvaluationSummaryViewSet,
     LLMModelsViewSet,
     LLMProviderKeyValidationViewSet,
     LLMProviderKeyViewSet,
@@ -64,12 +63,6 @@ def register_routes(routers: RouterRegistry) -> None:
         r"llm_analytics/summarization",
         AIObservabilitySummarizationViewSet,
         "project_llm_analytics_summarization",
-        ["team_id"],
-    )
-    routers.projects.register(
-        r"llm_analytics/evaluation_summary",
-        LLMEvaluationSummaryViewSet,
-        "project_llm_analytics_evaluation_summary",
         ["team_id"],
     )
     routers.projects.register(

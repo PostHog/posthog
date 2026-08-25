@@ -1,82 +1,40 @@
-# S3 Query Cache TTL Implementation
+# S3 query cache setup
 
-## How It Works
+The query cache zstd-compresses every entry it stores in Redis.
+Entries whose compressed form is at least `QUERY_CACHE_S3_MIN_COMPRESSED_BYTES` (default 128KB) can be stored as S3 objects instead of inline Redis blobs; the same compressed bytes serve as the routing decision, the inline value, and the upload body.
+Redis then holds a small pointer record under the same cache key.
+The threshold applies to compressed bytes because that is what an entry actually costs in Redis.
+See `posthog/query_cache/storage.py`.
 
-1 **Object Tagging**: Each S3 object gets tags:
+## Semantics
 
-```text
-ttl_days=1              # Calculated TTL in days
-team_id=123            # Team identifier
-```
+- **Expiry is governed by the Redis pointer's TTL** (`CACHED_RESULTS_TTL`), not by S3. Once the pointer expires or is evicted, the entry is gone regardless of whether the S3 object still exists.
+- **Blobs are deleted eagerly once nothing references them.** Replacing or evicting a pointer entry enqueues a best-effort Celery delete, delayed by `BLOB_DELETE_DELAY_SECONDS` (60s) so a reader that just fetched the pointer from Redis can still complete its S3 read. An upload whose pointer swap lost to a newer write deletes its own blob immediately, since that pointer never entered Redis.
+- **The S3 lifecycle rule is the garbage collection backstop.** It deletes whatever the eager path misses: pointers that expired by TTL, shadow-mode uploads, rolled-back teams, failed deletes, and writes from a process that could not reach the Celery broker.
+- Rollout is controlled by the `query-cache-s3-writes` multivariate feature flag on the organization group. It gates writes only; reads never evaluate the flag, they follow whatever the stored record says.
+  - Disabled: every result is stored inline in Redis, as always.
+  - `shadow`: write the cache entry to both S3 and Redis, testing the write path; nothing reads the S3 copy.
+  - `on`: write the pointer to Redis and the entry to S3; reads fetch the blob from S3.
 
-2 **Automatic Deletion**: S3 lifecycle rules delete objects matching tag criteria
+## Object layout and tagging
 
-## Required S3 Lifecycle Rules
+Objects are written to `s3://{QUERY_CACHE_S3_BUCKET}/{OBJECT_STORAGE_S3_QUERY_CACHE_FOLDER}/{team_id}/{cache_key}/{upload_id}` with attribution tags (`cache_type=query_data`, `team_id=<id>`). Tags carry no expiry meaning. The per-upload suffix keeps overlapping recomputes of one query from overwriting each other's blob. A superseded upload deletes its own object on the spot, and replaced or evicted pointers get theirs deleted by the delayed Celery task, so a frequently recomputed query does not accumulate a week of dead blobs.
 
-**Critical**: You must create lifecycle rules for every `ttl_days` value your app generates.
+## Required S3 lifecycle rule
 
-### AWS CLI Configuration
+One rule: expire objects after `CACHED_RESULTS_TTL_DAYS` (7) days.
+The cloud buckets (`posthog-query-cache-<region>-<env>`) are dedicated to this cache, so their rule is bucket-wide; it is managed in posthog-cloud-infra, `terraform/modules/s3/main.tf` (`enable_query_cache_lifecycle`).
 
-```bash
-# Create rules for common TTL values: 1, 2, 7, 14, 30 days
-cat > lifecycle-config.json << EOF
-{
-    "Rules": [
-        {
-            "ID": "query-cache-ttl-1-day",
-            "Status": "Enabled",
-            "Filter": {
-                "And": {
-                    "Tags": [
-                        {"Key": "ttl_days", "Value": "1"},
-                    ]
-                }
-            },
-            "Expiration": {"Days": 1}
-        },
-        {
-            "ID": "query-cache-ttl-7-days",
-            "Status": "Enabled",
-            "Filter": {
-                "And": {
-                    "Tags": [
-                        {"Key": "ttl_days", "Value": "7"},
-                    ]
-                }
-            },
-            "Expiration": {"Days": 7}
-        }
-    ]
-}
-EOF
+**On a shared bucket, scope the rule to the `OBJECT_STORAGE_S3_QUERY_CACHE_FOLDER` prefix** (`query_cache/` by default). `QUERY_CACHE_S3_BUCKET` falls back to the shared `OBJECT_STORAGE_BUCKET` when unset, and a bucket-wide expiry rule there would also delete exports, media uploads, and error-tracking source maps.
 
-aws s3api put-bucket-lifecycle-configuration \
-    --bucket your-bucket-name \
-    --lifecycle-configuration file://lifecycle-config.json
-```
+**If `CACHED_RESULTS_TTL_DAYS` is ever raised, raise the bucket rule first**, otherwise S3 deletes blobs while their Redis pointers still live and large cache entries silently expire early. Lowering the setting is safe: blobs then just outlive their pointers by a few days before GC.
 
-### Terraform Configuration
+## Settings
 
-```hcl
-resource "aws_s3_bucket_lifecycle_configuration" "query_cache" {
-  bucket = aws_s3_bucket.query_cache.id
+| Setting                                | Default                 | Meaning                                                                |
+| -------------------------------------- | ----------------------- | ---------------------------------------------------------------------- |
+| `QUERY_CACHE_S3_BUCKET`                | `OBJECT_STORAGE_BUCKET` | Bucket for cache blobs (`posthog-query-cache-<region>-<env>` in cloud) |
+| `OBJECT_STORAGE_S3_QUERY_CACHE_FOLDER` | `query_cache`           | Key prefix inside the bucket                                           |
+| `QUERY_CACHE_S3_MIN_COMPRESSED_BYTES`  | `131072`                | Minimum zstd-compressed size for S3 routing                            |
 
-  # Repeat this rule block for each TTL value (1, 2, 7, 14, 30 days)
-  rule {
-    id     = "query-cache-ttl-1-day"
-    status = "Enabled"
-    filter {
-      and {
-        tags = {
-          ttl_days   = "1"
-        }
-      }
-    }
-    expiration {
-      days = 1
-    }
-  }
-}
-```
-
-**Warning**: Objects with `ttl_days` values lacking lifecycle rules will never expire.
+These are plain environment variables read at process start. Cloud runs the defaults; overriding one in production means plumbing it through the deployment charts first, the same as any other app setting.

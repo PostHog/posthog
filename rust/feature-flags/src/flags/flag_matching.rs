@@ -6,7 +6,7 @@ use crate::cohorts::cohort_operations::{
     apply_cohort_membership_logic, evaluate_dynamic_cohorts, record_stamp_policy_divergence,
 };
 use crate::cohorts::membership::{CohortMembershipProvider, NoOpCohortMembershipProvider};
-use crate::database::PostgresRouter;
+use crate::database::{pool_names, PostgresRouter};
 use crate::flags::flag_group_type_mapping::{
     GroupTypeCacheManager, GroupTypeIndex, GroupTypeMapping,
 };
@@ -717,14 +717,22 @@ impl FeatureFlagMatcher {
         // When we're writing a hash_key_override, we query the main database (writer), not the replica (reader)
         // This is because we need to make sure the write is successful before we read it back
         // to avoid read-after-write consistency issues with database replication lag
-        let database_for_reading = if writing_hash_key_override {
-            self.router.get_persons_writer().clone()
+        let (database_for_reading, pool_name) = if writing_hash_key_override {
+            (
+                self.router.get_persons_writer().clone(),
+                pool_names::PERSONS_WRITER,
+            )
         } else {
-            self.router.get_persons_reader().clone()
+            (
+                self.router.get_persons_reader().clone(),
+                pool_names::PERSONS_READER,
+            )
         };
 
         match get_feature_flag_hash_key_overrides(
             database_for_reading,
+            pool_name,
+            self.router.get_persons_writer().clone(),
             self.team_id,
             target_distinct_ids,
         )
@@ -1276,7 +1284,7 @@ impl FeatureFlagMatcher {
                     evaluation_tags: None,
                     bucketing_identifier: None,
                 };
-                (stub, Err(FlagError::BatchEvaluationPanicked))
+                (stub, Err(FlagError::batch_evaluation_panicked()))
             })
             .collect()
     }
@@ -2325,7 +2333,7 @@ impl FeatureFlagMatcher {
                 tracing::debug!(
                     "Person properties not in cache — DB prep was skipped (overrides cover all needed keys)"
                 );
-                Err(FlagError::PersonNotFound)
+                Err(FlagError::person_not_found())
             }
             PersonPropertyState::Pending => {
                 inc(
@@ -2341,7 +2349,7 @@ impl FeatureFlagMatcher {
                     log.eval.person_properties_not_cached = true;
                 });
                 tracing::error!("Person properties not found — DB prep never ran");
-                Err(FlagError::PersonNotFound)
+                Err(FlagError::person_not_found())
             }
         }
     }
@@ -2402,6 +2410,8 @@ impl FeatureFlagMatcher {
                     None => {
                         match get_feature_flag_hash_key_overrides(
                             self.router.get_persons_reader().clone(),
+                            pool_names::PERSONS_READER,
+                            self.router.get_persons_writer().clone(),
                             self.team_id,
                             vec![self.distinct_id.clone()],
                         )
@@ -2584,19 +2594,37 @@ mod tests {
         assert_eq!(stub_a.key, "flag_a");
         assert_eq!(stub_a.id, 10);
         assert_eq!(stub_a.version, Some(3));
-        assert!(matches!(err_a, Err(FlagError::BatchEvaluationPanicked)));
+        assert!(matches!(
+            err_a,
+            Err(FlagError::InternalError {
+                code: "batch_evaluation_panicked",
+                ..
+            })
+        ));
 
         let (stub_b, err_b) = &results[1];
         assert_eq!(stub_b.key, "flag_b");
         assert_eq!(stub_b.id, 20);
         assert_eq!(stub_b.version, None);
-        assert!(matches!(err_b, Err(FlagError::BatchEvaluationPanicked)));
+        assert!(matches!(
+            err_b,
+            Err(FlagError::InternalError {
+                code: "batch_evaluation_panicked",
+                ..
+            })
+        ));
 
         let (stub_c, err_c) = &results[2];
         assert_eq!(stub_c.key, "flag_c");
         assert_eq!(stub_c.id, 30);
         assert_eq!(stub_c.version, Some(1));
-        assert!(matches!(err_c, Err(FlagError::BatchEvaluationPanicked)));
+        assert!(matches!(
+            err_c,
+            Err(FlagError::InternalError {
+                code: "batch_evaluation_panicked",
+                ..
+            })
+        ));
 
         for (stub, _) in &results {
             assert_eq!(stub.team_id, team_id);

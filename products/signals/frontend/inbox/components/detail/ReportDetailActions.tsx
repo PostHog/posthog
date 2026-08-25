@@ -12,6 +12,7 @@ import { captureInboxReportAction } from '../../inboxAnalytics'
 import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
+import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
 import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport, SignalReportStatus } from '../../types'
 import { useReportArchive } from '../cards/useReportArchive'
@@ -62,6 +63,9 @@ function canCreateImplementationPr(report: SignalReport): boolean {
  */
 export function useReportDetailActions(report: SignalReport): ReportDetailAction[] {
     const { isCreatingPr, aiConsentDisabledReason } = useValues(inboxTaskKickoffLogic)
+    // Already mounted by `ReportDetail` with these same props, so this reads the loaded value
+    // rather than starting a second fetch.
+    const { hasLiveImplementationTask } = useValues(inboxReportDetailLogic({ reportId: report.id, report }))
     const { createPrFromReport } = useActions(inboxTaskKickoffLogic)
     const { reportArchived } = useActions(inboxBulkActionsLogic)
     const { activeTab } = useValues(inboxSceneLogic)
@@ -191,7 +195,11 @@ export function useReportDetailActions(report: SignalReport): ReportDetailAction
             icon: <IconPullRequest />,
             loading: isCreatingPr,
             tooltip: 'Have Self-driving open a pull request for this report',
-            disabledReason: aiConsentDisabledReason ?? undefined,
+            disabledReason:
+                aiConsentDisabledReason ??
+                (hasLiveImplementationTask
+                    ? 'A PR task already exists for this report. Open it in the task log to continue.'
+                    : undefined),
             onClick: () => {
                 captureInboxReportAction({ report, actionType: 'create_pr', surface: 'detail_pane' })
                 createPrFromReport(report)

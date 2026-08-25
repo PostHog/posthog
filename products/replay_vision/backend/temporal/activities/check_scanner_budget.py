@@ -13,8 +13,8 @@ def _notify_limit_reached(scanner: ReplayScanner) -> bool:
     pipeline (flag off, nobody to notify) counts as sent so it is not retried every tick."""
     try:
         from posthog.models import User  # noqa: PLC0415
-        from posthog.rbac.user_access_control import UserAccessControl  # noqa: PLC0415
 
+        from products.access_control.backend.facade.user_access_control import UserAccessControl  # noqa: PLC0415
         from products.notifications.backend.facade.api import (  # noqa: PLC0415 (keeps the heavy dep off the import path)
             NotificationData,
             NotificationType,
@@ -37,7 +37,7 @@ def _notify_limit_reached(scanner: ReplayScanner) -> bool:
                     return user_ids
                 # Per-user checks cost several queries each; without object-level rows on this scanner
                 # the resource-wide filter already applied is the whole answer, so skip them.
-                from ee.models.rbac.access_control import AccessControl  # noqa: PLC0415
+                from products.access_control.backend.models.access_control import AccessControl  # noqa: PLC0415
 
                 has_object_rules = AccessControl.objects.filter(
                     team=scanner.team, resource="replay_scanner", resource_id=str(scanner.id)
@@ -129,23 +129,23 @@ def check_scanner_budget_activity(inputs: CheckScannerBudgetInputs) -> CheckScan
     # The WHERE claims the notification stamp: of two racing ticks exactly one wins the send, and a
     # crash before the send below can only skip a notification, never send an unrecorded one.
     watermark = initial_watermark()
+    # The deep pass walks from its own watermark up to the fast one, so leaving it behind would hand
+    # the first uncapped deep sweep exactly the window this reset skips. The cursor is cleared with
+    # it: it points partway into ground nobody swept.
+    reset = {
+        "last_swept_at": watermark,
+        "last_seen_session_id": "",
+        "deep_swept_through": watermark,
+        "deep_seen_session_id": "",
+    }
     stamped = (
         ReplayScanner.objects.filter(pk=scanner.pk)
         .exclude(limit_notified_period_start=period.start)
-        .update(
-            last_swept_at=watermark,
-            last_seen_session_id="",
-            # The deep pass walks from its own watermark up to the fast one, so leaving it behind would
-            # hand the first uncapped deep sweep exactly the window this reset skips.
-            last_deep_swept_at=watermark,
-            limit_notified_period_start=period.start,
-        )
+        .update(**reset, limit_notified_period_start=period.start)
     )
     if not stamped:
         # Already notified this period; still advance the watermark past the skipped window.
-        ReplayScanner.objects.filter(pk=scanner.pk).update(
-            last_swept_at=watermark, last_seen_session_id="", last_deep_swept_at=watermark
-        )
+        ReplayScanner.objects.filter(pk=scanner.pk).update(**reset)
     activity.logger.info(
         "Sweep skipped: scanner credit limit reached",
         extra={

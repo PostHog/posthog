@@ -593,7 +593,8 @@ services:
                     clickhouse_app_metrics2 \
                     log_entries \
                     clickhouse_property_values \
-                    clickhouse_tophog"
+                    clickhouse_tophog \
+                    clickhouse_billing_usage_records"
                 for topic in $$TOPICS; do
                     if rpk topic create "$$topic" --brokers kafka:9092 -p 1 -r 1 2>&1; then
                         echo "Topic $$topic created"
@@ -694,6 +695,22 @@ services:
             REDIS_COMPRESSION_ENABLED: 'true'
             INTERNAL_REQUEST_TOKEN: 'dev-internal-token'
 
+    usage-ingestion:
+        extends:
+            file: docker-compose.base.yml
+            service: usage-ingestion
+        ports:
+            - '7143:7143'
+            - '7144:7144'
+        depends_on:
+            db:
+                condition: service_healthy
+            kafka:
+                condition: service_healthy
+        # Keeps a bare `up` from building an image that is not published yet.
+        profiles:
+            - ingestion
+
     # Temporal containers
     elasticsearch:
         extends:
@@ -786,14 +803,16 @@ services:
             - '14268:14268' # jaeger.thrift
             - '14250:14250' # model.proto
 
-    localstack:
+    dynamodb:
         extends:
             file: docker-compose.base.yml
-            service: localstack
-        container_name: '${LOCALSTACK_DOCKER_NAME:-localstack-main}'
+            service: dynamodb
+        profiles: [dynamodb]
+        container_name: '${DYNAMODB_DOCKER_NAME:-dynamodb-main}'
         ports:
-            - '127.0.0.1:4566:4566' # LocalStack Gateway
-            - '127.0.0.1:4510-4559:4510-4559' # external services port range
+            # Not 8000 (the Django dev server) and not 18000, which the eval harness binds for its
+            # live server, where sharing the port fails `hogli evals` on Linux with the stack up.
+            - '127.0.0.1:18010:8000'
 
     seaweedfs:
         extends:

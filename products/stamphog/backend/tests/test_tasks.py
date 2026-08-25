@@ -12,8 +12,9 @@ from posthog.models import Project, Team
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.scoping import team_scope
 
-from products.stamphog.backend.facade.enums import ReviewMode, ReviewRunStatus
-from products.stamphog.backend.models import PullRequest, ReviewRun, StamphogRepoConfig
+from products.stamphog.backend.facade.enums import AudienceReason, ReviewMode, ReviewRunStatus, ReviewVerdict
+from products.stamphog.backend.logic.audiences import ResolvedAudience
+from products.stamphog.backend.models import PullRequest, PullRequestAudience, ReviewRun, StamphogRepoConfig
 from products.stamphog.backend.tasks.tasks import (
     _INBOX_OPT_OUT_DISMISS_MESSAGE,
     _parse_pr_url,
@@ -56,6 +57,7 @@ def _pr_payload(
     repo: str = REPO,
     pr_number: int = 42,
     head_sha: str = "sha-1",
+    base_sha: str = "base-1",
     head_branch: str = "feature-branch",
     head_repo: str | None = None,
     author_login: str = "member-dev",
@@ -71,6 +73,7 @@ def _pr_payload(
         head["repo"] = {"full_name": head_repo}
     pr: dict[str, Any] = {
         "number": pr_number,
+        "base": {"sha": base_sha},
         "html_url": f"https://github.com/{repo}/pull/{pr_number}",
         "head": head,
         "user": {"login": author_login, "type": user_type},
@@ -92,7 +95,14 @@ def _pr_payload(
 
 
 def _run_task(
-    payload: dict[str, Any], delivery_id: str, team_id: int, author_permission: str = "write", app_slug: str = APP_SLUG
+    payload: dict[str, Any],
+    delivery_id: str,
+    team_id: int,
+    author_permission: str = "write",
+    app_slug: str = APP_SLUG,
+    pr_files: list[dict[str, Any]] | None = None,
+    active_approval_ids: list[int] | None = None,
+    compare_diffs: list[str] | None = None,
 ):
     # transaction.on_commit never fires on its own outside a real commit, so run it
     # inline; execute_stamphog_review_workflow is a Temporal network call and gets mocked, as is
@@ -106,7 +116,22 @@ def _run_task(
         patch("products.stamphog.backend.tasks.tasks.StamphogGitHubClient") as mock_client,
     ):
         mock_client.return_value.get_collaborator_permission.return_value = author_permission
+        mock_client.return_value.get_pr_files.return_value = pr_files or []
+        # Retention reads both sides of its comparison with compare_diff, and it reads the approved
+        # head first.
+        if compare_diffs is None:
+            mock_client.return_value.compare_diff.return_value = ""
+        else:
+            mock_client.return_value.compare_diff.side_effect = list(compare_diffs)
+        # Retention trusts only an approval that GitHub still reports as active. Default to the id
+        # that the retention tests post, so the check passes unless a test empties it on purpose.
+        mock_client.return_value.list_own_active_approvals.return_value = [
+            {"id": review_id} for review_id in (active_approval_ids if active_approval_ids is not None else [9])
+        ]
         process_pull_request_event(payload, delivery_id)
+    # This context patches the GitHub client, so a test that asserts on a GitHub call must use the
+    # mock that this context created, and must not patch the same target again from outside.
+    mock_execute.github = mock_client.return_value
     return mock_execute
 
 
@@ -820,6 +845,9 @@ def test_inbox_carve_out_rereviews_a_selfdriving_pr_past_every_gate(team, repo_c
         "task_run_id": str(dto.run_id),
         "acting_user_id": 777,
     }
+    # Stamped at creation, so a later review_mode change can't rewrite what the reviewer is told.
+    # The repo is in LABEL mode here, so this also pins the precedence at the stamping site.
+    assert run.output["review_trigger"] == "self_driving"
     mock_execute.assert_called_once_with(review_run_id=str(run.id), team_id=team.id)
     # Fork-safety feeds the lookup the base repo and GitHub's head ref (matched against the run's
     # server-stamped branch); the config's team scopes it.
@@ -1238,3 +1266,194 @@ def test_inbox_receiver_leg_refuses_non_self_driving_prs(team, repo_config, pr_k
     with team_scope(team.id):
         assert ReviewRun.objects.count() == 0
     mock_execute.assert_not_called()
+
+
+_APPROVED = """diff --git a/posthog/api/thing.py b/posthog/api/thing.py
+index aaa..bbb 100644
+--- a/posthog/api/thing.py
++++ b/posthog/api/thing.py
+@@ -1,2 +1,3 @@
+ keep
++added
+"""
+
+
+def _approved_run(team_id: int) -> None:
+    with team_scope(team_id):
+        ReviewRun.objects.filter(pull_request__pr_number=42).update(
+            verdict=ReviewVerdict.APPROVED,
+            posted_review_id=9,
+            output={"pr": {"base": {"sha": "base-1"}}},
+        )
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+@pytest.mark.parametrize(
+    "same_diff,expect_retained",
+    [(True, True), (False, False)],
+    ids=["identical_diff_retains", "changed_diff_dismisses"],
+)
+def test_push_retains_the_approval_only_when_the_diff_is_identical(team, repo_config, same_diff, expect_retained):
+    # A merge of the base branch does not change any blob in the PR's own diff, so there is nothing
+    # new to review, and a dismissal would drop the PR out of merge readiness. A blob that did move
+    # is content that the approval no longer covers, and that case keeps the stale-approval
+    # invariant intact.
+    #
+    # Each case uses its own delivery id, because _mark_pr_event_processed writes to the
+    # process-wide cache. A shared id would let the first case remove the second case's deliveries
+    # as duplicates.
+    current_diff = _APPROVED if same_diff else _APPROVED.replace("+added", "+something else")
+    _run_task(_pr_payload(), f"delivery-retention-approved-{same_diff}", team.id)
+    _approved_run(team.id)
+
+    with patch("products.stamphog.backend.tasks.tasks.dismiss_stale_approvals_for_head", return_value=1) as dismiss:
+        mock_execute = _run_task(
+            _pr_payload(action="synchronize", head_sha="sha-2"),
+            f"delivery-retention-push-{same_diff}",
+            team.id,
+            compare_diffs=[_APPROVED, current_diff],
+        )
+
+    with team_scope(team.id):
+        run_count = ReviewRun.objects.count()
+    if expect_retained:
+        dismiss.assert_not_called()
+        mock_execute.assert_not_called()
+        assert run_count == 1
+    else:
+        mock_execute.assert_called_once()
+        assert run_count == 2
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_retention_reads_both_sides_from_pinned_commits(team, repo_config):
+    # get_pr_files answers for the head that is live when the request runs. A contributor could push
+    # the approved content, wait for the comparison, and then push the unreviewed head again. Two
+    # immutable commits leave no such window. Retention must therefore never call the PR-files
+    # endpoint, and must pin each side to the base and the head that it decides about.
+    _run_task(_pr_payload(), "delivery-pinned-approved", team.id)
+    _approved_run(team.id)
+
+    mock_execute = _run_task(
+        _pr_payload(action="synchronize", head_sha="sha-2", base_sha="base-2"),
+        "delivery-pinned-push",
+        team.id,
+        compare_diffs=[_APPROVED, _APPROVED],
+    )
+
+    client = mock_execute.github
+    client.get_pr_files.assert_not_called()
+    assert [call.args[1:] for call in client.compare_diff.call_args_list] == [
+        ("base-1", "sha-1"),
+        ("base-2", "sha-2"),
+    ]
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_manually_dismissed_approval_is_not_retained(team, repo_config):
+    # A maintainer who dismisses stamphog's review on GitHub updates nothing in the product DB, so
+    # the stored review id still looks like a standing approval. Retention over it would skip the
+    # replacement review and leave the PR with no approval at all.
+    _run_task(_pr_payload(), "delivery-dismissed-approved", team.id)
+    _approved_run(team.id)
+
+    mock_execute = _run_task(
+        _pr_payload(action="synchronize", head_sha="sha-2"),
+        "delivery-dismissed-push",
+        team.id,
+        compare_diffs=[_APPROVED, _APPROVED],
+        active_approval_ids=[],
+    )
+
+    mock_execute.assert_called_once()
+    with team_scope(team.id):
+        assert ReviewRun.objects.count() == 2
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_retained_approval_still_counts_as_approved_at_merge(team, repo_config):
+    # The merge handler matches an approving run on head_sha alone. A retained approval was posted
+    # at an earlier head, so without the retained-head record the merge reads as unapproved, and the
+    # PR drops out of the daily digest permanently, because merged_at makes the redelivery a
+    # no-op.
+    with team_scope(team.id):
+        repo_config.digest_enabled = True
+        repo_config.save()
+    _run_task(_pr_payload(), "delivery-retain-merge-approved", team.id)
+    _approved_run(team.id)
+
+    _run_task(
+        _pr_payload(action="synchronize", head_sha="sha-2"),
+        "delivery-retain-merge-push",
+        team.id,
+        compare_diffs=[_APPROVED, _APPROVED],
+    )
+    with team_scope(team.id):
+        run = ReviewRun.objects.get(pull_request__pr_number=42)
+        assert run.output["retained_head_shas"] == ["sha-2"]
+
+    payload = _pr_payload(action="closed", head_sha="sha-2")
+    payload["pull_request"]["merged"] = True
+    payload["pull_request"]["merged_at"] = "2026-08-19T00:00:00Z"
+    # Audience resolution calls GitHub for team membership. Stub it, so that the assertion covers
+    # only whether the merge counted as approved, which is the one thing that the retained head
+    # decides.
+    audience = ResolvedAudience(key="team:devex", reason=AudienceReason.AUTHORED)
+    with patch("products.stamphog.backend.tasks.tasks.resolve_audiences", return_value=[audience]) as resolve:
+        _run_task(payload, "delivery-retain-merge-closed", team.id)
+
+    resolve.assert_called_once()
+    with team_scope(team.id):
+        merged = PullRequest.objects.get(repo_config=repo_config, pr_number=42)
+        assert merged.merged_at is not None
+        assert list(PullRequestAudience.objects.filter(pull_request=merged).values_list("audience_key", flat=True)) == [
+            "team:devex"
+        ]
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+@pytest.mark.parametrize(
+    "output",
+    [{}, {"pr": None}, {"pr": {"base": None}}, {"pr": {"base": {}}}],
+    ids=["no_pr", "null_pr", "null_base", "empty_base"],
+)
+def test_retention_needs_a_usable_approved_base_sha(team, repo_config, output):
+    # Without the base, the code cannot pin the approved side. A malformed payload must therefore
+    # read as "cannot answer", and must not raise into the caller's catch-all.
+    _run_task(_pr_payload(), f"delivery-base-{list(output)}-{output}", team.id)
+    with team_scope(team.id):
+        ReviewRun.objects.filter(pull_request__pr_number=42).update(posted_review_id=9, output=output)
+
+    mock_execute = _run_task(
+        _pr_payload(action="synchronize", head_sha="sha-2"),
+        f"delivery-base-push-{list(output)}-{output}",
+        team.id,
+        compare_diffs=[_APPROVED, _APPROVED],
+    )
+
+    mock_execute.assert_called_once()
+
+
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+@pytest.mark.parametrize("action,expect_comment", [("labeled", True), ("synchronize", False)])
+def test_trigger_label_is_taken_back_off_a_bot_pr(team, repo_config, action, expect_comment):
+    # A labeled dependabot PR gets an explanation and loses the label again. Without that removal
+    # the label stays on the PR while every later delivery silently takes the bot-author skip, so
+    # the PR looks reviewed but never is. The explanation is posted only where a person just
+    # acted.
+    with team_scope(team.id):
+        repo_config.review_mode = ReviewMode.LABEL
+        repo_config.save()
+    payload = _pr_payload(
+        action=action,
+        author_login="dependabot[bot]",
+        user_type="Bot",
+        labels=["stamphog"],
+        added_label="stamphog",
+    )
+
+    client = _run_task(payload, f"delivery-bot-label-{action}", team.id).github
+    client.remove_pr_label.assert_called_once_with(REPO, 42, "stamphog")
+    assert client.upsert_sticky_comment.called is expect_comment
+    with team_scope(team.id):
+        assert ReviewRun.objects.count() == 0

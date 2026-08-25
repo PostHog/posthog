@@ -11,6 +11,7 @@ import {
 } from '@/lib/instructions'
 import { formatPrompt } from '@/lib/utils'
 import AGENT_FEEDBACK from '@/templates/sections/agent-feedback.md'
+import ANALYSIS_ARTIFACTS from '@/templates/sections/analysis-artifacts.md'
 import BASIC_FUNCTIONALITY from '@/templates/sections/basic-functionality.md'
 import CATALOG_TRUST_DISCOVERY from '@/templates/sections/catalog-trust-discovery.md'
 import CLI_DATA_DISCOVERY from '@/templates/sections/cli-data-discovery.md'
@@ -28,6 +29,7 @@ import EXEC_LEARN from '@/templates/sections/exec-learn.md'
 import EXEC_TOOL_BLURB from '@/templates/sections/exec-tool-blurb.md'
 import METRIC_DISCOVERY_COMPACT from '@/templates/sections/metric-discovery-compact.md'
 import METRIC_DISCOVERY from '@/templates/sections/metric-discovery.md'
+import NOTEBOOK_PYTHON from '@/templates/sections/notebook-python.md'
 import RETRIEVING_DATA from '@/templates/sections/retrieving-data.md'
 import SCHEMA_WORKFLOW from '@/templates/sections/schema-workflow.md'
 import TOOL_SEARCH from '@/templates/sections/tool-search.md'
@@ -38,6 +40,10 @@ export interface InstructionsContext {
     guidelines: string
     groupTypes?: GroupType[] | undefined
     metadata?: string | undefined
+    /** `metadata` without the product/integration context lines, for the claude.ai
+     *  exec command reference, which counts against the ~16 KiB registry cap on the
+     *  serialized inputSchema. Falls back to `metadata` when unset. */
+    metadataCompact?: string | undefined
     tools?: ToolInfo[] | undefined
     queryTools?: QueryToolInfo[] | undefined
     /** Whether `render-ui` is actually available to this client (i.e. the client is
@@ -48,6 +54,10 @@ export interface InstructionsContext {
      *  for this org. Gates the metric-discovery section so flag-off renders never steer
      *  the model at a table it can't query — and stay byte-identical. */
     dataCatalogEnabled?: boolean | undefined
+    /** Whether the notebook cell tools (`notebooks-add-cell` and friends) are
+     *  advertised to this client. Gates the Python-in-a-notebook section so we never
+     *  tell an agent to put its analysis in a cell type it can't create. */
+    notebookCellsEnabled?: boolean | undefined
 }
 
 /**
@@ -57,6 +67,12 @@ export interface InstructionsContext {
  * modes live in a single file, so prose can't drift.
  */
 export class InstructionsFormatter {
+    /** Artifact-choice guidance: notebook vs dashboard vs insight, plus the
+     *  Python-goes-in-a-cell rule when the notebook cell tools are available. */
+    private artifactSections(ctx: InstructionsContext): string[] {
+        return [ANALYSIS_ARTIFACTS, ...(ctx.notebookCellsEnabled ? [NOTEBOOK_PYTHON] : [])]
+    }
+
     /** Build the system prompt for tools-mode clients (each tool registered separately). */
     buildToolsInstructions(ctx: InstructionsContext): string {
         return this.compose(
@@ -67,6 +83,7 @@ export class InstructionsFormatter {
                 RETRIEVING_DATA,
                 SCHEMA_WORKFLOW,
                 ...(ctx.dataCatalogEnabled ? [CATALOG_TRUST_DISCOVERY] : []),
+                ...this.artifactSections(ctx),
                 ENV_CONTEXT,
                 URL_PATTERNS,
                 AGENT_FEEDBACK,
@@ -128,6 +145,7 @@ export class InstructionsFormatter {
                         RETRIEVING_DATA,
                         SCHEMA_WORKFLOW,
                         ...(ctx.dataCatalogEnabled ? [CATALOG_TRUST_DISCOVERY] : []),
+                        ...this.artifactSections(ctx),
                         EXAMPLES,
                     ],
                     ctx,
@@ -145,6 +163,15 @@ export class InstructionsFormatter {
                 content: this.compose([CLI_RENDERING], ctx, { compact: false }),
             })
         }
+
+        // URL rules are task-specific and load on demand instead of consuming Claude's capped input schema.
+        entries.push({
+            id: 'urls',
+            kind: 'guide',
+            title: 'URL patterns',
+            description: 'Load before writing any PostHog app link or URL.',
+            content: this.compose([URL_PATTERNS], ctx, { compact: false }),
+        })
 
         entries.push({
             id: 'feedback',
@@ -170,7 +197,7 @@ export class InstructionsFormatter {
         const helpSection = formatPrompt(EXEC_LEARN, { help_topics: helpTopics })
         const renderCtx: InstructionsContext = {
             guidelines: ctx.guidelines,
-            metadata: ctx.metadata,
+            metadata: ctx.metadataCompact ?? ctx.metadata,
             groupTypes: ctx.groupTypes,
             tools: ctx.tools,
         }
@@ -187,7 +214,6 @@ export class InstructionsFormatter {
                 BASIC_FUNCTIONALITY,
                 TOOL_SEARCH,
                 ENV_CONTEXT,
-                URL_PATTERNS,
             ],
             renderCtx,
             {
@@ -230,6 +256,7 @@ export class InstructionsFormatter {
             RETRIEVING_DATA,
             SCHEMA_WORKFLOW,
             ...(ctx.dataCatalogEnabled ? [CATALOG_TRUST_DISCOVERY] : []),
+            ...this.artifactSections(ctx),
             ENV_CONTEXT,
             URL_PATTERNS,
             AGENT_FEEDBACK,

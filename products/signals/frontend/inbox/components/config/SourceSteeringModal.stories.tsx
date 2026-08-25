@@ -38,17 +38,21 @@ export default meta
 
 type Story = StoryObj<typeof ModalHarness>
 
-/** First open: no rules yet, blocklist posture selected. */
+/** First open: nothing written yet. */
 export const NoRulesYet: Story = {
     args: { config: {} },
 }
 
-/** Editing saved rules with the allowlist posture on. */
+/** Editing saved guidance. */
 export const RulesSet: Story = {
     args: {
         config: {
             steering: 'Ignore issues labeled chore or internal. Anything mentioning billing is always actionable.',
-            default_not_actionable: true,
         },
     },
+}
+
+/** A source still carrying the retired posture flag, which the gate keeps honoring. */
+export const LegacyPosture: Story = {
+    args: { config: { default_not_actionable: true } },
 }

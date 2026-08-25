@@ -85,6 +85,45 @@ export function modelsForRuntimeAdapter(
     return catalogue.filter((option) => option.runtime_adapter === runtimeAdapter)
 }
 
+/** One stop on the Faster/Smarter slider: a model paired with the effort it runs at. */
+export interface CapabilityNotch {
+    model: string
+    effort: ReasoningEffortEnumApi
+}
+
+// The curated Faster → Smarter progression per harness, kept in step with the desktop app's ladder in
+// `products/desktop/packages/agent/src/adapters/reasoning-effort.ts` so both surfaces offer the same rungs.
+const CAPABILITY_LADDERS: Record<RuntimeAdapterEnumApi, CapabilityNotch[]> = {
+    [RuntimeAdapterEnumApi.Claude]: [
+        { model: 'claude-sonnet-5', effort: ReasoningEffortEnumApi.Medium },
+        { model: 'claude-sonnet-5', effort: ReasoningEffortEnumApi.High },
+        { model: 'claude-opus-5', effort: ReasoningEffortEnumApi.Medium },
+        { model: 'claude-opus-5', effort: ReasoningEffortEnumApi.Xhigh },
+        { model: 'claude-fable-5', effort: ReasoningEffortEnumApi.Max },
+    ],
+    [RuntimeAdapterEnumApi.Codex]: [
+        { model: 'gpt-5.6-terra', effort: ReasoningEffortEnumApi.Low },
+        { model: 'gpt-5.6-sol', effort: ReasoningEffortEnumApi.Low },
+        { model: 'gpt-5.6-sol', effort: ReasoningEffortEnumApi.Medium },
+        { model: 'gpt-5.6-sol', effort: ReasoningEffortEnumApi.High },
+        { model: 'gpt-5.6-sol', effort: ReasoningEffortEnumApi.Xhigh },
+    ],
+}
+
+/**
+ * The ladder rungs the live catalogue actually serves. A notch naming a model the gateway no longer offers — or an
+ * effort that model no longer accepts — drops out rather than becoming a stop that fails on send. The picker falls
+ * back to its plain effort list when fewer than two rungs survive.
+ */
+export function getCapabilityLadder(
+    catalogue: ModelChoiceApi[],
+    runtimeAdapter: RuntimeAdapterEnumApi
+): CapabilityNotch[] {
+    return (CAPABILITY_LADDERS[runtimeAdapter] ?? []).filter((notch) =>
+        catalogue.some((option) => option.model === notch.model && option.supported_efforts.includes(notch.effort))
+    )
+}
+
 const RUNTIME_ADAPTER_LABELS: Record<RuntimeAdapterEnumApi, string> = {
     [RuntimeAdapterEnumApi.Claude]: 'Claude',
     [RuntimeAdapterEnumApi.Codex]: 'Codex',

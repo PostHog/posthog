@@ -34,7 +34,8 @@ _EMPTY_TURN_RETRY_NUDGE = "\n\nPlease respond now with the JSON object matching 
 _ModelT = TypeVar("_ModelT", bound=BaseModel)
 
 
-@dataclass
+# Mutable: per-turn log offsets (`log_lines_seen`, `printed_lines`) are updated in place.
+@dataclass(frozen=False)
 class MultiTurnSession:
     task: Task
     task_run: TaskRun
@@ -222,13 +223,15 @@ class MultiTurnSession:
                 raise
         started_at = time.monotonic()
         try:
-            last_message, _, session.log_lines_seen, session.printed_lines = await poll_for_turn(
+            turn = await poll_for_turn(
                 task_run,
                 verbose=verbose,
                 output_fn=output_fn,
                 workflow_handle=workflow_handle,
                 max_poll_seconds=max_poll_seconds,
             )
+            session.log_lines_seen = turn.total_lines
+            session.printed_lines = turn.printed_lines
             logger.info(
                 "multi_turn: initial turn completed run=%s duration=%.2fs",
                 task_run.id,
@@ -242,7 +245,7 @@ class MultiTurnSession:
             # Shield so the failure signal still lands if the cancel re-fires mid-cleanup.
             await asyncio.shield(session.end(status="failed", error=str(e)))
             raise
-        return session, last_message
+        return session, turn.last_message
 
     async def send_followup(
         self,
@@ -297,7 +300,7 @@ class MultiTurnSession:
             attempt,
         )
         try:
-            last_message, _, self.log_lines_seen, self.printed_lines = await poll_for_turn(
+            turn = await poll_for_turn(
                 self.task_run,
                 skip_lines=self.log_lines_seen,
                 printed_lines=self.printed_lines,
@@ -306,7 +309,9 @@ class MultiTurnSession:
                 workflow_handle=self._workflow_handle,
                 max_poll_seconds=self.max_poll_seconds,
             )
-            return last_message
+            self.log_lines_seen = turn.total_lines
+            self.printed_lines = turn.printed_lines
+            return turn.last_message
         # Catch empty turns, raise everything else
         except EmptyAgentTurnError as e:
             # Advance log offsets to read from the current tail instead of re-reading the empty-turn lines

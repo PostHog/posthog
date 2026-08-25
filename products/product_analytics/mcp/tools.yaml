@@ -274,6 +274,9 @@ tools:
     insights-bulk-restore-create:
         operation: insights_bulk_restore_create
         enabled: false
+    insights-bulk-set-test-account-filter-create:
+        operation: insights_bulk_set_test_account_filter_create
+        enabled: false
     insights-bulk-update-tags-create:
         operation: insights_bulk_update_tags_create
         enabled: false

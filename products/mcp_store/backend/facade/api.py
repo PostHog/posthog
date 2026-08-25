@@ -19,7 +19,7 @@ from products.mcp_store.backend.agents import (
     get_built_in_agent,
     is_builtin_agent_enforcement_enabled,
 )
-from products.mcp_store.backend.facade.contracts import ActiveInstallationInfo
+from products.mcp_store.backend.facade.contracts import ActiveInstallation
 from products.mcp_store.backend.gateway import (
     agent_grant_owner_label,
     agent_grant_proxy_path,
@@ -127,8 +127,8 @@ def _is_oauth_ready(installation: MCPServerInstallation) -> bool:
     return True
 
 
-def _to_info(installation: MCPServerInstallation, team_id: int) -> ActiveInstallationInfo:
-    return ActiveInstallationInfo(
+def _to_info(installation: MCPServerInstallation, team_id: int) -> ActiveInstallation:
+    return ActiveInstallation(
         id=str(installation.id),
         name=_resolve_name(installation),
         proxy_path=f"/api/environments/{team_id}/mcp_server_installations/{installation.id}/proxy/",
@@ -210,13 +210,13 @@ def _agent_installation_infos(
     agent_account: MCPServiceAccount,
     mounts: list[tuple[MCPServiceAccountServerAccess, MCPServerInstallation]],
     credential_owner_id: int | None,
-) -> list[ActiveInstallationInfo]:
+) -> list[ActiveInstallation]:
     if not mounts:
         return []
     proxy_token = create_gateway_agent_token(agent_account, credential_owner_id=credential_owner_id)
     mounts_per_server = Counter(access.gateway_server_id for access, _installation in mounts)
 
-    infos: list[ActiveInstallationInfo] = []
+    infos: list[ActiveInstallation] = []
     for access, installation in mounts:
         name = _resolve_name(installation)
         if mounts_per_server[access.gateway_server_id] > 1:
@@ -224,7 +224,7 @@ def _agent_installation_infos(
             # the same server need distinct ones.
             name = f"{name} ({agent_grant_owner_label(access)})"
         infos.append(
-            ActiveInstallationInfo(
+            ActiveInstallation(
                 id=str(installation.id),
                 name=name,
                 proxy_path=agent_grant_proxy_path(access),
@@ -235,16 +235,22 @@ def _agent_installation_infos(
     return infos
 
 
-def get_active_installations(team_id: int, user_id: int) -> list[ActiveInstallationInfo]:
-    """Return active, ready-to-use personal MCP installations for a user.
+def get_active_installations(team_id: int, user_id: int, *, include_shared: bool = False) -> list[ActiveInstallation]:
+    """Return active, ready-to-use MCP installations a user can mount.
 
-    Filters out disabled installations and OAuth installations that
-    need reauthorization or are still pending token exchange.
+    Personal installations owned by the user by default; ``include_shared`` adds the
+    team's shared-scope installations, mirroring what ``get_installations_for_sandbox``
+    resolves for an unmapped run. Filters out disabled installations and OAuth
+    installations that need reauthorization or are still pending token exchange.
     """
+    scope_filter = Q(scope="personal", user_id=user_id)
+    if include_shared:
+        scope_filter |= Q(scope="shared")
     try:
         # list() evaluates the lazy queryset here so DB errors hit this handler.
         installations = list(
-            MCPServerInstallation.objects.filter(team_id=team_id, user_id=user_id, is_enabled=True, scope="personal")
+            MCPServerInstallation.objects.filter(team_id=team_id, is_enabled=True)
+            .filter(scope_filter)
             .filter(Q(gateway_server__isnull=True) | Q(gateway_server__is_team_enabled=True))
             .exclude(gateway_server__member_revocations__user_id=user_id)
             .select_related("template")
@@ -253,7 +259,7 @@ def get_active_installations(team_id: int, user_id: int) -> list[ActiveInstallat
         logger.warning("Error fetching MCP installations", error=str(e), team_id=team_id)
         return []
 
-    results: list[ActiveInstallationInfo] = []
+    results: list[ActiveInstallation] = []
     for installation in installations:
         if not _is_oauth_ready(installation):
             logger.debug(
@@ -276,7 +282,7 @@ def get_installations_for_sandbox(
     task_agent_key: str | None = None,
     credential_owner_id: int | None = None,
     allowed_gateway_server_ids: list[str] | None = None,
-) -> list[ActiveInstallationInfo]:
+) -> list[ActiveInstallation]:
     """Return MCP installations for sandbox agent use.
 
     Generic tasks retain the legacy team-shared installation behavior. A
@@ -362,7 +368,7 @@ def get_installations_for_sandbox(
         logger.warning("Error fetching MCP installations for sandbox", error=str(e), team_id=team_id)
         return []
 
-    results: list[ActiveInstallationInfo]
+    results: list[ActiveInstallation]
     if agent_key is not None:
         results = (
             _agent_installation_infos(agent_account, agent_mounts, credential_owner_id)
@@ -389,3 +395,34 @@ def get_installations_for_sandbox(
         has_trusted_agent_key=agent_key is not None,
     )
     return results
+
+
+def get_sandbox_mcp_server_names(
+    team_id: int,
+    *,
+    user_id: int | None = None,
+    include_personal: bool = False,
+    task_origin: str | None = None,
+    task_agent_key: str | None = None,
+    credential_owner_id: int | None = None,
+    allowed_gateway_server_ids: list[str] | None = None,
+) -> list[str]:
+    """The names of the servers ``get_installations_for_sandbox`` would mount, in mount order.
+
+    For callers that steer an agent at its mounted servers by name before the sandbox launches
+    (the Signals scout run prompt), without being handed the mount credentials. Implemented as a
+    projection of the full resolution so the two can never disagree on what mounts; the signed
+    proxy token that resolution derives is stateless, so discarding it here spends nothing.
+    """
+    return [
+        installation.name
+        for installation in get_installations_for_sandbox(
+            team_id,
+            user_id=user_id,
+            include_personal=include_personal,
+            task_origin=task_origin,
+            task_agent_key=task_agent_key,
+            credential_owner_id=credential_owner_id,
+            allowed_gateway_server_ids=allowed_gateway_server_ids,
+        )
+    ]

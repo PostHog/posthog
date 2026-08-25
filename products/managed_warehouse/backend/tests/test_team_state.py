@@ -93,15 +93,19 @@ class TestEventsPersonsTables:
     @parameterized.expand(
         [
             # Derive rule and pin precedence as served through the accessor.
-            ("derived", {}, ("events_cp_schema", "persons_cp_schema")),
+            (
+                "derived",
+                {},
+                team_state.DucklingTables(events_table="events_cp_schema", persons_table="persons_cp_schema"),
+            ),
             (
                 "grandfathered_shared_pins",
                 {"events_table_name": "events", "persons_table_name": "persons"},
-                ("events", "persons"),
+                team_state.DucklingTables(events_table="events", persons_table="persons"),
             ),
         ]
     )
-    def test_resolves_from_cp_row(self, _name: str, overrides: dict, expected: tuple[str, str]) -> None:
+    def test_resolves_from_cp_row(self, _name: str, overrides: dict, expected: team_state.DucklingTables) -> None:
         org, team = _team()
         with _patch_org_rows([_cp_row(team, "cp_schema", **overrides)]):
             assert team_state.resolve_events_persons_tables(team.id) == expected
@@ -109,7 +113,9 @@ class TestEventsPersonsTables:
     def test_without_cp_row_falls_back_to_shared_tables(self) -> None:
         org, team = _team()
         with _patch_org_rows([]):
-            assert team_state.resolve_events_persons_tables(team.id) == ("events", "persons")
+            assert team_state.resolve_events_persons_tables(team.id) == team_state.DucklingTables(
+                events_table="events", persons_table="persons"
+            )
 
     def test_raises_when_cp_unreachable_and_cache_cold(self) -> None:
         org, team = _team()

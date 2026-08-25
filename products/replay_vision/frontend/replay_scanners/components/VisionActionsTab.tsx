@@ -8,10 +8,12 @@ import { LemonButton, LemonSwitch, LemonTable, LemonTag, Link } from '@posthog/l
 import { pngHoggie } from 'lib/brand/hoggies'
 import { AccessControlActionChildrenProps } from 'lib/components/AccessControlAction'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { slackChannelDisplayName } from 'lib/integrations/slackChannel'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { AccessControlLevel } from '~/types'
@@ -110,33 +112,43 @@ function VisionActionsTable({
 }): JSX.Element {
     const { visionActions, visionActionsLoading, togglingIds } = useValues(visionActionsLogic)
     const { toggleActionEnabled, deleteAction } = useActions(visionActionsLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    // When on, digests live on the scanner's own Scouts tab; vision actions then only carry alerts
+    // (plus any legacy digests awaiting migration).
+    const scoutDigests = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_SCOUT_DIGESTS]
 
-    // The scanner's built-in daily digest is listed here alongside user-created digests and alerts
-    // (marked with a "Daily digest" chip), so this page is the one place to see and manage every
+    // The scanner's built-in featured digest is listed here alongside user-created digests and alerts
+    // (marked with a "Featured digest" chip), so this page is the one place to see and manage every
     // automation on the scanner. It also has its own hero surface on the Observations tab.
     const rows = visionActions
 
     if (!visionActionsLoading && rows.length === 0) {
-        return (
+        const emptyState = (
             <ProductIntroduction
-                productName="Digests and alerts"
-                thingName="digest or alert"
+                productName={scoutDigests ? 'Alerts' : 'Digests and alerts'}
+                thingName={scoutDigests ? 'alert' : 'digest or alert'}
                 isEmpty
                 customHog={HedgehogXRay}
                 docsURL={visionDocsUrl('actions')}
-                description="Get scheduled digests of this scanner's observations, synthesized by AI on the cadence you choose. Or set alerts that notify you when new matches appear or a threshold is reached. Both can deliver to Slack."
+                description={
+                    scoutDigests
+                        ? 'Set alerts that notify you when new matches appear or a threshold is reached. Alerts can deliver to Slack.'
+                        : "Get scheduled digests of this scanner's observations, synthesized by AI on the cadence you choose. Or set alerts that notify you when new matches appear or a threshold is reached. Both can deliver to Slack."
+                }
                 actionElementOverride={
                     <div className="flex gap-2">
-                        <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
-                            <LemonButton
-                                type="secondary"
-                                icon={<IconPlus />}
-                                to={urls.replayVisionActionNew(scannerId, 'group_summary')}
-                                data-attr="vision-action-new-empty"
-                            >
-                                New digest
-                            </LemonButton>
-                        </EditorGate>
+                        {!scoutDigests && (
+                            <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
+                                <LemonButton
+                                    type="secondary"
+                                    icon={<IconPlus />}
+                                    to={urls.replayVisionActionNew(scannerId, 'group_summary')}
+                                    data-attr="vision-action-new-empty"
+                                >
+                                    New digest
+                                </LemonButton>
+                            </EditorGate>
+                        )}
                         <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
                             <LemonButton
                                 type="secondary"
@@ -151,6 +163,7 @@ function VisionActionsTable({
                 }
             />
         )
+        return emptyState
     }
 
     const columns: LemonTableColumns<VisionActionApi> = [
@@ -266,16 +279,18 @@ function VisionActionsTable({
     return (
         <div className="flex flex-col gap-2">
             <div className="flex justify-end gap-2">
-                <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
-                    <LemonButton
-                        type="secondary"
-                        icon={<IconPlus />}
-                        to={urls.replayVisionActionNew(scannerId, 'group_summary')}
-                        data-attr="vision-action-new"
-                    >
-                        New digest
-                    </LemonButton>
-                </EditorGate>
+                {!scoutDigests && (
+                    <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
+                        <LemonButton
+                            type="secondary"
+                            icon={<IconPlus />}
+                            to={urls.replayVisionActionNew(scannerId, 'group_summary')}
+                            data-attr="vision-action-new"
+                        >
+                            New digest
+                        </LemonButton>
+                    </EditorGate>
+                )}
                 <EditorGate userAccessLevel={scannerUserAccessLevel ?? undefined}>
                     <LemonButton
                         type="secondary"
@@ -293,7 +308,11 @@ function VisionActionsTable({
                 loading={visionActionsLoading}
                 rowKey="id"
                 data-attr="vision-actions-table"
-                emptyState="No digests or alerts set up for this scanner yet."
+                emptyState={
+                    scoutDigests
+                        ? 'No alerts set up for this scanner yet.'
+                        : 'No digests or alerts set up for this scanner yet.'
+                }
             />
         </div>
     )

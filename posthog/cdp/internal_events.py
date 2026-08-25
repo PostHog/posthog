@@ -17,12 +17,17 @@ logger = structlog.get_logger(__name__)
 # filter (products/cdp hog_function queryset) and mirrored in the Node CDP consumer, so keep it
 # POSIX-compatible (no (?:...) groups).
 MANAGED_ALERT_EVENT_PATTERN = r"^\$[a-z0-9_]+_alert_(firing|resolved|errored|auto_disabled)$"
+LEGACY_INSIGHT_ALERT_EVENT = "$insight_alert_firing"
 _MANAGED_ALERT_EVENT = re.compile(MANAGED_ALERT_EVENT_PATTERN)
 
 
 def is_managed_alert_internal_event(event_name: object) -> bool:
     """Return whether an internal event is reserved for an alert-owned destination."""
-    return isinstance(event_name, str) and _MANAGED_ALERT_EVENT.fullmatch(event_name) is not None
+    return (
+        isinstance(event_name, str)
+        and event_name != LEGACY_INSIGHT_ALERT_EVENT
+        and _MANAGED_ALERT_EVENT.fullmatch(event_name) is not None
+    )
 
 
 @dataclass

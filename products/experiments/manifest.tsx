@@ -2,11 +2,22 @@ import { toParams } from 'lib/utils/url'
 import { urls } from 'scenes/urls'
 
 import { ExperimentMetric, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
-
-import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, FileSystemIconColor, ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
     name: 'Experiments',
+    scenes: {
+        Experiments: {
+            import: () => import('./frontend/scenes/ExperimentsScene'),
+            projectBased: true,
+            name: 'Experiments',
+            activityScope: ActivityScope.EXPERIMENT,
+            description:
+                'Experiments help you test changes to your product to see which changes will lead to optimal results. Automatic statistical calculations let you see if the results are valid or due to chance.',
+            iconType: 'experiment',
+        },
+    },
+    routes: { '/experiments': ['Experiments', 'experiments'] },
     urls: {
         experiment: (
             id: string | number,

@@ -1,6 +1,6 @@
+import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { SessionNotification } from "@agentclientprotocol/sdk";
 
 function getClaudeConfigDir(): string {
   return process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude");
@@ -17,6 +17,10 @@ export function isClaudePlanFilePath(filePath: string | undefined): boolean {
   return resolved === plansDir || resolved.startsWith(plansDir + path.sep);
 }
 
+export function isSubagentPlanFilePath(filePath: string): boolean {
+  return /-agent-[0-9a-f]{8,}\.md$/i.test(path.basename(filePath));
+}
+
 export function isPlanReady(plan: string | undefined): boolean {
   if (!plan) return false;
   const trimmed = plan.trim();
@@ -24,33 +28,14 @@ export function isPlanReady(plan: string | undefined): boolean {
   return /(^|\n)#{1,6}\s+\S/.test(trimmed);
 }
 
-export function getLatestAssistantText(
-  notifications: SessionNotification[],
-): string | null {
-  const chunks: string[] = [];
-  let started = false;
-
-  for (let i = notifications.length - 1; i >= 0; i -= 1) {
-    const update = notifications[i]?.update;
-    if (!update) continue;
-
-    if (update.sessionUpdate === "agent_message_chunk") {
-      started = true;
-      const content = update.content as {
-        type?: string;
-        text?: string;
-      } | null;
-      if (content?.type === "text" && content.text) {
-        chunks.push(content.text);
-      }
-      continue;
+export async function readPlanFile(filePath: string): Promise<string | null> {
+  try {
+    const content = await fs.readFile(filePath, "utf8");
+    if (!content.trim()) {
+      return null;
     }
-
-    if (started) {
-      break;
-    }
+    return content;
+  } catch {
+    return null;
   }
-
-  if (chunks.length === 0) return null;
-  return chunks.reverse().join("");
 }

@@ -8,7 +8,7 @@ from products.conversations.backend.api.slack_oauth import support_slack_oauth_c
 
 
 class TestSupportSlackOAuthCallbackThrottle(SimpleTestCase):
-    @patch("products.conversations.backend.api.slack_oauth.requests.post")
+    @patch("products.conversations.backend.api.slack_oauth.slack_request")
     @patch.object(SupportSlackOAuthCallbackThrottle, "allow_request", return_value=False)
     def test_throttled_request_returns_429_before_token_exchange(self, _mock_allow, mock_post):
         request = RequestFactory().get("/api/conversations/v1/slack/callback", {"state": "x", "code": "y"})

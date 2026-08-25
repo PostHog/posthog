@@ -1,5 +1,7 @@
+import time
 from datetime import UTC, datetime
 
+from django.core.cache import cache
 from django.db.models import Q
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
@@ -48,6 +50,23 @@ PUSH_SUBSCRIPTION_DISCARD_COUNTER = Counter(
 
 logger = structlog.get_logger(__name__)
 
+# Discarding a registration is this endpoint's normal case: a device registers on app open whether or
+# not its project has a push integration, and most don't. The counter above carries that volume. The
+# log line exists to name the project behind it, and that is the same team and app_id every time, so
+# emitting it per request restates one fact indefinitely. One line per team per window keeps the
+# identification and drops the repetition.
+_DISCARD_LOG_WINDOW_SECONDS = 60
+
+# That same path runs _find_integrations, a JSONB filter, on every request. Cache the team's
+# configured app_ids so a registration for an app_id the team has never configured — the common case
+# — answers from cache instead. Keyed on the team alone: the value is a small bounded list, whereas
+# keying on the request's app_id would let one public project token mint unbounded entries.
+#
+# Staleness costs at most one window: a team that configures push keeps discarding for up to a minute,
+# and the device re-posts on its next launch anyway.
+_CONFIGURED_APP_IDS_CACHE_SECONDS = 60
+_PUSH_INTEGRATION_KINDS = ("firebase", "apns")
+
 VALID_PLATFORMS = ("android", "ios")
 
 # A device registration payload is a handful of short string fields (distinct_id, device_token,
@@ -66,6 +85,43 @@ _encrypted_fields = EncryptedFieldMixin()
 # closed: take the strictest mode across every match so a lax duplicate can't downgrade a sibling's
 # `required` policy. Unknown/garbage values sort to 0 (treated as disabled).
 _VERIFICATION_MODE_PRECEDENCE = {"disabled": 0, "optional": 1, "required": 2}
+
+
+def _is_first_discard_in_window(team_id: int) -> bool:
+    """Keyed on the team and the window only. app_id is request-controlled and can fill most of the
+    16 KiB body, and the project token that reaches this endpoint ships inside every copy of the app,
+    so keying on it would let anyone mint unbounded cache entries. Keyed on the window so a missed
+    expiry can never wedge the log shut, and fails open: losing the cache must not lose the only line
+    that names the project."""
+    window = int(time.time()) // _DISCARD_LOG_WINDOW_SECONDS
+    try:
+        return cache.add(f"push_subscriptions:discarded:{team_id}:{window}", 1, _DISCARD_LOG_WINDOW_SECONDS)
+    except Exception:
+        return True
+
+
+def _configurable_app_ids(team_id: int) -> list[str] | None:
+    """The app_ids this team has a push integration for, or None when the cache is unavailable.
+    None means "don't know", so the caller falls through to the real lookup rather than discarding a
+    registration a team is entitled to."""
+    key = f"push_subscriptions:app_ids:{team_id}"
+    try:
+        cached = cache.get(key)
+        if cached is not None:
+            return cached
+        app_ids = [
+            app_id
+            for integration in Integration.objects.filter(team_id=team_id, kind__in=_PUSH_INTEGRATION_KINDS).only(
+                "kind", "config"
+            )
+            if isinstance(
+                app_id := integration.config.get("project_id" if integration.kind == "firebase" else "bundle_id"), str
+            )
+        ]
+        cache.set(key, app_ids, _CONFIGURED_APP_IDS_CACHE_SECONDS)
+        return app_ids
+    except Exception:
+        return None
 
 
 # Resolve integrations from the app_id alone, not the device platform. An app_id is either a
@@ -249,7 +305,12 @@ def push_subscriptions(request: Request):
             app_id=app_id,
         )
 
-    integrations = _find_integrations(team.id, app_id)
+    # Skip the JSONB lookup when the team has no integration for this app_id, which is the endpoint's
+    # normal case. A cache miss or outage returns None and falls through to the real query.
+    known_app_ids = _configurable_app_ids(team.id)
+    integrations = (
+        [] if known_app_ids is not None and app_id not in known_app_ids else _find_integrations(team.id, app_id)
+    )
     # A missing integration is an account state, not a request error: SDKs auto-register on every
     # app open, so for most teams this is the endpoint's normal case, and a 4xx here turns the
     # whole fleet into an error firehose. Acknowledge registration with a 200 and skip the store,
@@ -258,7 +319,8 @@ def push_subscriptions(request: Request):
     # DELETE falls through: logout must clear any subscription stored while an integration existed.
     if not integrations and request.method == "POST":
         PUSH_SUBSCRIPTION_DISCARD_COUNTER.labels(reason="no_integration").inc()
-        logger.info("push_subscription_discarded", reason="no_integration", team_id=team.id, app_id=app_id)
+        if _is_first_discard_in_window(team.id):
+            logger.info("push_subscription_discarded", reason="no_integration", team_id=team.id, app_id=app_id)
         return cors_response(
             request,
             JsonResponse(

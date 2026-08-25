@@ -10,7 +10,6 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Funnel } from 'scenes/funnels/Funnel'
 import { FunnelCanvasLabel } from 'scenes/funnels/FunnelCanvasLabel'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
-import { HideWeekendsDeprecationNotice } from 'scenes/insights/EditorFilters/HideWeekendsDeprecationNotice'
 import {
     BoxPlotMissingPropertyState,
     FunnelDataWarehouseStepIncompleteState,
@@ -172,10 +171,10 @@ export function InsightVizDisplay({
     } = useValues(insightVizDataLogic(insightProps))
     const { loadData, updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { exportContext, queryId } = useValues(insightDataLogic(insightProps))
-    const { funnelsFilter, hasFunnelResults, isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } =
+    const { funnelVizType, hasFunnelResults, isFunnelWithEnoughSteps, isFunnelWithIncompleteDataWarehouseStep } =
         useValues(funnelDataLogic(insightProps))
 
-    const isFlowViz = funnelsFilter?.funnelVizType === FunnelVizType.Flow
+    const isFlowViz = funnelVizType === FunnelVizType.Flow
     const actionable = !embedded && editMode
 
     // Empty states that completely replace the graph
@@ -404,7 +403,6 @@ export function InsightVizDisplay({
             hasFunnelResults &&
             !disableTable
         ) {
-            const funnelVizType = funnelsFilter?.funnelVizType
             const funnelTable =
                 funnelVizType === FunnelVizType.TimeToConvert ? (
                     <FunnelTimeToConvertTable />
@@ -513,7 +511,6 @@ export function InsightVizDisplay({
                 data-attr="insights-graph"
             >
                 {disableHeader ? null : <InsightDisplayConfig />}
-                {!embedded && <HideWeekendsDeprecationNotice insightProps={insightProps} />}
                 {showingResults && (
                     <>
                         {!embedded &&

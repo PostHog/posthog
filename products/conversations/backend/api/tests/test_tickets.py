@@ -31,6 +31,8 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.redis import get_client
 from posthog.test.persons import create_person
 
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role
 from products.conversations.backend.api.ticket_filters import query_params_to_view_filters
 from products.conversations.backend.api.tickets import TicketReplyRequestSerializer
 from products.conversations.backend.models import EmailChannel, EmailChannelKind, Ticket, TicketAssignment, TicketView
@@ -39,8 +41,6 @@ from products.conversations.backend.person_lookup import PERSON_EMAIL_LOOKUP_QUE
 from products.conversations.backend.reply_dedupe import REPLY_IN_PROGRESS_ERROR_TYPE, ReplyFingerprint, reserve
 
 from ee.clickhouse.materialized_columns.columns import get_bloom_filter_lower_index_name
-from ee.models.rbac.access_control import AccessControl
-from ee.models.rbac.role import Role
 
 
 # Patch on_commit to execute immediately in tests
@@ -789,8 +789,8 @@ class TestTicketAPI(APIBaseTest):
         denormalized on the Ticket model, so no subqueries needed.
         Person data is batch-fetched in a single query.
         """
-        # Create 10 tickets with messages, assignments, and persons
-        for i in range(10):
+        # Two tickets are enough to detect a query that scales with the result count.
+        for i in range(2):
             ticket = Ticket.objects.create_with_number(
                 team=self.team,
                 channel_source=Channel.WIDGET,
@@ -821,23 +821,25 @@ class TestTicketAPI(APIBaseTest):
                 created_by=self.user,
             )
 
-        # Query count should be constant regardless of number of tickets
-        # Includes: session, user, org, team, permissions, feature flag permission org lookup,
-        # count query, tickets query, tagged_items prefetch, and the session-activity metadata
-        # write (deferred to on_commit, which this test class patches to run synchronously)
-        # Note: person reads go through personhog (no DB queries)
-        with self.assertNumQueries(12):
-            response = self.client.get(f"/api/projects/{self.team.id}/conversations/tickets/")
-            self.assertEqual(response.status_code, status.HTTP_200_OK)
-            # Should have original ticket + 10 new tickets = 11 total
-            self.assertEqual(response.json()["count"], 11)
-            # Verify all denormalized fields are present
-            for ticket_data in response.json()["results"]:
-                self.assertIn("message_count", ticket_data)
-                self.assertIn("last_message_at", ticket_data)
-                self.assertIn("last_message_text", ticket_data)
-                self.assertIn("assignee", ticket_data)
-                self.assertIn("person", ticket_data)
+        list_url = f"/api/projects/{self.team.id}/conversations/tickets/"
+        # Warm auth, settings, and session metadata so the measured requests differ only by page size.
+        warmup_response = self.client.get(f"{list_url}?limit=1")
+        self.assertEqual(warmup_response.status_code, status.HTTP_200_OK)
+
+        # Person reads go through personhog, so both page sizes should use the same database queries.
+        for limit in (2, 3):
+            with self.subTest(limit=limit), self.assertNumQueries(10):
+                response = self.client.get(f"{list_url}?limit={limit}")
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertEqual(response.json()["count"], 3)
+                self.assertEqual(len(response.json()["results"]), limit)
+                # Verify all denormalized fields are present
+                for ticket_data in response.json()["results"]:
+                    self.assertIn("message_count", ticket_data)
+                    self.assertIn("last_message_at", ticket_data)
+                    self.assertIn("last_message_text", ticket_data)
+                    self.assertIn("assignee", ticket_data)
+                    self.assertIn("person", ticket_data)
 
 
 @patch.object(transaction, "on_commit", side_effect=immediate_on_commit)

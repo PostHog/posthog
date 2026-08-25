@@ -115,6 +115,12 @@ def lifetime_wrapper(func):
                 message_type = message.get("type")
 
                 if message_type == "lifespan.startup":
+                    if settings.WEB_BOT_AUTH_PRIVATE_KEYS_ENV_VAR_PRESENT:
+                        from posthog.web_bot_auth_keys import (  # noqa: PLC0415
+                            validate_configured_web_bot_auth_private_keys_in_background,
+                        )
+
+                        validate_configured_web_bot_auth_private_keys_in_background()
                     # No-op unless PREWARM_WAREHOUSE_SOURCE_REGISTRY is set; never raises,
                     # so a broken catalog can't fail startup and trigger a respawn loop.
                     prewarm_warehouse_source_registry()

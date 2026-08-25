@@ -24,7 +24,6 @@ import api from 'lib/api'
 import { dataColorVars } from 'lib/colors'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { dayjs } from 'lib/dayjs'
-import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { teamLogic } from 'scenes/teamLogic'
 
 import {
@@ -53,6 +52,7 @@ const DEFAULT_LIVE_TAIL_POLL_INTERVAL_MS = 1000
 const DEFAULT_LOGS_PAGE_SIZE: number = 250
 export const DEFAULT_INITIAL_LOGS_LIMIT = null as number | null
 const NEW_QUERY_STARTED_ERROR_MESSAGE = 'new query started' as const
+const UNMOUNTING_ERROR_MESSAGE = 'unmounting component' as const
 
 // Parse cache keyed on log object identity — leak-free by construction (entries die with their
 // logs) and shared across logic instances. Parsing is pure per object, so cached entries are
@@ -84,9 +84,13 @@ function classifyQueryError(error: unknown): { error_type: string; status_code: 
     return { error_type: 'unknown', status_code: statusCode }
 }
 
+// kea-loaders reduces a rejection to its message, so an aborted request arrives here as the reason
+// text we passed to `abort()`. Neither of our reasons contains "abort", so both need matching by
+// name: an unmatched one is treated as a genuine failure, which toasts the user and fires a
+// `logs query failed` capture for a request that was cancelled on purpose.
 function isUserInitiatedError(error: unknown): boolean {
     const errorStr = String(error).toLowerCase()
-    return error === NEW_QUERY_STARTED_ERROR_MESSAGE || errorStr.includes('abort')
+    return error === NEW_QUERY_STARTED_ERROR_MESSAGE || error === UNMOUNTING_ERROR_MESSAGE || errorStr.includes('abort')
 }
 
 const stringifyLogAttributes = (attributes: Record<string, any>): Record<string, string> => {
@@ -179,7 +183,6 @@ export interface logsViewerDataLogicValues {
             values: number[]
         }[]
         dates: string[]
-        labels: string[]
     }
     sparklineIncompleteBarIndices: number[]
     sparklineLoading: boolean
@@ -455,7 +458,6 @@ export interface logsViewerDataLogicMeta {
                 values: number[]
             }[]
             dates: string[]
-            labels: string[]
         }
         sparklineIncompleteBarIndices: (
             sparklineData: {
@@ -465,7 +467,6 @@ export interface logsViewerDataLogicMeta {
                     values: number[]
                 }[]
                 dates: string[]
-                labels: string[]
             },
             liveLogsCheckpoint: string | null,
             sparklineLoading: boolean
@@ -860,23 +861,17 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
             (s) => [s.sparkline, s.sparklineBreakdownBy],
             (sparkline: any[] | null, sparklineBreakdownBy: LogsSparklineBreakdownBy) => {
                 if (!sparkline) {
-                    return { labels: [], dates: [], data: [] }
+                    return { dates: [], data: [] }
                 }
 
                 const breakdownKey = sparklineBreakdownBy
 
                 let lastTime = ''
                 let i = -1
-                const labels: string[] = []
                 const dates: string[] = []
                 const accumulated = sparkline.reduce(
                     (accumulator, currentItem) => {
                         if (currentItem.time !== lastTime) {
-                            labels.push(
-                                humanFriendlyDetailedTime(currentItem.time, 'YYYY-MM-DD', 'HH:mm:ss', {
-                                    timestampStyle: 'absolute',
-                                })
-                            )
                             dates.push(currentItem.time)
                             lastTime = currentItem.time
                             i++
@@ -897,6 +892,17 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     {} as Record<string, number[]>
                 )
 
+                // A key with no rows in the newest buckets stops accumulating early, leaving an array
+                // shorter than `dates`. Quill requires `data.length === labels.length`: a ragged array
+                // desyncs bar positions and clamps `stroke.partial.fromIndex` onto a complete bar,
+                // rendering it as still-ingesting.
+                const padToDatesLength = (values: number[]): number[] => {
+                    while (values.length < dates.length) {
+                        values.push(0)
+                    }
+                    return values
+                }
+
                 // The endpoint folds everything past its top-N into one bucket under a sentinel key.
                 // Left as-is that sorts to the front (it starts with '$') and draws as a breakdown
                 // value literally named "$$_posthog_breakdown_other_$$".
@@ -905,7 +911,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                     .sort(([a], [b]) => a.localeCompare(b))
                     .map(([name, values], index) => ({
                         name,
-                        values: values as number[],
+                        values: padToDatesLength(values as number[]),
                         color:
                             sparklineBreakdownBy === 'service'
                                 ? dataColorVars[index % dataColorVars.length]
@@ -921,10 +927,14 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                 const otherValues = accumulated[OTHER_BREAKDOWN_VALUE]
                 if (otherValues) {
                     // Last and muted, so it reads as an aggregate rather than as another breakdown value.
-                    data.push({ name: OTHER_BREAKDOWN_LABEL, values: otherValues as number[], color: 'muted' })
+                    data.push({
+                        name: OTHER_BREAKDOWN_LABEL,
+                        values: padToDatesLength(otherValues as number[]),
+                        color: 'muted',
+                    })
                 }
 
-                return { data, labels, dates }
+                return { data, dates }
             },
         ],
         // Sparkline bar indices that are still being ingested (incomplete), to be hatched. A bucket is
@@ -1284,11 +1294,15 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         beforeUnmount: () => {
             actions.setLiveTailRunning(false)
             actions.cancelInProgressLiveTail(null)
+            // Abort with an `AbortError`, never a bare string: `fetch` rejects with the reason
+            // exactly as given, and `handleFetch` only re-throws it untouched when it is a real
+            // `AbortError`. A string reason falls through and gets relabelled as an `ApiError`, so
+            // tearing the viewer down looks like a failed request in the console.
             if (values.logsAbortController) {
-                values.logsAbortController.abort('unmounting component')
+                values.logsAbortController.abort(new DOMException(UNMOUNTING_ERROR_MESSAGE, 'AbortError'))
             }
             if (values.sparklineAbortController) {
-                values.sparklineAbortController.abort('unmounting component')
+                values.sparklineAbortController.abort(new DOMException(UNMOUNTING_ERROR_MESSAGE, 'AbortError'))
             }
         },
     })),

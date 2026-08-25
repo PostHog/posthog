@@ -13,7 +13,8 @@ def advance_scanner_watermark_activity(inputs: AdvanceScannerWatermarkInputs) ->
         "last_seen_session_id": inputs.new_last_seen_session_id,
     }
     if inputs.new_last_deep_swept_at is not None:
-        updates["last_deep_swept_at"] = inputs.new_last_deep_swept_at
+        updates["deep_swept_through"] = inputs.new_last_deep_swept_at
+        updates["deep_seen_session_id"] = inputs.new_last_deep_seen_session_id
     updated = ReplayScanner.objects.filter(pk=inputs.scanner_id).update(**updates)
     if updated == 0:
         activity.logger.info(

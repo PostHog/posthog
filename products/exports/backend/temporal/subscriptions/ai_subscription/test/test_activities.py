@@ -23,7 +23,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     AI_REPORT_PROMPT_SNAPSHOT_KEY,
     AI_REPORT_SNAPSHOT_KEY,
 )
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 _WINDOW_END_UTC = "2026-06-25T12:00:00+00:00"
 
