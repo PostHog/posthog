@@ -101,6 +101,7 @@ import {
 } from '../types'
 import { BaseServerConfig, CleanupResources, NodeServer, ServerLifecycle } from './base-server'
 import { GrpcBatchContext, GrpcStreamIngestDriver } from './grpc-stream-ingest-driver'
+import { HttpBatchContext, HttpIngestPump } from './http-ingest-pump'
 
 export type IngestionApiServerConfig = BaseServerConfig &
     IngestionConsumerConfig &
@@ -214,9 +215,7 @@ export class IngestionApiServer implements NodeServer {
     // (moved to caller-side production so create and flush share one path).
     private ingestionOutputs?: FlushBatchStoresOutputs
 
-    private httpPipeline!: ReturnType<
-        typeof createJoinedIngestionPipeline<JoinedIngestionPipelineInput, JoinedIngestionPipelineContext>
-    >
+    private httpPump!: HttpIngestPump
     private grpcServer?: WorkerIngestServer
     private promiseScheduler = new PromiseScheduler()
     private hogTransformer!: HogTransformerService
@@ -230,6 +229,11 @@ export class IngestionApiServer implements NodeServer {
     // Kafka consumer's contract of crashing and rebuilding rather than serving
     // a wedged pipeline forever.
     private fatalError?: Error
+
+    // Admitted /ingest requests that have not responded yet, checked at the
+    // door so a pod that cannot answer stops admitting work even while the
+    // pipeline itself still has room.
+    private batchesAwaitingResponse = 0
 
     constructor(config: Partial<IngestionApiServerConfig> = {}) {
         this.config = {
@@ -514,13 +518,21 @@ export class IngestionApiServer implements NodeServer {
         if (this.config.INGESTION_API_FEED_ORDER_SENTINEL_ENABLED) {
             this.feedOrderSentinel = new FeedOrderSentinel(this.config.INGESTION_API_FEED_ORDER_SENTINEL_MAX_KEYS)
         }
-        this.httpPipeline = createJoinedIngestionPipeline(joinedPipelineConfig, joinedPipelineDeps)
+        this.httpPump = new HttpIngestPump(
+            createJoinedIngestionPipeline<
+                JoinedIngestionPipelineInput,
+                JoinedIngestionPipelineContext,
+                HttpBatchContext
+            >(joinedPipelineConfig, joinedPipelineDeps),
+            this.promiseScheduler
+        )
+        this.httpPump.start()
         this.lifecycle.expressApp.post('/ingest', async (req, res) => {
             await this.handleIngestRequest(req, res)
         })
         if (this.config.INGESTION_API_GRPC_ENABLED) {
-            // Own pipeline instance: sharing httpPipeline would let an HTTP
-            // handler's next() consume a gRPC batch's completion (and its ack).
+            // Own pipeline instance: sharing the HTTP pipeline would let the
+            // HTTP pump consume a gRPC batch's completion (and its ack).
             const grpcPipeline = createJoinedIngestionPipeline<
                 JoinedIngestionPipelineInput,
                 JoinedIngestionPipelineContext,
@@ -556,6 +568,7 @@ export class IngestionApiServer implements NodeServer {
         const service: PluginServerService = {
             id: 'ingestion-api',
             onShutdown: async () => {
+                await this.httpPump.stop()
                 await this.topHog.stop()
                 await this.hogTransformer.stop()
                 await eventFilterManagerStarted.stop()
@@ -585,6 +598,7 @@ export class IngestionApiServer implements NodeServer {
         // while it is not. Holding both (rather than a bool) makes the `finally`
         // credit exactly what was counted, even if `messages` is out of scope.
         let inFlight: { events: number; acceptedAt: number } | null = null
+        let admitted = false
 
         try {
             const messages: Message[] = serializedMessages.map(deserializeKafkaMessage)
@@ -597,7 +611,19 @@ export class IngestionApiServer implements NodeServer {
             // stage processes each key in feed order, so this measures the
             // "processed in order per distinct_id" invariant.
             this.feedOrderSentinel?.check(serializedMessages, consumer_id ?? 'unknown', replay ?? false)
-            const feedResult = await this.httpPipeline.feed(batch, {})
+            if (this.batchesAwaitingResponse >= this.config.INGESTION_WORKER_CONCURRENT_BATCHES) {
+                batchCapacityRejections.inc()
+                res.status(503).json({
+                    batch_id: batch_id ?? '',
+                    status: 'error',
+                    accepted: 0,
+                    error: `at concurrent batch capacity (${this.config.INGESTION_WORKER_CONCURRENT_BATCHES}): ${this.batchesAwaitingResponse} batches awaiting response`,
+                })
+                return
+            }
+            admitted = true
+            this.batchesAwaitingResponse++
+            const feedResult = await this.httpPump.feed(batch)
             if (!feedResult.ok) {
                 // Capacity rejection should not happen under correct consumer
                 // behavior — the Rust consumer holds a per-worker Semaphore
@@ -631,19 +657,11 @@ export class IngestionApiServer implements NodeServer {
             eventsInFlight.inc(messages.length)
             inFlight = { events: messages.length, acceptedAt: Date.now() }
 
-            // The pipeline handles its own side effects (scheduling them on
-            // the promise scheduler), so draining results is all that's left
-            // to do.
-            let result = await this.httpPipeline.next()
-            while (result !== null) {
-                result = await this.httpPipeline.next()
-            }
-
-            // Wait for all side effects — the HTTP response is the ACK to the
-            // Rust consumer, so all work must finish before responding. The hog
-            // transformer drain is scheduled as a side effect by the pipeline's
-            // afterBatch flush step, so it's covered by waitForAll().
-            await this.promiseScheduler.waitForAll()
+            // The HTTP response is the ACK to the Rust consumer, so `settled`
+            // covers this batch's side effects too. The hog transformer drain
+            // is scheduled as a side effect by the pipeline's afterBatch flush
+            // step, so it is included.
+            await feedResult.settled
 
             batchesProcessed.inc()
             messagesProcessed.inc(messages.length)
@@ -667,6 +685,9 @@ export class IngestionApiServer implements NodeServer {
             }
             res.status(500).json({ batch_id, status: 'error', accepted: 0, error: error.message })
         } finally {
+            if (admitted) {
+                this.batchesAwaitingResponse--
+            }
             if (inFlight !== null) {
                 batchesInFlight.dec()
                 eventsInFlight.dec(inFlight.events)

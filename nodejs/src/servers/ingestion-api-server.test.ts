@@ -5,11 +5,63 @@ import { GroupFlushResult } from '~/ingestion/common/groups/group-store.interfac
 
 import { IngestBatchResponse, SerializedKafkaMessage } from '../ingestion/api/types'
 import { CleanupResources } from './base-server'
+import { HttpIngestPump } from './http-ingest-pump'
 import { IngestionApiServer } from './ingestion-api-server'
+
+type Completion = { batchContext: { httpBatchSeq: number }; elements: unknown[]; sideEffects: Promise<unknown>[] }
+type Delivery = { completion: Completion } | { error: Error }
+
+/**
+ * Stands in for the batching pipeline: records the sequence number fed with
+ * each batch and lets a test complete (or crash) batches in any order, the
+ * way the real pipeline returns completions in completion order.
+ */
+class FakePipeline {
+    readonly seqs: number[] = []
+    private parkedNext: { resolve: (c: Completion) => void; reject: (e: Error) => void } | null = null
+    private queued: Delivery[] = []
+
+    feed = jest.fn((_batch: unknown, context: { httpBatchSeq: number }): Promise<{ ok: true }> => {
+        this.seqs.push(context.httpBatchSeq)
+        return Promise.resolve({ ok: true })
+    })
+
+    next = jest.fn((): Promise<Completion> => {
+        const queued = this.queued.shift()
+        if (queued) {
+            return 'error' in queued ? Promise.reject(queued.error) : Promise.resolve(queued.completion)
+        }
+        return new Promise((resolve, reject) => {
+            this.parkedNext = { resolve, reject }
+        })
+    })
+
+    complete(index: number, sideEffects: Promise<unknown>[] = []): void {
+        this.deliver({ completion: { batchContext: { httpBatchSeq: this.seqs[index] }, elements: [], sideEffects } })
+    }
+
+    crash(error: Error): void {
+        this.deliver({ error })
+    }
+
+    private deliver(delivery: Delivery): void {
+        if (!this.parkedNext) {
+            this.queued.push(delivery)
+            return
+        }
+        const parked = this.parkedNext
+        this.parkedNext = null
+        if ('error' in delivery) {
+            parked.reject(delivery.error)
+        } else {
+            parked.resolve(delivery.completion)
+        }
+    }
+}
 
 describe('IngestionApiServer', () => {
     let server: IngestionApiServer
-    let pipeline: { feed: jest.Mock; next: jest.Mock }
+    let pipeline: FakePipeline
     let stopSpy: jest.SpyInstance
 
     function makeMessage(): SerializedKafkaMessage {
@@ -20,6 +72,7 @@ describe('IngestionApiServer', () => {
         status: (code: number) => { json: (body: IngestBatchResponse) => void }
         statusCode: () => number
         body: () => IngestBatchResponse
+        responded: () => boolean
     } {
         const json = jest.fn()
         const status = jest.fn().mockReturnValue({ json })
@@ -27,6 +80,7 @@ describe('IngestionApiServer', () => {
             status,
             statusCode: () => status.mock.calls[0][0],
             body: () => json.mock.calls[0][0],
+            responded: () => status.mock.calls.length > 0,
         }
     }
 
@@ -34,6 +88,20 @@ describe('IngestionApiServer', () => {
         const messages = Array.from({ length: messageCount }, makeMessage)
         const req = { body: { batch_id: 'b1', messages } }
         return (server as any).handleIngestRequest(req, res)
+    }
+
+    // Let pending callbacks run so a started request is fed and the pump is
+    // waiting on next() before the test acts.
+    function flush(): Promise<void> {
+        return new Promise((resolve) => setImmediate(resolve))
+    }
+
+    // Starts a batch and returns its completion promise. Deliberately not
+    // async: an async wrapper's promise would adopt this one, so awaiting
+    // the helper would wait for the batch to finish instead of starting it.
+    // Callers `await flush()` once the batches they want in flight are up.
+    function start(messageCount: number): Promise<void> {
+        return handle(makeRes(), messageCount)
     }
 
     async function eventSecondsInFlight(): Promise<number> {
@@ -52,17 +120,26 @@ describe('IngestionApiServer', () => {
         return (server as any).isHealthy()
     }
 
-    beforeEach(() => {
-        server = new IngestionApiServer()
-        pipeline = { feed: jest.fn(), next: jest.fn() }
-        ;(server as any).httpPipeline = pipeline
-        ;(server as any).promiseScheduler = { schedule: jest.fn(), waitForAll: jest.fn().mockResolvedValue(undefined) }
+    function setup(concurrentBatches: number): void {
+        server = new IngestionApiServer({ INGESTION_WORKER_CONCURRENT_BATCHES: concurrentBatches })
+        pipeline = new FakePipeline()
+        const promiseScheduler = { schedule: jest.fn(), waitForAll: jest.fn().mockResolvedValue(undefined) }
+        ;(server as any).promiseScheduler = promiseScheduler
+        ;(server as any).httpPump = new HttpIngestPump(pipeline as any, promiseScheduler as any, 1)
         ;(server as any).hogTransformer = { processInvocationResults: jest.fn().mockResolvedValue(undefined) }
         // stop() would call process.exit; stub it so the test only observes that it was invoked.
         stopSpy = jest.spyOn(server, 'stop').mockResolvedValue(undefined)
+    }
+
+    beforeEach(() => {
+        setup(16)
         // The gauge is a module-level singleton shared across tests in this file.
         register.getSingleMetric('ingestion_api_events_in_flight')?.reset()
         register.getSingleMetric('ingestion_api_event_seconds_in_flight_total')?.reset()
+    })
+
+    afterEach(async () => {
+        await (server as any).httpPump.stop()
     })
 
     it('reports healthy before any failure', () => {
@@ -70,11 +147,11 @@ describe('IngestionApiServer', () => {
     })
 
     it('crashes and rebuilds on an unexpected pipeline error', async () => {
-        pipeline.feed.mockResolvedValue({ ok: true })
-        pipeline.next.mockRejectedValue(new Error('pipeline poisoned'))
-
         const res = makeRes()
-        await handle(res)
+        const req = handle(res)
+        await flush()
+        pipeline.crash(new Error('pipeline poisoned'))
+        await req
 
         // Retriable 500 so the Rust consumer redelivers the batch.
         expect(res.statusCode()).toBe(500)
@@ -84,8 +161,12 @@ describe('IngestionApiServer', () => {
         expect(stopSpy).toHaveBeenCalledTimes(1)
     })
 
-    it('returns 503 backpressure at capacity without crashing', async () => {
-        pipeline.feed.mockResolvedValue({ ok: false, kind: 'at_capacity', reason: 'at concurrent batch capacity (1)' })
+    it('returns 503 backpressure when the pipeline is at capacity, without crashing', async () => {
+        pipeline.feed.mockResolvedValueOnce({
+            ok: false,
+            kind: 'at_capacity',
+            reason: 'at concurrent batch capacity (1)',
+        } as any)
 
         const res = makeRes()
         await handle(res)
@@ -97,11 +178,11 @@ describe('IngestionApiServer', () => {
     })
 
     it('processes a successful batch and stays healthy', async () => {
-        pipeline.feed.mockResolvedValue({ ok: true })
-        pipeline.next.mockResolvedValue(null)
-
         const res = makeRes()
-        await handle(res)
+        const req = handle(res)
+        await flush()
+        pipeline.complete(0)
+        await req
 
         expect(res.statusCode()).toBe(200)
         expect(res.body()).toMatchObject({ status: 'ok', accepted: 1 })
@@ -109,46 +190,107 @@ describe('IngestionApiServer', () => {
         expect(stopSpy).not.toHaveBeenCalled()
     })
 
-    type Gate = { resolve: () => void; reject: (error: Error) => void }
+    describe('per-batch completion', () => {
+        it('responds to a batch as soon as it completes while others are still in flight', async () => {
+            const [resA, resB, resC] = [makeRes(), makeRes(), makeRes()]
+            const reqA = handle(resA)
+            const reqB = handle(resB)
+            const reqC = handle(resC)
+            await flush()
 
-    describe('events in flight gauge', () => {
-        // One gate per in-flight batch. The handler calls next() exactly once
-        // (the mock resolves to null, ending its drain loop), so holding that
-        // promise open holds the batch in flight and lets a test decide the
-        // order batches finish in.
-        let gates: Gate[]
+            pipeline.complete(1)
+            await reqB
+            expect(resB.statusCode()).toBe(200)
+            expect(resA.responded()).toBe(false)
+            expect(resC.responded()).toBe(false)
 
-        beforeEach(() => {
-            gates = []
+            pipeline.complete(2)
+            await reqC
+            expect(resA.responded()).toBe(false)
+
+            pipeline.complete(0)
+            await reqA
+            expect(resA.statusCode()).toBe(200)
         })
 
-        function gateBatches(): void {
-            pipeline.feed.mockResolvedValue({ ok: true })
-            pipeline.next.mockImplementation(
-                () =>
-                    new Promise<null>((resolve, reject) => {
-                        gates.push({ resolve: () => resolve(null), reject })
-                    })
-            )
-        }
+        it('responds only once the batch side effects have settled', async () => {
+            let releaseSideEffect!: () => void
+            const sideEffect = new Promise<void>((resolve) => {
+                releaseSideEffect = resolve
+            })
+            const res = makeRes()
+            const req = handle(res)
+            await flush()
 
-        // Let pending callbacks run so a started request reaches next() before
-        // the test reads the gauge.
-        function flush(): Promise<void> {
-            return new Promise((resolve) => setImmediate(resolve))
-        }
+            pipeline.complete(0, [sideEffect])
+            await flush()
+            expect(res.responded()).toBe(false)
 
-        // Starts a batch and returns its completion promise. Deliberately not
-        // async: an async wrapper's promise would adopt this one, so awaiting
-        // the helper would wait for the batch to finish instead of starting it.
-        // Callers `await flush()` once the batches they want in flight are up.
-        function start(messageCount: number): Promise<void> {
-            return handle(makeRes(), messageCount)
-        }
+            releaseSideEffect()
+            await req
+            expect(res.statusCode()).toBe(200)
+        })
 
+        it('fails every in-flight batch when the pipeline crashes, and shuts down once', async () => {
+            const [resA, resB] = [makeRes(), makeRes()]
+            const reqA = handle(resA)
+            const reqB = handle(resB)
+            await flush()
+
+            pipeline.crash(new Error('pipeline poisoned'))
+            await Promise.all([reqA, reqB])
+
+            expect(resA.statusCode()).toBe(500)
+            expect(resB.statusCode()).toBe(500)
+            expect(await eventsInFlight()).toBe(0)
+            expect(stopSpy).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('capacity at the door', () => {
+        beforeEach(() => {
+            setup(2)
+        })
+
+        it('rejects with 503 once accepted batches await a response, before feeding the pipeline', async () => {
+            const first = start(1)
+            const second = start(1)
+            await flush()
+
+            const rejected = makeRes()
+            await handle(rejected)
+
+            expect(rejected.statusCode()).toBe(503)
+            expect(rejected.body()).toMatchObject({ status: 'error', accepted: 0 })
+            expect(pipeline.feed).toHaveBeenCalledTimes(2)
+            expect(isHealthy().status).toBe('ok')
+
+            pipeline.complete(0)
+            pipeline.complete(1)
+            await Promise.all([first, second])
+        })
+
+        it('admits a batch again once one has responded', async () => {
+            const first = start(1)
+            const second = start(1)
+            await flush()
+            pipeline.complete(0)
+            await first
+
+            const res = makeRes()
+            const third = handle(res)
+            await flush()
+            expect(pipeline.feed).toHaveBeenCalledTimes(3)
+
+            pipeline.complete(1)
+            pipeline.complete(2)
+            await Promise.all([second, third])
+            expect(res.statusCode()).toBe(200)
+        })
+    })
+
+    describe('events in flight gauge', () => {
         it('sums events across concurrent batches of different sizes', async () => {
-            gateBatches()
-
             const small = start(5)
             const medium = start(100)
             const large = start(1000)
@@ -157,14 +299,14 @@ describe('IngestionApiServer', () => {
             // 3 if it counted batches; the sum is the point of the metric.
             expect(await eventsInFlight()).toBe(1105)
 
-            gates.forEach((gate) => gate.resolve())
+            pipeline.complete(0)
+            pipeline.complete(1)
+            pipeline.complete(2)
             await Promise.all([small, medium, large])
             expect(await eventsInFlight()).toBe(0)
         })
 
         it('releases exactly the finished batch, leaving the others in flight', async () => {
-            gateBatches()
-
             const first = start(100)
             const second = start(5)
             const third = start(20)
@@ -173,48 +315,32 @@ describe('IngestionApiServer', () => {
 
             // Finish out of order: a decrement keyed to the wrong request would
             // subtract someone else's count and drift the gauge.
-            gates[1].resolve()
+            pipeline.complete(1)
             await second
             expect(await eventsInFlight()).toBe(120)
 
-            gates[2].resolve()
+            pipeline.complete(2)
             await third
             expect(await eventsInFlight()).toBe(100)
 
-            gates[0].resolve()
+            pipeline.complete(0)
             await first
             expect(await eventsInFlight()).toBe(0)
         })
 
         it('leaves in-flight batches untouched when another is rejected at capacity', async () => {
-            gateBatches()
             const accepted = start(100)
             await flush()
 
-            pipeline.feed.mockResolvedValueOnce({ ok: false, kind: 'at_capacity', reason: 'at capacity' })
+            pipeline.feed.mockResolvedValueOnce({ ok: false, kind: 'at_capacity', reason: 'at capacity' } as any)
             const rejectedRes = makeRes()
             await handle(rejectedRes, 50)
 
             expect(rejectedRes.statusCode()).toBe(503)
             expect(await eventsInFlight()).toBe(100)
 
-            gates[0].resolve()
+            pipeline.complete(0)
             await accepted
-            expect(await eventsInFlight()).toBe(0)
-        })
-
-        it('releases a crashed batch while a concurrent batch stays in flight', async () => {
-            gateBatches()
-            const crashing = start(100)
-            const surviving = start(7)
-            await flush()
-
-            gates[0].reject(new Error('pipeline poisoned'))
-            await crashing
-            expect(await eventsInFlight()).toBe(7)
-
-            gates[1].resolve()
-            await surviving
             expect(await eventsInFlight()).toBe(0)
         })
 
@@ -231,28 +357,35 @@ describe('IngestionApiServer', () => {
         it.each([
             {
                 outcome: 'success',
-                arrange: () => {
-                    pipeline.feed.mockResolvedValue({ ok: true })
-                    pipeline.next.mockResolvedValue(null)
+                act: async () => {
+                    const req = handle(makeRes(), 5)
+                    await flush()
+                    pipeline.complete(0)
+                    await req
                 },
             },
             {
                 outcome: 'capacity rejection',
-                arrange: () => {
-                    pipeline.feed.mockResolvedValue({ ok: false, kind: 'at_capacity', reason: 'at capacity' })
+                act: async () => {
+                    pipeline.feed.mockResolvedValueOnce({
+                        ok: false,
+                        kind: 'at_capacity',
+                        reason: 'at capacity',
+                    } as any)
+                    await handle(makeRes(), 5)
                 },
             },
             {
                 outcome: 'pipeline crash',
-                arrange: () => {
-                    pipeline.feed.mockResolvedValue({ ok: true })
-                    pipeline.next.mockRejectedValue(new Error('pipeline poisoned'))
+                act: async () => {
+                    const req = handle(makeRes(), 5)
+                    await flush()
+                    pipeline.crash(new Error('pipeline poisoned'))
+                    await req
                 },
             },
-        ])('returns to zero after a $outcome', async ({ arrange }) => {
-            arrange()
-
-            await handle(makeRes(), 5)
+        ])('returns to zero after a $outcome', async ({ act }) => {
+            await act()
 
             expect(await eventsInFlight()).toBe(0)
         })
@@ -273,31 +406,14 @@ describe('IngestionApiServer', () => {
             clock.mockRestore()
         })
 
-        function gateBatches(): Gate[] {
-            const gates: Gate[] = []
-            pipeline.feed.mockResolvedValue({ ok: true })
-            pipeline.next.mockImplementation(
-                () =>
-                    new Promise<null>((resolve, reject) => {
-                        gates.push({ resolve: () => resolve(null), reject })
-                    })
-            )
-            return gates
-        }
-
-        function flush(): Promise<void> {
-            return new Promise((resolve) => setImmediate(resolve))
-        }
-
         it('accumulates events multiplied by seconds in flight', async () => {
-            const gates = gateBatches()
             clock.mockReturnValue(1_000)
 
             const batch = handle(makeRes(), 10)
             await flush()
 
             clock.mockReturnValue(3_500)
-            gates[0].resolve()
+            pipeline.complete(0)
             await batch
 
             // 10 events held for 2.5s.
@@ -305,7 +421,6 @@ describe('IngestionApiServer', () => {
         })
 
         it('credits each concurrent batch its own duration', async () => {
-            const gates = gateBatches()
             clock.mockReturnValue(0)
 
             const long = handle(makeRes(), 100)
@@ -316,13 +431,13 @@ describe('IngestionApiServer', () => {
 
             // short: accepted at 1s, ends at 3s  -> 4 * 2  =   8
             clock.mockReturnValue(3_000)
-            gates[1].resolve()
+            pipeline.complete(1)
             await short
             expect(await eventSecondsInFlight()).toBe(8)
 
             // long: accepted at 0s, ends at 4s   -> 100 * 4 = 400
             clock.mockReturnValue(4_000)
-            gates[0].resolve()
+            pipeline.complete(0)
             await long
             expect(await eventSecondsInFlight()).toBe(408)
         })
@@ -332,13 +447,11 @@ describe('IngestionApiServer', () => {
             // "1 event in flight on average over a minute". A gauge scraped
             // once would report 1 or 60 depending on timing; the counter says
             // 60 event-seconds either way.
-            const gates = gateBatches()
-
             clock.mockReturnValue(0)
             const steady = handle(makeRes(), 1)
             await flush()
             clock.mockReturnValue(60_000)
-            gates[0].resolve()
+            pipeline.complete(0)
             await steady
             const heldLong = await eventSecondsInFlight()
 
@@ -349,7 +462,7 @@ describe('IngestionApiServer', () => {
                 const burst = handle(makeRes(), 60)
                 await flush()
                 clock.mockReturnValue(i * 1_000 + 1_000)
-                gates[gates.length - 1].resolve()
+                pipeline.complete(pipeline.seqs.length - 1)
                 await burst
             }
             const burstsShort = await eventSecondsInFlight()
@@ -363,7 +476,7 @@ describe('IngestionApiServer', () => {
 
         it('does not credit a batch rejected at capacity', async () => {
             clock.mockReturnValue(0)
-            pipeline.feed.mockResolvedValue({ ok: false, kind: 'at_capacity', reason: 'at capacity' })
+            pipeline.feed.mockResolvedValueOnce({ ok: false, kind: 'at_capacity', reason: 'at capacity' } as any)
 
             clock.mockReturnValue(5_000)
             await handle(makeRes(), 10)
