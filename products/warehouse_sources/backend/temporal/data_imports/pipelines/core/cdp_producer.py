@@ -134,6 +134,11 @@ class CDPProducer:
                 files = [f["Key"] for f in ls_values if f["type"] != "directory"]
                 return files
             except FileNotFoundError:
+                # A missing prefix means nothing was staged, so there is nothing to produce.
+                # A permission failure is left to propagate: the delivery path relies on it so
+                # the run is marked failed and Temporal retries rather than silently producing
+                # zero rows. The cleanup path is safe because its callers wrap clear() in a broad
+                # except.
                 return []
             except PermissionError:
                 # The worker may lack an s3:ListBucket grant on the cdp_producer/ prefix. Row

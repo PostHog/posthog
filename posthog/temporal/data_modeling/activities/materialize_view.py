@@ -197,10 +197,13 @@ class _CDPRowSink:
         except Exception as e:
             capture_exception(e)
             await self._logger.awarning(f"Failed to stage rows for CDP; discarding this run's staged rows: {e}")
-            self.enabled = False
             await self.discard()
+            self.enabled = False
 
     async def discard(self) -> None:
+        if not self.enabled:
+            return
+
         try:
             await self._producer.clear()
         except Exception as e:
