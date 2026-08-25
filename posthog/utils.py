@@ -583,9 +583,13 @@ def _build_template_context(
         from posthog.api.user import UserSerializer
         from posthog.models.file_system.user_product_list import UserProductList
         from posthog.models.user_home_settings import UserHomeSettings
-        from posthog.rbac.user_access_control import ACCESS_CONTROL_RESOURCES, UserAccessControl
         from posthog.user_permissions import UserPermissions
         from posthog.views import preflight_check
+
+        from products.access_control.backend.facade.user_access_control import (
+            ACCESS_CONTROL_RESOURCES,
+            UserAccessControl,
+        )
 
         with tracer.start_as_current_span("template.preflight"):
             preflight_payload = json.loads(preflight_check(request).getvalue())
