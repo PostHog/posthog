@@ -409,9 +409,9 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                                     (ratedCount === 0
                                         ? 'Rate at least one result first'
                                         : quota?.exhausted && quota.credit_limit !== null
-                                          ? `Monthly Replay Vision budget of ${formatCreditCount(quota.credit_limit)} reached. Resets ${dayjs(quota.period_end).format('MMM D')}.`
+                                          ? `Monthly Replay vision budget of ${formatCreditCount(quota.credit_limit)} reached. Resets ${dayjs(quota.period_end).format('MMM D')}.`
                                           : quota && quota.remaining !== null && plannedTestCredits > quota.remaining
-                                            ? `Only ${formatCreditCount(quota.remaining)} of budget left this period. Lower the number of results to test.`
+                                            ? `Only ${formatCreditCount(quota.remaining)} of budget left this billing period. Lower the number of results to test.`
                                             : undefined)
                                 }
                                 tooltip="Re-runs the scanner with the suggested prompt against your rated results, so you can see what would change. Each tested result is charged like a normal observation."
@@ -469,7 +469,7 @@ function ConfigRecommendationPanel({ scannerId }: { scannerId: string }): JSX.El
                             {Math.min(evaluationSessionCap, ratedCount) === 1 ? '' : 's'}, thumbs down first. Costs{' '}
                             {formatCreditCount(plannedTestCredits)}
                             {displayQuota && displayQuota.remaining !== null && displayQuota.credit_limit !== null
-                                ? `, ${formatCreditsRange(displayQuota.remaining, displayQuota.credit_limit)} left this period`
+                                ? `, ${formatCreditsRange(displayQuota.remaining, displayQuota.credit_limit)} left this billing period`
                                 : ''}
                             .
                         </span>

@@ -153,7 +153,7 @@ export function quotaUx(quota: VisionQuotaApi | null): { disabledReason?: string
         }
     }
     return {
-        tooltip: `${formatCreditCount(state.quota.remaining ?? 0)} left this month (resets ${state.resetsOn})`,
+        tooltip: `${formatCreditCount(state.quota.remaining ?? 0)} left this billing period (resets ${state.resetsOn})`,
     }
 }
 
