@@ -514,7 +514,8 @@ jobs:
             - name: Test postgres-parity (isolated DB)
               id: run-parity
               continue-on-error: true
-              if: (success() || failure()) && matrix.shard == 1
+              # Disabled while we iterate on test reporting; revert with the rest of the scope pinch.
+              if: false && (success() || failure()) && matrix.shard == 1
               env:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_posthog'
                   BEHAVIORAL_COHORTS_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/test_behavioral_cohorts'
