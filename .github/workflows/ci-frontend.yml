@@ -136,6 +136,9 @@ jobs:
                         # desktop-* CI and must not drag this suite onto its PRs
                         - '!products/desktop/**'
                         - 'playwright/**'
+                        # The onboarding step components compile into the app and sit in the
+                        # frontend tsconfig program, so they are code, not docs.
+                        - 'docs/**/*.tsx'
                         - .github/workflows/ci-frontend.yml
                         - .oxlintrc.json
                         - .oxfmtrc*
