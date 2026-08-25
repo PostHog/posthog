@@ -78,6 +78,7 @@ SLIM_IMAGE_NAME = "posthog-sandbox-slim"
 # Stamped on the base image so a later run can tell whether it must rebuild: the sha of
 # the Dockerfile that produced it, and the @posthog/agent version baked into the npm layer.
 _DOCKERFILE_SHA_LABEL = "com.posthog.sandbox.dockerfile-sha"
+_BASE_IMAGE_ID_LABEL = "com.posthog.sandbox.base-image-id"
 _AGENT_VERSION_LABEL = "com.posthog.sandbox.agent-version"
 AGENT_SERVER_PORT = 47821  # Arbitrary high port unlikely to conflict with dev servers
 # Streamlit sandboxes expose their auth proxy (not the agent-server) on this port; the
@@ -328,6 +329,27 @@ class DockerSandbox(SandboxBase):
         DockerSandbox._run(argv, check=True)
 
     @staticmethod
+    def _build_derived_image_if_needed(image_name: str, dockerfile_path: str) -> None:
+        """Build an image layered on ``posthog-sandbox-base``; rebuild it when the base changed.
+
+        ``_build_image_if_needed`` only checks that the image exists, so a derived image would
+        keep a stale base forever after ``ensure_fresh_base_image`` rebuilt it. The base image
+        id is stamped as a label at build time and compared on every call.
+        """
+        base_id = DockerSandbox._run(["docker", "images", "-q", "--no-trunc", DEFAULT_IMAGE_NAME]).stdout.strip()
+        inspect = DockerSandbox._run(
+            ["docker", "image", "inspect", image_name, "-f", f'{{{{index .Config.Labels "{_BASE_IMAGE_ID_LABEL}"}}}}']
+        )
+        built_on = inspect.stdout.strip() if inspect.returncode == 0 else ""
+        DockerSandbox._build_image_if_needed(
+            image_name,
+            dockerfile_path,
+            build_args={"BASE_IMAGE": DEFAULT_IMAGE_NAME},
+            labels={_BASE_IMAGE_ID_LABEL: base_id},
+            force=bool(base_id) and built_on != base_id,
+        )
+
+    @staticmethod
     def _build_local_image(monorepo_root: str) -> None:
         logger.info("Building posthog-sandbox-base-local image with local PostHog Desktop packages...")
         dockerfile_path = os.path.join(
@@ -413,11 +435,7 @@ class DockerSandbox(SandboxBase):
             autoresearch_dockerfile = os.path.join(
                 settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-autoresearch"
             )
-            DockerSandbox._build_image_if_needed(
-                AUTORESEARCH_IMAGE_NAME,
-                autoresearch_dockerfile,
-                build_args={"BASE_IMAGE": DEFAULT_IMAGE_NAME},
-            )
+            DockerSandbox._build_derived_image_if_needed(AUTORESEARCH_IMAGE_NAME, autoresearch_dockerfile)
             return AUTORESEARCH_IMAGE_NAME
 
         local_monorepo_root = DockerSandbox._get_local_posthog_code_root()
