@@ -275,28 +275,28 @@ class EndpointViewSet(
         return sorted(endpoint.tagged_items.values_list("tag__name", flat=True))
 
     @staticmethod
-    def _with_serialization_prefetches(queryset):
+    def _with_materialization_job_prefetches(queryset):
+        latest_jobs = DataModelingJob.objects.filter(engine=DataModelingJob.Engine.CLICKHOUSE).order_by("-last_run_at")
+        latest_completed_jobs = latest_jobs.filter(status=DataModelingJob.Status.COMPLETED)
+        return queryset.select_related("saved_query").prefetch_related(
+            Prefetch("saved_query__datamodelingjob_set", queryset=latest_jobs[:1], to_attr="prefetched_latest_jobs"),
+            Prefetch(
+                "saved_query__datamodelingjob_set",
+                queryset=latest_completed_jobs[:1],
+                to_attr="prefetched_latest_completed_jobs",
+            ),
+        )
+
+    @classmethod
+    def _with_serialization_prefetches(cls, queryset):
         """Tags are prefetched by TaggedItemViewSetMixin.filter_queryset; repeating them here
         raises a lookup conflict.
 
         Only the current version is fetched, and the history is counted in the database, so an
         endpoint with a long version history costs the same as a fresh one.
         """
-        latest_jobs = DataModelingJob.objects.filter(engine=DataModelingJob.Engine.CLICKHOUSE).order_by("-last_run_at")
-        latest_completed_jobs = latest_jobs.filter(status=DataModelingJob.Status.COMPLETED)
-        current_versions = (
+        current_versions = cls._with_materialization_job_prefetches(
             EndpointVersion.objects.filter(version=F("endpoint__current_version"))
-            .select_related("saved_query")
-            .prefetch_related(
-                Prefetch(
-                    "saved_query__datamodelingjob_set", queryset=latest_jobs[:1], to_attr="prefetched_latest_jobs"
-                ),
-                Prefetch(
-                    "saved_query__datamodelingjob_set",
-                    queryset=latest_completed_jobs[:1],
-                    to_attr="prefetched_latest_completed_jobs",
-                ),
-            )
         )
         return (
             queryset.select_related("created_by")
@@ -626,7 +626,7 @@ class EndpointViewSet(
         Returns versions in descending order (latest first).
         """
         endpoint = self._get_endpoint_with_object_access(name)
-        versions_qs = endpoint.versions.all()
+        versions_qs = self._with_materialization_job_prefetches(endpoint.versions.all())
         page = self.paginate_queryset(versions_qs)
         if page is not None:
             results = [self._serialize(v) for v in page]

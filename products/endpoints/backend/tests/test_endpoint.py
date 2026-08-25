@@ -1955,6 +1955,61 @@ class TestEndpointListResilienceAndQueryCount(ClickhouseTestMixin, APIBaseTest):
 
         self.assertEqual(few, many, f"listing 8 endpoints cost {many} queries vs {few} for 2, so something N+1s")
 
+    def _versions_query_count(self, version_count: int) -> int:
+        Endpoint.objects.all().delete()
+        endpoint = create_endpoint_with_version(
+            name=f"versions_perf_{version_count}",
+            team=self.team,
+            query={"kind": "HogQLQuery", "query": "SELECT 1"},
+            created_by=self.user,
+        )
+        first_version = endpoint.get_version()
+        for version_number in range(1, version_count + 1):
+            version = (
+                first_version
+                if version_number == 1
+                else EndpointVersion.objects.create(
+                    endpoint=endpoint,
+                    team=self.team,
+                    version=version_number,
+                    query={"kind": "HogQLQuery", "query": f"SELECT {version_number}"},
+                    created_by=self.user,
+                    columns=[{"name": "result", "type": "integer"}],
+                )
+            )
+            saved_query = DataWarehouseSavedQuery.objects.create(
+                team=self.team,
+                name=f"versions_perf_{version_count}_v{version_number}",
+                query=version.query,
+                is_materialized=True,
+            )
+            version.saved_query = saved_query
+            version.columns = [{"name": "result", "type": "integer"}]
+            version.save(update_fields=["saved_query", "columns", "updated_at"])
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=saved_query,
+                status=DataModelingJob.Status.COMPLETED,
+                engine=DataModelingJob.Engine.CLICKHOUSE,
+                last_run_at=timezone.now(),
+            )
+
+        endpoint.current_version = version_count
+        endpoint.save(update_fields=["current_version", "updated_at"])
+        url = f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/versions/"
+        self.client.get(url)
+        with CaptureQueriesContext(connection) as ctx:
+            response = self.client.get(url)
+        self.assertEqual(status.HTTP_200_OK, response.status_code, response.content)
+        self.assertEqual(version_count, len(response.json()["results"]))
+        return len(ctx.captured_queries)
+
+    def test_versions_query_count_does_not_grow_with_version_count(self):
+        few = self._versions_query_count(2)
+        many = self._versions_query_count(8)
+
+        self.assertEqual(few, many, f"listing 8 versions cost {many} queries vs {few} for 2, so something N+1s")
+
     def test_list_reports_the_latest_version_and_the_full_history_count(self):
         endpoint = create_endpoint_with_version(
             name="versioned",
