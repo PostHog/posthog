@@ -11,6 +11,7 @@ from products.experiments.backend.max_tools import SessionReplaySummaryTool
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
+from ee.hogai.tool_errors import MaxToolAccessDeniedError
 from ee.hogai.utils.types import AssistantState
 
 
@@ -173,6 +174,15 @@ class TestSessionReplaySummaryTool(APIBaseTest):
         self.assertEqual(artifact["error"], "no_recordings")
         self.assertEqual(artifact["experiment_id"], experiment.id)
         self.assertEqual(artifact["recording_counts"], {"control": 0, "test": 0})
+
+    async def test_denies_object_level_restricted_experiment(self):
+        experiment = await self.acreate_experiment(name="restricted-replay-test")
+        tool = await self.create_tool()
+
+        with patch.object(tool, "user_access_control") as mock_uac:
+            mock_uac.check_access_level_for_object.return_value = False
+            with self.assertRaises(MaxToolAccessDeniedError):
+                await tool._arun_impl(experiment_id=experiment.id)
 
     async def test_experiment_not_found(self):
         """Test error when experiment ID doesn't exist."""

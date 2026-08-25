@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 import { PersonPropertiesSizeViolationError } from '~/common/persons/repositories/person-repository'
 import { UUIDT } from '~/common/utils/utils'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
+import { InternalPerson } from '~/types'
 
 import { PersonContext } from './person-context'
 import { PersonCreateService } from './person-create-service'
@@ -188,6 +189,87 @@ describe('PersonCreateService', () => {
             expect(person).toEqual(existingPerson)
             expect(created).toBe(false)
             expect(mockPersonStore.fetchForUpdate).toHaveBeenCalledWith(teamId, 'test-distinct-id')
+        })
+
+        it('should resolve to the row holding the uuid when no distinct ID resolves it', async () => {
+            // The holder owns a different distinct ID, so recovery by distinct ID finds nothing.
+            // Before this returned the holder, the create threw an error the pipeline rethrows
+            // until the consumer dies with uncommitted offsets.
+            const makePerson = (id: string): InternalPerson => ({
+                id,
+                uuid: new UUIDT().toString(),
+                team_id: teamId,
+                properties: {},
+                created_at: createdAt,
+                version: 1,
+                is_identified: false,
+                is_user_id: null,
+                properties_last_updated_at: {},
+                properties_last_operation: {},
+                last_seen_at: null,
+            })
+            const holder = makePerson('999')
+            mockPersonStore.createPerson.mockResolvedValue({
+                success: false,
+                error: 'CreationConflict',
+                distinctIds: ['test-distinct-id'],
+                conflictingPerson: holder,
+            })
+            mockPersonStore.fetchForUpdate.mockResolvedValue(null)
+
+            const [person, created] = await personCreateService.createPerson(
+                createdAt,
+                properties,
+                propertiesOnce,
+                teamId,
+                isUserId,
+                isIdentified,
+                creatorEventUuid,
+                primaryDistinctId
+            )
+
+            expect(person).toEqual(holder)
+            expect(created).toBe(false)
+        })
+
+        it('should prefer the distinct ID match over the uuid holder when both exist', async () => {
+            // A concurrent create of the same distinct ID is the common case and must keep
+            // resolving to that person, not to whatever holds the uuid.
+            const makePerson = (id: string): InternalPerson => ({
+                id,
+                uuid: new UUIDT().toString(),
+                team_id: teamId,
+                properties: {},
+                created_at: createdAt,
+                version: 1,
+                is_identified: false,
+                is_user_id: null,
+                properties_last_updated_at: {},
+                properties_last_operation: {},
+                last_seen_at: null,
+            })
+            const holder = makePerson('999')
+            const byDistinctId = makePerson('2')
+            mockPersonStore.createPerson.mockResolvedValue({
+                success: false,
+                error: 'CreationConflict',
+                distinctIds: ['test-distinct-id'],
+                conflictingPerson: holder,
+            })
+            mockPersonStore.fetchForUpdate.mockResolvedValue(byDistinctId)
+
+            const [person] = await personCreateService.createPerson(
+                createdAt,
+                properties,
+                propertiesOnce,
+                teamId,
+                isUserId,
+                isIdentified,
+                creatorEventUuid,
+                primaryDistinctId
+            )
+
+            expect(person).toEqual(byDistinctId)
         })
 
         it('should throw error when creation conflict occurs but person cannot be fetched', async () => {

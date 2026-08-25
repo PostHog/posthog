@@ -3923,9 +3923,15 @@ export const experimentLogic = kea<experimentLogicType>([
             // Clear any existing interval first
             cache.disposables.dispose('autoRefreshInterval')
 
-            if (values.autoRefresh.enabled) {
+            // Completed experiments have final results — never poll them
+            if (values.autoRefresh.enabled && !hasEnded(values.experiment)) {
                 cache.disposables.add(() => {
                     const intervalId = window.setInterval(() => {
+                        // The experiment may have ended while the interval was running
+                        if (hasEnded(values.experiment)) {
+                            cache.disposables.dispose('autoRefreshInterval')
+                            return
+                        }
                         // Track auto-refresh trigger
                         actions.reportExperimentMetricsRefreshed(values.experiment, true, {
                             triggered_by: 'auto-refresh',

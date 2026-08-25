@@ -22,6 +22,7 @@ from products.tasks.backend.constants import (
     PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
+    SANDBOX_ROTATION_FEATURE_FLAG,
     get_vm_sandbox_flag_payload,
     vm_sandbox_allowed_origin_products,
     vm_sandbox_default_base_origin_products,
@@ -108,6 +109,7 @@ class TaskProcessingContext:
     # Captured at workflow start so the sandbox event transport branch is
     # deterministic for the full run.
     sandbox_event_ingest_enabled: bool = False
+    sandbox_rotation_enabled: bool = False
     # Captured at workflow start so telemetry env injection (and the run-log mirror,
     # which reads the same state stamp) is deterministic for the full run.
     agent_otel_telemetry_enabled: bool = False
@@ -783,6 +785,31 @@ def _is_pr_babysit_snapshot_enabled(
     return enabled
 
 
+def _is_sandbox_rotation_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+) -> bool:
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                SANDBOX_ROTATION_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("sandbox_rotation_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+
+    log_with_activity_context("sandbox_rotation_flag_checked", run_id=run_id, sandbox_rotation_enabled=enabled)
+    return enabled
+
+
 def _is_continue_as_new_enabled(
     *,
     distinct_id: str,
@@ -1181,6 +1208,11 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         use_modal_resume_snapshots=True,
         use_modal_directory_resume_snapshots=True,
         sandbox_event_ingest_enabled=sandbox_event_ingest_enabled,
+        sandbox_rotation_enabled=_is_sandbox_rotation_enabled(
+            distinct_id=distinct_id,
+            organization_id=organization_id,
+            run_id=run_id,
+        ),
         agent_otel_telemetry_enabled=agent_otel_telemetry_enabled,
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         use_modal_network_allowlist=use_modal_network_allowlist,

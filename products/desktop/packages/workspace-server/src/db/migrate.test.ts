@@ -62,6 +62,9 @@ describe("runMigrations", () => {
     runMigrations(sqlite, MIGRATIONS_FOLDER);
 
     expect(hasColumn(sqlite, "workspaces", "pr_urls")).toBe(true);
+    // A migration whose journal entry is missing or mismatched applies no
+    // statements and fails silently; the column it adds is how that shows up.
+    expect(hasColumn(sqlite, "browser_tabs", "href")).toBe(true);
     expect(ledgerMax(sqlite)).not.toBeNull();
   });
 

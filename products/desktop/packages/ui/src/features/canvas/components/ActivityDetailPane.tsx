@@ -7,14 +7,14 @@ import {
   EmptyTitle,
 } from "@posthog/quill";
 import { useChannels } from "@posthog/ui/features/canvas/hooks/useChannels";
-import { useActivityDetailStore } from "@posthog/ui/features/canvas/stores/activityDetailStore";
+import { useActivitySelection } from "@posthog/ui/features/canvas/stores/activityDetailStore";
 import { TaskDetail } from "@posthog/ui/features/task-detail/components/TaskDetail";
 import { useResolvedTask } from "@posthog/ui/features/tasks/useResolvedTask";
 import { TaskDetailSkeleton } from "@posthog/ui/router/routeSkeletons";
 
 /** What the Activity destination shows beside its feed. */
 export function ActivityDetailPane() {
-  const selected = useActivityDetailStore((s) => s.selected);
+  const selected = useActivitySelection();
   const task = useResolvedTask(selected?.taskId);
   const { channels } = useChannels();
 
