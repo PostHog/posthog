@@ -898,16 +898,18 @@ class PersonalSpendDailyThrottle(PersonalApiKeyOrUserRateThrottle):
     rate = "200/day"
 
 
-class AIGatewaySpendLimitBurstThrottle(PersonalApiKeyOrUserRateThrottle):
+class AIGatewaySpendLimitBurstThrottle(UserOrEmailRateThrottle):
     # Each call holds a web worker for a synchronous gateway round trip, and the
     # desktop app calls with session auth, so the throttle covers every auth kind.
-    # A settings surface someone touches a few times a day; rates match the
-    # personal spend endpoint, the same personal session-auth shape.
+    # Keyed per user: on a project-nested route a team-keyed bucket lets one member
+    # starve the team, and per-credential keying lets extra personal API keys
+    # multiply the quota. A settings surface someone touches a few times a day;
+    # rates match the personal spend endpoint, the same personal session-auth shape.
     scope = "ai_gateway_spend_limit_burst"
     rate = "10/minute"
 
 
-class AIGatewaySpendLimitSustainedThrottle(PersonalApiKeyOrUserRateThrottle):
+class AIGatewaySpendLimitSustainedThrottle(UserOrEmailRateThrottle):
     scope = "ai_gateway_spend_limit_sustained"
     rate = "60/hour"
 
