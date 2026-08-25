@@ -37,6 +37,54 @@ export async function getChanges(base: string, head: string): Promise<File[]> {
   return parseGitDiffOutput(output)
 }
 
+// On a pull_request event the runner checks out `refs/pull/N/merge`, a merge commit
+// whose first parent is the base and whose second parent is the PR head. Its
+// `HEAD^1..HEAD` diff is what `GET /pulls/{n}/files` returns, so reading it locally
+// costs no REST request. Returns null when the checkout is not that merge commit -
+// a shallow `fetch-depth: 1` hides the parents, and a conflicting PR has no merge ref.
+export async function getChangesFromMergeCommit(prHeadSha: string): Promise<File[] | null> {
+  const parents = await getHeadParents()
+  if (parents.length !== 2) {
+    core.info(
+      `HEAD has ${parents.length} parent(s), expected 2 - the checkout needs 'fetch-depth: 2' on a pull_request merge ref`
+    )
+    return null
+  }
+
+  if (parents[1] !== prHeadSha) {
+    core.info(`HEAD^2 is ${parents[1]} but the pull request head is ${prHeadSha} - HEAD is not this PR's merge commit`)
+    return null
+  }
+
+  core.startGroup('Change detection HEAD^1..HEAD')
+  let output = ''
+  try {
+    // Rename detection stays off so a rename reads as an add of the new path plus a
+    // delete of the old one, matching how the API path normalizes a renamed row.
+    output = (await getExecOutput('git', ['diff', '--no-renames', '--name-status', '-z', 'HEAD^1', 'HEAD'])).stdout
+  } finally {
+    fixStdOutNullTermination()
+    core.endGroup()
+  }
+
+  return parseGitDiffOutput(output)
+}
+
+// Parents of HEAD as recorded locally. A shallow clone grafts them away, so an empty
+// list means the checkout is too shallow rather than that HEAD is a root commit.
+export async function getHeadParents(): Promise<string[]> {
+  const result = await getExecOutput('git', ['rev-list', '--parents', '-n', '1', HEAD], {ignoreReturnCode: true})
+  if (result.exitCode !== 0) {
+    return []
+  }
+
+  return result.stdout
+    .trim()
+    .split(/\s+/)
+    .slice(1)
+    .filter(sha => sha.length > 0)
+}
+
 export async function getChangesOnHead(): Promise<File[]> {
   // Get current changes - both staged and unstaged
   core.startGroup(`Change detection on HEAD`)

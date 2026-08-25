@@ -130,6 +130,8 @@ concurrency:
     group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.sha || github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 env:
+    PATHS_FILTER_PROBE_MODE: ${{ vars.CI_PATHS_FILTER_PROBE_MODE }}
+    PATHS_FILTER_PROBE_POSTHOG_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
     # Schema cache epoch. Bump to abandon every shared schema cache entry at once
     # (key is posthog-schema-mig-<epoch>-<hash>). Single-sourced so the merge-base (PR)
     # and HEAD (push) key computations below can't drift.
@@ -255,6 +257,7 @@ jobs:
             # also want this to run on master so we need to checkout
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  fetch-depth: 2
                   clean: false
             - name: Clean up data directories with container permissions
               run: |

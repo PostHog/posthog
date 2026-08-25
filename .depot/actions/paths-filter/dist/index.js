@@ -42133,6 +42133,7 @@ function wrappy (fn, cb) {
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ChangeStatus = void 0;
+exports.normalizeApiFile = normalizeApiFile;
 var ChangeStatus;
 (function (ChangeStatus) {
     ChangeStatus["Added"] = "added";
@@ -42142,6 +42143,21 @@ var ChangeStatus;
     ChangeStatus["Renamed"] = "renamed";
     ChangeStatus["Unmerged"] = "unmerged";
 })(ChangeStatus || (exports.ChangeStatus = ChangeStatus = {}));
+// Translates one row of `GET /pulls/{n}/files` into the shape `git diff --no-renames`
+// produces, so the API and merge-commit detection paths return the same list.
+function normalizeApiFile(row) {
+    // There's no obvious use-case for detection of renames.
+    // Rename is replaced by delete of original filename and add of new filename.
+    if (row.status === ChangeStatus.Renamed) {
+        return [
+            { filename: row.filename, status: ChangeStatus.Added },
+            { filename: row.previous_filename, status: ChangeStatus.Deleted }
+        ];
+    }
+    // Github status and git status variants are same except for deleted files
+    const status = row.status === 'removed' ? ChangeStatus.Deleted : row.status;
+    return [{ filename: row.filename, status }];
+}
 
 
 /***/ }),
@@ -42327,6 +42343,8 @@ Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.HEAD = exports.NULL_SHA = void 0;
 exports.getChangesInLastCommit = getChangesInLastCommit;
 exports.getChanges = getChanges;
+exports.getChangesFromMergeCommit = getChangesFromMergeCommit;
+exports.getHeadParents = getHeadParents;
 exports.getChangesOnHead = getChangesOnHead;
 exports.getChangesSinceMergeBase = getChangesSinceMergeBase;
 exports.parseGitDiffOutput = parseGitDiffOutput;
@@ -42367,6 +42385,47 @@ async function getChanges(base, head) {
         core.endGroup();
     }
     return parseGitDiffOutput(output);
+}
+// On a pull_request event the runner checks out `refs/pull/N/merge`, a merge commit
+// whose first parent is the base and whose second parent is the PR head. Its
+// `HEAD^1..HEAD` diff is what `GET /pulls/{n}/files` returns, so reading it locally
+// costs no REST request. Returns null when the checkout is not that merge commit -
+// a shallow `fetch-depth: 1` hides the parents, and a conflicting PR has no merge ref.
+async function getChangesFromMergeCommit(prHeadSha) {
+    const parents = await getHeadParents();
+    if (parents.length !== 2) {
+        core.info(`HEAD has ${parents.length} parent(s), expected 2 - the checkout needs 'fetch-depth: 2' on a pull_request merge ref`);
+        return null;
+    }
+    if (parents[1] !== prHeadSha) {
+        core.info(`HEAD^2 is ${parents[1]} but the pull request head is ${prHeadSha} - HEAD is not this PR's merge commit`);
+        return null;
+    }
+    core.startGroup('Change detection HEAD^1..HEAD');
+    let output = '';
+    try {
+        // Rename detection stays off so a rename reads as an add of the new path plus a
+        // delete of the old one, matching how the API path normalizes a renamed row.
+        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', 'HEAD^1', 'HEAD'])).stdout;
+    }
+    finally {
+        fixStdOutNullTermination();
+        core.endGroup();
+    }
+    return parseGitDiffOutput(output);
+}
+// Parents of HEAD as recorded locally. A shallow clone grafts them away, so an empty
+// list means the checkout is too shallow rather than that HEAD is a root commit.
+async function getHeadParents() {
+    const result = await (0, exec_1.getExecOutput)('git', ['rev-list', '--parents', '-n', '1', exports.HEAD], { ignoreReturnCode: true });
+    if (result.exitCode !== 0) {
+        return [];
+    }
+    return result.stdout
+        .trim()
+        .split(/\s+/)
+        .slice(1)
+        .filter(sha => sha.length > 0);
 }
 async function getChangesOnHead() {
     // Get current changes - both staged and unstaged
@@ -42687,6 +42746,7 @@ const github = __importStar(__nccwpck_require__(3228));
 const filter_1 = __nccwpck_require__(9037);
 const file_1 = __nccwpck_require__(3765);
 const git = __importStar(__nccwpck_require__(1243));
+const probe = __importStar(__nccwpck_require__(8877));
 const shell_escape_1 = __nccwpck_require__(6880);
 const csv_escape_1 = __nccwpck_require__(6146);
 async function run() {
@@ -42707,8 +42767,10 @@ async function run() {
             return;
         }
         const filter = new filter_1.Filter(filtersYaml);
+        await probe.begin(token);
         const files = await getChangedFiles(token, base, ref, initialFetchDepth);
         core.info(`Detected ${files.length} changed files`);
+        await probe.finish(token, files);
         const results = filter.match(files);
         exportResults(results, listFiles);
     }
@@ -42752,7 +42814,17 @@ async function getChangedFiles(token, base, ref, initialFetchDepth) {
                 core.warning(`'base' input parameter is ignored when action is triggered by pull request event`);
             }
             const pr = github.context.payload.pull_request;
+            if (probe.mergeCommitDiffAllowed()) {
+                const fromMergeCommit = await git.getChangesFromMergeCommit(pr.head.sha);
+                if (fromMergeCommit) {
+                    core.info('Change detection source: local merge commit (no GitHub API request)');
+                    probe.setSource('merge-commit');
+                    return fromMergeCommit;
+                }
+            }
             if (token) {
+                core.info('Change detection source: GitHub API');
+                probe.setSource('api');
                 return await getChangedFilesFromApi(token, pr);
             }
             if (github.context.eventName === 'pull_request_target') {
@@ -42822,6 +42894,7 @@ async function getChangedFilesFromApi(token, pullRequest) {
     core.startGroup(`Fetching list of changed files for PR#${pullRequest.number} from Github API`);
     try {
         const client = github.getOctokit(token);
+        probe.countApiRequests(client);
         const per_page = 100;
         const files = [];
         core.info(`Invoking listFiles(pull_number: ${pullRequest.number}, per_page: ${per_page})`);
@@ -42837,28 +42910,7 @@ async function getChangedFilesFromApi(token, pullRequest) {
             core.info(`Received ${response.data.length} items`);
             for (const row of response.data) {
                 core.info(`[${row.status}] ${row.filename}`);
-                // There's no obvious use-case for detection of renames
-                // Therefore we treat it as if rename detection in git diff was turned off.
-                // Rename is replaced by delete of original filename and add of new filename
-                if (row.status === file_1.ChangeStatus.Renamed) {
-                    files.push({
-                        filename: row.filename,
-                        status: file_1.ChangeStatus.Added
-                    });
-                    files.push({
-                        // 'previous_filename' for some unknown reason isn't in the type definition or documentation
-                        filename: row.previous_filename,
-                        status: file_1.ChangeStatus.Deleted
-                    });
-                }
-                else {
-                    // Github status and git status variants are same except for deleted files
-                    const status = row.status === 'removed' ? file_1.ChangeStatus.Deleted : row.status;
-                    files.push({
-                        filename: row.filename,
-                        status
-                    });
-                }
+                files.push(...(0, file_1.normalizeApiFile)(row));
             }
         }
         return files;
@@ -42924,6 +42976,221 @@ function getErrorMessage(error) {
     return String(error);
 }
 run();
+
+
+/***/ }),
+
+/***/ 8877:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.setSource = setSource;
+exports.enabled = enabled;
+exports.mergeCommitDiffAllowed = mergeCommitDiffAllowed;
+exports.countApiRequests = countApiRequests;
+exports.begin = begin;
+exports.finish = finish;
+// THROWAWAY measurement scaffolding for the merge-commit change-detection rollout.
+// It exists to prove, with numbers, that the merge-commit path costs zero REST
+// requests and returns the same file list as the API path. Delete this module, its
+// call sites in main.ts, and the workflow env blocks that switch it on before the
+// merge-commit change is shipped.
+//
+// Two instruments, because they answer different questions:
+//   - The octokit request hook counts what one invocation actually spends. It is
+//     exact and cannot be contaminated by other jobs.
+//   - The /rate_limit bracket reads the shared App bucket. Every job of a CI fan-out
+//     draws from that one bucket concurrently, so a single job's delta is inflated by
+//     its neighbours. The absolute `used` readings are still useful: across the whole
+//     fan-out, max(used_after) - min(used_before) bounds what the fan-out spent.
+//     GitHub documents /rate_limit as not counting against the limit it reports, so
+//     sampling is free.
+const crypto_1 = __nccwpck_require__(6982);
+const core = __importStar(__nccwpck_require__(7484));
+const github = __importStar(__nccwpck_require__(3228));
+const POSTHOG_HOST = 'https://us.i.posthog.com';
+const EVENT_NAME = 'paths_filter_change_detection_probe';
+let apiRequests = 0;
+let before = null;
+let source = 'unknown';
+// Which branch of getChangedFiles produced the list. 'api' after an explicit probe
+// mode of 'api' means the switch worked; 'api' under mode 'git' means the merge
+// commit was unusable and the action fell back.
+function setSource(value) {
+    source = value;
+}
+function mode() {
+    var _a;
+    const value = ((_a = process.env.PATHS_FILTER_PROBE_MODE) !== null && _a !== void 0 ? _a : '').trim().toLowerCase();
+    return value === 'api' || value === 'git' ? value : null;
+}
+function enabled() {
+    return mode() !== null;
+}
+// The merge-commit path is the default. Only an explicit 'api' probe mode takes it
+// away, so that the same commit can be measured both ways.
+function mergeCommitDiffAllowed() {
+    return mode() !== 'api';
+}
+function countApiRequests(octokit) {
+    if (!enabled()) {
+        return;
+    }
+    octokit.hook.before('request', () => {
+        apiRequests += 1;
+    });
+}
+async function begin(token) {
+    if (!enabled()) {
+        return;
+    }
+    apiRequests = 0;
+    before = await sampleRateLimit(token);
+}
+async function finish(token, files) {
+    var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m, _o, _p, _q, _r;
+    if (!enabled()) {
+        return;
+    }
+    const after = await sampleRateLimit(token);
+    const paths = files.map(file => file.filename).sort();
+    const digest = (0, crypto_1.createHash)('sha256').update(paths.join('\n')).digest('hex');
+    const properties = {
+        mode: mode(),
+        detection_source: source,
+        api_requests: apiRequests,
+        file_count: files.length,
+        files_digest: digest,
+        bucket_used_before: (_a = before === null || before === void 0 ? void 0 : before.used) !== null && _a !== void 0 ? _a : null,
+        bucket_used_after: (_b = after === null || after === void 0 ? void 0 : after.used) !== null && _b !== void 0 ? _b : null,
+        bucket_delta: before && after ? after.used - before.used : null,
+        bucket_limit: (_c = after === null || after === void 0 ? void 0 : after.limit) !== null && _c !== void 0 ? _c : null,
+        bucket_reset_before: (_d = before === null || before === void 0 ? void 0 : before.reset) !== null && _d !== void 0 ? _d : null,
+        bucket_reset_after: (_e = after === null || after === void 0 ? void 0 : after.reset) !== null && _e !== void 0 ? _e : null,
+        head_sha: (_h = (_g = (_f = github.context.payload.pull_request) === null || _f === void 0 ? void 0 : _f.head) === null || _g === void 0 ? void 0 : _g.sha) !== null && _h !== void 0 ? _h : github.context.sha,
+        // The merge commit the runner checked out. Two runs only compare if this matches:
+        // GitHub recomputes refs/pull/N/merge when the base branch moves.
+        checkout_sha: (_j = process.env.GITHUB_SHA) !== null && _j !== void 0 ? _j : '',
+        workflow: (_k = process.env.GITHUB_WORKFLOW) !== null && _k !== void 0 ? _k : '',
+        job: (_l = process.env.GITHUB_JOB) !== null && _l !== void 0 ? _l : '',
+        run_id: (_m = process.env.GITHUB_RUN_ID) !== null && _m !== void 0 ? _m : '',
+        run_attempt: (_o = process.env.GITHUB_RUN_ATTEMPT) !== null && _o !== void 0 ? _o : '',
+        run_number: (_p = process.env.GITHUB_RUN_NUMBER) !== null && _p !== void 0 ? _p : '',
+        pr_number: (_r = (_q = github.context.payload.pull_request) === null || _q === void 0 ? void 0 : _q.number) !== null && _r !== void 0 ? _r : null
+    };
+    core.info(`probe ${JSON.stringify(properties)}`);
+    await writeSummary(properties, paths);
+    await capture(properties);
+}
+async function sampleRateLimit(token) {
+    if (!token) {
+        core.warning('probe: no token, cannot read the rate-limit bucket');
+        return null;
+    }
+    try {
+        const response = await fetch('https://api.github.com/rate_limit', {
+            headers: {
+                authorization: `Bearer ${token}`,
+                accept: 'application/vnd.github+json',
+                'x-github-api-version': '2022-11-28'
+            }
+        });
+        if (!response.ok) {
+            core.warning(`probe: /rate_limit returned ${response.status}`);
+            return null;
+        }
+        const body = (await response.json());
+        return body.resources.core;
+    }
+    catch (error) {
+        core.warning(`probe: /rate_limit failed - ${error instanceof Error ? error.message : String(error)}`);
+        return null;
+    }
+}
+async function writeSummary(properties, paths) {
+    if (!process.env.GITHUB_STEP_SUMMARY) {
+        return;
+    }
+    const rows = Object.entries(properties).map(([key, value]) => `| ${key} | ${String(value)} |`);
+    const markdown = [
+        `### paths-filter probe: ${properties.workflow} / ${properties.job}`,
+        '',
+        '| field | value |',
+        '| --- | --- |',
+        ...rows,
+        '',
+        `<details><summary>changed files (${paths.length})</summary>`,
+        '',
+        '```',
+        ...paths,
+        '```',
+        '',
+        '</details>',
+        ''
+    ].join('\n');
+    await core.summary.addRaw(markdown, true).write();
+}
+async function capture(properties) {
+    var _a;
+    const apiKey = process.env.PATHS_FILTER_PROBE_POSTHOG_TOKEN;
+    if (!apiKey) {
+        core.info('probe: PATHS_FILTER_PROBE_POSTHOG_TOKEN not set, skipping capture');
+        return;
+    }
+    try {
+        const response = await fetch(`${POSTHOG_HOST}/capture/`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+                api_key: apiKey,
+                event: EVENT_NAME,
+                distinct_id: (_a = process.env.GITHUB_REPOSITORY) !== null && _a !== void 0 ? _a : 'unknown',
+                properties
+            })
+        });
+        if (!response.ok) {
+            core.warning(`probe: capture returned ${response.status}`);
+        }
+    }
+    catch (error) {
+        core.warning(`probe: capture failed - ${error instanceof Error ? error.message : String(error)}`);
+    }
+}
 
 
 /***/ }),

@@ -5,8 +5,9 @@ import {GetResponseDataTypeFromEndpointMethod} from '@octokit/types'
 import {PullRequest, PushEvent} from '@octokit/webhooks-types'
 
 import {Filter, FilterResults} from './filter'
-import {File, ChangeStatus} from './file'
+import {File, normalizeApiFile} from './file'
 import * as git from './git'
+import * as probe from './probe'
 import {backslashEscape, shellEscape} from './list-format/shell-escape'
 import {csvEscape} from './list-format/csv-escape'
 
@@ -33,8 +34,10 @@ async function run(): Promise<void> {
     }
 
     const filter = new Filter(filtersYaml)
+    await probe.begin(token)
     const files = await getChangedFiles(token, base, ref, initialFetchDepth)
     core.info(`Detected ${files.length} changed files`)
+    await probe.finish(token, files)
     const results = filter.match(files)
     exportResults(results, listFiles)
   } catch (error) {
@@ -82,7 +85,19 @@ async function getChangedFiles(token: string, base: string, ref: string, initial
         core.warning(`'base' input parameter is ignored when action is triggered by pull request event`)
       }
       const pr = github.context.payload.pull_request as PullRequest
+
+      if (probe.mergeCommitDiffAllowed()) {
+        const fromMergeCommit = await git.getChangesFromMergeCommit(pr.head.sha)
+        if (fromMergeCommit) {
+          core.info('Change detection source: local merge commit (no GitHub API request)')
+          probe.setSource('merge-commit')
+          return fromMergeCommit
+        }
+      }
+
       if (token) {
+        core.info('Change detection source: GitHub API')
+        probe.setSource('api')
         return await getChangedFilesFromApi(token, pr)
       }
       if (github.context.eventName === 'pull_request_target') {
@@ -169,6 +184,7 @@ async function getChangedFilesFromApi(token: string, pullRequest: PullRequest): 
   core.startGroup(`Fetching list of changed files for PR#${pullRequest.number} from Github API`)
   try {
     const client = github.getOctokit(token)
+    probe.countApiRequests(client)
     const per_page = 100
     const files: File[] = []
 
@@ -188,27 +204,7 @@ async function getChangedFilesFromApi(token: string, pullRequest: PullRequest): 
 
       for (const row of response.data as GetResponseDataTypeFromEndpointMethod<typeof client.rest.pulls.listFiles>) {
         core.info(`[${row.status}] ${row.filename}`)
-        // There's no obvious use-case for detection of renames
-        // Therefore we treat it as if rename detection in git diff was turned off.
-        // Rename is replaced by delete of original filename and add of new filename
-        if (row.status === ChangeStatus.Renamed) {
-          files.push({
-            filename: row.filename,
-            status: ChangeStatus.Added
-          })
-          files.push({
-            // 'previous_filename' for some unknown reason isn't in the type definition or documentation
-            filename: (<any>row).previous_filename as string,
-            status: ChangeStatus.Deleted
-          })
-        } else {
-          // Github status and git status variants are same except for deleted files
-          const status = row.status === 'removed' ? ChangeStatus.Deleted : (row.status as ChangeStatus)
-          files.push({
-            filename: row.filename,
-            status
-          })
-        }
+        files.push(...normalizeApiFile(row))
       }
     }
 
