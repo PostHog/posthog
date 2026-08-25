@@ -102,9 +102,12 @@ export function buildCostChecklist({
   const active: CostChecklistItem[] = [];
   const finished: CostChecklistItem[] = [];
 
-  // A completed item keeps its row even though its trigger has gone quiet.
-  // Switching the default is precisely what stops the suggestion firing.
-  if (isDone("model-notch")) {
+  // A completed model-notch reads as a checked row only while the current
+  // default no longer warrants a cheaper model. Picking an expensive model
+  // again — which every composer picker does — re-fires the suggestion instead
+  // of leaving a stale checked row that claims a move that no longer holds.
+  const notchSuggestion = modelNotchSuggestion(defaultModelId);
+  if (isDone("model-notch") && !notchSuggestion) {
     if (defaultModelId) {
       finished.push({
         kind: "model-notch",
@@ -112,11 +115,8 @@ export function buildCostChecklist({
         modelId: defaultModelId,
       });
     }
-  } else {
-    const suggestion = modelNotchSuggestion(defaultModelId);
-    if (suggestion) {
-      active.push({ kind: "model-notch", done: false, ...suggestion });
-    }
+  } else if (notchSuggestion) {
+    active.push({ kind: "model-notch", done: false, ...notchSuggestion });
   }
 
   // The image itself is the record, so this row reads the account rather than
