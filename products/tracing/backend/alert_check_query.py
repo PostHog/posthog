@@ -12,7 +12,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings, LimitContext
-from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
@@ -212,13 +212,13 @@ class AlertCheckQuery:
         """Return a single aggregate count for the alert window."""
         self._tag()
 
-        query = parse_select(
-            """
-            SELECT count() AS total
-            FROM posthog.trace_spans
-            WHERE {where}
-            """,
-            placeholders={"where": self.where_expr},
+        # Same ast.SelectQuery/ast.JoinExpr construction as execute_rolling_checks(),
+        # rather than a parsed SQL string, so both methods build `FROM trace_spans`
+        # through TRACE_SPANS_TABLE_CHAIN the same way.
+        query = ast.SelectQuery(
+            select=[ast.Alias(alias="total", expr=ast.Call(name="count", args=[]))],
+            select_from=ast.JoinExpr(table=ast.Field(chain=TRACE_SPANS_TABLE_CHAIN)),
+            where=self.where_expr,
         )
 
         start_ms = time.monotonic_ns() // 1_000_000
