@@ -102,11 +102,8 @@ def create_publication(
     except ValueError as error:
         raise PublishValidationError(str(error)) from error
 
-    try:
-        source_team_id = managed_warehouse.ducklake_data_modeling_schema_team_id(source_schema_name)
-    except ValueError as error:
-        raise PublishValidationError("Choose a modeled table from this environment.") from error
-    if source_team_id != team.pk:
+    source_team_id = managed_warehouse.ducklake_data_modeling_schema_team_id(source_schema_name)
+    if source_team_id is None or source_team_id != team.pk:
         raise PublishValidationError("Choose a modeled table from this environment.")
 
     publishable_tables = list_modeled_tables(team.pk)

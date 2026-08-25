@@ -114,10 +114,9 @@ def publish_table_copy_activity(inputs: PublishTableInputs) -> PublishCopyResult
     logger = LOGGER.bind(publication_id=inputs.publication_id)
     close_old_connections()
     publication = _publication_queryset(inputs.team_id, inputs.publication_id).get(deleted=False)
-    try:
-        source_team_id = ducklake_data_modeling_schema_team_id(publication.source_schema_name)
-    except ValueError as error:
-        raise ApplicationError("Choose a modeled table from this project.", non_retryable=True) from error
+    source_team_id = ducklake_data_modeling_schema_team_id(publication.source_schema_name)
+    if source_team_id is None:
+        raise ApplicationError("Choose a modeled table from this project.", non_retryable=True)
     source_team = Team.objects.only("id", "parent_team_id").filter(id=source_team_id).first()
     source_project_id = source_team.parent_team_id or source_team.id if source_team is not None else None
     if source_project_id != publication.team_id:
