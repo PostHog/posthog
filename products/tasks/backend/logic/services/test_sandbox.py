@@ -3,11 +3,17 @@ import time
 
 import pytest
 
-from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxStatus, SandboxTemplate
+from products.tasks.backend.logic.services.sandbox import (
+    Sandbox,
+    SandboxBase,
+    SandboxConfig,
+    SandboxStatus,
+    SandboxTemplate,
+)
 
 
 def _wait_for_status(
-    sandbox: Sandbox,
+    sandbox: SandboxBase,
     expected: SandboxStatus,
     timeout: float = 30.0,
     interval: float = 0.5,
