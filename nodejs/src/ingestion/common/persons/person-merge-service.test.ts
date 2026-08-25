@@ -1,7 +1,6 @@
 import { DateTime } from 'luxon'
 
 import { INGESTION_WARNINGS_OUTPUT } from '~/common/outputs'
-import { parseJSON } from '~/common/utils/json-parse'
 import { InternalPerson } from '~/types'
 
 import { PersonContext } from './person-context'
@@ -79,18 +78,6 @@ describe('PersonMergeService', () => {
             ackWarning()
             await result.kafkaAck
             expect(acked).toBe(true)
-        })
-
-        it('emits one warning per target distinct id', async () => {
-            await refuseMerge('target-a')
-            await refuseMerge('target-a')
-            await refuseMerge('target-b')
-
-            expect(queueMessages).toHaveBeenCalledTimes(2)
-            const emittedFor = queueMessages.mock.calls.map(
-                ([, [message]]) => parseJSON(parseJSON(message.value.toString()).details).distinctId
-            )
-            expect(emittedFor).toEqual(['target-a', 'target-b'])
         })
 
         it('does not fail the event when the warning produce fails', async () => {

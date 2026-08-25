@@ -712,7 +712,7 @@ export class PersonMergeService {
                     otherPersonId: otherPerson.uuid,
                 },
                 pipelineStep: 'person-merge',
-                key: mergeIntoDistinctId,
+                alwaysSend: true,
             }).then(() => undefined)
             logger.warn('🤔', 'refused to merge an already identified user via an $identify or $create_alias call', {
                 team_id: this.context.team.id,
