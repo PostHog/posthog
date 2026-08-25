@@ -868,7 +868,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
     @patch("products.logs.backend.temporal.activities.AlertCheckQuery")
     @patch("products.alerts.backend.destinations.produce_internal_event")
     @patch(
-        "products.logs.backend.alert_error_classifier.classify_query_error",
+        "products.alerts.backend.alert_error_classifier.classify_query_error",
         return_value=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
     )
     def test_clickhouse_failure_creates_error_event_row(self, _mock_classify, mock_produce, mock_query_cls):
@@ -1153,7 +1153,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         )
 
         with patch(
-            "products.logs.backend.alert_error_classifier.classify_query_error",
+            "products.alerts.backend.alert_error_classifier.classify_query_error",
             return_value=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
         ):
             _evaluate_and_save_one(alert, datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats())
@@ -1268,7 +1268,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         self._make_alert()
 
         with patch(
-            "products.logs.backend.alert_error_classifier.classify_query_error",
+            "products.alerts.backend.alert_error_classifier.classify_query_error",
             return_value=classifier_category,
         ):
             _evaluate_and_save_one(
@@ -1392,7 +1392,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         alert = self._make_alert()
 
         with patch(
-            "products.logs.backend.alert_error_classifier.classify_query_error",
+            "products.alerts.backend.alert_error_classifier.classify_query_error",
             return_value=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
         ):
             _evaluate_and_save_one(alert, datetime(2025, 1, 1, 0, 1, 0, tzinfo=UTC), _make_stats())
@@ -1424,7 +1424,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         with (
             patch("products.alerts.backend.destinations.produce_internal_event") as mock_produce,
             patch(
-                "products.logs.backend.alert_error_classifier.classify_query_error",
+                "products.alerts.backend.alert_error_classifier.classify_query_error",
                 return_value=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
             ),
         ):
@@ -1458,7 +1458,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         with (
             patch("products.alerts.backend.destinations.produce_internal_event") as mock_produce,
             patch(
-                "products.logs.backend.alert_error_classifier.classify_query_error",
+                "products.alerts.backend.alert_error_classifier.classify_query_error",
                 return_value=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
             ),
         ):
@@ -1495,7 +1495,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         with (
             patch("products.alerts.backend.destinations.produce_internal_event") as mock_produce,
             patch(
-                "products.logs.backend.alert_error_classifier.classify_query_error",
+                "products.alerts.backend.alert_error_classifier.classify_query_error",
                 return_value=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
             ),
         ):
@@ -1541,7 +1541,7 @@ class TestEvaluateSingleAlert(APIBaseTest):
         self._make_alert(state=initial_state, consecutive_failures=initial_failures)
 
         with patch(
-            "products.logs.backend.alert_error_classifier.classify_query_error",
+            "products.alerts.backend.alert_error_classifier.classify_query_error",
             return_value=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
         ):
             _evaluate_and_save_one(
