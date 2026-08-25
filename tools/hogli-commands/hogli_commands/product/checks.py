@@ -889,7 +889,18 @@ class IsolationChainCheck(ProductCheck):
             result.issues.append(
                 "turbo.json narrows contract-check inputs but omits the wiring location(s) "
                 f"{', '.join(status.unwatched_garages)} — implementations core registers and drives live there, "
-                f"so a change to them would skip the Django suite. Add the matching input(s) ({globs})"
+                f"so a change to them would skip the Django suite. Add the matching input(s) ({globs}); if no "
+                "core test executes what lives there, a DECOUPLED_GARAGES entry may drop the location instead "
+                "(see products/architecture.md § Wiring couplings)"
+            )
+
+        # A decoupled-garage declaration must describe reality: the entry and the input drop land
+        # together, so a declared garage that is still watched (or absent) is a stale claim.
+        if has_narrowed and status.stale_decoupled_garages:
+            result.issues.append(
+                f"DECOUPLED_GARAGES declares {', '.join(status.stale_decoupled_garages)} decoupled, but the "
+                "location is absent or turbo.json still watches it — remove the entry or drop the matching "
+                "input(s) in the same PR"
             )
 
         # Watching the carve-out modules: a sanctioned model-registry carve-out crosses the facade by
@@ -929,7 +940,10 @@ class IsolationChainCheck(ProductCheck):
             # An unqualified permanent exposure is a defect in the tach.toml marker itself, so point
             # there; it takes precedence because it's the most fundamental of these issues.
             turbo_omission = has_narrowed and (
-                status.unwatched_garages or status.uncovered_carveout_modules or status.uncovered_model_surface
+                status.unwatched_garages
+                or status.uncovered_carveout_modules
+                or status.uncovered_model_surface
+                or status.stale_decoupled_garages
             )
             if status.unqualified_permanent_exposures:
                 result.file = "tach.toml"

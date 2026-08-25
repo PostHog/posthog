@@ -99,6 +99,11 @@ These cross the boundary as classes — allowed only under all three rules:
    DRF viewsets are not part of this channel: they live in `presentation/`, register through `routes.py`, and never pass through the facade (a facade must not import DRF, and not its own `presentation/`; the `facade must not import presentation or DRF` import-linter contract enforces both, with the existing violations grandfathered in its TODO list) — their soundness is governed by the presentation rules above.
 2. **Designated location.**
    The implementation lives in the product's wiring location — `backend/hogql_queries/`, `backend/max_tools.py`, `backend/temporal/`, `backend/tasks/` (a flat `backend/tasks.py` also qualifies) — and isolated products keep those locations in their `backend:contract-check` inputs, so any change to a wiring implementation still re-runs the full suite.
+   A product may stop watching a wiring location once no test under `posthog/` or `ee/` executes the implementations wired through it (construct-only and mocked uses do not count).
+   At that point a change there can only fail the product's own lane, which every product change runs, while core changes keep exercising the wiring because any `posthog/`/`ee/` edit runs every product lane.
+   The declaration lives in `DECOUPLED_GARAGES` (`tools/hogli-commands/hogli_commands/product/isolation.py`), keyed `(product, location)` and default-deny like `MODEL_CROSSINGS`.
+   The entry lands together with the input drop — a declared garage that is still watched fails lint — and adding one requires demonstrating the no-core-test-executes bar in the PR.
+   `product_analytics` holds the first entry, `backend/hogql_queries/` (paths, paths_v2, stickiness).
 3. **Validated registration.**
    Registration points check `issubclass(cls, Base)` and reject anything else.
    Import linters (tach, import-linter) see only the import graph; _what an object is_ can only be checked at runtime, at the door.
@@ -531,7 +536,7 @@ Turbo uses file-based inputs to determine cache validity. The key distinction:
 
 - `backend/facade/contracts.py` — frozen dataclasses (enums can live here too)
 - `backend/facade/enums.py` — optional, for exported enums/constants/shared types when contracts.py grows
-- the product's wiring locations (`backend/hogql_queries/`, `backend/max_tools.py`, `backend/temporal/`, `backend/tasks/`) — implementations core registers and drives (see [Wiring couplings](#wiring-couplings))
+- the product's wiring locations (`backend/hogql_queries/`, `backend/max_tools.py`, `backend/temporal/`, `backend/tasks/`) — implementations core registers and drives, unless declared decoupled in `DECOUPLED_GARAGES` (see [Wiring couplings](#wiring-couplings))
 
 **Implementation inputs** (used by `backend:test`):
 

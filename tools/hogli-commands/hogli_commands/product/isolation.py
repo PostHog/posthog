@@ -308,6 +308,22 @@ GARAGE_PREFIXES: tuple[str, ...] = (
     "backend/tasks/",
 )
 
+# Garages a product may drop from its contract-check inputs, keyed (product, location) and
+# default-deny like MODEL_CROSSINGS: an unlisted garage must stay watched. A garage is contract
+# surface because core tests execute the implementations wired through it; once no test under
+# posthog/ or ee/ executes them (construct-only and mocked uses don't count), a change there can
+# only fail the product's own lane — which every product change runs — so re-running the Django
+# suite buys nothing. Core production still dispatches into the wiring, and core changes keep
+# exercising it because any posthog/ or ee/ edit runs every product lane. An entry lands together
+# with the input drop (a declared garage still watched fails lint as a stale claim), and adding
+# one requires demonstrating the no-core-test-executes bar in the PR. The bar and rationale live
+# in products/architecture.md § Wiring couplings.
+DECOUPLED_GARAGES: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("product_analytics", "backend/hogql_queries/"),
+    }
+)
+
 
 def _glob_targets(glob: str, prefixes: tuple[str, ...]) -> bool:
     """Anchored prefix test for a contract-check input glob. removeprefix (not lstrip, which strips
@@ -785,9 +801,24 @@ def _unwatched_present_locations(product_dir: Path, prefixes: tuple[str, ...]) -
     return _uncovered_locations(product_dir, {p: (p,) for p in present})
 
 
-def unwatched_garages(product_dir: Path) -> set[str]:
-    """Garage locations present in the product but missing from its (narrowed) contract-check inputs."""
-    return _unwatched_present_locations(product_dir, GARAGE_PREFIXES)
+def unwatched_garages(product_dir: Path, name: str) -> set[str]:
+    """Garage locations present in the product but missing from its (narrowed) contract-check
+    inputs. Locations declared decoupled for this product (DECOUPLED_GARAGES) are exempt."""
+    decoupled = {garage for product, garage in DECOUPLED_GARAGES if product == name}
+    return _unwatched_present_locations(product_dir, tuple(p for p in GARAGE_PREFIXES if p not in decoupled))
+
+
+def stale_decoupled_garages(product_dir: Path, name: str) -> set[str]:
+    """DECOUPLED_GARAGES entries for this product that do not hold: the garage is absent from the
+    product, or the contract-check inputs still watch it. The declaration and the input drop land
+    together, so either state is a stale claim."""
+    declared = {garage for product, garage in DECOUPLED_GARAGES if product == name}
+    if not declared:
+        return set()
+    absent = {garage for garage in declared if not (product_dir / garage.rstrip("/")).exists()}
+    present = declared - absent
+    uncovered = _uncovered_locations(product_dir, {garage: (garage,) for garage in present})
+    return absent | (present - uncovered)
 
 
 def uncovered_carveout_modules(product_dir: Path, carveout_modules: frozenset[str]) -> set[str]:
@@ -867,6 +898,9 @@ class IsolationStatus:
     # and carve-out modules missing the same way. Both keep the skip sound and block when narrowed.
     unwatched_garages: tuple[str, ...] = ()
     uncovered_carveout_modules: tuple[str, ...] = ()
+    # DECOUPLED_GARAGES entries that do not hold for this product — the garage is absent, or the
+    # inputs still watch it. Blocks when narrowed: the registry must describe reality.
+    stale_decoupled_garages: tuple[str, ...] = ()
     # Model classes the facade hands out under the watched-models allowance (see
     # MODEL_CROSSINGS). uncovered_model_surface lists the model/migration locations a narrowed
     # product fails to keep in its contract-check inputs; every narrowed product must watch them.
@@ -940,8 +974,9 @@ def compute_isolation_status(
             sorted(unqualified_permanent_modules(module_path, permanent_modules, repo_root=repo_root))
         ),
         facade_leaks=reexports.leaks,
-        unwatched_garages=tuple(sorted(unwatched_garages(product_dir))),
+        unwatched_garages=tuple(sorted(unwatched_garages(product_dir, name))),
         uncovered_carveout_modules=tuple(sorted(uncovered_carveout_modules(product_dir, carveout_modules))),
+        stale_decoupled_garages=tuple(sorted(stale_decoupled_garages(product_dir, name))),
         model_crossings=reexports.model_crossings,
         uncovered_model_surface=tuple(sorted(unwatched_model_surface(product_dir))),
     )

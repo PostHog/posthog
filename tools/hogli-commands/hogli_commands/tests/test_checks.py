@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
+from unittest import mock
 
 from hogli_commands.product import (
     checks as checks_module,
@@ -31,6 +32,8 @@ from hogli_commands.product.checks import (
     validate_tach_references,
 )
 from hogli_commands.product.isolation import (
+    DECOUPLED_GARAGES,
+    GARAGE_PREFIXES,
     MODEL_SURFACE_PREFIXES,
     facade_carveout_modules,
     facade_class_imports,
@@ -38,12 +41,14 @@ from hogli_commands.product.isolation import (
     has_narrowed_turbo_inputs,
     permanent_interface_modules,
     routes_in_turbo_inputs,
+    stale_decoupled_garages,
     uncovered_carveout_modules,
     uncovered_permanent_modules,
     unqualified_permanent_modules,
     unwatched_garages,
     unwatched_model_surface,
 )
+from hogli_commands.product.paths import REPO_ROOT
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -1878,7 +1883,47 @@ class TestUnwatchedGarages:
         self, tmp_path: Path, garage_file: str, turbo_inputs: list[str] | None, expected: set[str]
     ) -> None:
         product_dir, _ = _write_facade_product(tmp_path, sources={garage_file: ""}, turbo_inputs=turbo_inputs)
-        assert unwatched_garages(product_dir) == expected
+        assert unwatched_garages(product_dir, "my_product") == expected
+
+    def test_decoupled_garage_is_exempt_for_its_product_only(self, tmp_path: Path) -> None:
+        product_dir, _ = _write_facade_product(
+            tmp_path, sources={"tasks/tasks.py": ""}, turbo_inputs=["backend/facade/**"]
+        )
+        with mock.patch(
+            "hogli_commands.product.isolation.DECOUPLED_GARAGES", frozenset({("my_product", "backend/tasks/")})
+        ):
+            assert unwatched_garages(product_dir, "my_product") == set()
+            assert unwatched_garages(product_dir, "other_product") == {"backend/tasks/"}
+
+
+class TestStaleDecoupledGarages:
+    @pytest.mark.parametrize(
+        "garage_file, turbo_inputs, expected",
+        [
+            # holds: garage present and dropped from the inputs
+            ("tasks/tasks.py", ["backend/facade/**"], set()),
+            # stale: the inputs still watch the declared garage
+            ("tasks/tasks.py", ["backend/facade/**", "backend/tasks/**"], {"backend/tasks/"}),
+            # stale: the declared garage does not exist in the product
+            (None, ["backend/facade/**"], {"backend/tasks/"}),
+        ],
+    )
+    def test_declaration_must_describe_reality(
+        self, tmp_path: Path, garage_file: str | None, turbo_inputs: list[str], expected: set[str]
+    ) -> None:
+        sources = {garage_file: ""} if garage_file else None
+        product_dir, _ = _write_facade_product(tmp_path, sources=sources, turbo_inputs=turbo_inputs)
+        with mock.patch(
+            "hogli_commands.product.isolation.DECOUPLED_GARAGES", frozenset({("my_product", "backend/tasks/")})
+        ):
+            assert stale_decoupled_garages(product_dir, "my_product") == expected
+            assert stale_decoupled_garages(product_dir, "other_product") == set()
+
+    def test_registry_entries_name_real_products_and_garages(self) -> None:
+        # a typoed location or product would silently exempt nothing while claiming a decoupling
+        for product, garage in DECOUPLED_GARAGES:
+            assert garage in GARAGE_PREFIXES
+            assert (REPO_ROOT / "products" / product).is_dir()
 
 
 class TestNarrowedTurboWiringSurface:
