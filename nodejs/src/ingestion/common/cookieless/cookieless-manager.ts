@@ -333,7 +333,15 @@ export class CookielessManager {
         // do a first pass just to extract properties and compute the base hash for stateful cookieless events
         const eventsWithStatus: EventWithStatus[] = []
         for (let i = 0; i < events.length; i++) {
-            const { event, team, message, headers } = events[i]
+            const incomingEvent = events[i]
+
+            if (!incomingEvent) {
+                // A malformed batch entry cannot be processed, so DLQ it for investigation.
+                results[i] = dlq('cookieless_undefined_event')
+                continue
+            }
+
+            const { event, team, message, headers } = incomingEvent
 
             if (!event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY]) {
                 // push the event as is, we don't need to do anything with it, but preserve the ordering
@@ -674,6 +682,9 @@ export class CookielessManager {
         dropCause: string
     ): PipelineResult<IncomingEventWithTeam>[] {
         return events.map((incomingEvent) => {
+            if (!incomingEvent) {
+                return dlq('cookieless_undefined_event')
+            }
             if (incomingEvent.event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY]) {
                 return drop(dropCause)
             } else {
@@ -688,6 +699,9 @@ export class CookielessManager {
         error?: unknown
     ): PipelineResult<IncomingEventWithTeam>[] {
         return events.map((incomingEvent) => {
+            if (!incomingEvent) {
+                return dlq(reason, error)
+            }
             if (incomingEvent.event.properties?.[COOKIELESS_MODE_FLAG_PROPERTY]) {
                 return dlq(reason, error)
             } else {
