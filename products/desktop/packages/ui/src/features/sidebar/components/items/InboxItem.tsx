@@ -4,8 +4,8 @@ import { SHORTCUTS } from "@posthog/ui/features/command/keyboard-shortcuts";
 import { Tooltip } from "@posthog/ui/primitives/Tooltip";
 import type { MouseEventHandler } from "react";
 import { SidebarItem } from "../SidebarItem";
+import { SidebarCountBadge } from "./SidebarCountBadge";
 import { SidebarKbdHint } from "./SidebarKbdHint";
-import { SidebarNotificationDot } from "./SidebarNotificationDot";
 
 interface InboxItemProps {
   isActive: boolean;
@@ -38,8 +38,8 @@ export function InboxItem({
           label={
             <>
               Self-driving
-              <SidebarNotificationDot
-                show={decisionCount > 0}
+              <SidebarCountBadge
+                count={decisionCount}
                 title={`${decisionCount} report${decisionCount === 1 ? " needs" : "s need"} a decision`}
               />
             </>

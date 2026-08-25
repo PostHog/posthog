@@ -20,8 +20,6 @@ describe("ActivityItem", () => {
     );
 
     expect(container.querySelectorAll("button")).toHaveLength(1);
-    expect(container.querySelector('[data-slot="dot"]')).toBeInTheDocument();
-    expect(screen.queryByText("2")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /Activity/ }));
 
     expect(onClick).toHaveBeenCalledOnce();
