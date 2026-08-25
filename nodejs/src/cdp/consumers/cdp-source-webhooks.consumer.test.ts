@@ -16,6 +16,7 @@ import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFun
 import { setupExpressApp } from '~/common/api/router'
 import { closeHub, createHub } from '~/common/utils/db/hub'
 import { PostgresUse } from '~/common/utils/db/postgres'
+import * as posthogUtils from '~/common/utils/posthog'
 import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
@@ -194,7 +195,8 @@ describe('SourceWebhooksConsumer', () => {
         }
 
         describe('hog function processing', () => {
-            it('should 404 if the hog function does not exist', async () => {
+            it('should 404 if the hog function does not exist without capturing an exception', async () => {
+                const captureExceptionSpy = jest.spyOn(posthogUtils, 'captureException')
                 const res = await doPostRequest({
                     webhookId: 'non-existent-hog-function-id',
                 })
@@ -202,6 +204,8 @@ describe('SourceWebhooksConsumer', () => {
                 expect(res.body).toEqual({
                     error: 'Not found',
                 })
+                // An unknown source is an expected outcome, not an exception to report.
+                expect(captureExceptionSpy).not.toHaveBeenCalled()
             })
 
             it('should 404 if the hog function is deleted', async () => {

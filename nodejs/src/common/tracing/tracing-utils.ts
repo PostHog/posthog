@@ -103,7 +103,9 @@ interface FunctionInstrumentationOptions {
     timeoutMessage?: string
     getLoggingContext?: () => Record<string, any>
     logExecutionTime?: boolean
-    sendException?: boolean
+    // A boolean, or a predicate that decides per error whether to capture it. Use the
+    // predicate to skip expected control-flow errors while still capturing real failures.
+    sendException?: boolean | ((error: unknown) => boolean)
     measureTime?: boolean
 }
 
@@ -124,7 +126,9 @@ export async function instrumentFn<T>(
     const logExecutionTime = (typeof options === 'string' ? undefined : options.logExecutionTime) ?? false
     const measureTime = (typeof options === 'string' ? undefined : options.measureTime) ?? true
 
-    const t = timeoutGuard(timeoutMessage, getLoggingContext, timeout, sendException, () => {
+    // A timeout is always a real problem, so a per-error predicate should not suppress it.
+    const sendTimeoutException = typeof sendException === 'function' ? true : sendException
+    const t = timeoutGuard(timeoutMessage, getLoggingContext, timeout, sendTimeoutException, () => {
         instrumentedFunctionTimeout.labels({ function: key }).inc()
     })
     const startTime = performance.now()
@@ -146,7 +150,8 @@ export async function instrumentFn<T>(
         if (logExecutionTime) {
             logTime(startTime, key, error)
         }
-        if (sendException) {
+        const shouldSend = typeof sendException === 'function' ? sendException(error) : sendException
+        if (shouldSend) {
             captureException(error)
         }
         throw error
