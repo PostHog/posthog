@@ -1,4 +1,5 @@
 from decimal import Decimal
+from uuid import UUID
 
 from freezegun import freeze_time
 from posthog.test.base import _create_event, _create_person, snapshot_clickhouse_queries
@@ -312,13 +313,13 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
             table_results = execute_hogql_query(
                 parse_select(
                     "SELECT person_id, revenue, mrr FROM persons_revenue_analytics WHERE person_id = {id}",
-                    placeholders={"id": ast.Constant(value=str(person.uuid))},
+                    placeholders={"id": ast.Constant(value=person.uuid)},
                 ),
                 self.team,
                 user=self.user,
                 modifiers=self.MODIFIERS,
             )
-            self.assertEqual(table_results.results, [(str(person.uuid), expected_revenue, expected_mrr)])
+            self.assertEqual(table_results.results, [(person.uuid, expected_revenue, expected_mrr)])
 
             persons_results = execute_hogql_query(
                 parse_select(
@@ -358,7 +359,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
         # all-zeros UUID and reports their revenue as one synthetic person. That is a defect in its own
         # right, asserted here so that fixing it shows up as a failure rather than passing unnoticed.
         unattributed_row = (
-            "00000000-0000-0000-0000-000000000000",
+            UUID("00000000-0000-0000-0000-000000000000"),
             Decimal("9188.1098773452"),
             Decimal("3173.4137916666"),
         )
@@ -376,11 +377,33 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
                 sorted(
                     [
                         unattributed_row,
-                        (str(warehouse_person.uuid), Decimal("283.8496260553"), Decimal("22.9631447238")),
-                        (self.PERSON_ID, Decimal("279.28474"), Decimal("0")),
+                        (warehouse_person.uuid, Decimal("283.8496260553"), Decimal("22.9631447238")),
+                        (UUID(self.PERSON_ID), Decimal("279.28474"), Decimal("0")),
                     ]
                 ),
             )
+
+    def test_person_id_joins_directly_against_persons_id(self):
+        self.setup_schema_sources()
+        person = _create_person(team_id=self.team.pk, distinct_ids=["cus_1"])
+
+        # `person_id` is the documented join target for `persons.id`. Both sides must stay UUID, or a
+        # hand-written join like this one fails in ClickHouse with `NO_COMMON_TYPE`.
+        with freeze_time(self.QUERY_TIMESTAMP):
+            results = execute_hogql_query(
+                parse_select(
+                    """
+                    SELECT persons.id, revenue.revenue
+                    FROM persons
+                    JOIN persons_revenue_analytics AS revenue ON persons.id = revenue.person_id
+                    """
+                ),
+                self.team,
+                user=self.user,
+                modifiers=self.MODIFIERS,
+            )
+
+            self.assertEqual(results.results, [(person.uuid, Decimal("283.8496260553"))])
 
     def test_query_revenue_analytics_table_sources(self):
         self.setup_schema_sources()
@@ -391,7 +414,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
         distinct_id_to_person_id: dict[str, str] = {}
         for distinct_id in ["cus_1", "cus_2", "cus_3", "cus_4", "cus_5", "cus_6"]:
             person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
-            distinct_id_to_person_id[distinct_id] = str(person.uuid)
+            distinct_id_to_person_id[distinct_id] = person.uuid
 
         with freeze_time(self.QUERY_TIMESTAMP):
             results = execute_hogql_query(
@@ -443,7 +466,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
             # Total revenue = 100.42 + 250.42 = 350.84, MRR = 250.42 (only the recurring event)
             self.assertEqual(
                 results.results,
-                [(self.PERSON_ID, Decimal("350.84"), Decimal("250.42"))],
+                [(UUID(self.PERSON_ID), Decimal("350.84"), Decimal("250.42"))],
             )
 
     @parameterized.expand([e.value for e in PersonsOnEventsMode])
@@ -542,7 +565,7 @@ class TestPersonsRevenueAnalyticsManagedViewsets(
             # MRR is calculated from recurring events (those with subscription_id)
             self.assertEqual(
                 results.results,
-                [(self.PERSON_ID, Decimal("350.84"), Decimal("250.42"))],
+                [(UUID(self.PERSON_ID), Decimal("350.84"), Decimal("250.42"))],
             )
 
     def test_query_revenue_analytics_table_sources(self):
@@ -553,7 +576,7 @@ class TestPersonsRevenueAnalyticsManagedViewsets(
         distinct_id_to_person_id: dict[str, str] = {}
         for distinct_id in ["cus_1", "cus_2", "cus_3", "cus_4", "cus_5", "cus_6"]:
             person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
-            distinct_id_to_person_id[distinct_id] = str(person.uuid)
+            distinct_id_to_person_id[distinct_id] = person.uuid
         self.create_and_materialize_viewsets()
         with freeze_time(self.QUERY_TIMESTAMP), self.snapshot_select_queries():
             results = execute_hogql_query(

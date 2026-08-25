@@ -9,7 +9,7 @@ from posthog.hogql.database.models import (
     LazyJoinToAdd,
     LazyTable,
     LazyTableToAdd,
-    StringDatabaseField,
+    UUIDDatabaseField,
 )
 from posthog.hogql.database.schema.util.revenue_analytics import get_table_kind, is_event_view
 from posthog.hogql.errors import ResolutionError
@@ -23,8 +23,10 @@ ZERO_DECIMAL = ast.Call(
 
 FIELDS: dict[str, FieldOrTable] = {
     "team_id": IntegerDatabaseField(name="team_id"),
-    "person_id": StringDatabaseField(
-        name="person_id", description="Person these revenue figures are aggregated for; join target for `persons.id`."
+    "person_id": UUIDDatabaseField(
+        name="person_id",
+        nullable=True,
+        description="Person these revenue figures are aggregated for; join target for `persons.id`.",
     ),
     "revenue": DecimalDatabaseField(
         name="revenue",
@@ -112,10 +114,11 @@ def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.S
                     # and those views are, on their own, safe to query "without a `team_id` filter"
                     # since they're getting data from either the data warehouse (safe) or the events table (safe)
                     ast.Alias(alias="team_id", expr=ast.Constant(value=context.team_id)),
-                    # Event views give a String id, warehouse views a UUID. A Variant cannot be a GROUP BY key.
+                    # Event views give a String id, warehouse views a UUID. A Variant cannot be a GROUP BY
+                    # key, so both legs cast to the UUID that each of them ultimately holds.
                     ast.Alias(
                         alias="person_id",
-                        expr=ast.Call(name="toString", args=[ast.Field(chain=person_id_chain)]),
+                        expr=ast.Call(name="toUUID", args=[ast.Field(chain=person_id_chain)]),
                     ),
                     ast.Alias(
                         alias="revenue",
