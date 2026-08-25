@@ -84,10 +84,11 @@ describe('session recording utils', () => {
 
         it.each([
             ['current URL: hint and swap', [pageProperty('$current_url')], true, true],
-            ['pathname: hint and swap', [pageProperty('$pathname')], true, true],
             ['pageview scoped by URL: hint and swap', [pageview([pageProperty('$current_url')])], true, true],
-            // Recorded URLs are absolute, so an exact pathname value or an anchored pathname pattern
-            // would stop matching once rewritten.
+            // `visited_page` matches the full recorded URL, but `$pathname` is the path alone, so no
+            // rewrite is safe: an exact or anchored value stops matching, and a substring can collide
+            // with the host, query, or fragment. Every pathname operator gets the hint but no swap.
+            ['pathname substring: hint only', [pageProperty('$pathname')], true, false],
             ['exact pathname: hint only', [pageProperty('$pathname', PropertyOperator.Exact)], true, false],
             ['is-not pathname: hint only', [pageProperty('$pathname', PropertyOperator.IsNot)], true, false],
             ['regex pathname: hint only', [pageProperty('$pathname', PropertyOperator.Regex, '^/docs')], true, false],
@@ -172,7 +173,7 @@ describe('session recording utils', () => {
             // All members swap together, so the OR survives among the visited_page predicates.
             expect(
                 canSwapPageFiltersForVisitedPage(
-                    orGroup(pageProperty('$current_url'), pageview([pageProperty('$pathname')]))
+                    orGroup(pageProperty('$current_url'), pageview([pageProperty('$current_url')]))
                 )
             ).toBe(true)
         })

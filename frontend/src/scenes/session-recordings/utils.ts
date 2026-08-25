@@ -82,14 +82,14 @@ const NEGATED_PAGE_OPERATORS: PropertyOperator[] = [
     PropertyOperator.NotRegex,
 ]
 
-// Recorded URLs are absolute, so an exact `$pathname` value or an anchored `$pathname` pattern
-// (e.g. `^/docs`) would stop matching once rewritten. Only substring matches still line up.
-const PATHNAME_SAFE_OPERATORS: PropertyOperator[] = [PropertyOperator.IContains, PropertyOperator.NotIContains]
-
+// `visited_page` matches the full recorded URL, but `$pathname` is the path alone, so no rewrite is
+// safe: an exact or anchored value stops matching, and a substring can collide with the host, query,
+// or fragment (e.g. `icontains 'app'` on `app.example.com` matches every recording). `$pathname` still
+// gets the hint via PAGE_PROPERTY_KEYS, but is never swapped.
 const isSwappablePageProperty = (filter: PageProperty): boolean =>
     isPagePropertyFilter(filter) &&
-    VISITED_PAGE_SAFE_OPERATORS.includes(filter.operator!) &&
-    (filter.key !== '$pathname' || PATHNAME_SAFE_OPERATORS.includes(filter.operator!))
+    filter.key !== '$pathname' &&
+    VISITED_PAGE_SAFE_OPERATORS.includes(filter.operator!)
 
 const isSwappablePageFilter = (filter: UniversalFilterValue): boolean =>
     filter.type === PropertyFilterType.Event && isSwappablePageProperty(filter)
