@@ -96,9 +96,6 @@ export interface errorTrackingInsightsLogicActions {
     setFilterTestAccounts: (filterTestAccounts: boolean) => {
         filterTestAccounts: boolean
     } // issueFiltersLogic
-    setSummaryStatsError: (error: string | null) => {
-        error: string | null
-    }
     loadSummaryStats: (_: any) => any
     loadSummaryStatsFailure: (
         error: string,
@@ -125,6 +122,9 @@ export interface errorTrackingInsightsLogicActions {
             totalSessions: number
         } | null
         payload?: any
+    }
+    setSummaryStatsError: (error: string | null) => {
+        error: string | null
     }
 }
 
