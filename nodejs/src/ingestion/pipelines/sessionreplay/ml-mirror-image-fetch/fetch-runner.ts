@@ -52,7 +52,7 @@ export interface FetchAttempt {
 export interface FetchRunnerOptions {
     maxConcurrentPerRegistrableDomain: number
     maxInFlightRequests: number
-    minimumActiveOrigins: number
+    lowOriginDiversityMinimumRequestSlots: number
     lowOriginDiversityRepublishThreshold: number
     lowOriginDiversityProgress: number
     batchBudgetMs: number
@@ -120,8 +120,8 @@ export class FetchRunner implements FetchPass {
             options.maxInFlightRequests
         )
         requirePositiveSafeInteger(
-            'SESSION_RECORDING_ML_IMAGE_FETCH_MINIMUM_ACTIVE_ORIGINS',
-            options.minimumActiveOrigins
+            'SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_MINIMUM_REQUEST_SLOTS',
+            options.lowOriginDiversityMinimumRequestSlots
         )
         requirePositiveSafeInteger(
             'SESSION_RECORDING_ML_IMAGE_FETCH_LOW_ORIGIN_DIVERSITY_REPUBLISH_THRESHOLD',
@@ -221,7 +221,8 @@ export class FetchRunner implements FetchPass {
                 if (lease.lowOriginDiversityStarted) {
                     ImageFetchRequestMetrics.observeLowOriginDiversity(
                         lease.lowOriginDiversityStarted.origins,
-                        lease.lowOriginDiversityStarted.candidates
+                        lease.lowOriginDiversityStarted.candidates,
+                        lease.lowOriginDiversityStarted.requestSlots
                     )
                 }
                 attempts.push(

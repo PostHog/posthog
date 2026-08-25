@@ -291,13 +291,13 @@ Removing an eligible entry cannot permit an earlier request.
 
 **5.16** Before scheduling a pass, the lane deduplicates jobs by global canonical URL ref. It keeps the most conservative hop, retry, and timing state for each ref.
 
-**5.17** The pass queue groups jobs first by registrable domain and then by origin. One origin can use all active-request slots for its registrable domain. The registrable-domain and pod request limits still apply.
+**5.17** The pass queue groups jobs first by registrable domain and then by origin. It assigns capped proportional concurrency targets at both levels. It starts with each queue's share of the deduplicated pass and the available parent capacity. It caps the target at the queue's job count and the registrable-domain limit. It redistributes unused capacity until no eligible queue exceeds either cap.
 
-**5.18** When capacity is available, the queue selects the available origin with the most waiting canonical URL jobs. If two origins have the same count, it selects the origin that entered the pass first.
+**5.18** The queue selects the registrable domain that is furthest below its concurrency target. It uses the waiting job count and then insertion order as tie-breakers. It applies the same rule to origins within the selected registrable domain. The pod and registrable-domain limits still apply.
 
-**5.19** If fewer than 8 origins remain and more than 50 canonical URL jobs have not received a diversity deferral, the pass enters low-origin-diversity mode. It processes 8 more jobs for forward progress. It then republishes each eligible job in the waiting tail to the frontier without reducing the hop budget. Low-origin-diversity mode remains active for the rest of that pass.
+**5.19** The queue calculates remaining request capacity as the sum of active and waiting jobs for each registrable domain, capped at 6 per domain and 300 for the pod. If fewer than 48 request slots remain and more than 50 canonical URL jobs have not received a diversity deferral, the pass enters low-origin-diversity mode. It processes 8 more jobs for forward progress. It then republishes each eligible job in the waiting tail to the frontier without reducing the hop budget. Low-origin-diversity mode remains active for the rest of that pass.
 
-This rule lets later Kafka records add origin diversity before one origin consumes most of a pod's capacity. A job can receive this zero-wait diversity deferral once. A previously deferred job proceeds normally, subject to the pass deadline. This bound prevents a persistent dominant origin or one long run from creating a fast republish cycle without progress.
+This rule lets later Kafka records add domain and origin diversity when the current pass cannot use enough pod capacity. A job can receive this zero-wait diversity deferral once. A previously deferred job proceeds normally, subject to the pass deadline. This bound prevents a persistent dominant origin or one long run from creating a fast republish cycle without progress.
 
 ### 6. Smokescreen
 
@@ -459,7 +459,7 @@ A fetch batch can publish more frontier records than it consumed. This can occur
 
 It counts transient retry causes as `timeout`, `error`, `rate_limited`, or `server_error`. It also counts republish failures, crawl-history keys affected by failed operations, and retry records by outcome.
 
-**11.8** The lane observes completed poll batch duration, active batch age, distinct origins and registrable domains per poll batch, crawl-history operation duration, scheduler waits by `origin_crawl_delay`, `registrable_domain_rate`, or `request_capacity`, and URL age at ingestion. For deduplicated canonical URL jobs, it observes the URL share held by the top 1, 5, and 10 origins and registrable domains. It also observes the inverse Simpson effective count for both scopes. At fetch-pass start, it observes the request slots that the queue can use immediately and their ratio to the pod request limit. It counts passes that enter low-origin-diversity mode and observes the origins and canonical URL jobs that remain at entry. The pass-budget saturation ratio is `pass_deadline` republishes divided by completed URLs plus all republishes.
+**11.8** The lane observes completed poll batch duration, active batch age, distinct origins and registrable domains per poll batch, crawl-history operation duration, scheduler waits by `origin_crawl_delay`, `registrable_domain_rate`, or `request_capacity`, and URL age at ingestion. For deduplicated canonical URL jobs, it observes the URL share held by the top 1, 5, and 10 origins and registrable domains. It also observes the inverse Simpson effective count for both scopes. At fetch-pass start, it observes the request slots that the queue can use immediately and their ratio to the pod request limit. It counts passes that enter low-origin-diversity mode and observes the origins, canonical URL jobs, and request slots that remain at entry. The pass-budget saturation ratio is `pass_deadline` republishes divided by completed URLs plus all republishes.
 
 **11.9** Alerts use frontier-topic lag, pass-budget saturation, active batch age, delivery failures, and invalid frontier or retry input. Durable log alerts cover one-shot failures that can stop a pod before Prometheus scrapes its counters. Requirement 16.6 still prohibits alerts on delay-topic lag.
 

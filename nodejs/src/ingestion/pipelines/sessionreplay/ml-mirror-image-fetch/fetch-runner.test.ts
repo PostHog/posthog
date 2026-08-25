@@ -12,7 +12,7 @@ const NOW_MS = 1_700_000_000_000
 const OPTIONS: FetchRunnerOptions = {
     maxConcurrentPerRegistrableDomain: 2,
     maxInFlightRequests: 50,
-    minimumActiveOrigins: 1,
+    lowOriginDiversityMinimumRequestSlots: 1,
     lowOriginDiversityRepublishThreshold: 50,
     lowOriginDiversityProgress: 8,
     batchBudgetMs: 20_000,
@@ -184,7 +184,7 @@ describe('FetchRunner', () => {
         expect(harness.fetch).toHaveBeenCalledTimes(2)
     })
 
-    it('lets one origin fill the registrable-domain worker limit', async () => {
+    it('allocates sibling-origin workers by queue share', async () => {
         const harness = build({}, {}, 'queued', { ...OPTIONS, maxConcurrentPerRegistrableDomain: 2 })
         let releaseFirst: (() => void) | undefined
         let releaseSecond: (() => void) | undefined
@@ -213,7 +213,7 @@ describe('FetchRunner', () => {
         await Promise.resolve()
         await Promise.resolve()
 
-        expect(harness.fetch.mock.calls.map(([url]) => url)).toEqual([candidate().currentUrl, sameOrigin.currentUrl])
+        expect(harness.fetch.mock.calls.map(([url]) => url)).toEqual([candidate().currentUrl, siblingOrigin.currentUrl])
         releaseFirst?.()
         releaseSecond?.()
         await run
@@ -264,7 +264,7 @@ describe('FetchRunner', () => {
         harness.budget.releaseConnection('example.com', 'https://cdn.example.com')
     })
 
-    it('starts the origin with the largest canonical URL queue first', async () => {
+    it('keeps one request slot on the largest origin queue', async () => {
         const harness = build({}, {}, 'queued', {
             ...OPTIONS,
             maxConcurrentPerRegistrableDomain: 1,
@@ -292,25 +292,28 @@ describe('FetchRunner', () => {
 
         expect(harness.fetch.mock.calls.map(([url]) => url)).toEqual([
             largeFirst.currentUrl,
-            small.currentUrl,
             largeSecond.currentUrl,
+            small.currentUrl,
         ])
     })
 
-    it('republishes a low-origin-diversity tail after making bounded progress', async () => {
+    it('republishes a low-capacity tail across many origins after making bounded progress', async () => {
         const harness = build({}, {}, 'queued', {
             ...OPTIONS,
             maxInFlightRequests: 1,
-            minimumActiveOrigins: 2,
+            lowOriginDiversityMinimumRequestSlots: 5,
             lowOriginDiversityRepublishThreshold: 2,
             lowOriginDiversityProgress: 1,
         })
-        const candidates = Array.from({ length: 4 }, (_, index) =>
-            candidate({
+        const candidates = Array.from({ length: 4 }, (_, index) => {
+            const origin = `https://cdn-${index}.example.com`
+            return candidate({
                 originalRef: `imageurl:${index.toString().padStart(22, '0')}`,
-                currentUrl: `https://cdn.example.com/${index}.png`,
+                currentUrl: `${origin}/${index}.png`,
+                host: `cdn-${index}.example.com`,
+                origin,
             })
-        )
+        })
 
         const attempts = await harness.runner.run(candidates, new Map())
 
@@ -329,7 +332,7 @@ describe('FetchRunner', () => {
         const harness = build({}, {}, 'queued', {
             ...OPTIONS,
             maxInFlightRequests: 1,
-            minimumActiveOrigins: 2,
+            lowOriginDiversityMinimumRequestSlots: 5,
             lowOriginDiversityRepublishThreshold: 2,
             lowOriginDiversityProgress: 1,
         })

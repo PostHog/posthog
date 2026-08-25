@@ -1,5 +1,3 @@
-import FastPriorityQueue from 'fastpriorityqueue'
-
 import { FetchCandidate } from './collected-urls-record'
 
 export type FetchCandidateQueueAction = 'fetch' | 'republish_low_origin_diversity'
@@ -7,6 +5,7 @@ export type FetchCandidateQueueAction = 'fetch' | 'republish_low_origin_diversit
 export interface LowOriginDiversitySnapshot {
     origins: number
     candidates: number
+    requestSlots: number
 }
 
 export interface FetchCandidateLease {
@@ -22,42 +21,53 @@ interface OriginQueue {
     head: number
     sequence: number
     active: number
-    available: boolean
+    initialCandidateCount: number
+    targetConcurrent: number
+    heapIndex: number
 }
 
 interface RegistrableDomainQueue {
     registrableDomain: string
     origins: Map<string, OriginQueue>
-    availableOrigins: FastPriorityQueue<OriginQueue>
+    availableOrigins: IndexedPriorityQueue<OriginQueue>
     initialCandidateCount: number
+    waitingCandidateCount: number
+    targetConcurrent: number
+    sequence: number
     active: number
     heapIndex: number
 }
 
-class AvailableDomainQueue {
-    private readonly heap: RegistrableDomainQueue[] = []
+interface IndexedPriorityQueueItem {
+    heapIndex: number
+}
+
+class IndexedPriorityQueue<T extends IndexedPriorityQueueItem> {
+    private readonly heap: T[] = []
+
+    constructor(private readonly hasPriority: (left: T, right: T) => boolean) {}
 
     public get size(): number {
         return this.heap.length
     }
 
-    public addOrUpdate(domain: RegistrableDomainQueue): void {
-        if (domain.heapIndex < 0) {
-            domain.heapIndex = this.heap.length
-            this.heap.push(domain)
-            this.siftUp(domain.heapIndex)
+    public addOrUpdate(item: T): void {
+        if (item.heapIndex < 0) {
+            item.heapIndex = this.heap.length
+            this.heap.push(item)
+            this.siftUp(item.heapIndex)
             return
         }
-        this.rebalance(domain.heapIndex)
+        this.rebalance(item.heapIndex)
     }
 
-    public remove(domain: RegistrableDomainQueue): void {
-        const index = domain.heapIndex
+    public remove(item: T): void {
+        const index = item.heapIndex
         if (index < 0) {
             return
         }
         const last = this.heap.pop()!
-        domain.heapIndex = -1
+        item.heapIndex = -1
         if (index === this.heap.length) {
             return
         }
@@ -66,17 +76,21 @@ class AvailableDomainQueue {
         this.rebalance(index)
     }
 
-    public poll(): RegistrableDomainQueue | undefined {
-        const domain = this.heap[0]
-        if (domain) {
-            this.remove(domain)
+    public peek(): T | undefined {
+        return this.heap[0]
+    }
+
+    public poll(): T | undefined {
+        const item = this.heap[0]
+        if (item) {
+            this.remove(item)
         }
-        return domain
+        return item
     }
 
     private rebalance(index: number): void {
         const parentIndex = Math.floor((index - 1) / 2)
-        if (index > 0 && domainQueueHasPriority(this.heap[index], this.heap[parentIndex])) {
+        if (index > 0 && this.hasPriority(this.heap[index], this.heap[parentIndex])) {
             this.siftUp(index)
         } else {
             this.siftDown(index)
@@ -87,7 +101,7 @@ class AvailableDomainQueue {
         let index = startIndex
         while (index > 0) {
             const parentIndex = Math.floor((index - 1) / 2)
-            if (!domainQueueHasPriority(this.heap[index], this.heap[parentIndex])) {
+            if (!this.hasPriority(this.heap[index], this.heap[parentIndex])) {
                 return
             }
             this.swap(index, parentIndex)
@@ -104,10 +118,10 @@ class AvailableDomainQueue {
             }
             const rightIndex = leftIndex + 1
             const childIndex =
-                rightIndex < this.heap.length && domainQueueHasPriority(this.heap[rightIndex], this.heap[leftIndex])
+                rightIndex < this.heap.length && this.hasPriority(this.heap[rightIndex], this.heap[leftIndex])
                     ? rightIndex
                     : leftIndex
-            if (!domainQueueHasPriority(this.heap[childIndex], this.heap[index])) {
+            if (!this.hasPriority(this.heap[childIndex], this.heap[index])) {
                 return
             }
             this.swap(index, childIndex)
@@ -127,7 +141,8 @@ class AvailableDomainQueue {
 
 export interface FetchCandidateQueueOptions {
     maxConcurrentPerRegistrableDomain: number
-    minimumActiveOrigins: number
+    maxInFlightRequests: number
+    lowOriginDiversityMinimumRequestSlots: number
     lowOriginDiversityRepublishThreshold: number
     lowOriginDiversityProgress: number
 }
@@ -154,13 +169,14 @@ export function deduplicateFetchCandidates(candidates: FetchCandidate[]): Dedupl
 
 export class FetchCandidateQueue {
     private readonly domains = new Map<string, RegistrableDomainQueue>()
-    private readonly availableDomains = new AvailableDomainQueue()
+    private readonly availableDomains = new IndexedPriorityQueue<RegistrableDomainQueue>(domainQueueHasPriority)
     private waitingCandidates = 0
     private waitingCandidatesWithoutDiversityDeferral = 0
     private remainingOrigins = 0
     private lowOriginDiversityStarted = false
     private lowOriginDiversityProgressRemaining: number
     private initialSchedulableSlots = 0
+    private remainingSchedulableSlots = 0
     private aborted = false
 
     constructor(
@@ -169,15 +185,19 @@ export class FetchCandidateQueue {
     ) {
         this.lowOriginDiversityProgressRemaining = options.lowOriginDiversityProgress
         const deduplicated = deduplicateFetchCandidates(candidates)
-        let sequence = 0
+        let domainSequence = 0
+        let originSequence = 0
         for (const candidate of deduplicated.candidates) {
             let domain = this.domains.get(candidate.registrableDomain)
             if (!domain) {
                 domain = {
                     registrableDomain: candidate.registrableDomain,
                     origins: new Map(),
-                    availableOrigins: new FastPriorityQueue<OriginQueue>(originQueueHasPriority),
+                    availableOrigins: new IndexedPriorityQueue<OriginQueue>(originQueueHasPriority),
                     initialCandidateCount: 0,
+                    waitingCandidateCount: 0,
+                    targetConcurrent: 0,
+                    sequence: domainSequence++,
                     active: 0,
                     heapIndex: -1,
                 }
@@ -189,21 +209,35 @@ export class FetchCandidateQueue {
                     origin: candidate.origin,
                     candidates: [],
                     head: 0,
-                    sequence: sequence++,
+                    sequence: originSequence++,
                     active: 0,
-                    available: false,
+                    initialCandidateCount: 0,
+                    targetConcurrent: 0,
+                    heapIndex: -1,
                 }
                 domain.origins.set(candidate.origin, originQueue)
                 this.remainingOrigins += 1
             }
             originQueue.candidates.push(candidate)
+            originQueue.initialCandidateCount += 1
             domain.initialCandidateCount += 1
+            domain.waitingCandidateCount += 1
             this.waitingCandidates += 1
             if (candidate.lowOriginDiversityDeferred !== true) {
                 this.waitingCandidatesWithoutDiversityDeferral += 1
             }
         }
+        allocateConcurrentTargets(
+            [...this.domains.values()],
+            this.options.maxInFlightRequests,
+            this.options.maxConcurrentPerRegistrableDomain
+        )
         for (const domain of this.domains.values()) {
+            allocateConcurrentTargets(
+                [...domain.origins.values()],
+                domain.targetConcurrent,
+                this.options.maxConcurrentPerRegistrableDomain
+            )
             for (const origin of domain.origins.values()) {
                 this.refreshOriginSelection(domain, origin)
             }
@@ -213,6 +247,7 @@ export class FetchCandidateQueue {
             )
             this.refreshDomainSelection(domain)
         }
+        this.remainingSchedulableSlots = this.initialSchedulableSlots
     }
 
     public get candidateCount(): number {
@@ -247,22 +282,28 @@ export class FetchCandidateQueue {
         if (this.aborted) {
             return undefined
         }
-        const selected = this.takeLargestAvailableOrigin()
+        const selected = this.takeHighestPriorityOrigin()
         if (!selected) {
             return undefined
         }
+        const remainingRequestSlots = Math.min(this.remainingSchedulableSlots, this.options.maxInFlightRequests)
         const lowOriginDiversity =
             this.lowOriginDiversityStarted ||
-            (this.remainingOrigins < this.options.minimumActiveOrigins &&
+            (remainingRequestSlots < this.options.lowOriginDiversityMinimumRequestSlots &&
                 this.waitingCandidatesWithoutDiversityDeferral > this.options.lowOriginDiversityRepublishThreshold)
         const lowOriginDiversityStarted =
             lowOriginDiversity && !this.lowOriginDiversityStarted
-                ? { origins: this.remainingOrigins, candidates: this.waitingCandidates }
+                ? {
+                      origins: this.remainingOrigins,
+                      candidates: this.waitingCandidates,
+                      requestSlots: remainingRequestSlots,
+                  }
                 : undefined
         if (lowOriginDiversityStarted) {
             this.lowOriginDiversityStarted = true
         }
         const candidate = selected.origin.candidates[selected.origin.head++]!
+        selected.domain.waitingCandidateCount -= 1
         this.refreshOriginSelection(selected.domain, selected.origin)
         this.refreshDomainSelection(selected.domain)
         const candidateCanReceiveDiversityDeferral = candidate.lowOriginDiversityDeferred !== true
@@ -288,8 +329,17 @@ export class FetchCandidateQueue {
                     return
                 }
                 released = true
+                const requestSlotsBeforeRelease = Math.min(
+                    selected.domain.active + selected.domain.waitingCandidateCount,
+                    this.options.maxConcurrentPerRegistrableDomain
+                )
                 selected.domain.active = Math.max(0, selected.domain.active - 1)
                 selected.origin.active = Math.max(0, selected.origin.active - 1)
+                const requestSlotsAfterRelease = Math.min(
+                    selected.domain.active + selected.domain.waitingCandidateCount,
+                    this.options.maxConcurrentPerRegistrableDomain
+                )
+                this.remainingSchedulableSlots -= requestSlotsBeforeRelease - requestSlotsAfterRelease
                 if (originCandidateCount(selected.origin) === 0 && selected.origin.active === 0) {
                     selected.domain.origins.delete(selected.origin.origin)
                     this.remainingOrigins -= 1
@@ -306,7 +356,7 @@ export class FetchCandidateQueue {
         }
     }
 
-    private takeLargestAvailableOrigin(): { domain: RegistrableDomainQueue; origin: OriginQueue } | undefined {
+    private takeHighestPriorityOrigin(): { domain: RegistrableDomainQueue; origin: OriginQueue } | undefined {
         for (;;) {
             const domain = this.availableDomains.poll()
             if (!domain) {
@@ -319,7 +369,6 @@ export class FetchCandidateQueue {
             if (!origin) {
                 continue
             }
-            origin.available = false
             domain.active += 1
             origin.active += 1
             return { domain, origin }
@@ -327,15 +376,11 @@ export class FetchCandidateQueue {
     }
 
     private refreshOriginSelection(domain: RegistrableDomainQueue, origin: OriginQueue): void {
-        if (
-            origin.available ||
-            originCandidateCount(origin) === 0 ||
-            origin.active >= this.options.maxConcurrentPerRegistrableDomain
-        ) {
+        if (originCandidateCount(origin) === 0 || origin.active >= this.options.maxConcurrentPerRegistrableDomain) {
+            domain.availableOrigins.remove(origin)
             return
         }
-        origin.available = true
-        domain.availableOrigins.add(origin)
+        domain.availableOrigins.addOrUpdate(origin)
     }
 
     private refreshDomainSelection(domain: RegistrableDomainQueue): void {
@@ -349,9 +394,14 @@ export class FetchCandidateQueue {
 }
 
 function originQueueHasPriority(left: OriginQueue, right: OriginQueue): boolean {
+    const leftDistance = left.targetConcurrent - left.active
+    const rightDistance = right.targetConcurrent - right.active
     return (
-        originCandidateCount(left) > originCandidateCount(right) ||
-        (originCandidateCount(left) === originCandidateCount(right) && left.sequence < right.sequence)
+        leftDistance > rightDistance ||
+        (leftDistance === rightDistance && originCandidateCount(left) > originCandidateCount(right)) ||
+        (leftDistance === rightDistance &&
+            originCandidateCount(left) === originCandidateCount(right) &&
+            left.sequence < right.sequence)
     )
 }
 
@@ -360,13 +410,53 @@ function originCandidateCount(origin: OriginQueue): number {
 }
 
 function domainQueueHasPriority(left: RegistrableDomainQueue, right: RegistrableDomainQueue): boolean {
-    const leftOrigin = left.availableOrigins.peek()!
-    const rightOrigin = right.availableOrigins.peek()!
+    const leftDistance = left.targetConcurrent - left.active
+    const rightDistance = right.targetConcurrent - right.active
     return (
-        originCandidateCount(leftOrigin) > originCandidateCount(rightOrigin) ||
-        (originCandidateCount(leftOrigin) === originCandidateCount(rightOrigin) &&
-            leftOrigin.sequence < rightOrigin.sequence)
+        leftDistance > rightDistance ||
+        (leftDistance === rightDistance && left.waitingCandidateCount > right.waitingCandidateCount) ||
+        (leftDistance === rightDistance &&
+            left.waitingCandidateCount === right.waitingCandidateCount &&
+            left.sequence < right.sequence)
     )
+}
+
+interface ConcurrentTarget {
+    initialCandidateCount: number
+    targetConcurrent: number
+}
+
+function allocateConcurrentTargets<T extends ConcurrentTarget>(
+    queues: T[],
+    totalCapacity: number,
+    maximumPerQueue: number
+): void {
+    let remainingCapacity = Math.min(
+        totalCapacity,
+        queues.reduce((sum, queue) => sum + queue.initialCandidateCount, 0)
+    )
+    let remainingWeight = queues.reduce((sum, queue) => sum + queue.initialCandidateCount, 0)
+    let remainingQueues = queues
+
+    while (remainingQueues.length > 0 && remainingCapacity > 0 && remainingWeight > 0) {
+        const queuesAtLimit = remainingQueues.filter((queue) => {
+            const proportionalTarget = (remainingCapacity * queue.initialCandidateCount) / remainingWeight
+            return proportionalTarget >= Math.min(maximumPerQueue, queue.initialCandidateCount)
+        })
+        if (queuesAtLimit.length === 0) {
+            for (const queue of remainingQueues) {
+                queue.targetConcurrent = (remainingCapacity * queue.initialCandidateCount) / remainingWeight
+            }
+            return
+        }
+        const queuesAtLimitSet = new Set(queuesAtLimit)
+        for (const queue of queuesAtLimit) {
+            queue.targetConcurrent = Math.min(maximumPerQueue, queue.initialCandidateCount)
+            remainingCapacity -= queue.targetConcurrent
+            remainingWeight -= queue.initialCandidateCount
+        }
+        remainingQueues = remainingQueues.filter((queue) => !queuesAtLimitSet.has(queue))
+    }
 }
 
 export function mergeDuplicateFetchCandidates(left: FetchCandidate, right: FetchCandidate): FetchCandidate {

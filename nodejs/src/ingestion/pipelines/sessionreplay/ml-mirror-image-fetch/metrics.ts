@@ -244,6 +244,11 @@ export class ImageFetchRequestMetrics {
         help: 'Canonical URL jobs remaining when a fetch pass started low-diversity republishing',
         buckets: [1, 8, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16_384, 32_768, 65_536],
     })
+    private static readonly lowOriginDiversityRequestSlots = new Histogram({
+        name: 'ml_image_fetch_low_origin_diversity_request_slots',
+        help: 'Request slots remaining when a fetch pass started low-diversity republishing',
+        buckets: [1, 2, 4, 8, 16, 32, 48, 64, 128, 256, 300],
+    })
     private static readonly batchSchedulableSlots = new Histogram({
         name: 'ml_image_fetch_batch_schedulable_slots',
         help: 'Request slots that the initial fetch queue can use after live pod and registrable-domain concurrency limits',
@@ -372,10 +377,11 @@ export class ImageFetchRequestMetrics {
     public static observePolicyAndBudgetDecision(blocked: boolean, reason: PolicyAndBudgetReason = 'none'): void {
         this.policyAndBudgetDecisions.labels(blocked ? 'true' : 'false', reason).inc()
     }
-    public static observeLowOriginDiversity(origins: number, candidates: number): void {
+    public static observeLowOriginDiversity(origins: number, candidates: number, requestSlots: number): void {
         this.lowOriginDiversityPasses.inc()
         this.lowOriginDiversityOrigins.observe(origins)
         this.lowOriginDiversityCandidates.observe(candidates)
+        this.lowOriginDiversityRequestSlots.observe(requestSlots)
     }
     public static observeBatchSchedulableCapacity(slots: number, podRequestLimit: number): void {
         const boundedSlots = Math.min(slots, podRequestLimit)
