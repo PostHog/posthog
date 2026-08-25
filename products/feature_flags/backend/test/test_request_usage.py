@@ -75,7 +75,7 @@ class TestFeatureFlagRequestUsageQuery(ClickhouseTestMixin, TestCase):
             timestamp=datetime(2026, 8, 20, 12, tzinfo=UTC),
             properties={
                 "count": 7,
-                "sdk_breakdown": '{"posthog-node": 7}',
+                "sdk_breakdown": {"posthog-node": 7},
                 "token": "request-usage-test-token",
             },
         )
@@ -86,7 +86,7 @@ class TestFeatureFlagRequestUsageQuery(ClickhouseTestMixin, TestCase):
             timestamp=datetime(2026, 8, 20, 12, 35, tzinfo=UTC),
             properties={
                 "count": 3,
-                "sdk_breakdown": '{"posthog-python": 3}',
+                "sdk_breakdown": {"posthog-python": 3},
                 "token": "request-usage-test-token",
             },
         )
@@ -97,7 +97,7 @@ class TestFeatureFlagRequestUsageQuery(ClickhouseTestMixin, TestCase):
             timestamp=datetime(2026, 8, 20, 12, 45, tzinfo=UTC),
             properties={
                 "count": 100,
-                "sdk_breakdown": '{"wrong-token-sdk": 100}',
+                "sdk_breakdown": {"wrong-token-sdk": 100},
                 "token": "wrong-token",
             },
         )
