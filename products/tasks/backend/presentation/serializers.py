@@ -2908,6 +2908,18 @@ class TaskRunCreateRequestSerializer(ImportedMcpServersFieldMixin, RelayedMcpSer
             "follows the server-side default (enabled); false opts this run out."
         ),
     )
+    babysit_mode = serializers.ChoiceField(
+        choices=("ask", "auto", "always", "never"),
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "What the agent does when the PR's CI needs attention: 'ask' stages the "
+            "wake-up and waits for approval, 'auto' fires immediately (the default), "
+            "'always' fires with no idle wait or cap, 'never' disables the loop for "
+            "this run. Only honored when the tasks-pr-babysit-opt-in flag is on."
+        ),
+    )
 
     def validate(self, attrs):
         errors: dict[str, str] = {}
@@ -3101,6 +3113,18 @@ class TaskRunBootstrapCreateRequestSerializer(
         help_text=(
             "Whether rtk command-output compression is enabled for this run. Omitted or null "
             "follows the server-side default (enabled); false opts this run out."
+        ),
+    )
+    babysit_mode = serializers.ChoiceField(
+        choices=("ask", "auto", "always", "never"),
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text=(
+            "What the agent does when the PR's CI needs attention: 'ask' stages the "
+            "wake-up and waits for approval, 'auto' fires immediately (the default), "
+            "'always' fires with no idle wait or cap, 'never' disables the loop for "
+            "this run. Only honored when the tasks-pr-babysit-opt-in flag is on."
         ),
     )
 

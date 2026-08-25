@@ -178,6 +178,11 @@ RTK_DISABLED_FEATURE_FLAG = "tasks-rtk-disabled"
 # Gates whether long-running process_task runs continue-as-new to bound history/replay cost.
 CONTINUE_AS_NEW_FEATURE_FLAG = "tasks-cloud-run-continue-as-new"
 PR_BABYSIT_SNAPSHOT_FEATURE_FLAG = "tasks-pr-babysit-snapshot"
+# Gates the per-run PR-babysitting opt-in. When off, every interactive run keeps
+# today's behavior (auto-fire the wake-up). When on, the run's ``babysit_mode``
+# state key (ask / auto / always / never) governs what the workflow does when CI
+# needs attention. Signals and loop runs keep their unconditional path regardless.
+PR_BABYSIT_OPT_IN_FEATURE_FLAG = "tasks-pr-babysit-opt-in"
 SANDBOX_ROTATION_FEATURE_FLAG = "tasks-cloud-run-sandbox-rotation"
 
 SnapshotKind = Literal["filesystem", "directory"]

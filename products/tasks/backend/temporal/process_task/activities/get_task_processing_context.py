@@ -19,6 +19,7 @@ from products.tasks.backend.constants import (
     DESKTOP_WORKSPACE_WARM_FEATURE_FLAG,
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
+    PR_BABYSIT_OPT_IN_FEATURE_FLAG,
     PR_BABYSIT_SNAPSHOT_FEATURE_FLAG,
     RTK_DISABLED_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
@@ -91,6 +92,13 @@ class TaskProcessingContext:
     create_pr: bool = True
     pr_loop_enabled: bool = False
     pr_babysit_enabled: bool = False
+    # What the agent does when CI needs attention, when the opt-in flag is on.
+    # "ask" stages the wake-up and waits for an approve signal; "auto" fires
+    # immediately (today's behavior); "always" fires with no idle wait or cap;
+    # "never" disables the loop for this run. Forced to "auto" when the opt-in
+    # flag is off, so the workflow can branch on the mode without re-checking the
+    # flag at every site.
+    babysit_mode: str = "auto"
     context_layer_enabled: bool = False
     state: dict | None = None
     _branch: str | None = None
@@ -785,6 +793,47 @@ def _is_pr_babysit_snapshot_enabled(
     return enabled
 
 
+# The four modes the desktop settings control exposes. "auto" is the
+# default and the no-op: it matches today's behavior, so when the opt-in flag
+# is off the workflow never branches on the mode.
+_BABYSIT_MODES = ("ask", "auto", "always", "never")
+
+
+def _resolve_babysit_mode(
+    *,
+    state: dict,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+) -> str:
+    """Return the run's babysit mode, forced to "auto" when the opt-in flag is off.
+
+    Reads the mode the desktop wrote onto the run state. Signals and loop runs
+    keep their unconditional path, so an unknown or missing mode falls back to
+    "auto" rather than blocking the wake-up.
+    """
+    try:
+        opt_in_enabled = bool(
+            posthoganalytics.feature_enabled(
+                PR_BABYSIT_OPT_IN_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("pr_babysit_opt_in_flag_check_failed", run_id=run_id, error=str(e))
+        return "auto"
+    if not opt_in_enabled:
+        return "auto"
+    raw = ((state or {}).get("babysit_mode")) or "auto"
+    mode = raw if raw in _BABYSIT_MODES else "auto"
+    log_with_activity_context("pr_babysit_mode_resolved", run_id=run_id, babysit_mode=mode)
+    return mode
+
+
 def _is_sandbox_rotation_enabled(
     *,
     distinct_id: str,
@@ -1159,6 +1208,12 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"pr_babysit_enabled: {pr_babysit_enabled} for this task run",
     )
+    babysit_mode = _resolve_babysit_mode(
+        state=state,
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+    )
     pr_authorship_mode = get_pr_authorship_mode(task, state)
     user_github_integration_id = None
     if not (is_slack_interaction_state(state) and pr_authorship_mode.value == "user"):
@@ -1189,6 +1244,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         create_pr=input.create_pr,
         pr_loop_enabled=pr_loop_enabled,
         pr_babysit_enabled=pr_babysit_enabled,
+        babysit_mode=babysit_mode,
         context_layer_enabled=context_layer_enabled,
         state=state,
         _branch=task_run.branch,

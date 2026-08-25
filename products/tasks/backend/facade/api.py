@@ -404,6 +404,7 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
     {
         "ai_stage",
         "auto_publish",
+        "babysit_mode",
         "context_window",
         "custom_image_id",
         "fast_mode",
@@ -4439,6 +4440,7 @@ def bootstrap_task_run(
         "context_window": context_window,
         "fast_mode": fast_mode,
         "rtk_enabled": validated_data.get("rtk_enabled"),
+        "babysit_mode": validated_data.get("babysit_mode"),
     }.items():
         if value is not None:
             extra_state = extra_state or {}

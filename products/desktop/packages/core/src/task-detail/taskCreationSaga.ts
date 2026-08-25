@@ -430,6 +430,7 @@ export class TaskCreationSaga extends Saga<
             prAuthorshipMode,
             autoPublish: input.cloudAutoPublish,
             rtkEnabled: input.cloudRtkEnabled,
+            babysitMode: input.cloudBabysitMode,
             runSource: input.cloudRunSource ?? "manual",
             signalReportId: input.signalReportId,
             importedMcpServers: input.importedMcpServers,
@@ -899,6 +900,10 @@ export class TaskCreationSaga extends Saga<
             canActivateWarmRun &&
             input.cloudAutoPublish
               ? true
+              : undefined,
+          babysit_mode:
+            input.workspaceMode === "cloud" && canActivateWarmRun
+              ? input.cloudBabysitMode
               : undefined,
         });
         return result as unknown as Task;

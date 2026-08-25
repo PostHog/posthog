@@ -427,6 +427,7 @@ export function useTaskCreation({
             customInstructions: getEffectiveCustomInstructions(settings),
             autoPublishCloudRuns: settings.autoPublishCloudRuns,
             rtkEnabledCloud: settings.rtkEnabledCloud,
+            babysitMode: settings.babysitMode,
             allowNoRepo,
             importedMcpServers: localMcpServersForRun.imported,
             relayedMcpServers: localMcpServersForRun.relayed,

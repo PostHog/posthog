@@ -1,5 +1,7 @@
+import sys
 import json
 import asyncio
+import dataclasses
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from enum import StrEnum
@@ -188,6 +190,10 @@ class ResumedSandboxState:
     # Defaulted so continue_as_new payloads from pre-rollout runs deserialize.
     pr_unresolved_threads: int = 0
     babysit_journal: BabysitJournal = field(default_factory=BabysitJournal)
+    # The staged ``_pending_babysit`` attention, carried across continue_as_new so
+    # an "ask"-mode run that was parked on consent does not lose its wake-up.
+    pending_babysit: Optional[dict] = None
+    babysit_consent: bool = False
     ci_resume_snapshot_created: bool = False
     accepted_message_ids: list[str] = field(default_factory=list)
     # ISO8601 start of the whole continue_as_new chain, so the wall-clock cap is not
@@ -287,12 +293,46 @@ class CIFollowUpDecision(StrEnum):
     SKIP = "skip"
     NO_PR = "no_pr"
     TERMINAL = "terminal"
+    # The PR needs attention but the run is in "ask" mode: the wake-up is staged
+    # and the workflow waits for an ``approve_ci_babysit`` signal before
+    # dispatching. The staged attention is exposed via the
+    # ``pending_babysit_attention`` query so the desktop can render a consent
+    # card.
+    AWAITING_CONSENT = "awaiting_consent"
 
 
 @dataclass(frozen=True)
 class _BabysitDispatch:
     snapshot: PRSnapshot
     attention: AttentionSet
+
+
+def _serialize_pending_babysit(pending: Optional[_BabysitDispatch]) -> Optional[dict]:
+    if pending is None:
+        return None
+    return {
+        "snapshot": dataclasses.asdict(pending.snapshot),
+        "attention": dataclasses.asdict(pending.attention),
+    }
+
+
+def _deserialize_pending_babysit(data: Optional[dict]) -> Optional[_BabysitDispatch]:
+    if not data:
+        return None
+    snapshot = PRSnapshot(**data["snapshot"])
+    attention = AttentionSet(**data["attention"])
+    return _BabysitDispatch(snapshot=snapshot, attention=attention)
+
+
+def _ci_repetition_cap(context: TaskProcessingContext) -> int:
+    """Upper bound on CI follow-up rounds for this run.
+
+    "always" mode watches the PR until it merges or closes, so the cap is lifted;
+    every other mode keeps the standard ``MAX_CI_REPETITIONS`` bound.
+    """
+    if context.babysit_mode == "always":
+        return sys.maxsize
+    return MAX_CI_REPETITIONS
 
 
 # Legacy re-exports kept while process_task is still on the worker. New
@@ -480,6 +520,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._pr_progress_emitted: bool = False
         self._babysit_journal: BabysitJournal = BabysitJournal()
         self._pending_babysit: Optional[_BabysitDispatch] = None
+        # Set by the ``approve_ci_babysit`` signal when the run is in "ask" mode
+        # and the workflow is parked on an ``AWAITING_CONSENT`` decision. Cleared
+        # by the dispatch that consumes it.
+        self._babysit_consent: bool = False
         self._ci_resume_snapshot_created: bool = False
         self._sandbox_ttl_expires_at: Optional[datetime] = None
         self._sandbox_ttl_snapshot_taken: bool = False
@@ -657,6 +701,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         return TaskEvent.MAX_DURATION_REACHED
 
     async def _wait_for_ci_follow_up(self):
+        # "always" mode watches the PR continuously: skip the idle wait so the
+        # wake-up fires on the next loop tick rather than after CI_FOLLOW_UP_DELAY.
+        if self.context.babysit_mode == "always":
+            return TaskEvent.CI_FOLLOW_UP
         if self._last_active_time:
             elapsed = workflow.now() - self._last_active_time
             remaining = CI_FOLLOW_UP_DELAY - elapsed
@@ -795,7 +843,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             and self._context is not None
             and self._context.create_pr
             and self._context.pr_loop_enabled
-            and self._ci_repetitions < MAX_CI_REPETITIONS
+            and self._ci_repetitions < _ci_repetition_cap(self.context)
+            # "never" opts the run out of the loop entirely: no timer, no wake-ups.
+            and self.context.babysit_mode != "never"
         )
         # When CI follow-up is scheduled, the inactivity timer must outlive
         # CI_FOLLOW_UP_DELAY. The testing-only `TASKS_INACTIVITY_TIMEOUT_SECONDS`
@@ -963,6 +1013,10 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
     async def _should_run_babysit_follow_up(self) -> CIFollowUpDecision:
         self._pending_babysit = None
+        # "never" opts the run out of the loop. The timer gate keeps the loop
+        # from calling here, but a direct call must not bypass the opt-out.
+        if self.context.babysit_mode == "never":
+            return CIFollowUpDecision.SKIP
         snapshot = await workflow.execute_activity(
             get_pr_babysit_snapshot,
             GetPrBabysitSnapshotInput(context=self.context),
@@ -1002,8 +1056,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             )
             return CIFollowUpDecision.SKIP
         self._pending_babysit = _BabysitDispatch(snapshot=snapshot, attention=attention)
+        mode = self.context.babysit_mode
         workflow.logger.info(
-            "PR needs attention, dispatching CI follow-up",
+            "PR needs attention, deciding CI follow-up",
             extra={
                 "run_id": self.context.run_id,
                 "pr_url": snapshot.pr_url,
@@ -1013,9 +1068,31 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "threads": len(attention.threads),
                 "comments": len(attention.comments),
                 "conflict": attention.conflict,
+                "babysit_mode": mode,
             },
         )
+        if mode == "ask":
+            # Stage the wake-up and surface it via the pending_babysit_attention
+            # query; the desktop renders a consent card and the user approves
+            # through the approve_ci_babysit signal.
+            return CIFollowUpDecision.AWAITING_CONSENT
         return CIFollowUpDecision.FIRE
+
+    async def _await_babysit_consent(self) -> None:
+        """Wait for the user to approve a staged babysit wake-up, or for the run to end.
+
+        The wake-up is already staged in ``_pending_babysit`` and exposed via the
+        ``pending_babysit_attention`` query. The desktop renders a consent card
+        and the user approves through the ``approve_ci_babysit`` signal, which sets
+        ``_babysit_consent``. We also stop waiting if the task completes or the
+        sandbox is gone, so the workflow never parks on a dead run.
+        """
+        await workflow.wait_condition(lambda: self._babysit_consent or self._task_completed or self._sandbox_gone)
+        if not self._babysit_consent:
+            # The run ended before the user approved; drop the staged wake-up.
+            self._pending_babysit = None
+            return
+        self._babysit_consent = False
 
     async def _dispatch_ci_follow_up(self) -> None:
         self._ci_repetitions += 1
@@ -1165,6 +1242,13 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                             case CIFollowUpDecision.FIRE:
                                 workflow.set_current_details("🔁 Re-checking the PR's CI and nudging the agent.")
                                 self._ci_resume_snapshot_created = False
+                                await self._dispatch_ci_follow_up()
+                            case CIFollowUpDecision.AWAITING_CONSENT:
+                                # "ask" mode: the wake-up is staged. Wait for the user to
+                                # approve via the approve_ci_babysit signal, then dispatch.
+                                workflow.set_current_details("⏸ Waiting for approval to babysit the PR.")
+                                self._ci_resume_snapshot_created = False
+                                await self._await_babysit_consent()
                                 await self._dispatch_ci_follow_up()
                             case CIFollowUpDecision.NO_PR | CIFollowUpDecision.TERMINAL:
                                 # No PR will ever appear — stop the CI loop entirely.
@@ -1666,6 +1750,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 pr_fingerprint=self._pr_fingerprint,
                 pr_unresolved_threads=self._pr_unresolved_threads,
                 babysit_journal=self._babysit_journal,
+                pending_babysit=_serialize_pending_babysit(self._pending_babysit),
+                babysit_consent=self._babysit_consent,
                 pr_progress_emitted=self._pr_progress_emitted,
                 ci_resume_snapshot_created=self._ci_resume_snapshot_created,
                 first_user_message_received=self._first_user_message_received,
@@ -1701,6 +1787,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._pr_fingerprint = resumed.pr_fingerprint
         self._pr_unresolved_threads = resumed.pr_unresolved_threads
         self._babysit_journal = resumed.babysit_journal
+        self._pending_babysit = _deserialize_pending_babysit(resumed.pending_babysit)
+        self._babysit_consent = resumed.babysit_consent
         self._pr_progress_emitted = resumed.pr_progress_emitted
         self._ci_resume_snapshot_created = resumed.ci_resume_snapshot_created
         self._first_user_message_received = resumed.first_user_message_received
@@ -2908,6 +2996,30 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             # Fail closed.
             workflow.logger.warning("slack_app_agent_design_flag_eval_failed", extra={"run_id": self.context.run_id})
             return False
+
+    @temporalio.workflow.signal
+    async def approve_ci_babysit(self) -> None:
+        """Approve a staged babysit wake-up in "ask" mode."""
+        if self._pending_babysit is None:
+            return
+        self._babysit_consent = True
+
+    @temporalio.workflow.query
+    def pending_babysit_attention(self) -> Optional[dict]:
+        """The staged PR attention waiting for consent in "ask" mode, or None.
+
+        The desktop reads this to render the consent card. Returns the PR URL and
+        the attention items (failing checks, review threads, comments, conflict).
+        """
+        pending = self._pending_babysit
+        if pending is None:
+            return None
+        return {
+            "pr_url": pending.snapshot.pr_url,
+            "pr_state": pending.snapshot.pr_state,
+            "head_sha": pending.snapshot.head_sha,
+            "attention": dataclasses.asdict(pending.attention),
+        }
 
     @temporalio.workflow.signal
     async def complete_task(self, status: str = "completed", error_message: Optional[str] = None) -> None:
