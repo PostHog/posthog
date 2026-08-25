@@ -368,7 +368,9 @@ pub const COHORT_STREAM_CONSUME_BATCH_SIZE: &str = "cohort_stream_consume_batch_
 pub const OUTPUT_MEMBERSHIP_CHANGES_EMITTED: &str = "output_membership_changes_emitted_total";
 /// Leaf transitions that mapped to zero output cohorts, labelled by `reason` (counter).
 pub const OUTPUT_TRANSITIONS_UNMAPPED: &str = "output_transitions_unmapped_total";
-/// Produce failures to `cohort_membership_changed` (counter). A failure here means data loss.
+/// Produce failures to `cohort_membership_changed` (counter). Most paths hold or reschedule the
+/// offset for replay, so a failure is not data loss. The sweep stage 2 and merge paths drop
+/// at-most-once, because their state is already committed.
 pub const OUTPUT_PRODUCE_ERRORS: &str = "output_produce_errors_total";
 
 /// Sweep cycles that fired, labelled by `loop`
