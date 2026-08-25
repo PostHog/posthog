@@ -4,7 +4,7 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { ApiError } from 'lib/api-error'
+import { ApiError, isHogQLValidationError } from 'lib/api-error'
 import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 
 import {
@@ -280,7 +280,10 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                         // `SELECT` pasted into the SQL expression filter). That is a user input
                         // error, so surface it on the card instead of letting it escape to the
                         // global loader handler, which would toast and file an error tracking issue.
-                        if (error instanceof ApiError && error.status === 400) {
+                        // Only deterministic HogQL validation 400s qualify; any other 400 (an internal
+                        // resolver failure, a malformed request payload) is an app defect that must
+                        // rethrow so it still reaches error tracking.
+                        if (error instanceof ApiError && isHogQLValidationError(error)) {
                             // A superseded request must not paint a stale error over the card a
                             // newer filter already loaded. A slow 400 can arrive after a faster
                             // query has succeeded, so drop it if a later load has started.

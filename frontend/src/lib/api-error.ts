@@ -55,6 +55,22 @@ const HOGQL_VALIDATION_CODES: ReadonlySet<string> = new Set([
 ])
 
 /**
+ * Whether a failure is a deterministic HogQL query or expression error: a 400 carrying one of the
+ * validation `code`s above. A caller that owns a query input (an editor, a filter) can catch this to
+ * show the message where the user typed it, and `shouldReportApiFailure` uses it to keep these input
+ * errors out of error tracking. A 400 without one of these codes is not this — it can be an internal
+ * resolver failure or a malformed request payload, so it is neither surfaced as input feedback nor
+ * suppressed, and stays reportable.
+ */
+export function isHogQLValidationError(error: unknown): boolean {
+    if (error === null || typeof error !== 'object') {
+        return false
+    }
+    const failure = error as { status?: number; code?: string | null }
+    return failure.status === 400 && failure.code != null && HOGQL_VALIDATION_CODES.has(failure.code)
+}
+
+/**
  * Whether a failed request is worth filing as an error tracking issue. A response the app asked
  * for and recovers from itself is not a defect, and reporting it buries the ones that are: every
  * `ApiError` is built in this file, so they all share one stack, and grouping ignores the message
@@ -97,7 +113,7 @@ export function shouldReportApiFailure(error: unknown): boolean {
     if (status === 403 && failure.code != null && HANDLED_AUTH_GATE_CODES.has(failure.code)) {
         return false
     }
-    if (status === 400 && failure.code != null && HOGQL_VALIDATION_CODES.has(failure.code)) {
+    if (isHogQLValidationError(failure)) {
         return false
     }
     return !isApprovalRequiredError(failure)

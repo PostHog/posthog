@@ -120,4 +120,20 @@ describe('errorTrackingInsightsLogic', () => {
         expect(insights.values.summaryStats).toBeNull()
         expect(insights.values.summaryStatsError).toEqual("trailing tokens after expression: 'properties' (Ident)")
     })
+
+    it('rethrows a 400 without a HogQL code so it still reaches error tracking', async () => {
+        jest.mocked(api.query).mockRejectedValue(
+            new ApiError('internal resolver failure', 400, undefined, {
+                detail: 'internal resolver failure',
+            })
+        )
+
+        await expectLogic(insights, () => {
+            insights.actions.loadSummaryStats(null)
+        })
+            .toDispatchActions(['loadSummaryStatsFailure'])
+            .toFinishAllListeners()
+
+        expect(insights.values.summaryStatsError).toBeNull()
+    })
 })
