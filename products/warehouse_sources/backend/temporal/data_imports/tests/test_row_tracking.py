@@ -6,7 +6,6 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from freezegun import freeze_time
-from parameterized import parameterized
 from posthog.test.base import BaseTest
 from unittest import mock
 
@@ -15,6 +14,7 @@ from django.test import override_settings
 
 import requests
 from asgiref.sync import sync_to_async
+from parameterized import parameterized
 from redis import exceptions as redis_exceptions
 from structlog.types import FilteringBoundLogger
 
