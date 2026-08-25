@@ -51,4 +51,28 @@ describe('expressionModalLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadExpressionsSuccess'])
         expect(logic.values.expressions).toEqual([])
     })
+
+    it('keeps the last loaded expressions when a reload fails', async () => {
+        const expressions = [
+            {
+                id: 'expr-1',
+                table_name: 'auth_group',
+                field_name: 'member_count',
+                expression: 'count()',
+                connection_id: null,
+            },
+        ]
+
+        mockWarehouseExpressionsList.mockResolvedValueOnce({ results: expressions })
+        await expectLogic(logic, () => {
+            logic.actions.loadExpressions()
+        }).toDispatchActions(['loadExpressionsSuccess'])
+        expect(logic.values.expressions).toEqual(expressions)
+
+        mockWarehouseExpressionsList.mockRejectedValueOnce({ status: 500 })
+        await expectLogic(logic, () => {
+            logic.actions.loadExpressions()
+        }).toDispatchActions(['loadExpressionsSuccess'])
+        expect(logic.values.expressions).toEqual(expressions)
+    })
 })
