@@ -266,7 +266,6 @@ export const summaryViewLogic = kea<summaryViewLogicType>([
                 // switch modes or leave the trace long before it answers. Registering the controller
                 // as a disposable cancels it on unmount, and re-adding the key cancels the request
                 // the new one replaces, instead of leaving both to finish and race.
-                cache.disposables.dispose('summaryRequest')
                 const abortController = new AbortController()
                 cache.disposables.add(
                     () => () => abortController.abort(new DOMException(SUPERSEDED_SUMMARY_REQUEST, 'AbortError')),
