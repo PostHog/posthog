@@ -40,6 +40,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.stripe import StripeSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.stripe.constants import (
     CHARGE_RESOURCE_NAME,
+    CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME,
     CUSTOMER_PAYMENT_METHOD_HISTORY_RESOURCE_NAME,
     CUSTOMER_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,
@@ -543,4 +544,19 @@ If automatic creation failed with a permissions error, the fix depends on how yo
             resumable_source_manager=resumable_source_manager,
             webhook_source_manager=webhook_source_manager,
             api_version=self.resolve_api_version(inputs.api_version),
+            team_id=inputs.team_id,
+            source_id=inputs.source_id,
+            # Both are required for the warehouse parent path, and both default to off, so a
+            # conversion that declares a parent without threading these silently keeps polling
+            # the parent API while the fan-out telemetry reports otherwise.
+            use_warehouse_parent=inputs.fanout_warehouse_reuse,
         )
+
+    def get_required_parent_schemas(self, schema_name: str) -> list[str]:
+        # CustomerBalanceTransaction drives its sweep from the SDK rather than a
+        # DependentEndpointConfig, so the dependency is declared here rather than derived.
+        # Every other nested resource stays on the parent API — see the verdicts recorded in
+        # `_build_resources`.
+        if schema_name == CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME:
+            return [CUSTOMER_RESOURCE_NAME]
+        return []

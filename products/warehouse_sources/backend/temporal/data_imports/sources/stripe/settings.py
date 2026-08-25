@@ -167,6 +167,21 @@ PRIMARY_KEYS: dict[str, list[str]] = {
 }
 DEFAULT_PRIMARY_KEYS = ["id"]
 
+# Nested resources that read their parent from the parent schema's synced Delta table instead of
+# re-paging the parent endpoint, mapped to the parent schema and the parent fields the sweep needs
+# beyond the id. Single source of truth: the source's `get_required_parent_schemas`, the eager
+# table resolve, and the sweep all read it, so a resource cannot be half-converted.
+#
+# Only CustomerBalanceTransaction qualifies. Its `parent_has_nested` predicate answers from the
+# parent row itself, so almost every customer is skipped without a child call and the run is
+# dominated by paging the customer listing — the shape where dropping that listing pays. Every
+# other nested resource spends one child call per parent, which makes the listing a small
+# fraction of its requests; see the verdicts recorded beside each one in `_build_resources`.
+WAREHOUSE_PARENT_FANOUT: dict[str, tuple[str, list[str]]] = {
+    CUSTOMER_BALANCE_TRANSACTION_RESOURCE_NAME: (CUSTOMER_RESOURCE_NAME, ["balance"]),
+}
+
+
 APPEND_ONLY_INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     ACCOUNT_RESOURCE_NAME: [
         {
