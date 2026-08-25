@@ -888,6 +888,47 @@ class TestErrorTrackingQueryRunner(ClickhouseTestMixin, NonAtomicBaseTestKeepIde
 
         self.assertEqual([result["id"] for result in results], [self.issue_id_one])
 
+    @freeze_time("2022-01-10T12:11:00")
+    def test_recent_issue_state_keeps_legacy_events_without_fingerprint_state(self):
+        issue_id = "01936e80-f594-7a2e-8545-7bcb491aa620"
+        ErrorTrackingIssue.objects.create(
+            id=issue_id,
+            team=self.team,
+            status=ErrorTrackingIssue.Status.RESOLVED,
+            severity=ErrorTrackingIssue.Severity.CRITICAL,
+            name="Recent unmapped issue",
+            state_updated_at=now(),
+        )
+        _create_event(
+            distinct_id="unmapped-fingerprint-user",
+            event="$exception",
+            team=self.team,
+            properties={
+                "$exception_issue_id": issue_id,
+                "$exception_fingerprint": "fingerprint_without_clickhouse_state",
+            },
+        )
+        flush_persons_and_events()
+
+        results = self._calculate(
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[
+                    PropertyGroupFilterValue(
+                        type=FilterLogicalOperator.AND_,
+                        values=[
+                            ErrorTrackingIssueFilter(
+                                key="name", value=["Recent unmapped issue"], operator=PropertyOperator.EXACT
+                            )
+                        ],
+                    )
+                ],
+            )
+        )["results"]
+
+        self.assertEqual([result["id"] for result in results], [issue_id])
+        self.assertEqual(results[0]["severity"], ErrorTrackingIssue.Severity.CRITICAL)
+
     @parameterized.expand(
         [
             ("exact", PropertyOperator.EXACT, ErrorTrackingIssue.Severity.HIGH, (issue_id_one,)),

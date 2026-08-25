@@ -211,11 +211,17 @@ class ErrorTrackingQueryBuilder:
     # Optimized two-pass shape
     # ---------------------------------------------------------------------
 
-    def _fingerprint_state_join(self, fingerprint_hash: ast.Expr) -> ast.JoinExpr:
+    def _fingerprint_state_join(
+        self,
+        fingerprint_hash: ast.Expr,
+        *,
+        join_type: str = "INNER JOIN",
+        fallback_issue_id: ast.Expr | None = None,
+    ) -> ast.JoinExpr:
         fingerprint_state_join = ast.JoinExpr(
             table=ast.Field(chain=["posthog", "error_tracking_fingerprint_issue_state"]),
             alias="fp_state",
-            join_type="INNER JOIN",
+            join_type=join_type,
             constraint=ast.JoinConstraint(
                 expr=ast.CompareOperation(
                     op=ast.CompareOperationOp.Eq,
@@ -226,6 +232,16 @@ class ErrorTrackingQueryBuilder:
             ),
         )
         if self.include_recent_issue_state:
+            issue_id_expr: ast.Expr = ast.Field(chain=["fp_state", "issue_id"])
+            if fallback_issue_id is not None:
+                issue_id_expr = ast.Call(
+                    name="if",
+                    args=[
+                        ast.Call(name="isNotNull", args=[ast.Field(chain=["fp_state", "issue_id"])]),
+                        ast.Field(chain=["fp_state", "issue_id"]),
+                        fallback_issue_id,
+                    ],
+                )
             fingerprint_state_join.next_join = ast.JoinExpr(
                 table=ast.Field(chain=["posthog", "error_tracking_recent_issue_state"]),
                 alias="recent_state",
@@ -233,7 +249,7 @@ class ErrorTrackingQueryBuilder:
                 constraint=ast.JoinConstraint(
                     expr=ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
-                        left=ast.Field(chain=["fp_state", "issue_id"]),
+                        left=issue_id_expr,
                         right=ast.Field(chain=["recent_state", "issue_id"]),
                     ),
                     constraint_type="ON",
@@ -255,8 +271,6 @@ class ErrorTrackingQueryBuilder:
         )
 
     def _legacy_issue_state_expr(self, field_name: str) -> ast.Expr:
-        if self.include_recent_issue_state:
-            return self._issue_state_expr(field_name)
         event_field_name = {
             "issue_id": "issue_id",
             "issue_status": "issue_status",
@@ -267,7 +281,32 @@ class ErrorTrackingQueryBuilder:
             "assigned_role_id": "issue_assigned_role_id",
             "first_seen": "issue_first_seen",
         }[field_name]
-        return ast.Field(chain=["e", event_field_name])
+        event_state = ast.Field(chain=["e", event_field_name])
+        if not self.include_recent_issue_state:
+            return event_state
+        if field_name == "issue_id":
+            event_state = ast.Field(chain=["e", "event_issue_id"])
+        elif field_name == "first_seen":
+            event_state = ast.Field(chain=["e", "timestamp"])
+
+        fingerprint_state = ast.Call(
+            name="if",
+            args=[
+                ast.Call(name="isNotNull", args=[ast.Field(chain=["fp_state", "issue_id"])]),
+                ast.Field(chain=["fp_state", field_name]),
+                event_state,
+            ],
+        )
+        if field_name in {"issue_id", "first_seen"}:
+            return fingerprint_state
+        return ast.Call(
+            name="if",
+            args=[
+                ast.Field(chain=["recent_state", "is_present"]),
+                ast.Field(chain=["recent_state", field_name]),
+                fingerprint_state,
+            ],
+        )
 
     def _build_query_optimized(self) -> ast.SelectQuery:
         inner = self._build_inner_query()
@@ -577,7 +616,11 @@ class ErrorTrackingQueryBuilder:
     def _build_query_legacy(self) -> ast.SelectQuery:
         select_from = ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e")
         if self.include_recent_issue_state:
-            select_from.next_join = self._fingerprint_state_join(_fingerprint_hash_expr())
+            select_from.next_join = self._fingerprint_state_join(
+                _fingerprint_hash_expr(),
+                join_type="LEFT OUTER JOIN",
+                fallback_issue_id=ast.Field(chain=["e", "event_issue_id"]),
+            )
         return ast.SelectQuery(
             select=self._select_expressions_legacy(),
             select_from=select_from,
