@@ -929,7 +929,7 @@ Jane Smith,25
         response_data = response.json()
         self.assertEqual(response_data["attr"], "csv")
         self.assertIn("distinct_id", response_data["detail"])
-        self.assertIn("name, age", response_data["detail"])
+        self.assertIn("'name', 'age'", response_data["detail"])
         self.assertEqual(patch_calculate_cohort_from_list.call_count, 0)
 
     @parameterized.expand([("person-id",), ("person_id",), ("Person .id",)])
@@ -969,6 +969,71 @@ Jane Smith,{person2.uuid},jane@example.com
 
         # Verify specific persons are in the cohort
         person_uuids_in_cohort = _cohort_member_uuids(cohort.team_id, cohort)
+        self.assertIn(str(person1.uuid), person_uuids_in_cohort)
+        self.assertIn(str(person2.uuid), person_uuids_in_cohort)
+
+    @patch(
+        "posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay",
+        side_effect=calculate_cohort_from_list,
+    )
+    def test_static_cohort_csv_upload_multicolumn_with_bom_prefixed_header(self, patch_calculate_cohort_from_list):
+        person1 = create_person(team=self.team, distinct_ids=["user123"])
+        person2 = create_person(team=self.team, distinct_ids=["user456"])
+
+        csv = SimpleUploadedFile(
+            "excel_export.csv",
+            b"\xef\xbb\xbf"
+            + f"""person_id,email
+{person1.uuid},john@example.com
+{person2.uuid},jane@example.com
+""".encode(),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_bom_multicolumn", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort = Cohort.objects.get(pk=response.json()["id"])
+
+        person_uuids_in_cohort = _cohort_member_uuids(cohort.team_id, cohort)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 2)
+        self.assertIn(str(person1.uuid), person_uuids_in_cohort)
+        self.assertIn(str(person2.uuid), person_uuids_in_cohort)
+
+    @patch(
+        "posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay",
+        side_effect=calculate_cohort_from_list,
+    )
+    def test_static_cohort_csv_upload_single_column_with_bom_prefixed_header(self, patch_calculate_cohort_from_list):
+        person1 = create_person(team=self.team, distinct_ids=["user123"])
+        person2 = create_person(team=self.team, distinct_ids=["user456"])
+
+        csv = SimpleUploadedFile(
+            "excel_single_column.csv",
+            b"\xef\xbb\xbf"
+            + f"""person_id
+{person1.uuid}
+{person2.uuid}
+""".encode(),
+            content_type="application/csv",
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {"name": "test_bom_single_column", "csv": csv, "is_static": True},
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, 201)
+        cohort = Cohort.objects.get(pk=response.json()["id"])
+
+        self.assertEqual(patch_calculate_cohort_from_list.call_args.kwargs["id_type"], "person_id")
+        person_uuids_in_cohort = _cohort_member_uuids(cohort.team_id, cohort)
+        self.assertEqual(count_cohort_members(cohort.team_id, cohort.pk), 2)
         self.assertIn(str(person1.uuid), person_uuids_in_cohort)
         self.assertIn(str(person2.uuid), person_uuids_in_cohort)
 
@@ -1239,7 +1304,7 @@ Jane Smith,25
         self.assertIn("at least one column with a supported ID header", response_data["detail"])
         self.assertIn("person_id", response_data["detail"])
         self.assertIn("distinct_id", response_data["detail"])
-        self.assertIn("name, age", response_data["detail"])
+        self.assertIn("'name', 'age'", response_data["detail"])
 
     @patch("posthog.tasks.calculate_cohort.calculate_cohort_from_list.delay")
     def test_static_cohort_csv_upload_empty_file_fails(self, patch_calculate_cohort_from_list):

@@ -13,7 +13,7 @@ import {
   type OnboardingStep,
   stepDirection,
 } from "@posthog/core/onboarding/steps";
-import { useHostTRPCClient } from "@posthog/host-router/react";
+import { useHostTRPC, useHostTRPCClient } from "@posthog/host-router/react";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import {
   useAuthStateFetched,
@@ -26,12 +26,12 @@ import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useActiveRepoStore } from "@posthog/ui/shell/activeRepoStore";
 import { track } from "@posthog/ui/shell/analytics";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
+import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type ConsentRequirement,
   sampleConsentRequirement,
 } from "./consentRequirement";
-import { useHasImportableConfig } from "./useHasImportableConfig";
 
 export type { DetectedRepo };
 
@@ -134,8 +134,37 @@ export function useOnboardingFlow() {
     ],
   );
 
-  const hasImportableConfig = useHasImportableConfig();
   const { data: githubUserIntegrations } = useUserGithubIntegrations();
+  // The install-cli step only offers git and gh, so a ready toolchain skips it.
+  // InstallCliStep reuses these cached results when the step does render.
+  const trpc = useHostTRPC();
+  // Cloud-only hosts serve no git procedures, and the CLI step is moot there.
+  const { data: gitStatus } = useQuery(
+    trpc.git.getGitStatus.queryOptions(undefined, {
+      staleTime: 30_000,
+      enabled: localWorkspaces,
+    }),
+  );
+  const { data: ghStatus } = useQuery(
+    trpc.git.getGhStatus.queryOptions(undefined, {
+      staleTime: 30_000,
+      enabled: localWorkspaces,
+    }),
+  );
+  // Sampled on the first resolved check and held. Installing the tools while
+  // standing on the step would otherwise drop it and advance the user mid-read.
+  const [cliReady, setCliReady] = useState<boolean | undefined>(undefined);
+  useEffect(() => {
+    if (cliReady !== undefined) return;
+    if (!localWorkspaces) {
+      setCliReady(true);
+      return;
+    }
+    if (gitStatus === undefined || ghStatus === undefined) return;
+    setCliReady(
+      gitStatus.installed && ghStatus.installed && ghStatus.authenticated,
+    );
+  }, [cliReady, localWorkspaces, gitStatus, ghStatus]);
   const hasGithubIntegration = githubUserIntegrations
     ? githubUserIntegrations.length > 0
     : undefined;
@@ -188,12 +217,12 @@ export function useOnboardingFlow() {
   const activeSteps = useMemo(
     () =>
       computeActiveSteps({
-        hasImportableConfig,
         hasGithubIntegration,
+        cliReady,
         projectCount,
         consentRequired,
       }),
-    [hasImportableConfig, hasGithubIntegration, projectCount, consentRequired],
+    [hasGithubIntegration, cliReady, projectCount, consentRequired],
   );
 
   useEffect(() => {

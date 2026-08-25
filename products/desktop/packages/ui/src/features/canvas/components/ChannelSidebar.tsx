@@ -115,13 +115,17 @@ function isInCommandCenter(
 /** The list holds two kinds of thing, and shows one of them at a time. */
 type ChannelTab = ChannelItemModel["kind"];
 
-const CHANNEL_TABS: readonly { value: ChannelTab; label: string }[] = [
+const CHANNEL_TABS: readonly {
+  value: ChannelTab;
+  label: string;
+}[] = [
   { value: "task", label: "Sessions" },
   { value: "canvas", label: "Canvases" },
 ];
 
 function RecentSectionHeader({
   tab,
+  tabs,
   onTabChange,
   searchOpen,
   onToggleSearch,
@@ -141,6 +145,7 @@ function RecentSectionHeader({
   filtersActive,
 }: {
   tab: ChannelTab;
+  tabs: readonly { value: ChannelTab; label: string }[];
   onTabChange: (tab: ChannelTab) => void;
   searchOpen: boolean;
   onToggleSearch: () => void;
@@ -166,12 +171,14 @@ function RecentSectionHeader({
 }) {
   return (
     <>
-      <div className="flex items-center gap-0.5">
-        {/* The tabs name the list, so it has no label of its own. */}
+      <div className="flex flex-wrap items-center gap-0.5">
+        {/* The tabs name the list, so it has no label of its own. Controls
+            wrap under the tabs when the sidebar is narrow, so tab labels are
+            never cut off. */}
         <Tabs
           value={tab}
           onValueChange={(value: string) => onTabChange(value as ChannelTab)}
-          className="min-w-0 flex-1"
+          className="shrink-0"
         >
           {/* text-[13px] is the sidebar's own scale: quill's default tab is
               sized for a page header, which reads as a heading over this list. */}
@@ -181,41 +188,43 @@ function RecentSectionHeader({
             variant="line"
             className="quill-tabs-fill h-auto gap-0.5 border-b-0"
           >
-            {CHANNEL_TABS.map(({ value, label }) => (
+            {tabs.map(({ value, label }) => (
               <TabsTrigger
                 key={value}
                 value={value}
-                className="rounded-sm px-1 py-0.5 text-[13px]"
+                className="shrink-0 rounded-sm px-1 py-0.5 text-[13px]"
               >
-                {label}
+                <span className="whitespace-nowrap">{label}</span>
               </TabsTrigger>
             ))}
           </TabsList>
         </Tabs>
-        <Button
-          variant="default"
-          size="icon-xs"
-          aria-label="Search"
-          aria-pressed={searchOpen}
-          onClick={onToggleSearch}
-          className={cnHeaderButton(searchOpen)}
-        >
-          <MagnifyingGlass size={12} />
-        </Button>
-        <ChannelFilterMenu
-          filters={filters}
-          onFilterChange={onFilterChange}
-          onClearFilters={onClearFilters}
-          sort={sort}
-          onSortChange={onSortChange}
-          grouping={grouping}
-          onGroupingChange={onGroupingChange}
-          onEditAppearance={onEditAppearance}
-          sources={sources}
-          showCreatedBy={showCreatedBy}
-          showRunFilters={showRunFilters}
-          active={filtersActive}
-        />
+        <div className="ml-auto flex items-center gap-0.5">
+          <Button
+            variant="default"
+            size="icon-xs"
+            aria-label="Search"
+            aria-pressed={searchOpen}
+            onClick={onToggleSearch}
+            className={cnHeaderButton(searchOpen)}
+          >
+            <MagnifyingGlass size={12} />
+          </Button>
+          <ChannelFilterMenu
+            filters={filters}
+            onFilterChange={onFilterChange}
+            onClearFilters={onClearFilters}
+            sort={sort}
+            onSortChange={onSortChange}
+            grouping={grouping}
+            onGroupingChange={onGroupingChange}
+            onEditAppearance={onEditAppearance}
+            sources={sources}
+            showCreatedBy={showCreatedBy}
+            showRunFilters={showRunFilters}
+            active={filtersActive}
+          />
+        </div>
       </div>
       {searchOpen && (
         <div className="px-1 pb-1">
@@ -375,8 +384,9 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
   const { channels } = useChannels();
   // By type, not by name: the list relabels the personal channel on the way in,
   // so its name is no longer the backend's.
-  const isPersonalChannel =
-    channels.find((c) => c.id === channelId)?.channelType === "personal";
+  const channel = channels.find((c) => c.id === channelId);
+  const isPersonalChannel = channel?.channelType === "personal";
+  const visibleTabs = CHANNEL_TABS;
   // The tab is the list, so everything below it — the filters, the empty state,
   // the sections — is about one kind of thing at a time.
   const tabItems = useMemo(
@@ -756,6 +766,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
           <div className="border-border border-b px-2">
             <RecentSectionHeader
               tab={tab}
+              tabs={visibleTabs}
               onTabChange={setTab}
               searchOpen={searchOpen}
               onToggleSearch={() => {
@@ -786,6 +797,7 @@ export function ChannelSidebar({ channelId }: { channelId: string }) {
         )}
         {/* Pin and unpin stay reachable from the row's menu and its context
             menu, so the drag adds no keyboard-only path. */}
+
         {/* biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop container */}
         <div
           aria-busy={isLoading}

@@ -102,13 +102,15 @@ describe('robots policy', () => {
             'Crawl-delay: 0x10',
             'Crawl-delay: 1e3',
             'Crawl-delay: 2.5',
+            // 16.1 * 1000 is 16100.000000000002, which is not a safe integer.
+            'Crawl-delay: 16.1',
             'Allow: /',
         ].join('\n')
 
         const result = await parseRobotsPolicy(body, `${ORIGIN}/image.png`)
         expect(result).toMatchObject({
             allowed: true,
-            crawlDelayMs: 2_500,
+            crawlDelayMs: 16_100,
         })
     })
 
@@ -162,11 +164,32 @@ describe('response opt-out policy', () => {
         expect(responseOptOutReason([{ name: 'tdm-reservation', value: '1' }], false)).toBe('tdm_reservation')
     })
 
-    it('applies a bot-specific X-Robots-Tag refusal', () => {
-        expect(
-            responseOptOutReason([{ name: 'x-robots-tag', value: 'PostHogImageFetcherBot: noindex, noimageai' }], false)
-        ).toBe('x_robots_tag')
-        expect(responseOptOutReason([{ name: 'x-robots-tag', value: 'OtherBot: noai' }], false)).toBeUndefined()
+    it.each([
+        ['a scope for this bot', 'PostHogImageFetcherBot: noindex, noimageai', 'x_robots_tag'],
+        ['a scope for another bot', 'OtherBot: noai', undefined],
+        [
+            'no scope beside a colon-bearing directive',
+            'noai, unavailable_after: 25 Jun 2026 15:00:00 PST',
+            'x_robots_tag',
+        ],
+        [
+            'a scope for another bot beside a colon-bearing directive',
+            'OtherBot: noai, unavailable_after: 25 Jun 2026 15:00:00 PST',
+            undefined,
+        ],
+        [
+            'no scope after a leading valued directive',
+            'unavailable_after: 25 Jun 2026 15:00:00 PST, noai',
+            'x_robots_tag',
+        ],
+        ['no scope after a leading max-image-preview', 'max-image-preview: large, noai', 'x_robots_tag'],
+        [
+            'a scope for another bot before a valued directive',
+            'OtherBot: unavailable_after: 25 Jun 2026 15:00:00 PST, noai',
+            undefined,
+        ],
+    ])('applies an X-Robots-Tag value with %s', (_name, value, expected) => {
+        expect(responseOptOutReason([{ name: 'x-robots-tag', value }], false)).toBe(expected)
     })
 })
 
@@ -329,13 +352,27 @@ describe('HttpConfigurationFetcher', () => {
 
     it('uses the retained prefix when robots.txt exceeds its byte limit', async () => {
         fetchStreamedMock.mockResolvedValue(
-            response(200, [], { bytes: Buffer.from('User-agent: *\nDisallow: /private'), overLimit: true })
+            response(200, [], {
+                bytes: Buffer.concat([
+                    Buffer.from('User-agent: *\nDisallow: /private'),
+                    Buffer.from([0xf0, 0x9f, 0x98]),
+                ]),
+                overLimit: true,
+            })
         )
 
         await expect(httpFetcher().fetch(ORIGIN, 'robots')).resolves.toMatchObject({
             outcome: 'available',
             body: 'User-agent: *\nDisallow: /private',
         })
+    })
+
+    it('treats invalid UTF-8 configuration text as unreachable', async () => {
+        fetchStreamedMock.mockResolvedValue(
+            response(200, [], { bytes: Buffer.from([0x75, 0x73, 0x65, 0x72, 0xff]), overLimit: false })
+        )
+
+        await expect(httpFetcher().fetch(ORIGIN, 'robots')).resolves.toMatchObject({ outcome: 'unreachable' })
     })
 
     it('treats an oversized or invalid TDMRep document as unreachable', async () => {
