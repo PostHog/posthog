@@ -842,6 +842,48 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_cost_model_source).not.toBe(CostModelSource.Passthrough)
         })
 
+        // A base-url-proxied OpenAI/Anthropic/Responses call through an LLM
+        // gateway carries the real charged cost in the response usage object,
+        // which the SDK wrappers forward under $ai_usage. Adopt it as a
+        // passthrough total from each documented forward location.
+        it.each([
+            ['top-level usage (posthog-python)', { cost: 0.000372 }],
+            ['usage.raw (@posthog/ai)', { usage: { raw: { cost: 0.000372 } } }],
+            ['providerMetadata.gateway', { providerMetadata: { gateway: { cost: 0.000372 } } }],
+        ])('adopts the gateway cost from %s', (_label, usage) => {
+            event.properties!.$ai_usage = usage
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_total_cost_usd).toBe(0.000372)
+            expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.Passthrough)
+            expect(result.properties!.$ai_input_cost_usd).toBeUndefined()
+            expect(result.properties!.$ai_output_cost_usd).toBeUndefined()
+            // $ai_usage must never reach ClickHouse.
+            expect(result.properties!.$ai_usage).toBeUndefined()
+        })
+
+        // Standard provider usage has no cost field, so a usage blob without one
+        // must fall back to the model estimate, not be labeled passthrough.
+        it('estimates when $ai_usage carries no cost', () => {
+            event.properties!.$ai_usage = { prompt_tokens: 100, completion_tokens: 50 }
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBe(20)
+            expect(result.properties!.$ai_cost_model_source).not.toBe(CostModelSource.Passthrough)
+        })
+
+        // A caller-set total wins over the gateway cost in the forwarded usage.
+        it('does not override a caller-set total with the gateway cost', () => {
+            event.properties!.$ai_usage = { cost: 0.000372 }
+            event.properties!.$ai_total_cost_usd = 0.5
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_total_cost_usd).toBe(0.5)
+        })
+
         // A usable cost has to come out as the parsed number, not the original string,
         // since these properties are read as floats downstream.
         it('parses pre-calculated costs supplied as numeric strings', () => {

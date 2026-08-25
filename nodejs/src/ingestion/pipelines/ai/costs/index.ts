@@ -110,11 +110,64 @@ const isString = (property: unknown): property is string => {
 // Accept a boolean or its serialized string form.
 const isCostPassthrough = (value: unknown): boolean => value === true || value === 'true'
 
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null
+
+// An LLM gateway (Vercel AI Gateway, OpenRouter) augments the response usage
+// object with the real charged cost as a `cost` field. SDK wrappers forward that
+// raw usage under $ai_usage, the same blob modality extraction reads, so a
+// base-url-proxied OpenAI/Anthropic/Responses call carries the gateway bill here.
+// A standard provider usage object has no `cost` field, so its presence marks a
+// gateway response. Check the documented forward locations: posthog-python sends
+// the usage object at the top level; @posthog/ai nests it under usage.raw.
+const extractGatewayReportedCost = (usage: unknown): number | undefined => {
+    if (!isRecord(usage)) {
+        return undefined
+    }
+
+    const candidates: unknown[] = [usage]
+
+    const usageDetails = usage['usage']
+    if (isRecord(usageDetails)) {
+        candidates.push(usageDetails['raw'])
+    }
+
+    const rawUsage = usage['rawUsage']
+    if (isRecord(rawUsage) && isRecord(rawUsage['usage'])) {
+        candidates.push((rawUsage['usage'] as Record<string, unknown>)['raw'])
+    }
+
+    const providerMetadata = usage['providerMetadata']
+    if (isRecord(providerMetadata)) {
+        candidates.push(providerMetadata['gateway'])
+    }
+
+    for (const candidate of candidates) {
+        if (isRecord(candidate)) {
+            const cost = finiteNumberOrUndefined(candidate['cost'])
+            if (cost !== undefined) {
+                return cost
+            }
+        }
+    }
+
+    return undefined
+}
+
 /**
  * Process cost calculation for AI generation/embedding events.
  * Calculates input, output, request, and web search costs based on model pricing.
  */
 export const processCost = (event: EventWithProperties): EventWithProperties => {
+    // Adopt a gateway-reported cost as a passthrough total before modality
+    // extraction deletes $ai_usage. Only when the caller set no usable total.
+    if (finiteNumberOrUndefined(event.properties['$ai_total_cost_usd']) === undefined) {
+        const gatewayCost = extractGatewayReportedCost(event.properties['$ai_usage'])
+        if (gatewayCost !== undefined) {
+            event.properties['$ai_total_cost_usd'] = gatewayCost
+            event.properties['$ai_cost_passthrough'] = true
+        }
+    }
+
     // First, extract modality tokens from raw usage if present
     extractModalityTokens(event)
 
