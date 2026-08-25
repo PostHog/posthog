@@ -202,6 +202,10 @@ export class AgentAuthAdapter {
     }
   }
 
+  authenticatedFetch(input: string, init?: RequestInit): Promise<Response> {
+    return this.authService.authenticatedFetch(fetch, input, init);
+  }
+
   gatewayProjectId(): number | null {
     return this.authService.getState().currentProjectId;
   }

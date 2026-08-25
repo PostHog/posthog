@@ -100,7 +100,7 @@ export const Scouts: Story = {
         mswDecorator({
             get: {
                 '/api/projects/:id/signals/scout/configs': () => [200, mockScoutConfigs],
-                '/api/projects/:id/signals/scout/runs/recent-per-scout': () => [200, mockScoutRuns],
+                '/api/projects/:id/signals/scout/runs/recent-per-scout': () => [200, mockScoutRuns(mockScoutConfigs)],
             },
         }),
     ],

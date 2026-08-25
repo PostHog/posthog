@@ -327,6 +327,17 @@ export interface BrainrotActivatedProperties {
   filled_cells: number;
 }
 
+export interface BrainrotPlayerErrorProperties {
+  /** YouTube player error code (e.g. 153), or null when the widget went silent. */
+  error_code: number | null;
+  /**
+   * "player_error" when the embed reported an onError message;
+   * "no_widget_messages" when the widget sent nothing after loading, which
+   * usually means the player failed before the postMessage API came up.
+   */
+  reason: "player_error" | "no_widget_messages";
+}
+
 // Settings events
 export interface SettingChangedProperties {
   setting_name: string;
@@ -479,12 +490,11 @@ export interface TaskFeedbackProperties {
 
 // Onboarding events
 export type OnboardingStepId =
-  | "welcome"
   | "project-select"
   | "invite-code"
+  | "consent"
   | "connect-github"
   | "install-cli"
-  | "import-config"
   | "select-repo";
 
 type OnboardingSkipReason = "no_repo_selected" | "dev_skip";
@@ -579,6 +589,9 @@ export interface OnboardingAbandonedProperties {
 
 export interface AiConsentGateShownProperties {
   is_org_admin: boolean;
+  outstanding_ai_consent: boolean;
+  outstanding_beta_terms: boolean;
+  surface: "onboarding_step" | "standalone_gate";
 }
 
 // Setup / onboarding events
@@ -662,7 +675,8 @@ export type InboxReportActionType =
   | "add_suggested_reviewer"
   | "remove_suggested_reviewer"
   | "expand_task_section"
-  | "play_session_recording";
+  | "play_session_recording"
+  | "create_canvas";
 
 export type InboxReportActionSurface =
   | "detail_pane"
@@ -939,7 +953,7 @@ export interface SignalSourceConnectedProperties {
   via_setup_wizard: boolean;
 }
 
-// Agents page events (the `/code/agents` configuration surface)
+// Agents page events (the `/agents` configuration surface)
 export type AgentsActionType = "run_setup_agent" | "open_mcp_servers";
 
 export interface AgentsViewedProperties {
@@ -1092,11 +1106,23 @@ export interface CanvasPromptSentProperties {
   prompt_length_chars: number;
 }
 
+export interface CommandCenterCanvasViewedProperties {
+  dashboard_id: string;
+  canvas_kind: "freeform" | "grid" | "component";
+}
+
 export interface CanvasRenderedProperties {
   channel_id?: string;
   dashboard_id?: string;
   /** The published build whose artifact rendered; absent for head-source renders. */
   build_id?: string;
+}
+
+export interface CanvasViewedProperties {
+  channel_id: string;
+  dashboard_id: string;
+  canvas_kind: "freeform" | "grid" | "component";
+  template_id: string;
 }
 
 export interface CanvasRuntimeErrorProperties {
@@ -1407,7 +1433,9 @@ export const ANALYTICS_EVENTS = {
   COMMAND_MENU_OPENED: "Command menu opened",
   COMMAND_MENU_ACTION: "Command menu action",
   COMMAND_CENTER_VIEWED: "Command center viewed",
+  COMMAND_CENTER_CANVAS_VIEWED: "Command center canvas viewed",
   BRAINROT_ACTIVATED: "Brainrot activated",
+  BRAINROT_PLAYER_ERROR: "Brainrot player error",
   POSTHOG_WEB_OPENED: "PostHog web opened",
   SIDEBAR_NAV_ITEM_CLICKED: "Sidebar nav item clicked",
   SIDEBAR_CUSTOMIZED: "Sidebar customized",
@@ -1459,6 +1487,8 @@ export const ANALYTICS_EVENTS = {
   AI_CONSENT_GATE_SHOWN: "Ai consent gate shown",
   AI_CONSENT_APPROVED: "Ai consent approved",
   AI_CONSENT_GRANTED_INAPP: "Ai consent granted in-app",
+  DESKTOP_BETA_TERMS_ACCEPTED: "Desktop beta terms accepted",
+  DESKTOP_BETA_TERMS_ACCEPTED_INAPP: "Desktop beta terms accepted in-app",
 
   // Setup / onboarding events
   SETUP_DISCOVERY_STARTED: "Setup discovery started",
@@ -1521,6 +1551,7 @@ export const ANALYTICS_EVENTS = {
   TASK_FEED_ACTION: "Task feed action",
   DASHBOARD_ACTION: "Dashboard action",
   CANVAS_PROMPT_SENT: "Canvas prompt sent",
+  CANVAS_VIEWED: "Canvas viewed",
   CANVAS_RENDERED: "Canvas rendered",
   CANVAS_RUNTIME_ERROR: "Canvas runtime error",
   CONTEXT_ACTION: "Context action",
@@ -1528,6 +1559,7 @@ export const ANALYTICS_EVENTS = {
   // Autoresearch events
   AUTORESEARCH_ARMED: "Autoresearch armed",
   AUTORESEARCH_RUN_STARTED: "Autoresearch run started",
+  TASK_ANALYSIS_REQUESTED: "Task analysis requested",
 
   // Remote in-app announcement events
   ANNOUNCEMENT_SHOWN: "Announcement shown",
@@ -1595,7 +1627,9 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.COMMAND_MENU_OPENED]: never;
   [ANALYTICS_EVENTS.COMMAND_MENU_ACTION]: CommandMenuActionProperties;
   [ANALYTICS_EVENTS.COMMAND_CENTER_VIEWED]: never;
+  [ANALYTICS_EVENTS.COMMAND_CENTER_CANVAS_VIEWED]: CommandCenterCanvasViewedProperties;
   [ANALYTICS_EVENTS.BRAINROT_ACTIVATED]: BrainrotActivatedProperties;
+  [ANALYTICS_EVENTS.BRAINROT_PLAYER_ERROR]: BrainrotPlayerErrorProperties;
   [ANALYTICS_EVENTS.POSTHOG_WEB_OPENED]: never;
   [ANALYTICS_EVENTS.SIDEBAR_NAV_ITEM_CLICKED]: SidebarNavItemClickedProperties;
   [ANALYTICS_EVENTS.SIDEBAR_CUSTOMIZED]: SidebarCustomizedProperties;
@@ -1646,6 +1680,8 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.AI_CONSENT_GATE_SHOWN]: AiConsentGateShownProperties;
   [ANALYTICS_EVENTS.AI_CONSENT_APPROVED]: never;
   [ANALYTICS_EVENTS.AI_CONSENT_GRANTED_INAPP]: never;
+  [ANALYTICS_EVENTS.DESKTOP_BETA_TERMS_ACCEPTED]: never;
+  [ANALYTICS_EVENTS.DESKTOP_BETA_TERMS_ACCEPTED_INAPP]: never;
 
   // Setup / onboarding events
   [ANALYTICS_EVENTS.SETUP_DISCOVERY_STARTED]: SetupDiscoveryStartedProperties;
@@ -1708,6 +1744,7 @@ export type EventPropertyMap = {
   [ANALYTICS_EVENTS.TASK_FEED_ACTION]: TaskFeedActionProperties;
   [ANALYTICS_EVENTS.DASHBOARD_ACTION]: DashboardActionProperties;
   [ANALYTICS_EVENTS.CANVAS_PROMPT_SENT]: CanvasPromptSentProperties;
+  [ANALYTICS_EVENTS.CANVAS_VIEWED]: CanvasViewedProperties;
   [ANALYTICS_EVENTS.CANVAS_RENDERED]: CanvasRenderedProperties;
   [ANALYTICS_EVENTS.CANVAS_RUNTIME_ERROR]: CanvasRuntimeErrorProperties;
   [ANALYTICS_EVENTS.CONTEXT_ACTION]: ContextActionProperties;
@@ -1715,6 +1752,11 @@ export type EventPropertyMap = {
   // Autoresearch events
   [ANALYTICS_EVENTS.AUTORESEARCH_ARMED]: AutoresearchArmedProperties;
   [ANALYTICS_EVENTS.AUTORESEARCH_RUN_STARTED]: AutoresearchRunStartedProperties;
+  [ANALYTICS_EVENTS.TASK_ANALYSIS_REQUESTED]: {
+    task_id: string;
+    run_id: string;
+    created: boolean;
+  };
 
   // Remote in-app announcement events
   [ANALYTICS_EVENTS.ANNOUNCEMENT_SHOWN]: AnnouncementProperties;

@@ -341,11 +341,16 @@ export function SelfDrivingSection(): JSX.Element {
             <div className="border-t border-primary">
                 {autostartEnabled ? (
                     <>
+                        {/* Label above the control rather than beside it: the rail is narrow enough that a
+                            five- or six-segment row alongside a label overflows the card. `fullWidth` keeps the
+                            segments even, capped so the same markup doesn't stretch in the wide stacked layout. */}
                         <div className="flex flex-col gap-2 px-2.5 py-1.5">
-                            <div className="flex items-center justify-between gap-2">
-                                <span className="text-xs text-secondary shrink-0">Project threshold</span>
+                            <div className="flex flex-col gap-1">
+                                <span className="text-xs text-secondary">Project threshold</span>
                                 <LemonSegmentedButton
                                     size="xsmall"
+                                    fullWidth
+                                    className="max-w-xs"
                                     value={defaultAutostartPriority}
                                     options={THRESHOLD_SEGMENTS}
                                     disabledReason={teamConfigUpdating ? 'Saving changes' : undefined}
@@ -353,28 +358,26 @@ export function SelfDrivingSection(): JSX.Element {
                                 />
                             </div>
                             <div className="flex flex-col gap-1">
-                                <div className="flex items-center justify-between gap-2">
-                                    <span className="text-xs text-secondary shrink-0">My threshold</span>
-                                    <LemonSegmentedButton
-                                        size="xsmall"
-                                        value={myThreshold}
-                                        options={MY_THRESHOLD_SEGMENTS}
-                                        disabledReason={
-                                            autostartPriorityUpdating
-                                                ? 'Saving changes'
-                                                : autonomyConfigLoading
-                                                  ? 'Loading settings'
-                                                  : undefined
-                                        }
-                                        onChange={(next) =>
-                                            setAutostartPriority(
-                                                next === MY_THRESHOLD_DEFAULT_VALUE
-                                                    ? null
-                                                    : (next as SignalReportPriority)
-                                            )
-                                        }
-                                    />
-                                </div>
+                                <span className="text-xs text-secondary">My threshold</span>
+                                <LemonSegmentedButton
+                                    size="xsmall"
+                                    fullWidth
+                                    className="max-w-xs"
+                                    value={myThreshold}
+                                    options={MY_THRESHOLD_SEGMENTS}
+                                    disabledReason={
+                                        autostartPriorityUpdating
+                                            ? 'Saving changes'
+                                            : autonomyConfigLoading
+                                              ? 'Loading settings'
+                                              : undefined
+                                    }
+                                    onChange={(next) =>
+                                        setAutostartPriority(
+                                            next === MY_THRESHOLD_DEFAULT_VALUE ? null : (next as SignalReportPriority)
+                                        )
+                                    }
+                                />
                                 <p className="text-[11px] text-tertiary leading-snug mb-0">
                                     Overrides the project threshold for reports that suggest you as reviewer. It applies
                                     across all your projects.

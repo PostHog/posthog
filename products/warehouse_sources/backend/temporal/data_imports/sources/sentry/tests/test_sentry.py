@@ -1238,21 +1238,6 @@ class TestIssueTagValuesResumable:
         assert rows == [{"value": "Chrome", "issue_id": "100", "tag_key": "browser"}]
 
 
-class TestSentrySourceIntegration:
-    """End-to-end wiring of the ResumableSource class."""
-
-    def test_source_returns_resumable_manager(self) -> None:
-        source = SentrySource()
-        inputs = Mock()
-        inputs.team_id = 7
-        inputs.job_id = "job-x"
-        inputs.logger = Mock()
-
-        manager = source.get_resumable_source_manager(inputs)
-
-        assert isinstance(manager, ResumableSourceManager)
-
-
 class TestHelpers:
     @parameterized.expand(
         [

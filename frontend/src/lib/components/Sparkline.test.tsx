@@ -10,9 +10,6 @@ import {
     setupSyncRaf,
 } from '@posthog/quill-charts/testing'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { initKeaTests } from '~/test/init'
 
 import { Sparkline, SparklineProps } from './Sparkline'
@@ -31,13 +28,8 @@ afterEach(() => {
     cleanup()
 })
 
-function renderSparkline(props: SparklineProps, { quillFlag = true }: { quillFlag?: boolean } = {}): void {
+function renderSparkline(props: SparklineProps): void {
     initKeaTests()
-    const ffLogic = featureFlagLogic()
-    ffLogic.mount()
-    // Always set the flag explicitly — the featureFlags reducer is kea-persisted to localStorage,
-    // which survives across tests in this file, so an unset flag would leak the previous test's value.
-    ffLogic.actions.setFeatureFlags([FEATURE_FLAGS.QUILL_SPARKLINE], { [FEATURE_FLAGS.QUILL_SPARKLINE]: quillFlag })
     render(<Sparkline {...props} />)
 }
 
@@ -50,16 +42,10 @@ const DATA = [10, 5, 3, 30]
 const LABELS = ['Mon', 'Tue', 'Wed', 'Thu']
 
 describe('Sparkline', () => {
-    it('renders via quill when the flag is on and only simple props are used', () => {
+    it('renders via quill when only simple props are used', () => {
         renderSparkline({ data: DATA, labels: LABELS })
         expect(quillCanvas()).toBeTruthy()
         expect(legacyCanvas()).toBeNull()
-    })
-
-    it('renders via Chart.js when the flag is off', () => {
-        renderSparkline({ data: DATA, labels: LABELS }, { quillFlag: false })
-        expect(legacyCanvas()).toBeTruthy()
-        expect(quillCanvas()).toBeNull()
     })
 
     it.each<{ feature: string; props: Partial<SparklineProps> }>([
@@ -69,7 +55,7 @@ describe('Sparkline', () => {
         { feature: 'referenceLines', props: { referenceLines: [{ value: 20 }] } },
         { feature: 'withXScale', props: { withXScale: (x) => x } },
         { feature: 'withYScale', props: { withYScale: (y) => y } },
-    ])('keeps Chart.js when $feature is passed, even with the flag on', ({ props }) => {
+    ])('keeps Chart.js when $feature is passed', ({ props }) => {
         renderSparkline({ data: DATA, labels: LABELS, ...props })
         expect(legacyCanvas()).toBeTruthy()
         expect(quillCanvas()).toBeNull()

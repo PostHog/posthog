@@ -3,6 +3,7 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import { type Server } from 'node:http'
 
 import { UndecodableImageError } from './blur.ts'
+import { ImageOptOutError } from './image-input.ts'
 import { ScrubMetrics, register } from './metrics.ts'
 import { ScrubAbandonedError } from './pool.ts'
 
@@ -124,6 +125,11 @@ export function startServer(
         if (err instanceof UndecodableImageError) {
             ScrubMetrics.incUndecodable()
             res.status(422).send('undecodable image')
+            return
+        }
+        if (err instanceof ImageOptOutError) {
+            ScrubMetrics.incOptedOut()
+            res.status(422).send('image metadata prohibits AI training')
             return
         }
         ScrubMetrics.incFailed()

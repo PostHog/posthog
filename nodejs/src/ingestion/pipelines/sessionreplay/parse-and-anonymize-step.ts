@@ -15,6 +15,7 @@ import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { hashImageBytes, imageRef, isImageRef, urlRef } from './ml-mirror-image-scrub/content-ref'
 import {
     PSEUDONYM_IMAGE_CONTENT_KEY,
+    PSEUDONYM_IMAGE_URL_GLOBAL_VALUE,
     PSEUDONYM_IMAGE_URL_KEY,
     PSEUDONYM_TEAM,
     pseudonymize,
@@ -57,8 +58,10 @@ export interface CollectedImage {
  * label, or any destination outside the fetch topic.
  */
 export interface CollectedUrl {
-    /** `imageurl:<pseudoTeam>:<hash>` stored in the mirrored line's namespaced ref attribute. */
+    /** `imageurl:<hash>` stored in the mirrored line's namespaced ref attribute. */
     ref: string
+    /** The team pseudonym remains transport metadata until the fetch topic moves to its global schema. */
+    pseudoTeam: string
     url: string
     /** The host the request goes to. robots.txt and the connection limit are scoped to this. */
     host: string
@@ -99,13 +102,16 @@ export interface ImageCollectionConfig {
 export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInput & { team: TeamForReplay }>(
     imageCollection?: ImageCollectionConfig
 ): ProcessingStep<T, T & ParseAndAnonymizeStepOutput> {
-    // Both are per-team HMACs of the same secret (domain-separated) — cache them rather than
-    // re-deriving on every message. The content key keys the image hash so the unencrypted bucket
-    // carries no unkeyed content digest; it never crosses the FFI as the raw secret.
+    const globalUrlKey =
+        imageCollection?.collectUrls === true
+            ? pseudonymize(imageCollection.pseudonymSecret, PSEUDONYM_IMAGE_URL_KEY, PSEUDONYM_IMAGE_URL_GLOBAL_VALUE)
+            : undefined
+
+    // Cache the team values rather than re-deriving them for every message. The content key keys
+    // the inline image hash. The URL key is global and does not use this cache.
     interface TeamImageKeys {
         pseudoTeam: string
         contentKey?: string
-        urlKey?: string
     }
     const teamKeysCache = new Map<number, TeamImageKeys>()
     const teamKeysFor = (teamId: number): TeamImageKeys | undefined => {
@@ -131,9 +137,6 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
             keys = {
                 pseudoTeam,
                 contentKey: imageCollection.collectImages ? contentKey : undefined,
-                urlKey: imageCollection.collectUrls
-                    ? pseudonymize(imageCollection.pseudonymSecret, PSEUDONYM_IMAGE_URL_KEY, String(teamId))
-                    : undefined,
             }
             teamKeysCache.set(teamId, keys)
         }
@@ -164,7 +167,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
                 contentEncoding,
                 teamKeys?.pseudoTeam,
                 teamKeys?.contentKey,
-                teamKeys?.urlKey
+                globalUrlKey
             )
         } catch (error) {
             // A rejected promise (native panic, addon load failure) must fail closed.
@@ -273,7 +276,7 @@ export function createParseAndAnonymizeMessageStep<T extends ParseMessageStepInp
         const collectedImages = teamKeys?.contentKey
             ? unpackCollectedImages(teamKeys.pseudoTeam, meta, result.images)
             : undefined
-        const collectedUrls = teamKeys?.urlKey ? unpackCollectedUrls(teamKeys.pseudoTeam, meta) : undefined
+        const collectedUrls = globalUrlKey && teamKeys ? unpackCollectedUrls(teamKeys.pseudoTeam, meta) : undefined
         return ok({ ...input, parsedMessage, collectedImages, collectedUrls })
     }
 }
@@ -318,7 +321,8 @@ function unpackCollectedUrls(pseudoTeam: string, meta: AnonymizeMeta): Collected
     const domains = new Set<string>()
     for (const entry of meta.urls ?? []) {
         urls.push({
-            ref: urlRef(pseudoTeam, entry.hash),
+            ref: urlRef(entry.hash),
+            pseudoTeam,
             url: entry.url,
             host: entry.host,
             domain: entry.domain,

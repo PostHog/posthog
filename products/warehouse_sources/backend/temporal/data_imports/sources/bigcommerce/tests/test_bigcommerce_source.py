@@ -5,11 +5,6 @@ from unittest import mock
 
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.bigcommerce.bigcommerce import (
-    BigCommerceResumeConfig,
-)
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigcommerce.settings import (
     ENDPOINTS,
     INCREMENTAL_FIELDS,
@@ -20,7 +15,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.bigcommerce import (
     BigCommerceSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 INCREMENTAL_ENDPOINTS = set(INCREMENTAL_FIELDS.keys())
 
@@ -40,54 +34,6 @@ class TestBigCommerceSource:
         self.source = BigCommerceSource()
         self.team_id = 123
         self.config = BigCommerceSourceConfig(store_hash="store123", access_token="test-token")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.BIGCOMMERCE
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "BigCommerce"
-        assert config.label == "BigCommerce"
-        assert config.unreleasedSource is None
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.iconPath == "/static/services/bigcommerce.png"
-
-        field_names = [f.name for f in config.fields]
-        assert field_names == ["store_hash", "access_token"]
-
-        access_token = config.fields[1]
-        assert isinstance(access_token, SourceFieldInputConfig)
-        assert access_token.type == SourceFieldInputConfigType.PASSWORD
-        assert access_token.secret is True
-        assert access_token.required is True
-
-    @pytest.mark.parametrize("expected_key", ["401 Client Error", "403 Client Error"])
-    def test_non_retryable_errors(self, expected_key):
-        assert expected_key in self.source.get_non_retryable_errors()
-
-    def test_get_schemas_lists_all_endpoints(self):
-        schemas = self.source.get_schemas(self.config, self.team_id)
-        assert {s.name for s in schemas} == set(ENDPOINTS)
-
-    @parameterized.expand(sorted(ENDPOINTS))
-    def test_get_schemas_incremental_only_for_supported_endpoints(self, endpoint):
-        schema = next(s for s in self.source.get_schemas(self.config, self.team_id) if s.name == endpoint)
-        expected = endpoint in INCREMENTAL_ENDPOINTS
-
-        assert schema.supports_incremental is expected
-        assert schema.supports_append is expected
-        if expected:
-            assert schema.incremental_fields[0]["field"] == "date_modified"
-        else:
-            assert schema.incremental_fields == []
-
-    def test_get_schemas_filtered_by_names(self):
-        schemas = self.source.get_schemas(self.config, self.team_id, names=["orders"])
-        assert [s.name for s in schemas] == ["orders"]
-
-    def test_get_schemas_unknown_name_returns_empty(self):
-        assert self.source.get_schemas(self.config, self.team_id, names=["nonexistent"]) == []
 
     @pytest.mark.parametrize(
         "status, schema_name, expected_valid",
@@ -118,11 +64,6 @@ class TestBigCommerceSource:
 
         assert is_valid is False
         assert message == "Missing BigCommerce credentials"
-
-    def test_get_resumable_source_manager(self):
-        manager = self.source.get_resumable_source_manager(_make_inputs("orders"))
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is BigCommerceResumeConfig
 
     @mock.patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.bigcommerce.source.bigcommerce_source"

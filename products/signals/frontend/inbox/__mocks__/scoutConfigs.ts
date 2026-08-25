@@ -45,6 +45,40 @@ export const mockScoutConfigs: SignalScoutConfigApi[] = [
     }),
 ]
 
+/** Anchors the mock runs to the same instant the scout stories pin `mockDate` to. */
+const MOCK_NOW_MS = Date.parse('2026-06-11T09:00:00Z')
+const HOUR_MS = 3600000
+
+/**
+ * A run strip for every scout in a fleet: hourly runs ending at the stories' "now", with a
+ * repeating emitted / quiet / failed pattern so the strip shows all three box colors. Scouts get
+ * different run counts on purpose — that's what the right-anchored strip exists to keep comparable.
+ */
+export function mockScoutRuns(configs: SignalScoutConfigApi[]): SignalScoutRunSummaryApi[] {
+    return configs.flatMap((config, configIndex) =>
+        Array.from({ length: 10 + configIndex * 2 }, (_, runIndex) => {
+            const failed = (runIndex + configIndex) % 5 === 0
+            const startedAt = MOCK_NOW_MS - (runIndex + 1) * HOUR_MS
+            return {
+                run_id: `${config.skill_name}-run-${runIndex}`,
+                skill_name: config.skill_name,
+                skill_version: 1,
+                status: failed ? ('failed' as const) : ('completed' as const),
+                created_at: new Date(startedAt).toISOString(),
+                started_at: new Date(startedAt).toISOString(),
+                completed_at: new Date(startedAt + 12 * 60000).toISOString(),
+                task_url: null,
+                summary: failed ? '' : 'Swept the window and found nothing worth filing.',
+                emitted_count: !failed && (runIndex + configIndex) % 4 === 0 ? 1 : 0,
+                emitted_finding_ids: [],
+                emitted_report_ids: [],
+                edited_report_ids: [],
+                metadata: {},
+            }
+        })
+    )
+}
+
 export const mockLargeScoutFleet: SignalScoutConfigApi[] = [
     makeMockScout({
         id: 'scout-error-tracking',
@@ -126,34 +160,3 @@ function makeMockRun(overrides: MockRunOverrides): SignalScoutRunSummaryApi {
         ...overrides,
     }
 }
-
-/** A week of runs for `mockScoutConfigs`: a busy hourly scout with mixed outcomes, and a quiet daily one. */
-export const mockScoutRuns: SignalScoutRunSummaryApi[] = [
-    ...Array.from({ length: 18 }, (_, index) => {
-        const startedAt = new Date(Date.UTC(2026, 5, 10, 23 - index, 30)).toISOString()
-        const emitted = index % 5 === 0
-        const failed = index === 7
-        return makeMockRun({
-            run_id: `run-error-tracking-${index}`,
-            skill_name: 'signals-scout-error-tracking',
-            started_at: startedAt,
-            status: failed ? 'failed' : 'completed',
-            summary: failed ? '' : emitted ? 'A new exception group crossed the spike threshold.' : undefined,
-            error: failed ? 'Query timed out after 120 seconds' : null,
-            failure_reason: failed ? 'Query timed out after 120 seconds' : null,
-            emitted_count: emitted ? 1 : 0,
-            emitted_finding_ids: emitted ? [`finding-${index}`] : [],
-        })
-    }),
-    ...Array.from({ length: 6 }, (_, index) =>
-        makeMockRun({
-            run_id: `run-session-replay-${index}`,
-            skill_name: 'signals-scout-session-replay',
-            started_at: new Date(Date.UTC(2026, 5, 10 - index, 12, 0)).toISOString(),
-            ...(index === 0 ? { status: 'in_progress', completed_at: null } : {}),
-            ...(index === 2
-                ? { emitted_report_ids: ['report-replay-2'], summary: 'Filed a report on a checkout rage-click loop.' }
-                : {}),
-        })
-    ),
-]

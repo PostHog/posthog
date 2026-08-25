@@ -71,7 +71,6 @@ import {
   type CloudRegion,
   type ExecutionMode,
   isAuthError,
-  type McpServerConnection,
   resolveCloudInitialPermissionMode,
   serializeError,
   TypedEventEmitter,
@@ -89,6 +88,7 @@ import { loadSessionEnvOverrides } from "../session-env/loader";
 import { isScratchPath } from "../workspace/scratch";
 import type { AgentAuthAdapter, McpToolInstallations } from "./auth-adapter";
 import { cleanupCodexHome, prepareCodexHome } from "./codex-home";
+import { prepareContextWiki } from "./context-wiki";
 import { discoverExternalPlugins } from "./discover-plugins";
 import {
   AGENT_AUTH_ADAPTER,
@@ -638,6 +638,44 @@ export class AgentService extends TypedEventEmitter<AgentServiceEvents> {
     }
   }
 
+  /**
+   * Local mirror of the cloud sandbox wiki mount: clone the org's context wiki
+   * and return it as an explicit per-session value the harness adapters set on
+   * their own subprocess env — never via shared process.env, where concurrent
+   * session starts would race and could leak one session's publish token into
+   * another. Best-effort — sessions start without a wiki on any failure. The
+   * token doubles as POSTHOG_PERSONAL_API_KEY so the wiki's pinned
+   * scripts/publish can land edits locally.
+   */
+  private async mountContextWiki(
+    credentials: Credentials,
+  ): Promise<AgentTypes.ContextWikiEnv | null> {
+    const authToken = await this.agentAuthAdapter.gatewayAuthToken();
+    if (!authToken) {
+      return null;
+    }
+    const mount = await prepareContextWiki({
+      apiHost: credentials.apiHost,
+      projectId: credentials.projectId,
+      authenticatedFetch: (input, init) =>
+        this.agentAuthAdapter.authenticatedFetch(input, init),
+      cacheDir: join(this.storagePaths.appDataPath, "context-wiki"),
+      log: this.log,
+    });
+    if (!mount) {
+      return null;
+    }
+    // The publish token mirrors POSTHOG_API_KEY exactly: gatewayAuthToken()
+    // just re-synced it, so it is absent for impersonated sessions (an
+    // impersonation credential must never reach agent subprocesses) and fresh
+    // after any token rotation or account switch.
+    return {
+      path: mount.path,
+      commitsPath: mount.commitsPath,
+      personalApiKey: process.env.POSTHOG_API_KEY || undefined,
+    };
+  }
+
   private buildSystemPrompt(
     credentials: Credentials,
     taskId: string,
@@ -849,12 +887,17 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
     const proxyUrl = await this.agentAuthAdapter.ensureGatewayProxy(
       credentials.apiHost,
     );
-    await this.agentAuthAdapter.configureProcessEnv({
-      credentials,
-      proxyUrl,
-      claudeCliPath: this.getClaudeCliPath(),
-      rtkEnabled: config.rtkEnabled,
-    });
+    // The wiki mount only needs the auth adapter, so it runs alongside the
+    // env configuration instead of serializing another round-trip before it.
+    const [, contextWiki] = await Promise.all([
+      this.agentAuthAdapter.configureProcessEnv({
+        credentials,
+        proxyUrl,
+        claudeCliPath: this.getClaudeCliPath(),
+        rtkEnabled: config.rtkEnabled,
+      }),
+      this.mountContextWiki(credentials),
+    ]);
 
     const isPreview = taskId === "__preview__";
 
@@ -907,6 +950,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
       const acpConnection = await agent.run(taskId, taskRunId, {
         adapter,
         gatewayUrl: proxyUrl,
+        contextWiki: contextWiki ?? undefined,
         codexBinaryPath:
           adapter === "codex" ? this.getCodexBinaryPath() : undefined,
         codexHome,
@@ -991,16 +1035,6 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
         })),
       );
 
-      // codex-acp connects to every MCP server eagerly during session creation
-      // and treats an unreachable one as fatal, which kills the session
-      // ("ACP connection closed") and makes the host silently fall back to a
-      // Claude/Opus session. Claude connects lazily and is unaffected, so only
-      // the Codex server list is pruned to the reachable ones.
-      const sessionMcpServers =
-        adapter === "codex"
-          ? await this.filterReachableMcpServers(mcpServers, taskRunId)
-          : mcpServers;
-
       let externalPlugins: Awaited<ReturnType<typeof discoverExternalPlugins>> =
         [];
       try {
@@ -1052,7 +1086,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
           const loadResponse = await connection.loadSession({
             sessionId: importedSessionId,
             cwd: repoPath,
-            mcpServers: sessionMcpServers,
+            mcpServers,
             _meta: {
               ...(logUrl && {
                 persistence: { taskId, runId: taskRunId, logUrl },
@@ -1140,7 +1174,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
         const resumeResponse = await connection.resumeSession({
           sessionId: existingSessionId,
           cwd: repoPath,
-          mcpServers: sessionMcpServers,
+          mcpServers,
           _meta: {
             ...(logUrl && {
               persistence: { taskId, runId: taskRunId, logUrl },
@@ -1178,7 +1212,7 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
         }
         const newSessionResponse = await connection.newSession({
           cwd: repoPath,
-          mcpServers: sessionMcpServers,
+          mcpServers,
           _meta: {
             taskRunId,
             environment: "local",
@@ -1340,78 +1374,6 @@ If a repository is required, call \`list_repos\` to find it, then use \`clone_re
     const history = formatConversationForResume(conversation);
     if (!history) return undefined;
     return `You are resuming a previous conversation after the native session could not be restored. Here is the conversation history from the previous session:\n\n${history}\n\nContinue from where you left off when responding to the user's next message.`;
-  }
-
-  private async filterReachableMcpServers<T extends McpServerConnection>(
-    servers: T[],
-    taskRunId: string,
-  ): Promise<T[]> {
-    const probed = await Promise.all(
-      servers.map(async (server) => ({
-        server,
-        reachable: await this.isMcpServerReachable(server),
-      })),
-    );
-    const reachable: T[] = [];
-    for (const { server, reachable: ok } of probed) {
-      if (ok) {
-        reachable.push(server);
-      } else {
-        this.log.warn(
-          "Dropping unreachable MCP server from Codex session; codex-acp treats an unreachable server as a fatal startup error",
-          { taskRunId, server: server.name, url: server.url },
-        );
-      }
-    }
-    return reachable;
-  }
-
-  private async isMcpServerReachable(
-    server: Pick<McpServerConnection, "url" | "headers">,
-  ): Promise<boolean> {
-    const PROBE_TIMEOUT_MS = 2_000;
-    try {
-      const headers: Record<string, string> = {
-        "content-type": "application/json",
-        accept: "application/json, text/event-stream",
-      };
-      for (const header of server.headers) {
-        headers[header.name] = header.value;
-      }
-      const response = await fetch(server.url, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 0,
-          method: "initialize",
-          params: {
-            protocolVersion: "2025-06-18",
-            capabilities: {},
-            clientInfo: { name: "posthog-code", version: "1.0.0" },
-          },
-        }),
-        signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
-      });
-      // Release the body without draining it. A cancel rejection (e.g. an
-      // already-disturbed stream) is a cleanup detail, not a reachability
-      // signal, so it must not flip the result to unreachable.
-      try {
-        await response.body?.cancel();
-      } catch {
-        // ignore body cleanup failures
-      }
-      // Any HTTP response means the endpoint is reachable. codex-acp only treats
-      // transport failures (connection refused, DNS, timeout) as fatal; HTTP or
-      // JSON-RPC error responses are handled gracefully.
-      return true;
-    } catch (err) {
-      this.log.debug("MCP server reachability probe failed", {
-        url: server.url,
-        error: err instanceof Error ? err.message : String(err),
-      });
-      return false;
-    }
   }
 
   async prompt(

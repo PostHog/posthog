@@ -26,6 +26,7 @@ from products.tasks.backend.facade.contracts import (
     ChannelDTO,
     ChannelFeedMessageDTO,
     ChannelInstructionsDTO,
+    DesktopAccessReason,
     SandboxCustomImageDTO,
     SandboxEnvironmentDTO,
     SlackThreadReferenceDTO,
@@ -245,6 +246,15 @@ class TaskRunUpdateSerializer(serializers.Serializer):
         required=False,
         allow_empty=False,
         help_text="State keys to remove atomically before applying any state updates.",
+    )
+    state_append = serializers.DictField(
+        required=False,
+        allow_empty=False,
+        help_text=(
+            "State keys whose value to append to the list stored at that key, atomically under the row "
+            "lock. Use instead of sending the whole list back through `state`, which loses concurrent "
+            "appends to a read-modify-write race."
+        ),
     )
     error_message = serializers.CharField(
         required=False, allow_null=True, allow_blank=True, help_text="Error message if execution failed"
@@ -747,6 +757,7 @@ class TaskWriteSerializer(serializers.Serializer):
             # Attributes the task to a workflow, which the workflow_tasks endpoint proves
             # via its service JWT. A forged origin would fake that provenance.
             tasks_facade.TaskOriginProduct.WORKFLOW,
+            tasks_facade.TaskOriginProduct.TASK_ANALYSIS,
         }
         if value in reserved_origins:
             raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")
@@ -848,6 +859,17 @@ class TaskWriteSerializer(serializers.Serializer):
 
 
 class TaskCreateSerializer(TaskWriteSerializer):
+    naming_source = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        write_only=True,
+        help_text=(
+            "Text the server generates the title from instead of `description`. Lets a client whose "
+            "`description` is only an attachment summary (e.g. pasted text stored as a file) supply the "
+            "real content for naming, so `description` (the prompt passed to the agent) stays unchanged. "
+            "Not persisted."
+        ),
+    )
     sandbox_environment_id = serializers.UUIDField(
         required=False,
         default=None,
@@ -887,11 +909,33 @@ class TaskRunSetOutputRequestSerializer(serializers.Serializer):
     )
 
 
+DESKTOP_ACCESS_REASON_CHOICES = [reason.value for reason in DesktopAccessReason]
+
+
+class DesktopAccessResponseSerializer(serializers.Serializer):
+    allowed = serializers.BooleanField(help_text="Whether the selected project can use PostHog Desktop.")
+    reason = serializers.ChoiceField(
+        choices=DESKTOP_ACCESS_REASON_CHOICES,
+        allow_null=True,
+        help_text="Why Desktop access is blocked, or null when access is allowed.",
+    )
+
+
+class LegacyDesktopAccessResponseSerializer(serializers.Serializer):
+    has_access = serializers.BooleanField(help_text="Whether the user has legacy PostHog Desktop access.")
+    has_loops_access = serializers.BooleanField(help_text="Whether the independent Loops feature is enabled.")
+
+
 class TaskRunErrorResponseSerializer(serializers.Serializer):
     detail = serializers.CharField(required=False, help_text="Human-readable validation error")
     error = serializers.CharField(required=False, help_text="Human-readable error message")
     type = serializers.CharField(required=False, help_text="Machine-readable error type")
     code = serializers.CharField(required=False, help_text="Machine-readable error code")
+    reason = serializers.ChoiceField(
+        choices=DESKTOP_ACCESS_REASON_CHOICES,
+        required=False,
+        help_text="Why PostHog Desktop access was denied, when applicable.",
+    )
     attr = serializers.CharField(required=False, help_text="Request field associated with the error")
     missing_artifact_ids = serializers.ListField(
         child=serializers.CharField(),
@@ -1591,6 +1635,138 @@ class TaskRunPeerSerializer(serializers.Serializer):
     updated_at = serializers.CharField(allow_null=True, help_text="ISO-8601 timestamp of the peer run's last update.")
 
 
+class TaskRunAnalyzeResponseSerializer(serializers.Serializer):
+    analysis_task_id = serializers.UUIDField(help_text="Id of the analysis task to navigate to.")
+    created = serializers.BooleanField(
+        help_text="True when a new analysis task was created; false when an existing analysis for this run was returned."
+    )
+
+
+class TaskAnalysisEvidenceSerializer(serializers.Serializer):
+    quote = serializers.CharField(
+        min_length=20, max_length=300, help_text="Verbatim span copied from the analysed run log."
+    )
+    evidence_type = serializers.ChoiceField(
+        choices=["transcript_quote", "command_output", "measured_count"],
+        help_text="What kind of log content the quote was taken from.",
+    )
+
+
+class TaskAnalysisWastedEffortSerializer(serializers.Serializer):
+    tool_calls = serializers.IntegerField(
+        min_value=1, required=False, help_text="Wasted tool calls, counted from the log."
+    )
+    seconds = serializers.IntegerField(
+        min_value=1, required=False, help_text="Wall-clock seconds across the wasted span."
+    )
+    tokens = serializers.IntegerField(min_value=1, required=False, help_text="Token delta across the wasted span.")
+    output_bytes = serializers.IntegerField(
+        min_value=1, required=False, help_text="Sum of tool-output sizes across the wasted span."
+    )
+
+
+class TaskAnalysisSuggestedFixSerializer(serializers.Serializer):
+    change = serializers.CharField(min_length=50, max_length=400, help_text="The specific change to make.")
+    done_when = serializers.CharField(
+        min_length=30, max_length=200, help_text="A checkable condition confirming the fix worked."
+    )
+    setup_commands = serializers.ListField(
+        child=serializers.CharField(min_length=1, max_length=500),
+        max_length=10,
+        required=False,
+        help_text="Single-line commands only; these may become image build steps.",
+    )
+    required_services = serializers.ListField(
+        child=serializers.CharField(min_length=1, max_length=100),
+        max_length=10,
+        required=False,
+        help_text="Services the fix needs available.",
+    )
+    env_var_names = serializers.ListField(
+        child=serializers.CharField(min_length=1, max_length=100),
+        max_length=10,
+        required=False,
+        help_text="Environment variable names only, never values.",
+    )
+
+
+class TaskRunAnalysisInsightRequestSerializer(serializers.Serializer):
+    """One analysis finding. The shape the server stores, independent of what the tool sent."""
+
+    no_findings_reason = serializers.ChoiceField(
+        choices=["run_was_efficient", "too_short_to_judge", "insufficient_visibility"],
+        required=False,
+        help_text="Only for a run with zero findings; never combined with a finding.",
+    )
+    observation = serializers.CharField(
+        min_length=80, max_length=500, required=False, help_text="What happened, 1-3 sentences."
+    )
+    evidence = TaskAnalysisEvidenceSerializer(
+        many=True, required=False, help_text="Quotes from the analysed log backing the observation."
+    )
+    occurrence_count = serializers.IntegerField(min_value=1, required=False, help_text="How often this happened.")
+    category = serializers.ChoiceField(
+        choices=[
+            "environment_failure",
+            "missing_tool",
+            "verbose_output",
+            "redundant_work",
+            "missing_capability",
+            "instruction_gap",
+            "wasted_retry",
+            "other",
+        ],
+        required=False,
+        help_text="The kind of inefficiency observed.",
+    )
+    other_justification = serializers.CharField(
+        min_length=50, max_length=200, required=False, help_text="Required when category is 'other'."
+    )
+    wasted_effort = TaskAnalysisWastedEffortSerializer(
+        required=False, help_text="Effort measured from the log, never estimated."
+    )
+    recurrence = serializers.ChoiceField(
+        choices=["every_run_in_this_repo", "runs_touching_this_area", "one_off"],
+        required=False,
+        help_text="How widely this is expected to recur.",
+    )
+    confidence_basis = serializers.ChoiceField(
+        choices=["directly_observed", "inferred"], required=False, help_text="How the finding was established."
+    )
+    suggested_fix = TaskAnalysisSuggestedFixSerializer(required=False, help_text="The fix the finding argues for.")
+
+    def validate(self, attrs: dict) -> dict:
+        if attrs.get("no_findings_reason"):
+            if len(attrs) > 1:
+                raise serializers.ValidationError("no_findings_reason cannot be combined with a finding.")
+            return attrs
+        missing = [
+            field
+            for field in ("observation", "evidence", "category", "recurrence", "confidence_basis", "suggested_fix")
+            if not attrs.get(field)
+        ]
+        if missing:
+            raise serializers.ValidationError(f"A finding requires {', '.join(missing)}.")
+        if len(attrs["evidence"]) > 3:
+            raise serializers.ValidationError("A finding carries at most 3 evidence quotes.")
+        if attrs["category"] == "other" and not attrs.get("other_justification"):
+            raise serializers.ValidationError("category 'other' requires other_justification.")
+        if attrs["category"] in _WASTED_EFFORT_REQUIRED_CATEGORIES and not attrs.get("wasted_effort"):
+            raise serializers.ValidationError(
+                f"category '{attrs['category']}' requires wasted_effort with at least one measured dimension."
+            )
+        return attrs
+
+
+_WASTED_EFFORT_REQUIRED_CATEGORIES = frozenset(
+    {"environment_failure", "missing_tool", "verbose_output", "redundant_work", "wasted_retry"}
+)
+
+
+class TaskRunAnalysisInsightResponseSerializer(serializers.Serializer):
+    insight_index = serializers.IntegerField(help_text="Zero-based position of the stored finding on the run.")
+
+
 class TaskRunPeersResponseSerializer(serializers.Serializer):
     peers = TaskRunPeerSerializer(
         many=True, help_text="Active agent runs the requesting run may message, most recently updated first."
@@ -1801,6 +1977,12 @@ class ChannelSerializer(DataclassSerializer):
             "starred",
             "system_role",
         ]
+
+
+class OnboardingSessionSerializer(serializers.Serializer):
+    """The first-run session that was started for the requester."""
+
+    task_id = serializers.UUIDField(help_text="The agent session opened in the team's #general space.")
 
 
 class ProvisionedChannelsSerializer(serializers.Serializer):
@@ -2115,17 +2297,6 @@ class TaskActivitySerializer(DataclassSerializer):
     is_unread = serializers.BooleanField(
         help_text="Whether the requester has yet to see this activity. Activity they caused themselves is never unread."
     )
-    target_scope = serializers.ChoiceField(
-        choices=["desktop_canvas"],
-        allow_null=True,
-        required=False,
-        help_text="The non-task surface this activity opens, when the task backs another shared artifact.",
-    )
-    target_id = serializers.CharField(
-        allow_null=True,
-        required=False,
-        help_text="Identifier of the activity target. Present together with target_scope.",
-    )
 
     class Meta:
         dataclass = TaskActivityDTO
@@ -2143,8 +2314,6 @@ class TaskActivitySerializer(DataclassSerializer):
             "latest_comment_id",
             "latest_comment_scope",
             "latest_comment_item_id",
-            "target_scope",
-            "target_id",
             "is_unread",
         ]
 

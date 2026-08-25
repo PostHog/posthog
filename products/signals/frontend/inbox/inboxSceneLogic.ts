@@ -8,6 +8,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
+import { reconcileById } from 'lib/utils/objects'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -415,7 +416,7 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         setScoutTemplateDraft: (draft: ScoutCreateInitialValues | null) => ({ draft }),
     }),
 
-    loaders(() => ({
+    loaders(({ values }) => ({
         // Runs panel: a newest-first list of scout + signals-pipeline runs, composed from two existing
         // endpoints, scout runs (clean `skill_name`) and signal-pipeline tasks (whose title is the
         // originating report's title). Merged client-side; there is no unified backend "runs" resource
@@ -443,7 +444,16 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                     }
                     const scoutRuns = scoutResult.status === 'fulfilled' ? scoutResult.value : []
                     const signalTasks = signalResult.status === 'fulfilled' ? signalResult.value.results : []
-                    return mergeSignalRuns(scoutRuns, signalTasks)
+                    // The tab polls every 5s and both endpoints return freshly parsed objects each
+                    // time. Reconcile the merged list so a no-change poll keeps every reference —
+                    // otherwise all ~100 run cards re-render every 5s on an idle tab. (No
+                    // wall-clock exception needed: a run whose status flips deep-compares
+                    // different and swaps identity on its own; timestamps self-update in TZLabel.)
+                    return reconcileById(
+                        values.signalRunsResponse ?? [],
+                        mergeSignalRuns(scoutRuns, signalTasks),
+                        (run) => run.task_id
+                    )
                 },
             },
         ],
