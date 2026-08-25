@@ -136,7 +136,7 @@ export function SubscriptionWizard({
         isDebug: Boolean(preflight?.is_debug),
         aiFlagEnabled: Boolean(aiSubscriptionsEnabled),
     })
-    const selectedInsightsReady = !dashboard?.tiles?.length || Boolean(subscription.dashboard_export_insights?.length)
+    const selectedInsightsReady = !dashboard || Boolean(subscription.dashboard_export_insights?.length)
     const contentDetailReady = isAiPrompt ? Boolean(subscription.prompt?.trim()) : selectedInsightsReady
     const contentReady = Boolean(subscription.title?.trim()) && contentDetailReady
     let contentDisabledReason: string | undefined
