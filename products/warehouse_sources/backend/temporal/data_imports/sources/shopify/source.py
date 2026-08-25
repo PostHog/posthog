@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.sh
     SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
     SHOPIFY_ACCESS_TOKEN_INVALID_CLIENT_ERROR,
     SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR,
+    SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR_MATCH,
     SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR,
     SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR,
     SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH,
@@ -77,8 +78,9 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             # the user needs a Dev Dashboard app instead of a legacy custom app.
             SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR: SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR,
             # 4xx `shop_not_permitted`: the store is not in the app's Shopify organization, so
-            # minting a token fails regardless of the credentials entered.
-            SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR: SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR,
+            # minting a token fails regardless of the credentials entered. Match on the stable
+            # error code so classification does not drift when the friendly message is reworded.
+            SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR_MATCH: SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR,
             # 404 from the same endpoint — no store at this subdomain. Retrying cannot
             # recover; the user must correct the store id.
             SHOPIFY_STORE_NOT_FOUND_ERROR: SHOPIFY_STORE_NOT_FOUND_ERROR,

@@ -81,6 +81,11 @@ SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR = (
     "organization as your store. If you already did and still see this, contact PostHog support "
     "so we can help you connect."
 )
+# `get_non_retryable_errors` matches on Shopify's stable error code, not the friendly message
+# above, so classification survives a wording change: the finalize activity can classify an error
+# minted by an older worker across a rolling deploy, and the code is present in every version of
+# the raised message (both the friendly text and `_oauth_error_detail`'s appended code).
+SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR_MATCH = "shop_not_permitted"
 
 # Raised when the OAuth token endpoint returns 404 — there is no store at
 # `<store-id>.myshopify.com`, so the store id is wrong or the store no longer exists.
