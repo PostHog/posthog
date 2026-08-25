@@ -19,6 +19,7 @@ import { results as stackFrameResults } from './__mocks__/stack_frames/batch_get
 import { BreakdownPreset } from './components/Breakdowns/consts'
 import { miniBreakdownsLogic } from './components/Breakdowns/miniBreakdownsLogic'
 import { issueFilterPreviewLogic, IssueFilterPreview } from './components/IssueFilterPreview/issueFilterPreviewLogic'
+import { computeReleaseBucketing, IssueReleasesQueryRow } from './components/IssueReleases/issueReleases'
 import { errorTrackingIssueSceneLogic } from './scenes/ErrorTrackingIssueScene/errorTrackingIssueSceneLogic'
 
 const ISSUE_ID = '01890a1b-2c3d-4e4f-8a9b-0c1d2e3f4a5b'
@@ -157,6 +158,50 @@ const STORY_BREAKDOWNS_RESPONSE = {
             total_count: 38,
         },
     },
+}
+// Each release is active over a slice of the date range (as fractions), with a volume shape over that slice
+const STORY_RELEASES: {
+    namespace: string | null
+    version: string | null
+    build: string | null
+    from: number
+    to: number
+    peak: number
+    shape: 'flat' | 'decay' | 'ramp' | 'hump'
+}[] = [
+    { namespace: 'com.example.app', version: '3.0.4', build: '398', from: 0, to: 1, peak: 2, shape: 'flat' },
+    { namespace: 'com.example.app', version: '3.1.0', build: '412', from: 0, to: 0.6, peak: 9, shape: 'decay' },
+    { namespace: 'com.example.app', version: '3.1.1', build: '415', from: 0.25, to: 0.85, peak: 14, shape: 'hump' },
+    { namespace: 'com.example.app', version: '3.2.0', build: '420', from: 0.65, to: 1, peak: 34, shape: 'ramp' },
+    { namespace: 'com.example.app', version: '3.2.1', build: '421', from: 0.88, to: 1, peak: 5, shape: 'flat' },
+    { namespace: null, version: null, build: null, from: 0.3, to: 0.5, peak: 1, shape: 'flat' },
+]
+function storyReleaseRows(dateRange: { date_from?: string | null; date_to?: string | null }): IssueReleasesQueryRow[] {
+    const bucketing = computeReleaseBucketing({ date_from: dateRange.date_from ?? '-7d', date_to: dateRange.date_to })
+    if (!bucketing) {
+        return []
+    }
+    const bucketCount = bucketing.bucketStarts.length
+    const rows: IssueReleasesQueryRow[] = []
+    for (const release of STORY_RELEASES) {
+        const start = Math.floor(release.from * bucketCount)
+        const end = Math.ceil(release.to * bucketCount)
+        for (let index = start; index < end; index++) {
+            const progress = (index - start) / Math.max(1, end - start - 1)
+            const jitter = 0.7 + ((index * 7) % 4) / 10
+            const factor = {
+                flat: 1,
+                decay: 1 - 0.85 * progress,
+                ramp: 0.15 + 0.85 * progress,
+                hump: Math.sin(Math.PI * progress),
+            }[release.shape]
+            const count = Math.round(release.peak * factor * jitter)
+            if (count > 0) {
+                rows.push([bucketing.bucketStarts[index], release.namespace, release.version, release.build, count])
+            }
+        }
+    }
+    return rows
 }
 const STORY_MANY_CUSTOM_PROPERTIES = Object.fromEntries(
     Array.from({ length: 18 }, (_, index) => [`custom_property_${index + 1}`, `value_${index + 1}`])
@@ -338,7 +383,14 @@ const meta: Meta = {
             },
             post: {
                 '/api/environments/:team_id/query/:kind/': async ({ request }) => {
-                    const body = (await request.json()) as { query?: { kind?: string; select?: string[] } }
+                    const body = (await request.json()) as {
+                        query?: {
+                            kind?: string
+                            select?: string[]
+                            query?: string
+                            filters?: { dateRange?: { date_from?: string | null; date_to?: string | null } }
+                        }
+                    }
                     if (body.query?.kind === NodeKind.ErrorTrackingBreakdownsQuery) {
                         return [200, STORY_BREAKDOWNS_RESPONSE]
                     }
@@ -350,9 +402,12 @@ const meta: Meta = {
                             ? [200, STORY_TIMELINE_RESPONSE]
                             : [200, STORY_EVENTS_RESPONSE]
                     }
-                    return body.query?.kind === NodeKind.HogQLQuery
-                        ? [200, { results: [] }]
-                        : [200, STORY_SUMMARY_RESPONSE]
+                    if (body.query?.kind === NodeKind.HogQLQuery) {
+                        return body.query.query?.includes('$app_version')
+                            ? [200, { results: storyReleaseRows(body.query.filters?.dateRange ?? {}) }]
+                            : [200, { results: [] }]
+                    }
+                    return [200, STORY_SUMMARY_RESPONSE]
                 },
                 '/api/environments/:team_id/error_tracking/stack_frames/batch_get/': [
                     200,
@@ -553,6 +608,15 @@ export const GroupPageFingerprintMap: Story = {
         featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_FINGERPRINT_MAP],
     },
     render: () => <IssueScenePreviewStory activePreview="fingerprints" />,
+}
+
+export const GroupPageReleases: Story = {
+    name: 'Issue scene with releases',
+    parameters: {
+        pageUrl: urls.errorTrackingIssue(ISSUE_ID),
+        featureFlags: [FEATURE_FLAGS.ERROR_TRACKING_ISSUE_RELEASES],
+    },
+    render: () => <IssueScenePreviewStory activePreview="releases" />,
 }
 
 export const GroupPageBreakdownLoading: Story = {

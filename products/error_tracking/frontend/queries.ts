@@ -11,6 +11,7 @@ import {
     ErrorTrackingQuery,
     ErrorTrackingQueryIssueSeverity,
     EventsQuery,
+    HogQLQuery,
     InsightVizNode,
     NodeKind,
     ProductKey,
@@ -363,4 +364,40 @@ export const errorTrackingBreakdownsQuery = ({
             productKey: ProductKey.ERROR_TRACKING,
         },
     })
+}
+
+export const errorTrackingIssueReleasesQuery = ({
+    issueId,
+    dateRange,
+    filterGroup,
+    filterTestAccounts,
+    bucketSeconds,
+}: {
+    issueId: string
+    dateRange: DateRange
+    filterGroup: UniversalFiltersGroup
+    filterTestAccounts: boolean
+    bucketSeconds: number
+}): HogQLQuery => {
+    const group = filterGroup.values[0] as UniversalFiltersGroup
+    const properties = [...group.values] as AnyPropertyFilter[]
+
+    return {
+        kind: NodeKind.HogQLQuery,
+        query: `
+            SELECT
+                toUnixTimestamp(toStartOfInterval(timestamp, toIntervalSecond({bucketSeconds}))) AS bucket,
+                properties.$app_namespace AS namespace,
+                properties.$app_version AS version,
+                toString(properties.$app_build) AS build,
+                count() AS occurrences
+            FROM events
+            WHERE event = '$exception' AND issue_id = {issueId} AND {filters}
+            GROUP BY bucket, namespace, version, build
+            ORDER BY bucket
+        `,
+        values: { issueId, bucketSeconds },
+        filters: { dateRange, filterTestAccounts, properties },
+        tags: { productKey: ProductKey.ERROR_TRACKING },
+    }
 }
