@@ -208,6 +208,10 @@ def _safe_next_allowed_check_at(
 
 
 def _evaluate_dispatch_and_save_scoped(alert: TracingAlertConfiguration, now: datetime) -> str:
+    # Captured before the ClickHouse query and notification dispatch below (which can take
+    # tens of seconds) so the final locked write can detect a concurrent control-plane change
+    # (enable/disable/snooze/reset/threshold update) and avoid clobbering it with a stale outcome.
+    state_at_evaluation_start = alert.state
     nca = alert.next_check_at if alert.next_check_at is not None else now
     date_to = nca
     date_from = date_to - timedelta(
@@ -306,7 +310,27 @@ def _evaluate_dispatch_and_save_scoped(alert: TracingAlertConfiguration, now: da
             TracingAlertConfiguration.objects.select_for_update(of=("self",)).select_related("team").get(id=alert.id)
         )
 
-        update_fields = apply_outcome(current_alert, outcome)
+        # A concurrent control-plane action (enable/disable/snooze/reset/threshold change)
+        # already changed the state since `outcome` was computed — applying it now would
+        # silently clobber that action with a stale decision. Skip the state mutation and
+        # audit row; still advance the schedule so this cycle doesn't retry immediately.
+        # This only guards the write: the dispatch above already ran on the stale `outcome`,
+        # so a divergence here can still mean an already-sent notification reflected a
+        # decision this cycle is now discarding. Closing that half needs the row locked
+        # from before dispatch, which would hold the lock across the Kafka flush above —
+        # a worse trade than the rare stale notification this leaves unresolved.
+        state_diverged = current_alert.state != state_at_evaluation_start
+        if state_diverged:
+            logger.warning(
+                "Tracing alert state changed concurrently during evaluation; skipping stale outcome",
+                alert_id=str(alert.id),
+                state_at_evaluation_start=state_at_evaluation_start,
+                state_now=current_alert.state,
+            )
+            update_fields: list[str] = []
+        else:
+            update_fields = apply_outcome(current_alert, outcome)
+
         current_alert.last_checked_at = now
         current_alert.updated_at = now
         next_check_at = advance_next_check_at(
@@ -326,7 +350,8 @@ def _evaluate_dispatch_and_save_scoped(alert: TracingAlertConfiguration, now: da
         update_fields.extend(["last_checked_at", "next_check_at", "updated_at"])
 
         if (
-            not notification_failed
+            not state_diverged
+            and not notification_failed
             and outcome.notification != NotificationAction.NONE
             and outcome.update_last_notified_at
         ):
@@ -335,7 +360,7 @@ def _evaluate_dispatch_and_save_scoped(alert: TracingAlertConfiguration, now: da
 
         is_error = outcome.error_message is not None
         state_changed = state_before != outcome.new_state.value
-        if state_changed or is_error:
+        if not state_diverged and (state_changed or is_error):
             TracingAlertEvent.objects.create(
                 alert=current_alert,
                 result_count=check_result.result_count,
