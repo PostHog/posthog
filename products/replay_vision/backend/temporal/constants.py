@@ -10,6 +10,11 @@ SWEEP_SCANNER_WORKFLOW_NAME = "replay-vision-sweep-scanner"
 # retryable: the create activity's backoff spreads contenders that Postgres would otherwise queue.
 SCANNER_ADMISSION_BUSY_ERROR_TYPE = "ScannerAdmissionBusy"
 
+# How long a cached admission budget admits without re-running the spend aggregates. Spend the
+# cache misses (settling receipts, evaluation reservations, failed-observation refunds) stays wrong
+# by at most one TTL, and the admission counter itself never goes stale.
+ADMISSION_BUDGET_TTL = dt.timedelta(seconds=15)
+
 # Shared by the sweep's children and the on-demand /observe/ trigger; the orphan cutoff below leans on it.
 # Must exceed the worst-case failure chain in `workflow.py`, where every phase spends its full schedule_to_close
 # budget before the terminal mark runs: create 3m + mark running 3m + fetch 5m + rasterize 40m + upload 20m +
