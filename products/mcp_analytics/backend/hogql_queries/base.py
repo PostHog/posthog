@@ -14,7 +14,8 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
-from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlError
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
 
 if TYPE_CHECKING:
     from posthog.schema import DateRange, IntervalType

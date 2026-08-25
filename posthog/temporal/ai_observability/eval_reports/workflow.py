@@ -396,7 +396,7 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
             except WorkflowAlreadyStartedError:
                 # Same parent workflow replayed/retried with the same report_run_id.
                 # Safe to skip — the previous run is already handling emission.
-                temporalio.workflow.logger.info(
+                logger.info(
                     "Eval report signal workflow already started for this run",
                     evaluation_id=context.evaluation_id,
                     team_id=context.team_id,

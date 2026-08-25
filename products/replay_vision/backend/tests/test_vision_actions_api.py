@@ -454,7 +454,7 @@ class TestVisionActionViewSet(_VisionActionAPITestCase):
         # Simulate a viewer: viewer access holds (so the GET still returns the action), but editor
         # access to the scanner does not (so the URL is redacted).
         with patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
             side_effect=lambda obj, required_level, **_: required_level != "editor",
         ):
             redacted = self.client.get(f"{self.actions_url}{action_id}/").json()

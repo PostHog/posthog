@@ -72,9 +72,9 @@ from posthog.direct_query_cancellation import build_direct_query_cancellation_to
 from posthog.errors import CHQueryErrorS3Error, CHQueryErrorS3FileChangedDuringRead, ExposedCHQueryError
 from posthog.models.team import Team
 from posthog.models.user import User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.warehouse_sources.backend.facade.types import ManagedWarehouseSQLMode
 
 tracer = trace.get_tracer(__name__)

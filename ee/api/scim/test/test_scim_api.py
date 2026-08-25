@@ -8,11 +8,12 @@ from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 
+from products.access_control.backend.models.role import Role
+
 from ee.api.scim.auth import generate_scim_token
 from ee.api.scim.user import PostHogSCIMUser
 from ee.api.scim.utils import get_scim_base_url
 from ee.api.test.base import APILicensedTest
-from ee.models.rbac.role import Role
 
 
 class TestSCIMAPI(APILicensedTest):

@@ -19,12 +19,11 @@ from posthog.dataclasses import frozen
 from posthog.models.scoping import team_scope
 from posthog.models.team.team import Team
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.context_layer.backend import store
 from products.context_layer.backend.models import ContextLayerConfig
 from products.context_layer.backend.scaffold import AGENTS_MD
 from products.tasks.backend.facade import api as tasks_facade
-
-from ee.models.rbac.access_control import AccessControl
 
 logger = structlog.get_logger(__name__)
 

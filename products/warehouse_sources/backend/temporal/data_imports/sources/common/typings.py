@@ -43,7 +43,7 @@ class _Dataclass(Protocol):
 ResumableData = TypeVar("ResumableData", bound=_Dataclass)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)  # callers mutate `primary_keys` after construction
 class SourceResponse:
     name: str
     items: Callable[[], Iterable[Any] | AsyncIterable[Any]]
@@ -66,6 +66,10 @@ class SourceResponse:
     """Webhook-fed resource whose poll path does no backfill: after a wipe the poll cannot
     rebuild the table, so a requested pipeline reset preserves the Delta table and resumes
     webhook ingestion instead."""
+    cdc_write_mode: Optional[str] = None
+    """Set by a source serving change events, naming the lane the loader writes
+    (`incremental_merge`). Drives the loader's CDC enrichment and position resolution, and marks the
+    run incremental — a change stream must never write as a full_refresh overwrite."""
     chunk_size: Optional[int] = None
     """Override the batcher's rows-per-chunk (defaults to DEFAULT_CHUNK_SIZE)."""
     chunk_size_bytes: Optional[int] = None

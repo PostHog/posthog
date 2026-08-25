@@ -158,6 +158,7 @@ describe('UrlFetchConsumer', () => {
     it('records distinct origins and registrable domains for the poll batch', async () => {
         const harness = build()
         const observeBatch = jest.spyOn(ImageFetchConsumerMetrics, 'observeBatch')
+        const observeBatchDiversity = jest.spyOn(ImageFetchConsumerMetrics, 'observeBatchDiversity')
         const otherExampleOrigin = candidate('b', {
             currentUrl: 'https://img.example.com/b.png',
             host: 'img.example.com',
@@ -176,6 +177,7 @@ describe('UrlFetchConsumer', () => {
         )
 
         expect(observeBatch).toHaveBeenCalledWith(3, 2, expect.any(Number))
+        expect(observeBatchDiversity).toHaveBeenCalledWith([1, 1, 1], [2, 1])
     })
 
     it('deduplicates one global ref within the batch', async () => {
@@ -201,6 +203,15 @@ describe('UrlFetchConsumer', () => {
         await harness.consumer.handleBatch([message([stale]), message([advanced])], NOW_MS)
 
         expect(harness.run.mock.calls[0][0]).toEqual([advanced])
+    })
+
+    it('keeps a low-origin-diversity marker from either duplicate job', async () => {
+        const harness = build()
+        const marked = candidate('a', { lowOriginDiversityDeferred: true })
+
+        await harness.consumer.handleBatch([message([candidate('a')]), message([marked])], NOW_MS)
+
+        expect(harness.run.mock.calls[0][0]).toEqual([marked])
     })
 
     it('keeps the latest not-before time from duplicate jobs', async () => {

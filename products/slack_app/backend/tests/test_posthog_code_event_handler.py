@@ -611,7 +611,7 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         # integration before the workflow starts.
         from posthog.constants import AvailableFeature
 
-        from ee.models.rbac.access_control import AccessControl
+        from products.access_control.backend.models.access_control import AccessControl
 
         ac_org = Organization.objects.create(name="AC Org")
         # The ``pre_save`` signal on ``Organization`` resets

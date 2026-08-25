@@ -6,9 +6,9 @@ from django.db import transaction
 from parameterized import parameterized
 
 from posthog.api.capture import CaptureInternalResult
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.test.persons import create_group_type_mapping
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.customer_analytics.backend.facade import (
     api as facade,
     contracts,

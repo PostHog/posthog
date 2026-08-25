@@ -25,8 +25,14 @@ import {
     recordLogsDropped,
     recordLogsReceived,
 } from './ingestion-otel-metrics'
+import { logsPatternForcedDecodeCounter, makePatternMaskingStage } from './log-pattern-stage'
 import { type PiiScrubStats } from './log-pii-scrub'
-import { type LogRecord, type LogRecordsTransform, processLogMessageBuffer } from './log-record-avro'
+import {
+    type LogRecord,
+    type LogRecordsTransform,
+    bufferProcessingMode,
+    processLogMessageBuffer,
+} from './log-record-avro'
 import type { CompiledMetricRule } from './metrics-rules/compile-metric-rules'
 import { MetricRulesCache } from './metrics-rules/metric-rules-cache'
 import { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
@@ -309,6 +315,8 @@ export class LogsIngestionConsumer {
     private readonly transformationsKillswitch: boolean
     private readonly retentionEnabledTeamsRaw: string
     private readonly retentionKillswitch: boolean
+    private readonly patternMaskingEnabledTeamsRaw: string
+    private readonly patternMaskingStage: PipelineStage
 
     protected groupId: string
     protected topic: string
@@ -358,6 +366,11 @@ export class LogsIngestionConsumer {
         this.transformationsKillswitch = mergedConfig.LOGS_TRANSFORMATIONS_KILLSWITCH
         this.retentionEnabledTeamsRaw = mergedConfig.LOGS_RETENTION_ENABLED_TEAMS
         this.retentionKillswitch = mergedConfig.LOGS_RETENTION_KILLSWITCH
+        this.patternMaskingEnabledTeamsRaw = mergedConfig.LOGS_PATTERN_MASKING_ENABLED_TEAMS
+        this.patternMaskingStage = makePatternMaskingStage(
+            mergedConfig.LOGS_PATTERN_MASKING_MAX_INPUT_CHARS,
+            mergedConfig.LOGS_PATTERN_MASKING_MAX_OUTPUT_CHARS
+        )
     }
 
     private isSamplingEvalEnabledForTeam(teamId: number): boolean {
@@ -386,6 +399,15 @@ export class LogsIngestionConsumer {
             return false
         }
         return teamIdMatchesCsv(this.transformationsEnabledTeamsRaw, teamId)
+    }
+
+    /**
+     * Logs only. `TracesIngestionConsumer` subclasses this one and reads the same config key, but a
+     * trace record has no `body` field, so masking one measures nothing and would mix trace shapes
+     * into the log-body split these metrics exist to produce.
+     */
+    private isPatternMaskingEnabledForTeam(teamId: number): boolean {
+        return this.appSource === 'logs' && teamIdMatchesCsv(this.patternMaskingEnabledTeamsRaw, teamId)
     }
 
     /**
@@ -474,6 +496,17 @@ export class LogsIngestionConsumer {
         if (useRetention && retentionRuleSet) {
             const defaultRetentionDays = logsSettings.retention_days ?? DEFAULT_LOGS_RETENTION_DAYS
             stages.push(makeRetentionStage(retentionRuleSet, message.teamId, defaultRetentionDays))
+        }
+
+        // Runs last so it only sees survivors. Adding any stage forces the full decode and re-encode,
+        // so a batch that would have passed through pays both, and one already decoded for a visitor
+        // pays the encode. The counter prices each.
+        if (this.isPatternMaskingEnabledForTeam(message.teamId)) {
+            const modeWithoutMasking = bufferProcessingMode(logsSettings, stages.length, Boolean(onRecordsDecoded))
+            if (modeWithoutMasking !== 'decode_and_reencode') {
+                logsPatternForcedDecodeCounter.inc({ from: modeWithoutMasking })
+            }
+            stages.push(this.patternMaskingStage)
         }
 
         trace.getActiveSpan()?.setAttributes({

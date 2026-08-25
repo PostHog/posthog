@@ -17,7 +17,9 @@ from posthog.integration_secrets.client import (
     integration_service_signing_keys,
 )
 from posthog.integration_secrets.errors import (
+    IntegrationSecretsFailure,
     IntegrationServiceMisconfiguredError,
+    IntegrationServiceUnreachableError,
     SecretInRecoveryError,
     SecretMissingError,
 )
@@ -124,7 +126,52 @@ class TestIntegrationSecretsClient(SimpleTestCase):
                 return {"error": "Secret store unavailable"}
 
         with patch(POST, return_value=ErrorResponse()):
-            with pytest.raises(requests.HTTPError):
+            with pytest.raises(IntegrationServiceUnreachableError):
+                self.secrets.get(KEY, CALLER)
+
+    # No `requests` exception may escape, whatever the status. A caller is mid-conversation with
+    # some third party, so a bare HTTPError from here is indistinguishable from one that API
+    # raised — and callers act on that difference. The 404 is the case that bites: a misrouted
+    # INTEGRATION_SERVICE_URL is our deploy error, but a caller seeing a raw 404 reads it as the
+    # user's endpoint being gone and can stop their work over it.
+    @parameterized.expand(
+        [
+            ("404 misrouted url", requests.HTTPError("404 Client Error", response=requests.Response())),
+            ("401 unaccepted signing key", requests.HTTPError("401 Unauthorized", response=requests.Response())),
+            ("connection refused", requests.ConnectionError("connection refused")),
+            ("read timeout", requests.Timeout("timed out")),
+        ]
+    )
+    def test_transport_failure_wears_this_clients_type_for(self, _name: str, raised: Exception) -> None:
+        class ErrorResponse:
+            def raise_for_status(self) -> None:
+                raise raised
+
+            def json(self) -> dict[str, Any]:
+                return {}
+
+        # Raised from the call itself for a connection failure, from raise_for_status for a status.
+        side_effect = raised if isinstance(raised, requests.ConnectionError | requests.Timeout) else None
+        patched = patch(POST, side_effect=side_effect) if side_effect else patch(POST, return_value=ErrorResponse())
+        with patched:
+            with pytest.raises(IntegrationServiceUnreachableError) as exc_info:
+                self.secrets.get(KEY, CALLER)
+        # The cause is kept so error tracking and logs still show what actually went wrong.
+        assert exc_info.value.__cause__ is raised
+        assert not isinstance(exc_info.value, requests.RequestException)
+
+    # A body that isn't JSON is the same class of failure as no answer at all: something is
+    # between us and the service, or the service is broken. It must not surface as a missing key.
+    def test_an_unparseable_body_is_unreachable_not_missing(self) -> None:
+        class HtmlResponse:
+            def raise_for_status(self) -> None:
+                pass
+
+            def json(self) -> dict[str, Any]:
+                raise ValueError("Expecting value: line 1 column 1 (char 0)")
+
+        with patch(POST, return_value=HtmlResponse()):
+            with pytest.raises(IntegrationServiceUnreachableError):
                 self.secrets.get(KEY, CALLER)
 
     # With no cache there is no last known good, so an outage is an outage. This is the
@@ -134,17 +181,33 @@ class TestIntegrationSecretsClient(SimpleTestCase):
         with patch(POST, return_value=FakeResponse(body({KEY: steady("sec")}))):
             self.secrets.get(KEY, CALLER)
 
-        with patch(POST, side_effect=ConnectionError("integration service is down")):
-            with pytest.raises(ConnectionError):
+        with patch(POST, side_effect=requests.ConnectionError("integration service is down")):
+            with pytest.raises(IntegrationServiceUnreachableError):
                 self.secrets.get(KEY, CALLER)
 
     def test_does_not_fall_back_to_the_environment_when_the_service_is_down(self) -> None:
         with (
-            patch(POST, side_effect=ConnectionError("integration service is down")),
+            patch(POST, side_effect=requests.ConnectionError("integration service is down")),
             patch.dict("os.environ", {KEY: "from-env"}),
         ):
-            with pytest.raises(ConnectionError):
+            with pytest.raises(IntegrationServiceUnreachableError):
                 self.secrets.get(KEY, CALLER)
+
+    # The base type is the whole contract a caller depends on: catch one thing, and a subclass
+    # added later is covered without every call site being revisited.
+    @parameterized.expand(
+        [
+            ("missing", SecretMissingError(KEY), True),
+            ("in recovery", SecretInRecoveryError(KEY), False),
+            ("half-configured", IntegrationServiceMisconfiguredError("INTEGRATION_SERVICE_URL"), True),
+            ("unreachable", IntegrationServiceUnreachableError("no answer"), False),
+        ]
+    )
+    def test_every_failure_shares_the_base_type_and_declares_reportability(
+        self, _name: str, error: Exception, reportable: bool
+    ) -> None:
+        assert isinstance(error, IntegrationSecretsFailure)
+        assert error.reportable is reportable
 
 
 @override_settings(**SERVICE_SETTINGS)

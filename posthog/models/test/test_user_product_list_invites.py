@@ -7,7 +7,7 @@ from posthog.models.file_system.user_product_list import DEFAULT_PRODUCT_PATHS, 
 from posthog.models.organization import OrganizationMembership
 from posthog.models.organization_invite import OrganizationInvite
 
-from ee.models.rbac.access_control import AccessControl
+from products.access_control.backend.models.access_control import AccessControl
 
 
 class TestUserProductListDefaults(BaseTest):

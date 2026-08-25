@@ -152,6 +152,12 @@ class LLMSkillListQuerySerializer(serializers.Serializer):
         required=False,
         help_text="Filter skills by the ID of the user who created them.",
     )
+    owner_id = serializers.IntegerField(
+        required=False,
+        help_text="Filter skills by the ID of a user who owns them. Ownership is keyed on the logical "
+        "skill, so this is stable across versions — unlike created_by_id, which tracks whoever "
+        "published the latest version.",
+    )
     category = serializers.CharField(
         required=False,
         allow_blank=True,

@@ -124,7 +124,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
         alert_id = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request).json()["id"]
 
         with mock.patch(
-            "posthog.rbac.user_access_control.UserAccessControl.check_access_level_for_object",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
             side_effect=deny_insight,
         ):
             create = self.client.post(f"/api/projects/{self.team.id}/alerts", creation_request)
@@ -157,7 +157,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
         # Deny viewer access to every insight by emptying the viewable-insight queryset.
         with mock.patch(
-            "posthog.rbac.user_access_control.UserAccessControl.filter_queryset_by_access_level",
+            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
             side_effect=lambda queryset, *args, **kwargs: queryset.none(),
         ):
             retrieve = self.client.get(f"/api/projects/{self.team.id}/alerts/{alert_id}")

@@ -23,7 +23,6 @@ from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.insights.paginators import HogQLCursorPaginator, HogQLHasMorePaginator
 from posthog.models import Team, User
-from posthog.rbac.user_access_control import UserAccessControlError
 from posthog.session_recordings.models.metadata import ONGOING_SESSION_WINDOW_MINUTES
 from posthog.session_recordings.queries.sub_queries.base_query import SessionRecordingsListingBaseQuery
 from posthog.session_recordings.queries.sub_queries.cohort_subquery import CohortPropertyGroupsSubQuery
@@ -39,6 +38,8 @@ from posthog.session_recordings.queries.utils import (
     test_account_scoped_query,
 )
 from posthog.types import AnyPropertyFilter
+
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
 if TYPE_CHECKING:
     from products.experiments.backend.facade.replay import ExperimentExposureLinkage

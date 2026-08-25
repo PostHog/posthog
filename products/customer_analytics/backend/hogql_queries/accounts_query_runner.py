@@ -12,7 +12,8 @@ from posthog.errors import ExposedCHQueryError, InternalCHQueryError
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.models import User
-from posthog.rbac.user_access_control import UserAccessControl
+
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 NAME_COLUMN = "name"
 

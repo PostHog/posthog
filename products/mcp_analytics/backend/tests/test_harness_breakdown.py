@@ -17,8 +17,7 @@ from posthog.schema import (
 
 from posthog.hogql.parser import parse_expr
 
-from posthog.rbac.user_access_control import UserAccessControlError
-
+from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.mcp_analytics.backend import mcp_harness
 from products.mcp_analytics.backend.hogql_queries.harness_breakdown import MCPHarnessBreakdownQueryRunner
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin

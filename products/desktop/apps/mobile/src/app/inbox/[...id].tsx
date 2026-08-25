@@ -23,11 +23,8 @@ import {
   CaretRight,
   ChatCircle,
   Lightning,
-  Play,
-  Plus,
   Receipt,
   ThumbsDown,
-  Warning,
 } from "phosphor-react-native";
 import { useFeatureFlag, usePostHog } from "posthog-react-native";
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -54,6 +51,7 @@ import {
 import { RefundReportSheet } from "@/features/inbox/components/RefundReportSheet";
 import { ReportActivity } from "@/features/inbox/components/ReportActivity";
 import { ReportFeedbackFooter } from "@/features/inbox/components/ReportFeedbackFooter";
+import { ReportVerdictBanner } from "@/features/inbox/components/ReportVerdictBanner";
 import { SignalCard } from "@/features/inbox/components/SignalCard";
 import {
   type ReviewerActionExtra,
@@ -65,6 +63,7 @@ import {
   useInboxReportArtefacts,
   useInboxReportSignals,
 } from "@/features/inbox/hooks/useInboxReports";
+import { isReportAwaitingInput } from "@/features/inbox/reportVerdictAction";
 import { useInboxStore } from "@/features/inbox/stores/inboxStore";
 import { PrStatusBadge } from "@/features/tasks/components/PrStatusBadge";
 import {
@@ -72,6 +71,7 @@ import {
   type InboxReportActionType,
   useAnalytics,
 } from "@/lib/analytics";
+import { openExternalUrl } from "@/lib/openExternalUrl";
 import { useThemeColors } from "@/lib/theme";
 
 const statusColorMap: Record<string, { bg: string; text: string }> = {
@@ -328,6 +328,28 @@ export default function ReportDetailScreen() {
     [report, router, reportRepo, tracker],
   );
 
+  const handleBannerStart = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setCreatePrFeedbackOpen(true);
+  }, []);
+
+  const handleOpenPr = useCallback(
+    (url: string) => {
+      if (!report) return;
+      tracker.signalAction({
+        report_id: report.id,
+        report_title: report.title ?? null,
+        report_age_hours: computeReportAgeHours(report.created_at),
+        action_type: "open_pr",
+        surface: "detail_pane",
+        is_bulk: false,
+        bulk_size: 1,
+      });
+      openExternalUrl(url);
+    },
+    [report, tracker],
+  );
+
   const handleDismissed = useCallback(
     (result: DismissReportResult) => {
       setDismissOpen(false);
@@ -428,25 +450,17 @@ export default function ReportDetailScreen() {
 
   const isReady = report.status === "ready";
 
-  const isAwaitingInput =
-    report.status === "pending_input" ||
-    (report.status === "ready" &&
-      report.actionability === "requires_human_input");
-
-  const canStartTask =
-    isAwaitingInput ||
-    (report.status === "ready" &&
-      report.actionability === "immediately_actionable" &&
-      report.already_addressed !== true);
+  const isAwaitingInput = isReportAwaitingInput(report);
 
   const alreadyAddressed =
     report.already_addressed ??
     actionabilityJudgment?.already_addressed ??
     false;
 
-  const primaryActionLabel = isAwaitingInput
-    ? "Implement as new task"
-    : "Start task";
+  // Fold the artefact-derived already_addressed onto the report the verdict
+  // reads, so the "already fixed" verdict shows even when only the judgment
+  // artefact carries it.
+  const bannerReport = { ...report, already_addressed: alreadyAddressed };
 
   const { canRefund: canRefundPr, disabledReason: refundDisabledReason } =
     computeRefundEligibility(report, refundFlagEnabled);
@@ -504,35 +518,12 @@ export default function ReportDetailScreen() {
           ) : null}
         </View>
 
-        {/* Failed warning */}
-        {report.status === "failed" && (
-          <View className="mb-4 flex-row items-start gap-2 rounded-lg bg-status-error/10 p-3">
-            <Warning size={16} color={themeColors.status.error} weight="fill" />
-            <View className="flex-1">
-              <Text className="font-medium text-[13px] text-status-error">
-                Report processing failed
-              </Text>
-              <Text className="mt-0.5 text-[12px] text-status-error">
-                There was an issue processing this report. It may be retried
-                automatically.
-              </Text>
-            </View>
-          </View>
-        )}
-
-        {/* Already-addressed banner */}
-        {alreadyAddressed && (
-          <View className="mb-4 flex-row items-start gap-2 rounded-lg border border-status-warning/40 bg-status-warning/10 p-3">
-            <Warning
-              size={16}
-              color={themeColors.status.warning}
-              weight="fill"
-            />
-            <Text className="flex-1 text-[13px] text-status-warning">
-              This issue may already be addressed in recent code changes.
-            </Text>
-          </View>
-        )}
+        {/* Verdict banner: the report's state and its one ask, up front */}
+        <ReportVerdictBanner
+          report={bannerReport}
+          onStart={handleBannerStart}
+          onOpenPr={handleOpenPr}
+        />
 
         {/* Summary */}
         {report.summary && (
@@ -647,35 +638,6 @@ export default function ReportDetailScreen() {
               Refund
             </Text>
           </Pressable>
-        )}
-
-        {canStartTask && (
-          <View className="flex-row items-center overflow-hidden rounded-full bg-accent-9 shadow-lg">
-            <Pressable
-              onPress={() => handleStartTask()}
-              className="flex-row items-center gap-2 py-3.5 pr-3 pl-4 active:opacity-80"
-            >
-              {isAwaitingInput ? (
-                <Plus size={18} color="#ffffff" weight="bold" />
-              ) : (
-                <Play size={18} color="#ffffff" weight="fill" />
-              )}
-              <Text className="font-semibold text-[15px] text-white">
-                {primaryActionLabel}
-              </Text>
-            </Pressable>
-            <View className="h-6 w-px bg-white/25" />
-            <Pressable
-              onPress={() => {
-                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                setCreatePrFeedbackOpen(true);
-              }}
-              accessibilityLabel="Add feedback"
-              className="py-3.5 pr-4 pl-3 active:opacity-80"
-            >
-              <CaretDown size={16} color="#ffffff" weight="bold" />
-            </Pressable>
-          </View>
         )}
       </View>
 

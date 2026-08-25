@@ -12,13 +12,9 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.error_tracking.backend.logic.rules import MAX_SEVERITY_RULE_BYTECODE_OPS, MAX_SEVERITY_RULES_PER_TEAM
 from products.error_tracking.backend.models import ErrorTrackingSeverityRule
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
 
 VALID_FILTERS = {
     "type": "AND",

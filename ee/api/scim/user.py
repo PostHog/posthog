@@ -11,7 +11,8 @@ from posthog.models import Organization, OrganizationMembership, User
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 
-from ee.models.rbac.role import RoleMembership
+from products.access_control.backend.models.role import RoleMembership
+
 from ee.models.scim_provisioned_user import SCIMProvisionedUser
 
 

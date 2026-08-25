@@ -15,7 +15,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
-from ee.models.rbac.access_control import AccessControl
+from products.access_control.backend.models.access_control import AccessControl
 
 from ...api.evaluation_runs import _evaluation_workflow_prefix
 from ...models.evaluations import Evaluation

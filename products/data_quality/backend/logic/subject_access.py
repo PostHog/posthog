@@ -18,7 +18,8 @@ from .subjects import resolve_subject
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
-    from posthog.rbac.user_access_control import UserAccessControl
+
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 
 def denied_subject_names(

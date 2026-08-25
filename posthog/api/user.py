@@ -120,7 +120,6 @@ from posthog.rate_limit import (
     UserAuthenticationThrottle,
     UserEmailVerificationThrottle,
 )
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.session.activity import (
     list_user_sessions,
     revoke_other_sessions,
@@ -140,6 +139,7 @@ from posthog.tasks.email import (
 from posthog.user_permissions import UserPermissions
 from posthog.utils import render_template
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.notifications.backend.facade.api import NotificationType
 

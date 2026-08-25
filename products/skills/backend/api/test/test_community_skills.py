@@ -11,6 +11,8 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
+
 from ...models.community_skills import CommunitySkill, CommunitySkillFile, CommunitySkillVote
 from ...models.skills import LLMSkill
 from ..skill_template_services import (
@@ -26,11 +28,6 @@ from ..skill_template_services import (
     parse_template_variables,
     render_template_skill,
 )
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
 
 
 def _create_community_skill(

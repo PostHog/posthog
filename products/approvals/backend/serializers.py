@@ -3,6 +3,7 @@ from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 
+from products.access_control.backend.models.role import Role
 from products.approvals.backend.models import Approval, ApprovalPolicy, ChangeRequest
 
 
@@ -96,7 +97,7 @@ class ChangeRequestSerializer(serializers.ModelSerializer):
         approver_roles = policy.get("roles", [])
         if approver_roles:
             try:
-                from ee.models.rbac.role import RoleMembership
+                from products.access_control.backend.models.role import RoleMembership
 
                 # Coerce both sides to strings: role IDs come back from the policy snapshot as JSON strings
                 # but RoleMembership.role_id is a UUID, so a raw set intersection always misses.
@@ -229,11 +230,6 @@ class ApprovalPolicySerializer(serializers.ModelSerializer):
     def validate_bypass_roles(self, value):
         if not value:
             return value
-
-        try:
-            from ee.models.rbac.role import Role
-        except ImportError:
-            raise serializers.ValidationError("RBAC roles are not available")
 
         if self.instance:
             # Update: get organization from existing policy

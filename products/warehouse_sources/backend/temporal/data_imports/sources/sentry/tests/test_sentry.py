@@ -876,6 +876,16 @@ class TestSentrySourceResumable:
 
 
 class TestIssueTagValuesResumable:
+    @pytest.fixture(autouse=True)
+    def _fresh_issues_snapshot(self):
+        # These cases predate the snapshot cap and assert on the rows the fan-out emits, so pin
+        # the parent snapshot ahead of every fixture timestamp to leave that set unchanged.
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.parent_snapshot_covers_through",
+            return_value=datetime(2999, 1, 1, tzinfo=UTC),
+        ):
+            yield
+
     """Resume behaviour for the two-level issue_tag_values fan-out loop."""
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
@@ -1881,6 +1891,16 @@ class TestSentryCustomIteratorEndpoints:
 
 
 class TestWarehouseParentReuse:
+    @pytest.fixture(autouse=True)
+    def _fresh_issues_snapshot(self):
+        # These cases predate the snapshot cap and assert on the rows the fan-out emits, so pin
+        # the parent snapshot ahead of every fixture timestamp to leave that set unchanged.
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.parent_snapshot_covers_through",
+            return_value=datetime(2999, 1, 1, tzinfo=UTC),
+        ):
+            yield
+
     @parameterized.expand(
         [
             ("issue_events", []),
@@ -1975,6 +1995,98 @@ class TestWarehouseParentReuse:
             schema_name="issue_tag_values",
             row_filter=_issues_parent_row_filter(datetime(2020, 1, 1, tzinfo=UTC)),
         )
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.parent_snapshot_covers_through",
+        return_value=datetime(2026, 3, 4, 0, 0, 0, tzinfo=UTC),
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.try_resolve_parent_table",
+        return_value=None,
+    )
+    def test_api_fallback_keeps_values_newer_than_the_stale_snapshot(
+        self, _mock_resolve, _mock_snapshot, mock_get
+    ) -> None:
+        cutoff = datetime(2026, 3, 3, 0, 0, 0, tzinfo=UTC)
+
+        def side_effect(url, headers=None, params=None, timeout=None):
+            if url.endswith("/organizations/acme/issues/"):
+                return _response([{"id": "200", "lastSeen": "2026-03-06T00:00:00Z"}])
+            if url.endswith("/organizations/acme/issues/200/tags/"):
+                return _response([{"key": "browser"}])
+            if url.endswith("/organizations/acme/issues/200/tags/browser/values/"):
+                return _response([{"value": "Firefox", "lastSeen": "2026-03-06T00:00:00Z"}])
+            return _response([])
+
+        mock_get.return_value.get.side_effect = side_effect
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_tag_values",
+            team_id=123,
+            job_id="job-id",
+            source_id="source-1",
+            use_warehouse_parent=True,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=cutoff,
+            incremental_field="lastSeen",
+        )
+
+        # The live listing has no snapshot behind it, so the stale cap must not apply.
+        assert [row["value"] for row in cast(Any, resp.items())] == ["Firefox"]
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.parent_snapshot_covers_through",
+        return_value=datetime(2026, 3, 4, 0, 0, 0, tzinfo=UTC),
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.resolve_parent_table_ref",
+        return_value=ParentTableRef(uri="s3://bucket/team_123_sentry_x/issues", version=3),
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.warehouse_parent.iter_parent_pages_from_warehouse"
+    )
+    def test_issue_tag_values_drops_values_newer_than_the_issues_snapshot(
+        self, mock_reader, _mock_resolve, _mock_snapshot, mock_get
+    ) -> None:
+        cutoff = datetime(2026, 3, 3, 0, 0, 0, tzinfo=UTC)
+        mock_reader.return_value = iter([[{"id": "200", "lastSeen": "2026-03-05T00:00:00Z"}]])
+
+        def side_effect(url, headers=None, params=None, timeout=None):
+            if url.endswith("/organizations/acme/issues/200/tags/"):
+                return _response([{"key": "browser"}])
+            if url.endswith("/organizations/acme/issues/200/tags/browser/values/"):
+                return _response(
+                    [
+                        {"value": "Firefox", "lastSeen": "2026-03-06T00:00:00Z"},
+                        {"value": "Chrome", "lastSeen": "2026-03-03T12:00:00Z"},
+                    ]
+                )
+            return _response([])
+
+        mock_get.return_value.get.side_effect = side_effect
+
+        resp = sentry_source(
+            auth_token="token",
+            organization_slug="acme",
+            api_base_url="https://sentry.io",
+            endpoint="issue_tag_values",
+            team_id=123,
+            job_id="job-id",
+            source_id="source-1",
+            use_warehouse_parent=True,
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=cutoff,
+            incremental_field="lastSeen",
+        )
+
+        # Firefox is newer than the snapshot, so emitting it would carry the watermark past
+        # issues the snapshot has not shown yet. Chrome sits inside the snapshot and still ships.
+        assert [row["value"] for row in cast(Any, resp.items())] == ["Chrome"]
 
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.sentry.sentry.make_tracked_session")
     @patch(

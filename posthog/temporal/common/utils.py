@@ -157,16 +157,30 @@ def close_db_connections(fn: Callable[P, T]) -> Callable[P, T]:
     return sync_wrapper
 
 
+def _is_stale_connection_read_only_error(error: Exception) -> bool:
+    """Whether `error` is a write rejected because the connection outlived a primary failover.
+
+    A connection held open across a Postgres failover/switchover keeps talking to what is now a
+    demoted standby (or a pooler backend still routed there mid-cutover), so any write on it fails
+    with ``cannot execute ... in a read-only transaction`` (``psycopg.errors.ReadOnlySqlTransaction``,
+    surfaced by Django as ``InternalError``). This is the same stale-pooled-connection failure mode
+    ``OperationalError``/``InterfaceError`` already cover, just a different DB-API exception class —
+    closing the connection and retrying reconnects to the current primary.
+    """
+    return isinstance(error, django.db.InternalError) and "read-only transaction" in str(error).lower()
+
+
 async def aretry_on_db_connection_drop(operation: Callable[[], Coroutine[Any, Any, T]]) -> T:
-    """Run an async DB read, retrying once on a transient connection drop.
+    """Run an async DB operation, retrying once on a transient connection drop.
 
     Long-lived Temporal workers pool their connections through pgbouncer, so a pool
     recycle, failover, or deploy can leave a stale pooled connection that raises
-    ``OperationalError`` / ``InterfaceError`` the first time it's used. Evict the dead
-    connection and retry once, so a transient blip at an activity's early connect-time
-    reads succeeds on a fresh connection instead of escaping as error-tracking noise.
-    A second failure propagates — that's a genuinely degraded DB, left to the caller's
-    retry posture.
+    ``OperationalError`` / ``InterfaceError`` the first time it's used — or, for a write,
+    ``InternalError`` if the stale connection now points at a demoted standby (see
+    ``_is_stale_connection_read_only_error``). Evict the dead connection and retry once, so a
+    transient blip at an activity's early connect-time reads succeeds on a fresh connection
+    instead of escaping as error-tracking noise. A second failure propagates — that's a
+    genuinely degraded DB, left to the caller's retry posture.
 
     Pass a zero-arg callable that *produces* the awaitable (not the awaitable itself),
     so the retry can issue a fresh query:
@@ -175,20 +189,27 @@ async def aretry_on_db_connection_drop(operation: Callable[[], Coroutine[Any, An
     """
     try:
         return await operation()
+    except django.db.InternalError as e:
+        if not _is_stale_connection_read_only_error(e):
+            raise
+        await sync_to_async(_close_db_connections)()
+        return await operation()
     except (django.db.OperationalError, django.db.InterfaceError):
         await sync_to_async(_close_db_connections)()
         return await operation()
 
 
 def retry_on_db_connection_drop(operation: Callable[[], T]) -> T:
-    """Run a sync DB read, retrying once on a transient connection drop.
+    """Run a sync DB operation, retrying once on a transient connection drop.
 
     The sync sibling of ``aretry_on_db_connection_drop``, for activities that run sync
     Django ORM code (e.g. under ``@asyncify``). See that function for the full rationale:
     a long-lived worker pools connections through pgbouncer, so a pool recycle / failover
     / deploy can leave a stale pooled connection that raises ``OperationalError`` /
-    ``InterfaceError`` on first use. Evict the dead connection and retry once; a second
-    failure propagates, left to the caller's retry posture.
+    ``InterfaceError`` on first use — or, for a write, ``InternalError`` if the stale
+    connection now points at a demoted standby (see ``_is_stale_connection_read_only_error``).
+    Evict the dead connection and retry once; a second failure propagates, left to the
+    caller's retry posture.
 
     The single retry leans on the activity's outer Temporal retry policy. Code without
     one (e.g. a Celery task) needs multi-attempt backoff instead; see
@@ -200,6 +221,11 @@ def retry_on_db_connection_drop(operation: Callable[[], T]) -> T:
         task = retry_on_db_connection_drop(lambda: Task.objects.get(id=task_id))
     """
     try:
+        return operation()
+    except django.db.InternalError as e:
+        if not _is_stale_connection_read_only_error(e):
+            raise
+        _close_db_connections()
         return operation()
     except (django.db.OperationalError, django.db.InterfaceError):
         _close_db_connections()

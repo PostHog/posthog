@@ -16,8 +16,8 @@ from django.db.models import Q
 from posthog.hogql.direct_sql.capability import is_direct_capable
 
 from posthog.ph_client import feature_enabled_or_false
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.types import DIRECT_ENGINE_BY_SOURCE_TYPE
 

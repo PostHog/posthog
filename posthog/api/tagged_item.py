@@ -15,7 +15,8 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import Change, Detail, LogActivityEntry, bulk_log_activity
 from posthog.models.tag import tagify
-from posthog.rbac.user_access_control import access_level_satisfied_for_resource
+
+from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
 
 if TYPE_CHECKING:
     from posthog.models.user import User

@@ -22,6 +22,8 @@ from posthog.temporal.common.clickhouse import (
     encode_clickhouse_data,
 )
 
+pytestmark = pytest.mark.django_db
+
 
 async def _wait_for_query_status(
     client: ClickHouseClient,
