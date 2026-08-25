@@ -4,10 +4,10 @@ import {
   type ReportModelResolver,
 } from "@posthog/core/inbox/identifiers";
 import {
-  isUsageLimitResult,
   TASK_SERVICE,
   type TaskCreationInput,
   type TaskService,
+  usageLimitCauseForResult,
 } from "@posthog/core/task-detail/taskService";
 import { useService } from "@posthog/di/react";
 import {
@@ -18,6 +18,8 @@ import {
 } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import { showUsageLimitPromptForError } from "@posthog/ui/features/billing/usageLimitPrompt";
+import { useUsageLimitStore } from "@posthog/ui/features/billing/usageLimitStore";
 import { showOfflineToast } from "@posthog/ui/features/connectivity/connectivityToast";
 import { resolveDefaultModel } from "@posthog/ui/features/inbox/hooks/resolveDefaultModel";
 import { useUserRepositoryIntegration } from "@posthog/ui/features/integrations/useIntegrations";
@@ -268,8 +270,16 @@ export function useInboxCloudTaskRunner({
         });
       } else {
         toast.dismiss(toastId);
-        // Usage-limit blocks already show the upgrade modal; don't double-toast.
-        if (!isUsageLimitResult(result)) {
+        // A spend-gate block gets the upgrade modal, which carries the route to
+        // billing; a toast naming the limit would leave nothing to act on.
+        const limitCause = usageLimitCauseForResult(result);
+        if (limitCause) {
+          useUsageLimitStore.getState().show({ cause: limitCause });
+          log.warn("Cloud-task creation blocked by usage limit", {
+            cause: limitCause,
+            reportId,
+          });
+        } else {
           toastError(copy.errorTitle, result.error);
           log.error("Cloud-task creation failed", {
             failedStep: result.failedStep,
@@ -281,7 +291,9 @@ export function useInboxCloudTaskRunner({
       }
     } catch (error) {
       toast.dismiss(toastId);
-      toastError(copy.errorTitle, error);
+      if (!showUsageLimitPromptForError(error)) {
+        toastError(copy.errorTitle, error);
+      }
       log.error("Unexpected error during cloud-task creation", {
         error,
         reportId,

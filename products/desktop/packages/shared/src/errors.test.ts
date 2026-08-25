@@ -108,6 +108,11 @@ describe("classifyGatewayLimitError", () => {
       "org_limit",
     ],
     [
+      // The task API's own wording, which says "your" where the gateway says "its".
+      "You've reached your PostHog Desktop usage limit.",
+      "org_limit",
+    ],
+    [
       // Pre-rename wording still sent by older gateway deployments.
       "Rate limit exceeded: Your team has reached its PostHog Code usage limit for this billing period. See https://app.posthog.com/organization/billing for your usage and limits.",
       "org_limit",

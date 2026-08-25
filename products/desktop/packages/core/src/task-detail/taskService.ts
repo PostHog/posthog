@@ -7,10 +7,12 @@ import {
   type SessionService,
 } from "@posthog/core/sessions/sessionService";
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
-import type {
-  SagaResult,
-  TaskCreationInput,
-  TaskCreationOutput,
+import {
+  classifyGatewayLimitError,
+  type GatewayLimitCause,
+  type SagaResult,
+  type TaskCreationInput,
+  type TaskCreationOutput,
 } from "@posthog/shared";
 import type { Task, TaskRun } from "@posthog/shared/domain-types";
 import { inject, injectable } from "inversify";
@@ -29,15 +31,22 @@ export { TASK_SERVICE } from "./identifiers";
 export type CreateTaskResult = SagaResult<TaskCreationOutput>;
 
 /**
- * True when a failed createTask was blocked by the usage limit. The upgrade modal is
- * already shown in this case, so callers should suppress their own error toast.
+ * The limit a failed createTask was blocked by, or null when it failed for another
+ * reason. Callers show the upgrade modal for this cause instead of a plain toast, so
+ * the block always comes with a route to billing.
+ *
+ * The local pre-flight fails with a known sentinel, but the backend can also block a
+ * run the pre-flight let through (a compute-quota stop, a deactivated organization, a
+ * gateway bucket the pre-flight can't see). Those arrive only as prose, so the message
+ * is classified too.
  */
-export function isUsageLimitResult(result: CreateTaskResult): boolean {
-  return (
-    !result.success &&
-    (result.failedStep === "usage_limit" ||
-      result.error === CLOUD_USAGE_LIMIT_ERROR_MESSAGE)
-  );
+export function usageLimitCauseForResult(
+  result: CreateTaskResult,
+): GatewayLimitCause | null {
+  if (result.success) return null;
+  if (result.failedStep === "usage_limit") return "org_limit";
+  if (result.error === CLOUD_USAGE_LIMIT_ERROR_MESSAGE) return "org_limit";
+  return result.error ? classifyGatewayLimitError(result.error) : null;
 }
 
 @injectable()

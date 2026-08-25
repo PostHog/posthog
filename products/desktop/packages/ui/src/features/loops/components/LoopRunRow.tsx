@@ -12,7 +12,9 @@ import {
 } from "@phosphor-icons/react";
 import type { LoopSchemas } from "@posthog/api-client/loops";
 import { cn } from "@posthog/quill";
+import { classifyGatewayLimitError } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { useUsageLimitStore } from "@posthog/ui/features/billing/usageLimitStore";
 import { StopCloudRunDialog } from "@posthog/ui/features/sessions/components/StopCloudRunDialog";
 import { Badge } from "@posthog/ui/primitives/Badge";
 import { Button } from "@posthog/ui/primitives/Button";
@@ -134,6 +136,11 @@ export function LoopRunRow({
   const triggered = Boolean(run.loop_trigger_id);
   const stoppable = isStoppable(run);
   const [stopOpen, setStopOpen] = useState(false);
+  // A run stopped by the spend gate reports the limit as prose; the row offers the
+  // way to raise it, since the loop's paused notice only appears once it pauses.
+  const limitCause = run.error_message
+    ? classifyGatewayLimitError(run.error_message)
+    : null;
 
   return (
     <Flex
@@ -171,7 +178,7 @@ export function LoopRunRow({
           </MetaItem>
         </Flex>
         {run.error_message ? (
-          <Flex align="center" gap="1" className="min-w-0">
+          <div className="flex min-w-0 items-center gap-1">
             <Warning
               size={12}
               weight="bold"
@@ -180,7 +187,20 @@ export function LoopRunRow({
             <Text className="truncate text-(--red-11) text-[11.5px]">
               {run.error_message}
             </Text>
-          </Flex>
+            {limitCause ? (
+              <Button
+                variant="ghost"
+                color="red"
+                size="1"
+                className="shrink-0"
+                onClick={() =>
+                  useUsageLimitStore.getState().show({ cause: limitCause })
+                }
+              >
+                Manage plan
+              </Button>
+            ) : null}
+          </div>
         ) : null}
       </Flex>
       <Flex align="center" gap="2" className="shrink-0">
