@@ -382,13 +382,15 @@ function process(event: PluginEvent, next: () => void): void {
     delete props['gen_ai.response.finish_reasons']
 
     // Trust the gateway's reported total over PostHog's estimate. Only the total
-    // is available here — the gateway does not break it into input/output — so the
-    // per-component breakdown stays estimated downstream. Respect a total the
-    // caller already set.
+    // is available here — the gateway does not break it into input/output — so
+    // flag the event as passthrough. The cost pipeline then keeps this total,
+    // skips the token-based estimate, and leaves the input/output split unset
+    // rather than estimated. Respect a total the caller already set.
     if (props['$ai_total_cost_usd'] === undefined) {
         const gatewayCost = extractGatewayCost(props['ai.response.providerMetadata'])
         if (gatewayCost !== undefined) {
             props['$ai_total_cost_usd'] = gatewayCost
+            props['$ai_cost_passthrough'] = true
         }
     }
 

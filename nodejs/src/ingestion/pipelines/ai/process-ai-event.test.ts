@@ -806,6 +806,41 @@ describe('processAiEvent()', () => {
             expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.Passthrough)
         })
 
+        // A caller with an authoritative total (an LLM gateway) sets the flag to
+        // keep it and skip the token-based estimate, leaving the split unset.
+        it.each([true, 'true'])('passes the total through when $ai_cost_passthrough is %p', (flag) => {
+            event.properties!.$ai_cost_passthrough = flag
+            event.properties!.$ai_total_cost_usd = 0.000372
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_total_cost_usd).toBe(0.000372)
+            expect(result.properties!.$ai_cost_model_source).toBe(CostModelSource.Passthrough)
+            expect(result.properties!.$ai_input_cost_usd).toBeUndefined()
+            expect(result.properties!.$ai_output_cost_usd).toBeUndefined()
+        })
+
+        // Without a usable total there is nothing to trust, so the flag must not
+        // label an empty cost as passthrough — fall back to the model estimate.
+        it('ignores $ai_cost_passthrough when no usable total is present', () => {
+            event.properties!.$ai_cost_passthrough = true
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_total_cost_usd).toBe(30)
+            expect(result.properties!.$ai_cost_model_source).not.toBe(CostModelSource.Passthrough)
+        })
+
+        // The flag reader must not fall for string truthiness: "false" is off.
+        it('treats a non-truthy $ai_cost_passthrough as off', () => {
+            event.properties!.$ai_cost_passthrough = 'false'
+
+            const result = processAiEvent(event)
+
+            expect(result.properties!.$ai_input_cost_usd).toBe(20)
+            expect(result.properties!.$ai_cost_model_source).not.toBe(CostModelSource.Passthrough)
+        })
+
         // A usable cost has to come out as the parsed number, not the original string,
         // since these properties are read as floats downstream.
         it('parses pre-calculated costs supplied as numeric strings', () => {

@@ -107,6 +107,10 @@ const isString = (property: unknown): property is string => {
     return typeof property === 'string'
 }
 
+// A caller may send this alongside a total it already knows to be authoritative,
+// so the property bag can carry it as a real boolean or a serialized string.
+const isCostPassthrough = (value: unknown): boolean => value === true || value === 'true'
+
 /**
  * Process cost calculation for AI generation/embedding events.
  * Calculates input, output, request, and web search costs based on model pricing.
@@ -144,6 +148,20 @@ export const processCost = (event: EventWithProperties): EventWithProperties => 
 
         event.properties['$ai_cost_model_source'] = CostModelSource.Passthrough
         return event
+    }
+
+    // A caller that already knows the real cost (an LLM gateway that reports its
+    // charged total) sets $ai_cost_passthrough to keep that total and skip the
+    // token-based estimate, leaving the input/output split unset rather than
+    // estimated. Without a usable total there is nothing to trust, so fall through
+    // to estimation instead of labeling an empty cost as passthrough.
+    if (isCostPassthrough(event.properties['$ai_cost_passthrough'])) {
+        const total = event.properties['$ai_total_cost_usd']
+        if (typeof total === 'number') {
+            event.properties['$ai_cost_model_source'] = CostModelSource.Passthrough
+            trackCostOutcome(total)
+            return event
+        }
     }
 
     // A non-numeric price throws inside js-big-decimal, so treat one as absent and

@@ -148,6 +148,7 @@ describe('vercel-ai middleware', () => {
             convertOtelEvent(event)
 
             expect(event.properties!['$ai_total_cost_usd']).toBe(0.001234)
+            expect(event.properties!['$ai_cost_passthrough']).toBe(true)
             expect(event.properties!['ai.response.providerMetadata']).toBeUndefined()
         })
 
@@ -160,6 +161,7 @@ describe('vercel-ai middleware', () => {
             convertOtelEvent(event)
 
             expect(event.properties!['$ai_total_cost_usd']).toBe(0.5)
+            expect(event.properties!['$ai_cost_passthrough']).toBeUndefined()
         })
 
         it.each([
@@ -175,6 +177,7 @@ describe('vercel-ai middleware', () => {
             convertOtelEvent(event)
 
             expect(event.properties!['$ai_total_cost_usd']).toBeUndefined()
+            expect(event.properties!['$ai_cost_passthrough']).toBeUndefined()
         })
 
         it('ignores empty functionId telemetry', () => {

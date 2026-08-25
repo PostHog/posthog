@@ -259,6 +259,13 @@
             ],
             "label": "AI cost model source (LLM)"
         },
+        "$ai_cost_passthrough": {
+            "description": "Set this to keep the reported total cost and skip PostHog's token-based estimate. Use it when the provider reports an authoritative cost, such as an LLM gateway. The input and output cost split is left unset.",
+            "examples": [
+                true
+            ],
+            "label": "AI cost passthrough (LLM)"
+        },
         "$ai_error": {
             "description": "The error message from a failed AI event.",
             "examples": [
@@ -4096,6 +4103,10 @@
             "ignored_in_assistant": true,
             "label": "Set person properties"
         },
+        "$slack_message_received": {
+            "description": "Fires when a message is posted in a Slack channel PostHog is connected to.",
+            "label": "Slack message received"
+        },
         "$snapshot": {
             "description": "Carries session replay data to the backend. These events do not contribute to event counts.",
             "ignored_in_assistant": true,
@@ -4765,6 +4776,13 @@
                 "passthrough"
             ],
             "label": "AI cost model source (LLM)"
+        },
+        "$ai_cost_passthrough": {
+            "description": "Set this to keep the reported total cost and skip PostHog's token-based estimate. Use it when the provider reports an authoritative cost, such as an LLM gateway. The input and output cost split is left unset.",
+            "examples": [
+                true
+            ],
+            "label": "AI cost passthrough (LLM)"
         },
         "$ai_error": {
             "description": "The error message from a failed AI event.",
