@@ -443,14 +443,22 @@ class TracingAlertConfigurationSerializer(serializers.ModelSerializer):
 
         with transaction.atomic():
             snapshot = instance.to_snapshot()
-            if enabled_change is True:
+            if enabled_change is False:
+                # Disabling always wins over a concurrently-supplied snooze_until — matches
+                # the frontend, which clears snooze_until in the same request when disabling.
+                apply_outcome(instance, apply_disable(snapshot), kind=TracingAlertEvent.Kind.DISABLE)
+            elif enabled_change is True:
                 if instance.first_enabled_at is None:
                     instance.first_enabled_at = timezone.now()
                     if "first_enabled_at" not in validated_data:
                         validated_data["first_enabled_at"] = instance.first_enabled_at
                 apply_outcome(instance, apply_enable(snapshot), kind=TracingAlertEvent.Kind.ENABLE)
-            elif enabled_change is False:
-                apply_outcome(instance, apply_disable(snapshot), kind=TracingAlertEvent.Kind.DISABLE)
+                if snooze_data not in (_SENTINEL, None):
+                    # Enabling and snoozing in the same request: land in SNOOZED, not
+                    # NOT_FIRING, so `state` stays consistent with the `snooze_until` this
+                    # request also sets below (due_alerts_q only honors snooze_until when
+                    # state is SNOOZED).
+                    apply_outcome(instance, apply_snooze(instance.to_snapshot()), kind=TracingAlertEvent.Kind.SNOOZE)
             elif snooze_data is not _SENTINEL:
                 if snooze_data is None:
                     apply_outcome(instance, apply_unsnooze(snapshot), kind=TracingAlertEvent.Kind.UNSNOOZE)
@@ -490,6 +498,8 @@ class TracingAlertConfigurationSerializer(serializers.ModelSerializer):
         if validated_data.get("enabled", True):
             validated_data["first_enabled_at"] = timezone.now()
 
+        snooze_until = validated_data.get("snooze_until")
+
         with transaction.atomic():
             team = Team.objects.select_for_update().get(id=validated_data["team_id"])
             count = TracingAlertConfiguration.objects.unscoped().filter(team_id=validated_data["team_id"]).count()
@@ -501,7 +511,15 @@ class TracingAlertConfigurationSerializer(serializers.ModelSerializer):
                     team_timezone=team.timezone,
                     schedule_restriction=schedule_restriction,
                 )
-            return super().create(validated_data)
+            instance = super().create(validated_data)
+            if snooze_until is not None:
+                # Route through the state machine so `state` lands on SNOOZED — due_alerts_q
+                # only honors snooze_until when state is also SNOOZED.
+                update_fields = apply_outcome(
+                    instance, apply_snooze(instance.to_snapshot()), kind=TracingAlertEvent.Kind.SNOOZE
+                )
+                instance.save(update_fields=update_fields)
+            return instance
 
 
 class TracingAlertEventSerializer(serializers.ModelSerializer):
@@ -654,16 +672,20 @@ class TracingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     )
     @action(detail=True, methods=["POST"], url_path="reset", required_scopes=["tracing:write"])
     def reset(self, request: Request, *args: object, **kwargs: object) -> Response:
-        alert = self.get_object()
-        try:
-            outcome = apply_user_reset(alert.to_snapshot())
-        except InvalidTransition:
-            raise ValidationError({"state": "Only broken alerts can be reset."})
         with transaction.atomic():
+            alert = self._get_locked_alert()
+            try:
+                outcome = apply_user_reset(alert.to_snapshot())
+            except InvalidTransition:
+                raise ValidationError({"state": "Only broken alerts can be reset."})
             update_fields = apply_outcome(alert, outcome, kind=TracingAlertEvent.Kind.RESET)
             update_fields.extend(alert.clear_next_check())
             alert.save(update_fields=update_fields)
-        report_user_action(request.user, "tracing alert reset", {"alert_id": str(alert.id)}, request=request)
+            transaction.on_commit(
+                lambda: report_user_action(
+                    request.user, "tracing alert reset", {"alert_id": str(alert.id)}, request=request
+                )
+            )
         return Response(self.get_serializer(alert).data)
 
     def _track(self, action_name: str, instance: TracingAlertConfiguration) -> None:
@@ -687,7 +709,8 @@ class TracingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         self._track("created", serializer.save())
 
     def perform_update(self, serializer: serializers.BaseSerializer) -> None:
-        self._track("updated", serializer.save())
+        instance = serializer.save()
+        transaction.on_commit(lambda: self._track("updated", instance))
 
     def perform_destroy(self, instance: TracingAlertConfiguration) -> None:
         with transaction.atomic():

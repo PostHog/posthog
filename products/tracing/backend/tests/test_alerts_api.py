@@ -60,6 +60,11 @@ class TestTracingAlertAPI(APIBaseTest):
         assert data["schedule_restriction"] == {"blocked_windows": [{"start": "22:00", "end": "07:00"}]}
         assert data["next_check_at"] == "2026-01-02T07:00:00Z"
 
+    def test_create_with_snooze_until_sets_snoozed_state(self):
+        data = self._create_via_api(snooze_until="2099-01-01T00:00:00Z")
+        assert data["state"] == "snoozed"
+        assert data["snooze_until"] == "2099-01-01T00:00:00Z"
+
     def test_create_rejects_empty_filters(self):
         response = self.client.post(self.base_url, self._valid_payload(filters={}), format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
@@ -180,6 +185,16 @@ class TestTracingAlertAPI(APIBaseTest):
         response = self.client.patch(f"{self.base_url}{created['id']}/", {"snooze_until": None}, format="json")
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["state"] == "not_firing"
+
+    def test_enable_with_snooze_until_sets_snoozed_not_not_firing(self):
+        created = self._create_via_api(enabled=False)
+        response = self.client.patch(
+            f"{self.base_url}{created['id']}/",
+            {"enabled": True, "snooze_until": "2099-01-01T00:00:00Z"},
+            format="json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["state"] == "snoozed"
 
     def test_snooze_rejects_past_datetime(self):
         created = self._create_via_api()
