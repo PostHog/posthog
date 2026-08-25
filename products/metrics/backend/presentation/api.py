@@ -26,6 +26,7 @@ from posthog.rate_limit import ClickHouseBurstRateThrottle, ClickHouseSustainedR
 from products.metrics.backend.facade.api import (
     characterize_metric_anomaly,
     explain_metric_bucket,
+    get_metrics_overview,
     list_metric_attribute_keys,
     list_metric_attribute_values,
     list_metric_event_samples,
@@ -360,6 +361,33 @@ class _MetricAnomalyReportSerializer(serializers.Serializer):
 
 class _HasMetricsResponseSerializer(serializers.Serializer):
     hasMetrics = serializers.BooleanField(help_text="Whether the team has ingested any metrics.")
+
+
+class _MetricsOverviewServiceSerializer(serializers.Serializer):
+    service_name = serializers.CharField(help_text="Service that reported metrics inside the window.")
+    metric_names = serializers.IntegerField(help_text="Distinct metric names this service reported in the window.")
+    series = serializers.IntegerField(
+        help_text="Distinct series (metric + label-set combinations) this service reported in the window."
+    )
+    last_seen = serializers.CharField(help_text="When this service's newest datapoint arrived, ISO 8601.")
+
+
+class _MetricsOverviewResponseSerializer(serializers.Serializer):
+    last_seen = serializers.CharField(
+        allow_null=True,
+        help_text="When the newest datapoint arrived across all series, ISO 8601. Unlike the counts this ignores the window, so it still answers 'when did ingestion stop'. Null when nothing was ever ingested.",
+    )
+    metric_names = serializers.IntegerField(help_text="Distinct metric names reported inside the window.")
+    series = serializers.IntegerField(
+        help_text="Distinct series (metric + label-set combinations) reported inside the window."
+    )
+    lookback_seconds = serializers.IntegerField(
+        help_text="Length of the rollup window in seconds, so consumers can label the counts."
+    )
+    services = _MetricsOverviewServiceSerializer(
+        many=True,
+        help_text="Per-service rollup for the window, largest series count first. Capped at the 500 largest.",
+    )
 
 
 class _MetricValuesParamsSerializer(serializers.Serializer):
@@ -709,6 +737,33 @@ class MetricsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         )
 
         return Response({"hasMetrics": has_metrics}, status=status.HTTP_200_OK)
+
+    @extend_schema(responses={200: _MetricsOverviewResponseSerializer})
+    @action(
+        detail=False,
+        methods=["GET"],
+        required_scopes=["metrics:read"],
+        throttle_classes=[ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle],
+    )
+    def overview(self, request: Request, *args, **kwargs) -> Response:
+        """Ingestion rollup for the overview page: freshness of the newest
+        datapoint plus per-service metric/series counts over the last day."""
+        tag_queries(product=Product.METRICS, feature=Feature.QUERY)
+
+        overview = get_metrics_overview(team=self.team)
+
+        report_user_action(
+            request.user,
+            "metrics overview viewed",
+            {
+                "service_count": len(overview.services),
+                "has_ingested": overview.last_seen is not None,
+            },
+            team=self.team,
+            request=request,
+        )
+
+        return Response(asdict(overview), status=status.HTTP_200_OK)
 
     @extend_schema(
         parameters=[_MetricValuesParamsSerializer],
