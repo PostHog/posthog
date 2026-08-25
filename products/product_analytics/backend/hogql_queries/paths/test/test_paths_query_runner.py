@@ -16,6 +16,8 @@ from parameterized import parameterized
 
 from posthog.schema import CachedPathsQueryResponse
 
+from posthog.hogql.errors import QueryError
+
 from posthog.models import Team
 
 from products.product_analytics.backend.hogql_queries.paths.paths_query_runner import PathsQueryRunner
@@ -519,6 +521,27 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response[3].source, "2_custom_event_2!", response[3])
         self.assertEqual(response[3].target, "3_custom_event_3!")
         self.assertEqual(response[3].value, 1)
+
+    def test_non_text_hogql_expression_returns_guidance(self):
+        _create_person(team_id=self.team.pk, distinct_ids=["person_1"])
+        _create_event(distinct_id="person_1", event="custom_event_1", team=self.team)
+
+        runner = PathsQueryRunner(
+            query={
+                "kind": "PathsQuery",
+                "pathsFilter": {
+                    "includeEventTypes": ["hogql"],
+                    "pathsHogQLExpression": "toInt(1)",
+                },
+            },
+            team=self.team,
+        )
+
+        with self.assertRaises(QueryError) as context:
+            runner.calculate()
+
+        self.assertIn("must return text", str(context.exception))
+        self.assertNotIn("supertype", str(context.exception))
 
     def test_screen_paths(self):
         _create_person(team_id=self.team.pk, distinct_ids=["person_1"])

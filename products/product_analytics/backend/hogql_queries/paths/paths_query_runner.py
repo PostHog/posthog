@@ -23,6 +23,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings, LimitContext
+from posthog.hogql.errors import QueryError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import property_to_expr
@@ -32,6 +33,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.caching.insights_api import BASE_MINIMUM_INSIGHT_REFRESH_INTERVAL, REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL
 from posthog.clickhouse.query_tagging import tag_contains_user_hogql
 from posthog.constants import HOGQL, PAGEVIEW_EVENT, SCREEN_EVENT
+from posthog.errors import CHQueryErrorNoCommonType
 from posthog.hogql_queries.insights.funnels.funnels_query_runner import FunnelsQueryRunner
 from posthog.hogql_queries.insights.funnels.utils import funnel_window_interval_unit_to_sql
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
@@ -890,18 +892,28 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         # Display-only response HogQL (never executed); bypass warehouse ACL so printing doesn't fail closed userless.
         hogql = to_printed_hogql(query, self.team, bypass_warehouse_access_control=True)
 
-        response = execute_hogql_query(
-            query_type="PathsQuery",
-            query=query,
-            team=self.team,
-            user=self.user,
-            timings=self.timings,
-            modifiers=self.modifiers,
-            limit_context=self.limit_context,
-            settings=HogQLGlobalSettings(
-                max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
-            ),  # Make sure funnel queries never OOM
-        )
+        try:
+            response = execute_hogql_query(
+                query_type="PathsQuery",
+                query=query,
+                team=self.team,
+                user=self.user,
+                timings=self.timings,
+                modifiers=self.modifiers,
+                limit_context=self.limit_context,
+                settings=HogQLGlobalSettings(
+                    max_bytes_before_external_group_by=MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY
+                ),  # Make sure funnel queries never OOM
+            )
+        except CHQueryErrorNoCommonType as err:
+            # A non-text step expression cannot combine with the text page and screen paths, so ClickHouse
+            # fails with a raw "no supertype for types" message. Replace it with actionable guidance.
+            if self._should_query_event(HOGQL) and self.query.pathsFilter.pathsHogQLExpression:
+                raise QueryError(
+                    "Your paths step expression must return text, but it returns a different type. "
+                    "Wrap it in toString() or choose a text value, then run the query again."
+                ) from err
+            raise
 
         response.results = self.validate_results(response.results)
 
