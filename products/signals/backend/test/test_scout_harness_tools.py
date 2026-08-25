@@ -21,6 +21,7 @@ from posthog.sync import database_sync_to_async
 from products.signals.backend.models import SignalScoutConfig, SignalScoutEmission, SignalScoutRun, SignalScratchpad
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS, ReportChart
 from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
+from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.tools import (
     MAX_EVIDENCE_ENTRIES,
     EvidenceEntry,
@@ -519,6 +520,28 @@ class TestRemember(BaseTest):
         rows = SignalScratchpad.objects.filter(team_id=self.team.id, key="k")
         assert rows.count() == 1
         assert search_scratchpad(team_id=self.team.id, key="k")[0].content == "v2"
+
+    def test_rejects_expiry_on_a_followup_queue_entry(self) -> None:
+        # An expiring follow-up drops out of the queue search before the scout can validate it,
+        # while `derived_metadata` reads the row unfiltered and still reports a validation pass.
+        # The prompt says don't, but a prompt isn't an enforcement boundary.
+        with pytest.raises(InvalidScratchpadError, match=FOLLOWUP_KEY_PREFIX):
+            remember(
+                team_id=self.team.id,
+                key=f"{FOLLOWUP_KEY_PREFIX}signals-scout-errors:checkout",
+                content="pending",
+                expires_at=timezone.now() + timedelta(days=3),
+            )
+
+        assert not SignalScratchpad.objects.filter(team_id=self.team.id).exists()
+
+    def test_allows_a_followup_queue_entry_without_an_expiry(self) -> None:
+        key = f"{FOLLOWUP_KEY_PREFIX}signals-scout-errors:checkout"
+
+        entry = remember(team_id=self.team.id, key=key, content="pending, validate after 2026-09-01")
+
+        assert entry.key == key
+        assert entry.expires_at is None
 
     def test_rejects_empty_key_or_content(self) -> None:
         with pytest.raises(InvalidScratchpadError):

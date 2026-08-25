@@ -1295,6 +1295,21 @@ class TestScoutHarnessScratchpadAPI(APIBaseTest):
         assert response.json()["expires_at"] == expiry.isoformat()
         assert SignalScratchpad.objects.get(team=self.team, key="cooldown").expires_at == expiry
 
+    def test_remember_rejects_expiry_on_a_followup_queue_entry(self) -> None:
+        # Wiring guard: the invariant lives in `remember`, so the endpoint has to surface it as a
+        # 400 rather than writing a follow-up that vanishes from the scout's queue.
+        response = self.client.post(
+            self._list_url(),
+            data={
+                "key": f"{FOLLOWUP_KEY_PREFIX}signals-scout-errors:checkout",
+                "content": "pending",
+                "expires_at": (timezone.now() + timedelta(days=3)).isoformat(),
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert not SignalScratchpad.objects.filter(team=self.team).exists()
+
     def test_remember_rejects_expires_at_in_the_past(self) -> None:
         # A memory that's already lapsed on write is invisible the moment it lands, so it's a
         # mistake worth a 400 rather than a silently useless row.

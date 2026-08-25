@@ -22,6 +22,7 @@ from django.db.models.functions import Left
 from django.utils import timezone
 
 from products.signals.backend.models import SignalScratchpad
+from products.signals.backend.scout_harness.prompt import FOLLOWUP_KEY_PREFIX
 from products.signals.backend.scout_harness.tools.runs import _build_task_url
 
 # Defensive cap on search results.
@@ -141,7 +142,7 @@ def remember(
     The previous `human_confirmed` authority guard was dropped — the human-in-the-
     loop write path was reserved-for-future and never landed. Re-add if it ships.
     """
-    _validate_key_content(key, content)
+    _validate_entry(key=key, content=content, expires_at=expires_at)
 
     try:
         row = _upsert_entry(team_id=team_id, key=key, content=content, run_id=run_id, expires_at=expires_at)
@@ -184,7 +185,7 @@ def forget(*, team_id: int, key: str) -> bool:
     return True
 
 
-def _validate_key_content(key: str, content: str) -> None:
+def _validate_entry(*, key: str, content: str, expires_at: datetime | None) -> None:
     if not key or not key.strip():
         raise InvalidScratchpadError("memory key must be non-empty")
     if len(key) > MAX_SCRATCHPAD_KEY_LENGTH:
@@ -194,6 +195,16 @@ def _validate_key_content(key: str, content: str) -> None:
     if len(content) > MAX_SCRATCHPAD_CONTENT_LENGTH:
         raise InvalidScratchpadError(
             f"memory content length {len(content)} exceeds max {MAX_SCRATCHPAD_CONTENT_LENGTH}"
+        )
+    # An expiring follow-up disappears from the queue search before the scout can validate it,
+    # while `derived_metadata` still reads the row off the manager and reports the run as a
+    # validation pass — the queue loses work and the flag says otherwise. The run prompt tells
+    # scouts not to do this, but a prompt is guidance, so the invariant is enforced here where
+    # every writer passes.
+    if expires_at is not None and key.startswith(FOLLOWUP_KEY_PREFIX):
+        raise InvalidScratchpadError(
+            f"a '{FOLLOWUP_KEY_PREFIX}' entry can't expire — its validate-after date says when to check it, "
+            "not when it stops mattering. Put the date in `content` and leave `expires_at` unset."
         )
 
 
