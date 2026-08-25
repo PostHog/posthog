@@ -21,6 +21,7 @@ const DEFAULT_WATCHER_CONFIG: HogWatcherConfig = {
     asyncCostTimingLowerMs: 100,
     asyncCostTimingUpperMs: 5000,
     asyncCostTiming: 20,
+    costError: 0,
     sendEvents: true,
     bucketSize: 10000,
     refillRate: 10,
@@ -188,6 +189,45 @@ describe('HogWatcher', () => {
                 expect(result.state).toEqual(expectedScore.state)
             }
         )
+
+        describe('error cost', () => {
+            const rebuildWith = (costError: number) => {
+                watcherConfig.costError = costError
+                watcher = new HogWatcherService(hub.teamManager, watcherConfig, redis)
+            }
+
+            const erroredResult = () => createResult({ error: 'Webhook failed with status 429' })
+
+            it.each([
+                ['charges nothing while disabled', 0, [erroredResult, erroredResult, erroredResult], 0],
+                ['charges once per errored result', 100, [erroredResult], 100],
+                ['accumulates across errored results', 100, [erroredResult, erroredResult, erroredResult], 300],
+                ['charges nothing for a successful result', 100, [() => createResult({})], 0],
+            ])('%s', async (_name, costError, makeResults, expectedCost) => {
+                rebuildWith(costError as number)
+
+                await watcher.observeResults((makeResults as (() => any)[]).map((make) => make()))
+
+                const state = await watcher.getPersistedState(hogFunctionId)
+                expect(hub.CDP_WATCHER_BUCKET_SIZE - state.tokens).toEqual(expectedCost)
+            })
+
+            it('sheds a function failing fast in volume, and leaves it healthy when disabled', async () => {
+                // The Discord incident shape: a destination erroring thousands of times an hour
+                // returns too quickly to accrue timing cost, so it stayed healthy indefinitely.
+                const failFast = () => Array.from({ length: 100 }, erroredResult)
+
+                rebuildWith(0)
+                await watcher.observeResults(failFast())
+                expect((await watcher.getPersistedState(hogFunctionId)).state).toEqual(HogWatcherState.healthy)
+
+                await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
+
+                rebuildWith(100)
+                await watcher.observeResults(failFast())
+                expect((await watcher.getPersistedState(hogFunctionId)).state).not.toEqual(HogWatcherState.healthy)
+            })
+        })
 
         it('should calculate costs per individual timing not based on total duration', async () => {
             // Create a result with multiple timings that would have different costs

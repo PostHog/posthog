@@ -22,6 +22,7 @@ export interface HogWatcherConfig {
     asyncCostTimingLowerMs: number
     asyncCostTimingUpperMs: number
     asyncCostTiming: number
+    costError: number
     sendEvents: boolean
     bucketSize: number
     refillRate: number
@@ -432,6 +433,13 @@ export class HogWatcherService {
                 functionId: result.invocation.functionId,
                 cost: 0,
                 hogFunction: result.invocation.hogFunction,
+            }
+
+            // A function that fails fast accrues almost no timing cost, so without this a
+            // destination erroring thousands of times a second stays healthy forever and keeps
+            // hammering the third party. Charged once per terminal failure, not per retry.
+            if (result.error) {
+                functionCost.cost += this.config.costError
             }
 
             if (result.finished) {

@@ -18,6 +18,7 @@ const WATCHER_CONFIG: HogWatcherConfig = {
     asyncCostTimingLowerMs: 100,
     asyncCostTimingUpperMs: 5000,
     asyncCostTiming: 20,
+    costError: 0,
     sendEvents: false,
     bucketSize: 10000,
     refillRate: 10,

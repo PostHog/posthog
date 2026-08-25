@@ -124,6 +124,7 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS'
         | 'CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS'
         | 'CDP_WATCHER_ASYNC_COST_TIMING'
+        | 'CDP_WATCHER_COST_ERROR'
         | 'CDP_WATCHER_SEND_EVENTS'
         | 'CDP_WATCHER_BUCKET_SIZE'
         | 'CDP_WATCHER_REFILL_RATE'
@@ -364,6 +365,7 @@ export function createCdpCoreServices(
         asyncCostTimingLowerMs: config.CDP_WATCHER_ASYNC_COST_TIMING_LOWER_MS,
         asyncCostTimingUpperMs: config.CDP_WATCHER_ASYNC_COST_TIMING_UPPER_MS,
         asyncCostTiming: config.CDP_WATCHER_ASYNC_COST_TIMING,
+        costError: config.CDP_WATCHER_COST_ERROR,
         sendEvents: config.CDP_WATCHER_SEND_EVENTS,
         bucketSize: config.CDP_WATCHER_BUCKET_SIZE,
         refillRate: config.CDP_WATCHER_REFILL_RATE,
