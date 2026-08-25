@@ -42,14 +42,32 @@ const SWEEP_LIMIT = 10000
  */
 export class ConversionWatchersService {
     private queuedRows: ConversionWatcherRow[] = []
-    private pool: Pool | null
+    private pool: Pool | null = null
+    private stopped = false
 
     // Owns its pool rather than taking one, mirroring the subscription matcher: the table lives in the
     // cyclotron database, which nothing else in the result-sink chain connects to. A process without
     // the connection string drops watchers via the failure counter rather than throwing, so processes
     // that never run workflows are unaffected.
-    constructor(databaseUrl: string | undefined, maxConnections?: number) {
-        this.pool = databaseUrl ? new Pool({ connectionString: databaseUrl, max: maxConnections }) : null
+    constructor(
+        private readonly databaseUrl: string | undefined,
+        private readonly maxConnections?: number
+    ) {}
+
+    // Built on first use, not in the constructor. Every CDP service set constructs this service, but
+    // only the ones that actually run workflows ever write a row — an eager pool would have every
+    // consumer, and every test that builds a service set, holding cyclotron connections it never uses.
+    private getPool(): Pool | null {
+        if (this.pool || this.stopped || !this.databaseUrl) {
+            return this.pool
+        }
+        this.pool = new Pool({ connectionString: this.databaseUrl, max: this.maxConnections })
+        // pg throws an uncaught exception if an idle client errors with no listener attached, which
+        // would take down the process for something this sink is allowed to drop.
+        this.pool.on('error', (err) => {
+            logger.error('⚠️', 'Conversion watcher pool error', { err })
+        })
+        return this.pool
     }
 
     // Idempotent: pg rejects a second end() with "Called end on pool more than once", and several
@@ -58,6 +76,7 @@ export class ConversionWatchersService {
     public async stop(): Promise<void> {
         const pool = this.pool
         this.pool = null
+        this.stopped = true
         await pool?.end()
     }
 
@@ -78,7 +97,8 @@ export class ConversionWatchersService {
         this.queuedRows = []
         gaugeConversionWatchersPending.set(0)
 
-        if (!this.pool) {
+        const pool = this.getPool()
+        if (!pool) {
             counterConversionWatchersFailed.inc(rows.length)
             logger.error('⚠️', 'Dropping conversion watchers: no cyclotron database configured', {
                 count: rows.length,
@@ -89,7 +109,7 @@ export class ConversionWatchersService {
         for (let offset = 0; offset < rows.length; offset += INSERT_CHUNK_SIZE) {
             const chunk = rows.slice(offset, offset + INSERT_CHUNK_SIZE)
             try {
-                await this.insertChunk(chunk)
+                await this.insertChunk(pool, chunk)
                 counterConversionWatchersInserted.inc(chunk.length)
             } catch (err) {
                 // Dropping a watcher silently under-reports conversions rather than failing loudly, so
@@ -102,7 +122,7 @@ export class ConversionWatchersService {
         }
     }
 
-    private async insertChunk(rows: ConversionWatcherRow[]): Promise<void> {
+    private async insertChunk(pool: Pool, rows: ConversionWatcherRow[]): Promise<void> {
         const values: any[] = []
         const placeholders = rows.map((row, index) => {
             const base = index * 10
@@ -121,7 +141,7 @@ export class ConversionWatchersService {
             return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7}, $${base + 8}, $${base + 9}, $${base + 10})`
         })
 
-        await this.pool!.query(
+        await pool.query(
             `INSERT INTO conversion_watchers
                 (id, team_id, function_id, run_id, parent_run_id, distinct_id, person_id, flow_version, goal, expires_at)
              VALUES ${placeholders.join(', ')}
@@ -135,10 +155,11 @@ export class ConversionWatchersService {
      * converts is deleted by the claim, and one that never converts would otherwise live forever.
      */
     public async sweepExpired(): Promise<number> {
-        if (!this.pool) {
+        const pool = this.getPool()
+        if (!pool) {
             return 0
         }
-        const result = await this.pool.query(
+        const result = await pool.query(
             `DELETE FROM conversion_watchers
              WHERE id IN (
                  SELECT id FROM conversion_watchers WHERE expires_at <= NOW() LIMIT $1

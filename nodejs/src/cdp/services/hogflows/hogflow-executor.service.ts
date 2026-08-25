@@ -309,17 +309,20 @@ export class HogFlowExecutorService {
         // still consumed an enrollment, and `triggered` already counted it, so leaving it out would
         // overstate the rate.
         const watcher = buildConversionWatcher(invocation)
+        const enrollmentConversion = watcher ? await this.conversionAtEnrollment(invocation) : null
 
         const earlyExitResult = await this.shouldExitEarly(invocation)
         if (earlyExitResult) {
-            if (watcher) {
-                earlyExitResult.conversionWatchers.push(watcher)
-            }
+            this.recordEnrollment(
+                enrollmentConversion,
+                watcher,
+                earlyExitResult.metrics,
+                earlyExitResult.capturedPostHogEvents,
+                earlyExitResult.conversionWatchers
+            )
             return earlyExitResult
         }
-        if (watcher) {
-            conversionWatchers.push(watcher)
-        }
+        this.recordEnrollment(enrollmentConversion, watcher, metrics, capturedPostHogEvents, conversionWatchers)
 
         // Routing-only reschedule: the previous dequeue moved this job onto a dedicated queue
         // (e.g. 'email' for SES rate-limit gating) and is continuing the same action. Suppress
@@ -368,6 +371,78 @@ export class HogFlowExecutorService {
         result.conversionWatchers = conversionWatchers
 
         return result
+    }
+
+    /**
+     * A property goal already satisfied when the run enrolls can never be counted from its watcher.
+     * The matcher reads the enrollment event off Kafka long before the run has written the row, and
+     * on `exit_on_conversion` the run is gone before any later event could claim it — so the run
+     * would record `early_exit` and no `conversion` at all.
+     *
+     * Counting it here keeps the two paths disjoint: a run that converts at enrollment writes no
+     * watcher, so it is still counted exactly once.
+     */
+    private async conversionAtEnrollment(
+        invocation: CyclotronJobInvocationHogFlow
+    ): Promise<{ metric: MinimalAppMetric; event: HogFunctionCapturedEvent | null } | null> {
+        const { hogFlow } = invocation
+        if (!invocation.person || !hogFlow.conversion?.filters?.length || !hogFlow.conversion.bytecode?.length) {
+            return null
+        }
+        const filterResult = await filterFunctionInstrumented({
+            fn: hogFlow,
+            filters: { bytecode: hogFlow.conversion.bytecode, properties: hogFlow.conversion.filters },
+            filterGlobals: invocation.filterGlobals,
+        })
+        if (!filterResult.match) {
+            return null
+        }
+        const distinctId = invocation.state.event?.distinct_id
+        return {
+            metric: {
+                team_id: hogFlow.team_id,
+                app_source_id: invocation.parentRunId ?? hogFlow.id,
+                instance_id: hogFlow.id,
+                metric_kind: 'other',
+                metric_name: 'conversion',
+                count: 1,
+            },
+            // Mirrors the matcher's payload so both paths produce the same billable event. A run with
+            // no distinct_id has nothing to attribute the capture to; the metric still counts.
+            event: distinctId
+                ? {
+                      team_id: hogFlow.team_id,
+                      event: '$workflows_conversion',
+                      distinct_id: distinctId,
+                      timestamp: new Date().toISOString(),
+                      properties: {
+                          $workflow_id: hogFlow.id,
+                          $workflow_run_id: invocation.id,
+                          $workflow_version: invocation.state.flowVersion ?? hogFlow.version,
+                          $workflow_conversion_type: 'property',
+                      },
+                  }
+                : null,
+        }
+    }
+
+    private recordEnrollment(
+        enrollmentConversion: { metric: MinimalAppMetric; event: HogFunctionCapturedEvent | null } | null,
+        watcher: ConversionWatcherRow | null,
+        metrics: MinimalAppMetric[],
+        capturedPostHogEvents: HogFunctionCapturedEvent[],
+        conversionWatchers: ConversionWatcherRow[]
+    ): void {
+        if (enrollmentConversion) {
+            metrics.push(enrollmentConversion.metric)
+            if (enrollmentConversion.event) {
+                capturedPostHogEvents.push(enrollmentConversion.event)
+            }
+            return
+        }
+        if (watcher) {
+            conversionWatchers.push(watcher)
+        }
     }
 
     private shouldEndHogFlowExecution(

@@ -1323,7 +1323,8 @@ describe('Hogflow Executor', () => {
                 )
                 const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
-                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit'])
+                // The property-based conversion is also counted on the exit path
+                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit', 'conversion'])
                 expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                     [
                       "Workflow exited early due to exit condition: exit_on_conversion ([Person:person_id|John Doe] matches conversion filters)",
@@ -1438,7 +1439,8 @@ describe('Hogflow Executor', () => {
 
                 const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
-                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit'])
+                // The property-based conversion is also counted on the exit path
+                expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit', 'conversion'])
                 expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                     [
                       "Workflow exited early due to exit condition: exit_on_trigger_not_matched_or_conversion ([Person:person_id|John Doe] matches conversion filters)",
@@ -1446,9 +1448,15 @@ describe('Hogflow Executor', () => {
                 `)
             })
 
-            it("puts the run's conversion watcher on the result", async () => {
-                // Wiring guard only: what the watcher contains is covered by buildConversionWatcher's
-                // own tests, which need no database. This proves execute() actually carries it out.
+            // Counting at enrollment and counting from the watcher must stay disjoint. A goal already
+            // satisfied when the run enrolls can never be claimed from a watcher — the matcher reads the
+            // enrollment event before the row exists — so it is counted here and writes no row. A goal
+            // not yet satisfied writes the row and is counted by the matcher later. Either path counting
+            // twice, or neither counting, is the bug this guards.
+            test.each([
+                { name: 'goal not yet satisfied', browser: 'Firefox', watchers: 1, conversions: 0 },
+                { name: 'goal already satisfied at enrollment', browser: 'Chrome', watchers: 0, conversions: 1 },
+            ])('$name: writes $watchers watcher and counts $conversions conversion', async (params) => {
                 hogFlow.exit_condition = 'exit_only_at_end'
                 hogFlow.conversion = {
                     filters: [{ key: '$browser', type: 'person', value: ['Chrome'], operator: 'exact' }],
@@ -1456,11 +1464,18 @@ describe('Hogflow Executor', () => {
                     window_minutes: null,
                 } as any
 
-                const invocation = createExampleHogFlowInvocation(hogFlow)
+                const invocation = createExampleHogFlowInvocation(
+                    hogFlow,
+                    {},
+                    { properties: { $browser: params.browser } }
+                )
                 const result = await executor.execute(invocation)
 
-                expect(result.conversionWatchers).toHaveLength(1)
-                expect(result.conversionWatchers[0].run_id).toEqual(invocation.id)
+                expect(result.conversionWatchers).toHaveLength(params.watchers)
+                expect(result.metrics.filter((m) => m.metric_name === 'conversion')).toHaveLength(params.conversions)
+                if (params.watchers) {
+                    expect(result.conversionWatchers[0].run_id).toEqual(invocation.id)
+                }
             })
 
             it('does not count event-based conversions in the executor (counted by the matcher)', async () => {
