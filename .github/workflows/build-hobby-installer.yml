@@ -52,7 +52,7 @@ jobs:
                   # Versioned release for history
                   gh release create "$VERSION" \
                       bin/hobby-installer \
-                      --title "$VERSION" \
+                      --title "Hobby Installer $VERSION" \
                       --notes "Build from commit ${{ github.sha }}" \
                       --latest=false
 
@@ -61,7 +61,7 @@ jobs:
                   git push origin :refs/tags/hobby-latest || true
                   gh release create hobby-latest \
                       bin/hobby-installer \
-                      --title "hobby-latest" \
+                      --title "Hobby Installer (Latest)" \
                       --notes "Latest hobby installer build - same as $VERSION
 
                   This is currently experimental and may not work as expected. We believe it to be working correctly, but please make sure you backup your data before using it.

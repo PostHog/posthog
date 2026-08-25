@@ -78,7 +78,6 @@ jobs:
             - name: Create GitHub Release
               uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
               with:
-                  name: ${{ github.ref_name }}
                   files: dist/*
                   generate_release_notes: true
                   prerelease: ${{ contains(github.ref, 'alpha') || contains(github.ref, 'beta') || contains(github.ref, 'rc') }}
