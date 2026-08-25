@@ -75,6 +75,23 @@ class SandboxTemplate(str, Enum):
     CANVAS_BUILD = "canvas_build"
 
 
+def parse_requested_sandbox_template(value: str | None) -> SandboxTemplate:
+    """Resolve a template a caller asked for on a task.
+
+    ``VM_BASE`` is never a caller's choice: it bakes in Docker and forces the VM runtime,
+    and only the server-side VM routing gate may select it.
+    """
+    if value is None:
+        return SandboxTemplate.DEFAULT_BASE
+    try:
+        template = SandboxTemplate(value)
+    except ValueError:
+        raise ValueError(f"Unknown sandbox template: {value!r}")
+    if template == SandboxTemplate.VM_BASE:
+        raise ValueError("The VM sandbox template cannot be requested per task")
+    return template
+
+
 class SandboxWorkload(str, Enum):
     """Which provider-side project a sandbox is booked against, independent of its image.
 

@@ -2130,6 +2130,8 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "wizard_head_branch",
         "use_modal_directory_resume_snapshots",
         "use_modal_vm_sandbox",
+        # The image a run boots from; a PATCHed value would pick an image the task never asked for.
+        "sandbox_template",
         # Rollout stamps written once at dispatch by _capture_run_feature_flags; a PATCHable
         # value would let a task controller bypass the org feature flags (for telemetry, that
         # means injecting the internal OTLP capture token into their sandbox and re-enabling
