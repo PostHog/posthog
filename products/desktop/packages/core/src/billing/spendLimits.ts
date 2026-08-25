@@ -115,10 +115,7 @@ function spendLadder(value: number): number[] {
   return [1, 2, 5, 10].map((m) => m * base);
 }
 
-/**
- * Nearest rung, so suggested lines land on round numbers and the warn/stop
- * pair never rounds onto near-identical values.
- */
+/** Nearest rung, so suggested lines land on round numbers. */
 function niceRound(value: number): number {
   if (value <= 0) return 0;
   return spendLadder(value).reduce((best, candidate) =>
@@ -130,6 +127,34 @@ function niceRound(value: number): number {
 export function niceCeil(value: number): number {
   if (value <= 0) return 100;
   return spendLadder(value).find((rung) => value <= rung * (1 + 1e-9)) ?? value;
+}
+
+/** Smallest ladder rung strictly greater than `value`. */
+function nextSpendRung(value: number): number {
+  if (value <= 0) return 1;
+  const base = 10 ** Math.floor(Math.log10(value) + 1e-9);
+  for (const rung of [1, 2, 5, 10, 20].map((m) => m * base)) {
+    if (rung > value * (1 + 1e-9)) return rung;
+  }
+  return value * 2;
+}
+
+/**
+ * A warn/stop pair on round rungs. The stop rounds on its own, then steps up
+ * to the next rung when rounding would land it on or below the warn line.
+ * Without this a seeded stop can equal the warn line, and `pickCrossing`
+ * reports the stop first, so the warn notice would never fire.
+ */
+function suggestedLinePair(
+  warnTarget: number,
+  stopTarget: number,
+): { warnUsd: number; stopUsd: number } {
+  const warnUsd = niceRound(warnTarget);
+  const stopUsd = niceRound(stopTarget);
+  return {
+    warnUsd,
+    stopUsd: stopUsd > warnUsd ? stopUsd : nextSpendRung(warnUsd),
+  };
 }
 
 /**
@@ -144,14 +169,8 @@ export function suggestedSpendLimits(
   if (avgDailyUsd <= 0) return null;
   const projected = projectedMonthUsd(avgDailyUsd, todayIso);
   return {
-    day: {
-      warnUsd: niceRound(avgDailyUsd * 1.5),
-      stopUsd: niceRound(avgDailyUsd * 3),
-    },
-    month: {
-      warnUsd: niceRound(projected * 1.25),
-      stopUsd: niceRound(projected * 2),
-    },
+    day: suggestedLinePair(avgDailyUsd * 1.5, avgDailyUsd * 3),
+    month: suggestedLinePair(projected * 1.25, projected * 2),
   };
 }
 

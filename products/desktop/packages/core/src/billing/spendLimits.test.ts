@@ -137,11 +137,53 @@ describe("spendLimits", () => {
     expect(projectedMonthUsd(10, "2026-02-10")).toBe(280);
   });
 
-  it("suggests round lines from the user's history", () => {
-    expect(suggestedSpendLimits(12.4, "2026-08-22")).toEqual({
-      day: { warnUsd: 20, stopUsd: 50 },
-      month: { warnUsd: 500, stopUsd: 1000 },
-    });
+  it.each([
+    // Non-colliding: the rounded stop already clears the warn line.
+    [
+      12.4,
+      {
+        day: { warnUsd: 20, stopUsd: 50 },
+        month: { warnUsd: 500, stopUsd: 1000 },
+      },
+    ],
+    // Both pairs would round onto one rung; each stop steps up to the next.
+    [
+      11,
+      {
+        day: { warnUsd: 20, stopUsd: 50 },
+        month: { warnUsd: 500, stopUsd: 1000 },
+      },
+    ],
+    // Only the monthly pair collides here.
+    [
+      5,
+      {
+        day: { warnUsd: 5, stopUsd: 10 },
+        month: { warnUsd: 200, stopUsd: 500 },
+      },
+    ],
+    // A low average collides on both periods.
+    [
+      2.4,
+      {
+        day: { warnUsd: 5, stopUsd: 10 },
+        month: { warnUsd: 100, stopUsd: 200 },
+      },
+    ],
+  ] as const)(
+    "suggests round lines with a warn below the stop for %d/day",
+    (avgDailyUsd, expected) => {
+      const suggested = suggestedSpendLimits(avgDailyUsd, "2026-08-22");
+      expect(suggested).toEqual(expected);
+      // The warn line must stay strictly below the stop so its notice can fire.
+      expect(suggested?.day.warnUsd).toBeLessThan(suggested?.day.stopUsd ?? 0);
+      expect(suggested?.month.warnUsd).toBeLessThan(
+        suggested?.month.stopUsd ?? 0,
+      );
+    },
+  );
+
+  it("returns null without history to derive lines from", () => {
     expect(suggestedSpendLimits(0, "2026-08-22")).toBeNull();
   });
 
