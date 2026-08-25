@@ -215,6 +215,7 @@ class CanvasUpdateSerializer(serializers.Serializer):
         trim_whitespace=True,
         help_text="Updated canvas description (for components, the store-search text).",
     )
+    channel_id = serializers.UUIDField(required=False, help_text="Id of the space the canvas belongs to.")
     pinned = serializers.BooleanField(required=False, help_text="Whether the canvas is pinned in its channel.")
     generation_task_id = serializers.UUIDField(
         required=False, allow_null=True, help_text="Task currently generating this canvas, or null to clear it."

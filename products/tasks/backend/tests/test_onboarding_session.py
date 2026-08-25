@@ -8,6 +8,9 @@ from django.db import IntegrityError
 from django.test import TestCase
 from django.test.utils import override_settings
 
+from parameterized import parameterized
+
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, Team
 from posthog.models.user import User
 
@@ -91,12 +94,27 @@ class TestOnboardingSessionIdempotency(TestCase):
         with self.assertRaises(IntegrityError):
             self._start(create_side_effect=IntegrityError("duplicate key"))
 
-    def test_a_first_request_starts_a_session_keyed_to_the_user(self):
+    @parameterized.expand(
+        [
+            ("free", [], "@cf/zai-org/glm-5.2"),
+            (
+                "paid",
+                [{"key": AvailableFeature.POSTHOG_CODE_USAGE, "name": "PostHog Desktop usage billing"}],
+                "claude-opus-4-8",
+            ),
+        ]
+    )
+    def test_a_first_request_starts_an_entitled_session_keyed_to_the_user(
+        self, _name: str, available_product_features: list[dict[str, str]], expected_model: str
+    ) -> None:
+        self.organization.available_product_features = available_product_features
+        self.organization.save(update_fields=["available_product_features"])
         task_id = uuid4()
 
         def succeed(**kwargs):
             self.assertEqual(kwargs["origin_key"], _origin_key(self.user.id))
             self.assertEqual(kwargs["client_provenance"], TaskClientProvenance.POSTHOG_DESKTOP)
+            self.assertEqual(kwargs["model"], expected_model)
             return contracts.CreatedTaskDTO(task_id=task_id, team_id=self.team.id, latest_run=None)
 
         started, create_calls = self._start(create_side_effect=succeed)

@@ -59,7 +59,7 @@ export function InboxPageHeader({ counts }: InboxPageHeaderProps) {
     <PageHeader>
       <PageHeaderHeading>
         <PageHeaderTitleRow>
-          <PageHeaderTitle>Inbox</PageHeaderTitle>
+          <PageHeaderTitle>Self-driving</PageHeaderTitle>
           <PageHeaderActions>
             <ConfigureAgentsButton />
           </PageHeaderActions>
@@ -86,7 +86,7 @@ function LegacyInboxPageHeader({ counts }: InboxPageHeaderProps) {
       <div className="flex items-start justify-between gap-3">
         <div className="flex cursor-default select-none flex-col gap-0.5">
           <span className="font-bold text-[22px] text-gray-12 leading-tight tracking-tight">
-            Inbox
+            Self-driving
           </span>
           <span className="max-w-3xl text-[12.5px] text-gray-11 leading-snug">
             Work done by your agents – pull requests, reports, and live runs.

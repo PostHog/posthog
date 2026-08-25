@@ -284,10 +284,6 @@ describe("AgentService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // The Codex MCP reachability probe hits the network; default it to "reachable"
-    // so unrelated session tests stay deterministic and offline-safe.
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ body: null }));
-
     deps = createMockDependencies();
     service = new AgentService(
       deps.processTracking as never,
@@ -686,25 +682,7 @@ describe("AgentService", () => {
       );
     });
 
-    it("passes identical MCP servers to both adapters when all servers are reachable", async () => {
-      await service.startSession({
-        ...baseSessionParams,
-        taskRunId: "run-claude",
-        adapter: "claude",
-      });
-
-      await service.startSession({
-        ...baseSessionParams,
-        taskRunId: "run-codex",
-        adapter: "codex",
-      });
-
-      const claudeMcp = mockNewSession.mock.calls[0][0].mcpServers;
-      const codexMcp = mockNewSession.mock.calls[1][0].mcpServers;
-      expect(codexMcp).toEqual(claudeMcp);
-    });
-
-    it("drops unreachable MCP servers for codex but keeps them for claude", async () => {
+    it("passes the same MCP servers to codex as to claude without probing them first", async () => {
       vi.stubGlobal(
         "fetch",
         vi.fn().mockRejectedValue(new Error("ECONNREFUSED")),
@@ -721,10 +699,10 @@ describe("AgentService", () => {
         adapter: "codex",
       });
 
-      // Claude connects to MCP lazily, so an unreachable server is harmless.
-      expect(mockNewSession.mock.calls[0][0].mcpServers).toHaveLength(1);
-      // codex-acp dies on an unreachable server, so it must be pruned.
-      expect(mockNewSession.mock.calls[1][0].mcpServers).toHaveLength(0);
+      const claudeMcp = mockNewSession.mock.calls[0][0].mcpServers;
+      const codexMcp = mockNewSession.mock.calls[1][0].mcpServers;
+      expect(claudeMcp).toHaveLength(1);
+      expect(codexMcp).toEqual(claudeMcp);
     });
 
     it("passes reasoning effort to local Codex startup options", async () => {

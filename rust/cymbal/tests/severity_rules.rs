@@ -2,7 +2,11 @@ use chrono::Utc;
 use cymbal::{
     issue_resolution::{Issue, IssueStatus},
     modes::processing::{
-        rules::severity::{try_severity_rules, SeverityRule},
+        rules::severity::{
+            try_severity_rules, SeverityRule, MAX_SEVERITY_RULES_PER_TEAM,
+            MAX_SEVERITY_RULE_BYTECODE_OPS, MAX_SEVERITY_RULE_EVALUATION_STEPS_PER_EVENT,
+            MAX_SEVERITY_RULE_STEPS_PER_RULE,
+        },
         ProcessingConfig,
     },
     teams::TeamManager,
@@ -90,6 +94,17 @@ fn supports_every_issue_severity() {
     }
 }
 
+#[test]
+fn rejects_oversized_bytecode() {
+    let issue = json!({"status": "active", "name": "TypeError", "description": "Example"});
+    let properties = serde_json::to_value(properties()).unwrap();
+    let oversized = json!(vec![0; MAX_SEVERITY_RULE_BYTECODE_OPS + 1]);
+
+    let result = rule(1, "high", 0, oversized).try_match(&issue, &properties);
+
+    assert!(result.is_err());
+}
+
 #[sqlx::test(migrations = "./tests/test_migrations")]
 async fn loads_only_enabled_rules_for_the_requested_team(db: PgPool) {
     let enabled = rule(1, "high", 0, bytecode(true));
@@ -103,6 +118,19 @@ async fn loads_only_enabled_rules_for_the_requested_team(db: PgPool) {
 
     assert_eq!(loaded.len(), 1);
     assert_eq!(loaded[0].id, enabled.id);
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn loads_at_most_the_per_team_rule_limit(db: PgPool) {
+    for order_key in 0..=MAX_SEVERITY_RULES_PER_TEAM {
+        let rule = rule(1, "high", order_key as i32, bytecode(false));
+        insert_rule(&db, &rule, false).await;
+    }
+
+    let loaded = SeverityRule::load_for_team(&db, 1).await.unwrap();
+
+    assert_eq!(loaded.len(), MAX_SEVERITY_RULES_PER_TEAM);
+    assert_eq!(loaded.last().unwrap().order_key, 99);
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]
@@ -156,6 +184,32 @@ async fn exact_order_ties_use_rule_id(db: PgPool) {
         .unwrap();
 
     assert_eq!(matched.unwrap().to_string(), "low");
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn aggregate_step_budget_stops_evaluating_later_rules(db: PgPool) {
+    let config = ProcessingConfig::init_with_defaults().unwrap();
+    let manager = TeamManager::new(&config);
+    let team_id = 1;
+    let rules_to_exhaust_budget =
+        MAX_SEVERITY_RULE_EVALUATION_STEPS_PER_EVENT / MAX_SEVERITY_RULE_STEPS_PER_RULE;
+    let mut rules = (0..rules_to_exhaust_budget)
+        .map(|order_key| rule(team_id, "low", order_key as i32, json!(["_H", 1, 39, -2])))
+        .collect::<Vec<_>>();
+    rules.push(rule(
+        team_id,
+        "critical",
+        rules_to_exhaust_budget as i32,
+        bytecode(true),
+    ));
+    manager.severity_rules.insert(team_id, rules);
+    let mut conn = db.acquire().await.unwrap();
+
+    let matched = try_severity_rules(&mut conn, &manager, &issue(team_id), &properties())
+        .await
+        .unwrap();
+
+    assert!(matched.is_none());
 }
 
 #[sqlx::test(migrations = "./tests/test_migrations")]

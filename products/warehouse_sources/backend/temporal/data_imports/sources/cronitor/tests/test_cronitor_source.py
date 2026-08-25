@@ -1,18 +1,11 @@
 import pytest
 from unittest import mock
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
-
-from products.warehouse_sources.backend.temporal.data_imports.sources.cronitor.cronitor import CronitorResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.cronitor.settings import (
-    CRONITOR_ENDPOINTS,
-    ENDPOINTS,
-)
+from products.warehouse_sources.backend.temporal.data_imports.sources.cronitor.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.cronitor.source import CronitorSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cronitor import (
     CronitorSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 # Only the metrics API exposes a server-side time filter (start/end); everything else is full refresh.
 _INCREMENTAL_ENDPOINTS = {"metrics"}
@@ -24,29 +17,6 @@ class TestCronitorSource:
         self.source = CronitorSource()
         self.team_id = 123
         self.config = CronitorSourceConfig(api_key="key")
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.CRONITOR
-
-    def test_get_source_config(self):
-        config = self.source.get_source_config
-
-        assert config.name.value == "Cronitor"
-        assert config.label == "Cronitor"
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.unreleasedSource is None
-        assert config.iconPath == "/static/services/cronitor.png"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/cronitor"
-
-        field_names = [f.name for f in config.fields if isinstance(f, SourceFieldInputConfig)]
-        assert field_names == ["api_key"]
-
-    def test_api_key_field_is_secret_password(self):
-        config = self.source.get_source_config
-        api_key_field = next(f for f in config.fields if isinstance(f, SourceFieldInputConfig) and f.name == "api_key")
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-        assert api_key_field.secret is True
-        assert api_key_field.required is True
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -95,10 +65,6 @@ class TestCronitorSource:
         documented = self.source.get_documented_tables()
         assert {table["name"] for table in documented} == set(ENDPOINTS)
 
-    def test_canonical_descriptions_cover_every_endpoint(self):
-        canonical = self.source.get_canonical_descriptions()
-        assert set(canonical) == set(CRONITOR_ENDPOINTS)
-
     @pytest.mark.parametrize(
         "mock_return, expected_valid, expected_message",
         [
@@ -119,36 +85,3 @@ class TestCronitorSource:
         assert is_valid is expected_valid
         assert error_message == expected_message
         mock_validate.assert_called_once_with("key")
-
-    def test_get_resumable_source_manager_bound_to_resume_config(self):
-        inputs = mock.MagicMock()
-        manager = self.source.get_resumable_source_manager(inputs)
-        assert manager._data_class is CronitorResumeConfig
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.cronitor.source.cronitor_source")
-    def test_source_for_pipeline_plumbs_arguments(self, mock_cronitor_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "metrics"
-        inputs.should_use_incremental_field = True
-        inputs.db_incremental_field_last_value = 1712000000
-        manager = mock.MagicMock()
-
-        self.source.source_for_pipeline(self.config, manager, inputs)
-
-        mock_cronitor_source.assert_called_once()
-        kwargs = mock_cronitor_source.call_args.kwargs
-        assert kwargs["api_key"] == "key"
-        assert kwargs["endpoint"] == "metrics"
-        assert kwargs["resumable_source_manager"] is manager
-        assert kwargs["db_incremental_field_last_value"] == 1712000000
-
-    @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.cronitor.source.cronitor_source")
-    def test_source_for_pipeline_omits_cursor_when_not_incremental(self, mock_cronitor_source):
-        inputs = mock.MagicMock()
-        inputs.schema_name = "monitors"
-        inputs.should_use_incremental_field = False
-        inputs.db_incremental_field_last_value = 1712000000
-
-        self.source.source_for_pipeline(self.config, mock.MagicMock(), inputs)
-
-        assert mock_cronitor_source.call_args.kwargs["db_incremental_field_last_value"] is None

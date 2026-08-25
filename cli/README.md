@@ -109,6 +109,11 @@ A failed lookup exits non-zero instead.
 
 Add `--build` to give a build number its own release: it is packed into the version, so `--release-version 1.4.0 --build 42` resolves to a different release than `--release-version 1.4.0` alone.
 
+Pass `--info-plist <path>` to read the release name, version, and build from `CFBundleIdentifier`, `CFBundleShortVersionString`, and `CFBundleVersion`.
+The CLI resolves exact Xcode build-setting references such as `$(APP_VERSION)` and `${BUILD_NUMBER}` from the environment.
+Missing, unresolved, or compound values fall back to `PRODUCT_BUNDLE_IDENTIFIER`, `MARKETING_VERSION`, and `CURRENT_PROJECT_VERSION`.
+Explicit `--release-name`, `--release-version`, and `--build` values take precedence.
+
 ## Skipping uploads (dry run)
 
 Pass `--dry-run` before the subcommand (`posthog-cli --dry-run hermes upload ...`), or set `POSTHOG_CLI_DRY_RUN=true`, to turn the upload commands — `sourcemap`, `dsym`, `hermes`, and `proguard` — into a no-op.

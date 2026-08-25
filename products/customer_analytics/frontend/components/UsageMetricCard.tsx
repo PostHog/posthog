@@ -88,11 +88,8 @@ export const UsageMetricCard = ({ metric }: { metric: UsageMetric }): JSX.Elemen
                                 data={metric.timeseries}
                                 labels={metric.timeseries_labels}
                                 type="bar"
-                                maximumIndicator={false}
                                 color="muted"
                                 className="w-full h-full"
-                                withXScale={(x) => ({ ...x, display: false })}
-                                withYScale={(y) => ({ ...y, display: false })}
                             />
                         </div>
                     )}

@@ -36,6 +36,7 @@ from products.signals.backend.scout_harness.lazy_seed import HARNESS_SEEDED_BY, 
 from products.signals.backend.scout_harness.limits import STALE_RUN_CUTOFF_S, failure_streak_pause_threshold
 from products.signals.backend.scout_harness.model_selection import ScoutModel
 from products.signals.backend.scout_harness.prompt import (
+    _EXTERNAL_MCP_LISTING_CAP,
     _GOVERNED_METRIC_LISTING_CAP,
     _METRICS_CATALOG_SUPERSEDES_CACHE as _SUPERSEDES_CACHED_ENTRIES,
     _REPORT_CHARTS,
@@ -459,6 +460,50 @@ class TestStructuredOutputPromptSection(SimpleTestCase):
         without_schema = _prompt(None)
         assert "# Structured output" not in without_schema
         assert "scout-record-output" not in without_schema
+
+
+class TestExternalMcpServersPromptSection(SimpleTestCase):
+    def _prompt(self, mcp_server_names: list[str] | None) -> str:
+        return build_run_prompt(
+            LoadedSkill(
+                name="signals-scout-errors",
+                version=1,
+                body="watch",
+                description="d",
+                allowed_tools=[],
+                files=[],
+                skill_id="skill-1",
+                origin="canonical",
+                authors=[],
+            ),
+            run_id="00000000-0000-0000-0000-000000000abc",
+            team_id=1,
+            started_at=datetime(2026, 5, 1, 12, 34, 56, tzinfo=UTC),
+            mcp_server_names=mcp_server_names,
+        )
+
+    def test_carve_out_renders_only_when_the_run_mounts_external_servers(self) -> None:
+        # Two silent failure modes: dropping the paragraph leaves the exec-interface rule reading
+        # as universal, steering a scout away from the only way its mounted external tools can be
+        # called; rendering it unconditionally steers server-less scouts at ToolSearch lookups
+        # that can't match.
+        mounted = self._prompt(["Linear", "Notion"])
+        assert "`Linear`" in mounted
+        assert "`Notion`" in mounted
+        assert "mcp__<server>__<tool>" in mounted
+        # The exec rule stays: external servers are a carve-out, not a replacement.
+        assert "mcp__posthog__exec" in mounted
+
+        for unmounted in (self._prompt(None), self._prompt([])):
+            assert "mcp__<server>__<tool>" not in unmounted
+            assert "Linear" not in unmounted
+
+        overflowing = [f"server-{index:02d}" for index in range(_EXTERNAL_MCP_LISTING_CAP + 5)]
+        capped = self._prompt(overflowing)
+        assert f"`server-{_EXTERNAL_MCP_LISTING_CAP - 1:02d}`" in capped
+        assert f"server-{_EXTERNAL_MCP_LISTING_CAP:02d}" not in capped
+        # Past the cap the listing says it's partial, so an omitted server isn't read as unmounted.
+        assert "5 more this listing omits" in capped
 
 
 class TestBusinessKnowledgePromptSection(SimpleTestCase):
@@ -1312,6 +1357,54 @@ async def test_governed_listing_reaches_the_prompt_from_the_catalog(ateam, aerro
     # could have queried for itself; the access check lives behind the facade call, so passing the
     # user is the only part of that the runner owns.
     assert names_mock.call_args.args == (ateam, acting_user)
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "resolution,expect_carve_out",
+    [
+        pytest.param(["Linear"], True, id="mounted_server_named"),
+        pytest.param([], False, id="no_servers_no_carve_out"),
+        # A resolution error degrades to no carve-out and the run still completes: failing here
+        # would book a failed run and advance the streak toward pausing the lane, over a paragraph
+        # of steering for servers the launch mounts (or not) regardless.
+        pytest.param(RuntimeError("store read down"), False, id="resolution_error_falls_back"),
+    ],
+)
+async def test_mounted_mcp_server_names_reach_the_prompt(ateam, aerrors_skill, resolution, expect_carve_out):
+    # The prompt-builder tests take `mcp_server_names` directly, so they stay green if the runner
+    # stops resolving or forwarding the mounted set — this covers that wiring end to end.
+    session, result = await database_sync_to_async(_make_fake_session, thread_sensitive=False)(ateam)
+    captured: dict = {}
+
+    async def _capture_start(*args, on_task_run_created=None, **kwargs):
+        captured.update(kwargs)
+        if on_task_run_created is not None:
+            await on_task_run_created(session.task_run)
+        return session, result
+
+    names_mock = (
+        MagicMock(side_effect=resolution) if isinstance(resolution, Exception) else MagicMock(return_value=resolution)
+    )
+    with (
+        patch("products.signals.backend.scout_harness.runner.MultiTurnSession.start", new=_capture_start),
+        patch("products.signals.backend.scout_harness.runner.get_sandbox_mcp_server_names", names_mock),
+        patch(
+            "products.signals.backend.scout_harness.runner.get_or_create_signals_sandbox_env",
+            return_value="env-id",
+        ),
+        patch(
+            "products.signals.backend.scout_harness.runner.resolve_acting_user_id_for_team",
+            return_value=42,
+        ),
+    ):
+        run_result = await arun_signals_scout(team_id=ateam.id, skill_name="signals-scout-errors")
+
+    assert run_result.status == apps.get_model("tasks", "TaskRun").Status.COMPLETED.value
+    assert ("mcp__<server>__<tool>" in captured["prompt"]) is expect_carve_out
+    if expect_carve_out:
+        assert "`Linear`" in captured["prompt"]
 
 
 @pytest.mark.asyncio

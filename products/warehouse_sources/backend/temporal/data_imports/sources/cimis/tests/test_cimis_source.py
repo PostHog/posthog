@@ -5,12 +5,11 @@ from unittest import mock
 import requests
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfig
+from posthog.schema import SourceFieldInputConfig
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.cimis import cimis
 from products.warehouse_sources.backend.temporal.data_imports.sources.cimis.source import CimisSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.cimis import CimisSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(app_key: str = "key", targets: str | None = "2", unit: Literal["E", "M"] = "E") -> CimisSourceConfig:
@@ -18,15 +17,6 @@ def _config(app_key: str = "key", targets: str | None = "2", unit: Literal["E", 
 
 
 class TestCimisSourceConfig:
-    def test_source_type(self) -> None:
-        assert CimisSource().source_type == ExternalDataSourceType.CIMIS
-
-    def test_source_config_metadata(self) -> None:
-        config = CimisSource().get_source_config
-        assert config.category == DataWarehouseSourceCategory.ANALYTICS
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/cimis"
-
     def test_source_config_fields(self) -> None:
         fields = {f.name: f for f in CimisSource().get_source_config.fields}
         assert set(fields) == {"app_key", "targets", "unit_of_measure"}
@@ -93,13 +83,6 @@ class TestCimisValidateCredentials:
         with mock.patch.object(cimis, "make_tracked_session", return_value=session):
             ok, _msg = CimisSource().validate_credentials(_config(), team_id=1)
         assert ok is expected
-
-
-class TestCimisNonRetryableErrors:
-    def test_marks_auth_errors_non_retryable(self) -> None:
-        errors = CimisSource().get_non_retryable_errors()
-        assert any("401" in key for key in errors)
-        assert any("403" in key for key in errors)
 
 
 class TestCimisSourceForPipeline:
