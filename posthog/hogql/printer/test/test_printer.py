@@ -278,6 +278,22 @@ class TestPrinter(BaseTest):
         assert "greater(events.timestamp, minus(now" not in sql
         assert "toIntervalMonth(12)" not in sql
 
+    @parameterized.expand(
+        [
+            ("select count() from events", True),
+            ("select count() from persons", False),
+            ("select count() from (select timestamp from events) as sub", True),
+        ]
+    )
+    @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
+    def test_events_retention_floor_applied_is_recorded_on_context(self, query: str, expected: bool):
+        # The response flag is derived from this, so it must track real events-table scans by type — including
+        # ones reached through a subquery — and stay unset when no events table is scanned.
+        self.team.event_retention_months = 12
+        context = HogQLContext(team_id=self.team.pk, team=self.team, enable_select_queries=True)
+        self._select(query, context=context)
+        assert bool(context.events_retention_floor_applied) is expected
+
     @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
     def test_events_retention_floor_loads_team_when_not_in_context(self):
         # Prod path: the context carries only team_id (see query.py), so the window is loaded from the DB by id.

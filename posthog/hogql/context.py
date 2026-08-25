@@ -146,6 +146,9 @@ class HogQLContext:
     # regardless of retention — notably the GDPR data-deletion mutation path — set this False. Deliberately NOT a
     # HogQLQueryModifier, so a query can't disable enforcement.
     apply_events_retention_floor: bool = True
+    # Set by the printer when it injects the floor on an events scan. A list rather than a bool so the write
+    # survives the dataclasses.replace copy the executor prints through (same reason warnings is a dict).
+    events_retention_floor_applied: list[bool] = field(default_factory=list, compare=False, repr=False)
 
     def __post_init__(self):
         if self.team:

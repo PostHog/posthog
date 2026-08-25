@@ -648,6 +648,7 @@ class InsightSerializer(InsightBasicSerializer):
     hogql = serializers.SerializerMethodField()
     types = serializers.SerializerMethodField()
     resolved_date_range = serializers.SerializerMethodField(read_only=True)
+    events_retention_applied = serializers.SerializerMethodField(read_only=True)
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
     alerts = serializers.SerializerMethodField(read_only=True)
     filter_override_context = serializers.SerializerMethodField(
@@ -694,6 +695,7 @@ class InsightSerializer(InsightBasicSerializer):
             "hogql",
             "types",
             "resolved_date_range",
+            "events_retention_applied",
             "_create_in_folder",
             "alerts",
             "filter_override_context",
@@ -1125,6 +1127,10 @@ class InsightSerializer(InsightBasicSerializer):
     )
     def get_resolved_date_range(self, insight: Insight):
         return self.insight_result(insight).resolved_date_range
+
+    @extend_schema_field(serializers.BooleanField(allow_null=True))
+    def get_events_retention_applied(self, insight: Insight):
+        return self.insight_result(insight).events_retention_applied
 
     @extend_schema_field(serializers.ListField())
     def get_alerts(self, insight: Insight):

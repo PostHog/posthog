@@ -6680,6 +6680,14 @@ class SessionAttributionExplorerQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
@@ -6730,6 +6738,14 @@ class SessionBatchEventsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -6790,6 +6806,14 @@ class SessionQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -6900,6 +6924,14 @@ class SessionsQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
     limit: int | None = None
@@ -6949,6 +6981,14 @@ class SessionsTimelineQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -7199,6 +7239,14 @@ class StickinessQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -7491,6 +7539,14 @@ class TestBasicQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -7542,6 +7598,14 @@ class TestCachedBasicQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -7609,6 +7673,14 @@ class TraceQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
@@ -7663,6 +7735,14 @@ class TraceSpansAggregationQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -7714,6 +7794,14 @@ class TraceSpansAttributeBreakdownQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -7759,6 +7847,14 @@ class TraceSpansQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -7810,6 +7906,14 @@ class TraceSpansSymbolStatsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     granularity: SymbolStatsGranularity = Field(
@@ -7867,6 +7971,14 @@ class TraceSpansTreeQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -7913,6 +8025,14 @@ class TracesQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -8148,6 +8268,14 @@ class TrendsQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = Field(default=None, description="Wether more breakdown values are available.")
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -8216,6 +8344,14 @@ class UsageMetricsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -8312,6 +8448,14 @@ class WebBotsTableQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
@@ -8362,6 +8506,14 @@ class WebExternalClicksTableQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -8417,6 +8569,14 @@ class WebGoalsQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
@@ -8470,6 +8630,14 @@ class WebNotableChangesQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
@@ -8521,6 +8689,14 @@ class WebOverviewQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
@@ -8568,6 +8744,14 @@ class WebPageURLSearchQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -8619,6 +8803,14 @@ class WebStatsTableQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -8717,6 +8909,14 @@ class AccountsQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
     kind: Literal["AccountsQuery"] = "AccountsQuery"
@@ -8771,6 +8971,14 @@ class AccountsTableQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool
@@ -8846,6 +9054,14 @@ class ActorsPropertyTaxonomyQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -8892,6 +9108,14 @@ class ActorsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -8944,6 +9168,14 @@ class AnalyticsQueryResponseBase(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -10472,6 +10704,14 @@ class CachedAccountsQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
     is_cached: bool
@@ -10537,6 +10777,14 @@ class CachedAccountsTableQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool
@@ -10605,6 +10853,14 @@ class CachedActorsPropertyTaxonomyQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
@@ -10662,6 +10918,14 @@ class CachedActorsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -10727,6 +10991,14 @@ class CachedCalendarHeatmapQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = Field(default=None, description="Wether more breakdown values are available.")
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
@@ -10784,6 +11056,14 @@ class CachedDocumentSimilarityQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -10847,6 +11127,14 @@ class CachedEndpointsUsageOverviewQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
@@ -10904,6 +11192,14 @@ class CachedEndpointsUsageTableQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -10968,6 +11264,14 @@ class CachedEndpointsUsageTrendsQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
@@ -11024,6 +11328,14 @@ class CachedErrorTrackingBreakdownsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -11084,6 +11396,14 @@ class CachedErrorTrackingFingerprintProjectionQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
@@ -11141,6 +11461,14 @@ class CachedErrorTrackingSimilarIssuesQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -11204,6 +11532,14 @@ class CachedEventTaxonomyQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
@@ -11264,6 +11600,14 @@ class CachedEventsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -11361,6 +11705,14 @@ class CachedFunnelCorrelationResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
@@ -11421,6 +11773,14 @@ class CachedFunnelsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -11489,6 +11849,14 @@ class CachedGroupsQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
     is_cached: bool
@@ -11552,6 +11920,14 @@ class CachedLifecycleQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
@@ -11609,6 +11985,14 @@ class CachedLogsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -11673,6 +12057,14 @@ class CachedMCPHarnessBreakdownQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
@@ -11729,6 +12121,14 @@ class CachedMCPToolCallBreakdownQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -11789,6 +12189,14 @@ class CachedMCPToolCallsAndErrorsQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
@@ -11845,6 +12253,14 @@ class CachedMCPToolCategoriesQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -11905,6 +12321,14 @@ class CachedMCPToolCategoryCountsQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
@@ -11961,6 +12385,14 @@ class CachedMCPToolCategoryMapQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -12021,6 +12453,14 @@ class CachedMCPToolDailyStatsQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
@@ -12077,6 +12517,14 @@ class CachedMCPToolDescriptionsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -12137,6 +12585,14 @@ class CachedMCPToolFailureOccurrencesQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
@@ -12193,6 +12649,14 @@ class CachedMCPToolFailuresQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -12253,6 +12717,14 @@ class CachedMCPToolNeighborsQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
@@ -12309,6 +12781,14 @@ class CachedMCPToolQualityDailyStatsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -12369,6 +12849,14 @@ class CachedMCPToolQualityRowsQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
@@ -12427,6 +12915,14 @@ class CachedMCPToolSampleIntentsQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
@@ -12483,6 +12979,14 @@ class CachedMCPToolStatsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -12546,6 +13050,14 @@ class CachedMCPToolTopUsersQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
@@ -12602,6 +13114,14 @@ class CachedMarketingAnalyticsAggregatedQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -12670,6 +13190,14 @@ class CachedMarketingAnalyticsAttributionPathsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -12748,6 +13276,14 @@ class CachedMarketingAnalyticsAttributionQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hasValue: bool = Field(
         ...,
@@ -12820,6 +13356,14 @@ class CachedMarketingAnalyticsTableQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
@@ -12883,6 +13427,14 @@ class CachedMetricsQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
@@ -12940,6 +13492,14 @@ class CachedNonIntegratedConversionsTableQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -13005,6 +13565,14 @@ class CachedPathsQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
@@ -13063,6 +13631,14 @@ class CachedPropertyValuesQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
@@ -13119,6 +13695,14 @@ class CachedRecordingsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     has_next: bool
@@ -13184,6 +13768,14 @@ class CachedRetentionQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
@@ -13241,6 +13833,14 @@ class CachedSessionAttributionExplorerQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -13304,6 +13904,14 @@ class CachedSessionBatchEventsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -13377,6 +13985,14 @@ class CachedSessionQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
@@ -13437,6 +14053,14 @@ class CachedSessionsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -13501,6 +14125,14 @@ class CachedSessionsTimelineQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
@@ -13558,6 +14190,14 @@ class CachedStickinessQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -13642,6 +14282,14 @@ class CachedTeamTaxonomyQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -13745,6 +14393,14 @@ class CachedTraceQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
@@ -13810,6 +14466,14 @@ class CachedTraceSpansAggregationQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
@@ -13872,6 +14536,14 @@ class CachedTraceSpansAttributeBreakdownQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
@@ -13928,6 +14600,14 @@ class CachedTraceSpansQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -13990,6 +14670,14 @@ class CachedTraceSpansSymbolStatsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     granularity: SymbolStatsGranularity = Field(
@@ -14058,6 +14746,14 @@ class CachedTraceSpansTreeQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
@@ -14115,6 +14811,14 @@ class CachedTracesQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -14179,6 +14883,14 @@ class CachedTrendsQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = Field(default=None, description="Wether more breakdown values are available.")
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
@@ -14236,6 +14948,14 @@ class CachedUsageMetricsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -14296,6 +15016,14 @@ class CachedVectorSearchQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
@@ -14353,6 +15081,14 @@ class CachedWebBotsTableQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -14416,6 +15152,14 @@ class CachedWebExternalClicksTableQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -14482,6 +15226,14 @@ class CachedWebGoalsQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
@@ -14546,6 +15298,14 @@ class CachedWebNotableChangesQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
@@ -14608,6 +15368,14 @@ class CachedWebOverviewQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
@@ -14666,6 +15434,14 @@ class CachedWebPageURLSearchQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -14728,6 +15504,14 @@ class CachedWebStatsTableQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -14801,6 +15585,14 @@ class CachedWebVitalsPathBreakdownQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
@@ -14852,6 +15644,14 @@ class CalendarHeatmapResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = Field(default=None, description="Wether more breakdown values are available.")
@@ -15175,6 +15975,14 @@ class Response(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
     limit: int | None = None
@@ -15228,6 +16036,14 @@ class Response1(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
     limit: int
@@ -15279,6 +16095,14 @@ class Response2(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -15335,6 +16159,14 @@ class Response4(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
@@ -15383,6 +16215,14 @@ class Response5(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -15446,6 +16286,14 @@ class Response6(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
@@ -15499,6 +16347,14 @@ class Response7(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
@@ -15549,6 +16405,14 @@ class Response8(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -15604,6 +16468,14 @@ class Response9(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
@@ -15651,6 +16523,14 @@ class Response10(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -15705,6 +16585,14 @@ class Response11(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
     limit: int | None = None
@@ -15755,6 +16643,14 @@ class Response12(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -15809,6 +16705,14 @@ class Response13(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -15856,6 +16760,14 @@ class Response14(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -15911,6 +16823,14 @@ class Response19(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
@@ -15960,6 +16880,14 @@ class Response21(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -16012,6 +16940,14 @@ class Response22(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -16068,6 +17004,14 @@ class Response23(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool
@@ -16243,6 +17187,14 @@ class DocumentSimilarityQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
@@ -16356,6 +17308,14 @@ class EndpointsUsageOverviewQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -16402,6 +17362,14 @@ class EndpointsUsageTableQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -16453,6 +17421,14 @@ class EndpointsUsageTrendsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -16538,6 +17514,14 @@ class ErrorTrackingBreakdownsQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -16592,6 +17576,14 @@ class ErrorTrackingFingerprintProjectionQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -16686,6 +17678,14 @@ class ErrorTrackingQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
@@ -16751,6 +17751,14 @@ class ErrorTrackingSimilarIssuesQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
@@ -16799,6 +17807,14 @@ class EventTaxonomyQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -16905,6 +17921,14 @@ class EventsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -17104,6 +18128,14 @@ class FunnelCorrelationResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
@@ -17277,6 +18309,14 @@ class FunnelsQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -17348,6 +18388,14 @@ class GroupsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -17459,6 +18507,14 @@ class HogQLQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     explain: list[str] | None = Field(default=None, description="Query explanation output")
@@ -17645,6 +18701,14 @@ class LifecycleQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -17691,6 +18755,14 @@ class LogAttributesQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -17740,6 +18812,14 @@ class LogValuesQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -17786,6 +18866,14 @@ class LogsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -17857,6 +18945,14 @@ class MCPHarnessBreakdownQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -17902,6 +18998,14 @@ class MCPToolCallBreakdownQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -17951,6 +19055,14 @@ class MCPToolCallsAndErrorsQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -17996,6 +19108,14 @@ class MCPToolCategoriesQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -18045,6 +19165,14 @@ class MCPToolCategoryCountsQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -18090,6 +19218,14 @@ class MCPToolCategoryMapQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -18139,6 +19275,14 @@ class MCPToolDailyStatsQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -18184,6 +19328,14 @@ class MCPToolDescriptionsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -18233,6 +19385,14 @@ class MCPToolFailureOccurrencesQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -18278,6 +19438,14 @@ class MCPToolFailuresQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -18327,6 +19495,14 @@ class MCPToolNeighborsQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -18372,6 +19548,14 @@ class MCPToolQualityDailyStatsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -18421,6 +19605,14 @@ class MCPToolQualityRowsQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -18468,6 +19660,14 @@ class MCPToolSampleIntentsQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -18513,6 +19713,14 @@ class MCPToolStatsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -18565,6 +19773,14 @@ class MCPToolTopUsersQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -18610,6 +19826,14 @@ class MarketingAnalyticsAggregatedQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -18667,6 +19891,14 @@ class MarketingAnalyticsAttributionPathsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -18732,6 +19964,14 @@ class MarketingAnalyticsAttributionQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -18808,6 +20048,14 @@ class MarketingAnalyticsTableQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
@@ -18881,6 +20129,14 @@ class MetricsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -18962,6 +20218,14 @@ class NonIntegratedConversionsTableQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -19053,6 +20317,14 @@ class PathsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -19192,6 +20464,14 @@ class PropertyValuesQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -19238,6 +20518,14 @@ class QueryResponseAlternative1(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -19293,6 +20581,14 @@ class QueryResponseAlternative2(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
     limit: int | None = None
@@ -19343,6 +20639,14 @@ class QueryResponseAlternative3(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -19396,6 +20700,14 @@ class QueryResponseAlternative4(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -19467,6 +20779,14 @@ class QueryResponseAlternative6(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -19515,6 +20835,14 @@ class QueryResponseAlternative8(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     explain: list[str] | None = Field(default=None, description="Query explanation output")
@@ -19569,6 +20897,14 @@ class QueryResponseAlternative11(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
@@ -19621,6 +20957,14 @@ class QueryResponseAlternative12(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
@@ -19669,6 +21013,14 @@ class QueryResponseAlternative13(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -19721,6 +21073,14 @@ class QueryResponseAlternative14(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -19769,6 +21129,14 @@ class QueryResponseAlternative15(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -19814,6 +21182,14 @@ class QueryResponseAlternative21(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -19868,6 +21244,14 @@ class QueryResponseAlternative22(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
@@ -19916,6 +21300,14 @@ class QueryResponseAlternative23(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -19979,6 +21371,14 @@ class QueryResponseAlternative24(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
@@ -20032,6 +21432,14 @@ class QueryResponseAlternative25(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
@@ -20082,6 +21490,14 @@ class QueryResponseAlternative26(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -20137,6 +21553,14 @@ class QueryResponseAlternative27(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
@@ -20183,6 +21607,14 @@ class QueryResponseAlternative28(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -20235,6 +21667,14 @@ class QueryResponseAlternative30(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
@@ -20283,6 +21723,14 @@ class QueryResponseAlternative31(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -20335,6 +21783,14 @@ class QueryResponseAlternative32(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -20393,6 +21849,14 @@ class QueryResponseAlternative33(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -20464,6 +21928,14 @@ class QueryResponseAlternative34(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hasValue: bool = Field(
         ...,
@@ -20520,6 +21992,14 @@ class QueryResponseAlternative35(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
@@ -20571,6 +22051,14 @@ class QueryResponseAlternative36(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -20626,6 +22114,14 @@ class QueryResponseAlternative37(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
     limit: int
@@ -20677,6 +22173,14 @@ class QueryResponseAlternative38(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -20733,6 +22237,14 @@ class QueryResponseAlternative39(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     explain: list[str] | None = Field(default=None, description="Query explanation output")
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -20786,6 +22298,14 @@ class QueryResponseAlternative40(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
@@ -20834,6 +22354,14 @@ class QueryResponseAlternative41(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -20897,6 +22425,14 @@ class QueryResponseAlternative42(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
@@ -20950,6 +22486,14 @@ class QueryResponseAlternative43(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
@@ -21000,6 +22544,14 @@ class QueryResponseAlternative44(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -21055,6 +22607,14 @@ class QueryResponseAlternative45(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
@@ -21102,6 +22662,14 @@ class QueryResponseAlternative46(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -21156,6 +22724,14 @@ class QueryResponseAlternative47(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str = Field(..., description="Generated HogQL query.")
     limit: int | None = None
@@ -21206,6 +22782,14 @@ class QueryResponseAlternative48(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -21260,6 +22844,14 @@ class QueryResponseAlternative49(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -21307,6 +22899,14 @@ class QueryResponseAlternative50(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -21362,6 +22962,14 @@ class QueryResponseAlternative51(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
@@ -21411,6 +23019,14 @@ class QueryResponseAlternative55(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -21464,6 +23080,14 @@ class QueryResponseAlternative57(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
@@ -21514,6 +23138,14 @@ class QueryResponseAlternative58(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -21572,6 +23204,14 @@ class QueryResponseAlternative59(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     kind: Literal["AccountsTableQuery"] = "AccountsTableQuery"
@@ -21628,6 +23268,14 @@ class QueryResponseAlternative60(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = Field(default=None, description="Wether more breakdown values are available.")
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
@@ -21674,6 +23322,14 @@ class QueryResponseAlternative61(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -21730,6 +23386,14 @@ class QueryResponseAlternative62(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -21775,6 +23439,14 @@ class QueryResponseAlternative63(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -21824,6 +23496,14 @@ class QueryResponseAlternative64(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -21869,6 +23549,14 @@ class QueryResponseAlternative65(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -21917,6 +23605,14 @@ class QueryResponseAlternative67(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -21968,6 +23664,14 @@ class QueryResponseAlternative69(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     has_next: bool
@@ -22023,6 +23727,14 @@ class QueryResponseAlternative70(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
@@ -22075,6 +23787,14 @@ class QueryResponseAlternative71(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -22120,6 +23840,14 @@ class QueryResponseAlternative72(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -22169,6 +23897,14 @@ class QueryResponseAlternative73(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -22214,6 +23950,14 @@ class QueryResponseAlternative74(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -22271,6 +24015,14 @@ class QueryResponseAlternative75(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -22320,6 +24072,14 @@ class QueryResponseAlternative76(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -22373,6 +24133,14 @@ class QueryResponseAlternative77(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -22418,6 +24186,14 @@ class QueryResponseAlternative79(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -22470,6 +24246,14 @@ class QueryResponseAlternative80(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     limit: int | None = None
@@ -22520,6 +24304,14 @@ class QueryResponseAlternative81(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -22566,6 +24358,14 @@ class QueryResponseAlternative82(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -22618,6 +24418,14 @@ class QueryResponseAlternative86(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -22663,6 +24471,14 @@ class QueryResponseAlternative87(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -22711,6 +24527,14 @@ class QueryResponseAlternative88(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -22769,6 +24593,14 @@ class QueryResponseAlternative89(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     kind: Literal["AccountsTableQuery"] = "AccountsTableQuery"
@@ -22824,6 +24656,14 @@ class QueryResponseAlternative90(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -22870,6 +24710,14 @@ class QueryResponseAlternative91(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -22923,6 +24771,14 @@ class QueryResponseAlternative92(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -22968,6 +24824,14 @@ class QueryResponseAlternative93(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -23017,6 +24881,14 @@ class QueryResponseAlternative94(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -23062,6 +24934,14 @@ class QueryResponseAlternative95(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -23111,6 +24991,14 @@ class QueryResponseAlternative96(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -23156,6 +25044,14 @@ class QueryResponseAlternative97(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -23205,6 +25101,14 @@ class QueryResponseAlternative98(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -23250,6 +25154,14 @@ class QueryResponseAlternative99(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -23302,6 +25214,14 @@ class QueryResponseAlternative100(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -23347,6 +25267,14 @@ class QueryResponseAlternative101(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -23396,6 +25324,14 @@ class QueryResponseAlternative102(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -23441,6 +25377,14 @@ class QueryResponseAlternative103(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -23490,6 +25434,14 @@ class QueryResponseAlternative104(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -23535,6 +25487,14 @@ class QueryResponseAlternative105(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -23584,6 +25544,14 @@ class QueryResponseAlternative106(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -23629,6 +25597,14 @@ class QueryResponseAlternative107(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -23678,6 +25654,14 @@ class QueryResponseAlternative108(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -23725,6 +25709,14 @@ class QueryResponseAlternative109(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -23770,6 +25762,14 @@ class RecordingsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     has_next: bool
@@ -23921,6 +25921,14 @@ class RetentionQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -24056,6 +26064,14 @@ class TeamTaxonomyQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -24260,6 +26276,14 @@ class VectorSearchQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -24632,6 +26656,14 @@ class WebVitalsPathBreakdownQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     preComputeStrategy: WebAnalyticsPreComputeStrategy | None = None
@@ -24678,6 +26710,14 @@ class WebVitalsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -25225,6 +27265,14 @@ class CachedErrorTrackingQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
@@ -25286,6 +27334,14 @@ class CachedHogQLQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     explain: list[str] | None = Field(default=None, description="Query explanation output")
@@ -25416,6 +27472,14 @@ class CachedPathsV2QueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
@@ -25472,6 +27536,14 @@ class CachedWebVitalsQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -25559,6 +27631,14 @@ class Response3(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     explain: list[str] | None = Field(default=None, description="Query explanation output")
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
@@ -25609,6 +27689,14 @@ class Response15(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -25795,6 +27883,14 @@ class ErrorTrackingIssueCorrelationQueryResponse(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -26767,6 +28863,14 @@ class PathsV2QueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -26837,6 +28941,14 @@ class QueryResponseAlternative16(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None
@@ -27259,6 +29371,14 @@ class CachedErrorTrackingIssueCorrelationQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
+        ),
+    )
     hasMore: bool | None = None
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
@@ -27313,6 +29433,14 @@ class Response16(BaseModel):
         default=None,
         description=(
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    events_retention_applied: bool | None = Field(
+        default=None,
+        description=(
+            "True when the events data retention floor narrowed this query's events"
+            " scans, so results exclude events older than the team's retention window."
+            " Set server-side where the floor is applied."
         ),
     )
     hasMore: bool | None = None

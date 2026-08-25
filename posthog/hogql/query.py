@@ -63,7 +63,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.hogql.transforms.preaggregated_table_transformation import do_preaggregated_table_transforms
 from posthog.hogql.variables import replace_variables
 from posthog.hogql.visitor import clone_expr
-from posthog.hogql.warehouse_warnings import record_warnings
+from posthog.hogql.warehouse_warnings import record_events_retention_applied, record_warnings
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
@@ -263,6 +263,7 @@ class HogQLQueryExecutor:
         # re-registering the hidden table against the rebuilt database, leaving a dangling reference.
         self.context.data_warehouse_sync_warnings.clear()
         self.context.external_tables.clear()
+        self.context.events_retention_floor_applied.clear()
         self.context.information_schema_introspection = None
 
         self.hogql_context = dataclasses.replace(
@@ -781,7 +782,14 @@ class HogQLQueryExecutor:
             limit=self.limit,
             offset=self.offset,
             used_data_warehouse_sources=self._serialized_warehouse_sources(),
+            events_retention_applied=self._events_retention_applied(),
         )
+
+    def _events_retention_applied(self) -> Optional[bool]:
+        if not self.context or not self.context.events_retention_floor_applied:
+            return None
+        record_events_retention_applied()
+        return True
 
     def _serialized_warehouse_sources(self) -> Optional[list[DataWarehouseSourceUsage]]:
         """Warehouse source attribution is telemetry for authenticated app users only. It carries

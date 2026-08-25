@@ -174,6 +174,7 @@ def calculate_for_query_based_insight(
             hogql=getattr(process_response, "hogql", None),
             types=getattr(process_response, "types", None),
             resolved_date_range=_model_field_as_dict(process_response, "resolved_date_range"),
+            events_retention_applied=getattr(process_response, "events_retention_applied", None),
         )
 
     response = process_response
@@ -196,4 +197,5 @@ def calculate_for_query_based_insight(
         hogql=response.get("hogql"),
         types=response.get("types"),
         resolved_date_range=response.get("resolved_date_range"),
+        events_retention_applied=response.get("events_retention_applied"),
     )

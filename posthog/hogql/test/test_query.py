@@ -2245,6 +2245,22 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(mock_sync_execute.call_count, 2)
         mock_sleep.assert_called_once()
 
+    @parameterized.expand(
+        [
+            (True, "select count() from events", True),
+            (True, "select count() from persons", None),
+            (False, "select count() from events", None),
+        ]
+    )
+    def test_events_retention_applied_on_response(self, enforced: bool, query: str, expected: bool | None):
+        # The printer records the floor on a context copy; this proves the flag reaches the actual response
+        # object callers see, and stays absent for non-events scans and unenforced teams.
+        self.team.event_retention_months = 12
+        self.team.save()
+        with override_settings(EVENTS_DATA_RETENTION_ENFORCED=enforced):
+            response = execute_hogql_query(query, team=self.team)
+        assert response.events_retention_applied is expected
+
     def test_transient_s3_error_raises_after_retry_fails(self):
         transient_error = CHQueryErrorS3Error("S3 error occurred.", code=499)
         with (

@@ -22,6 +22,7 @@ class InsightResult:
     types: Optional[list] = None
     # A ResolvedDateRangeResponse-shaped dict — the field carries model_dump output
     resolved_date_range: Optional[dict] = None
+    events_retention_applied: Optional[bool] = None
 
 
 @dataclass(frozen=True)

@@ -4191,6 +4191,29 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertNotIn("code", response)
         self.assertIsNotNone(response["results"][0]["hogql"])
 
+    @override_settings(EVENTS_DATA_RETENTION_ENFORCED=True)
+    def test_insight_returns_events_retention_applied(self) -> None:
+        # Wiring guard: the flag is computed on the query response and must reach the insight serializer, which is
+        # how dashboard tiles receive it.
+        self.team.event_retention_months = 12
+        self.team.save()
+        insight = Insight.objects.create(
+            query={
+                "kind": "InsightVizNode",
+                "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+            },
+            team=self.team,
+            created_by=self.user,
+        )
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/insights",
+            data={"short_id": insight.short_id, "refresh": "true"},
+        ).json()
+
+        self.assertNotIn("code", response)
+        self.assertIs(response["results"][0]["events_retention_applied"], True)
+
     def test_insight_returns_cached_types(self) -> None:
         insight = Insight.objects.create(
             query={

@@ -32,6 +32,14 @@ _accumulator: ContextVar[dict[WarningKey, DataWarehouseSyncWarning] | None] = Co
     default=None,
 )
 
+# Rides the same lifecycle as the warnings accumulator: a composite runner's inner HogQL executions
+# each report whether the printer floored an events scan, and the outermost runner attaches the
+# union to its response.
+_events_retention_applied: ContextVar[list[bool] | None] = ContextVar(
+    "events_retention_applied_accumulator",
+    default=None,
+)
+
 
 def install_accumulator() -> tuple[dict[WarningKey, DataWarehouseSyncWarning], Token | None]:
     """Install a fresh accumulator if none is currently active.
@@ -44,12 +52,25 @@ def install_accumulator() -> tuple[dict[WarningKey, DataWarehouseSyncWarning], T
         return current, None
     fresh: dict[WarningKey, DataWarehouseSyncWarning] = {}
     token = _accumulator.set(fresh)
+    _events_retention_applied.set([])
     return fresh, token
 
 
 def reset_accumulator(token: Token | None) -> None:
     if token is not None:
         _accumulator.reset(token)
+        _events_retention_applied.set(None)
+
+
+def record_events_retention_applied() -> None:
+    """Note that the current execution floored an events scan. No-op if no scope is installed."""
+    applied = _events_retention_applied.get()
+    if applied is not None:
+        applied.append(True)
+
+
+def events_retention_applied_in_scope() -> bool:
+    return bool(_events_retention_applied.get())
 
 
 def record_warnings(warnings: Iterable[DataWarehouseSyncWarning]) -> None:

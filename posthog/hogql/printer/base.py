@@ -607,6 +607,7 @@ class BasePrinter(Visitor[str]):
             retention_floor = self._events_retention_floor(table_type, node.type)
             if retention_floor is not None:
                 predicate_exprs = [*predicate_exprs, retention_floor]
+                self.context.events_retention_floor_applied.append(True)
             for pred in predicate_exprs:
                 if is_left_join and node.constraint is not None:
                     if on_clause_guard is None:

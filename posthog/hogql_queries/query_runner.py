@@ -106,7 +106,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 from posthog.hogql.timings import HogQLTimings
-from posthog.hogql.warehouse_warnings import accumulator_scope
+from posthog.hogql.warehouse_warnings import accumulator_scope, events_retention_applied_in_scope
 
 from posthog import settings
 from posthog.api_queries_quota import API_QUERIES_QUOTA_ERRORS_COUNTER, get_api_queries_bytes, next_counter_reset
@@ -2345,6 +2345,11 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
 
             if trigger:
                 fresh_response_dict["calculation_trigger"] = trigger
+
+            # Attached before caching so cache hits replay it; the cache key already varies by the
+            # retention window, so a cached flag always matches the regime it was computed under.
+            if events_retention_applied_in_scope() and "events_retention_applied" in CachedResponse.model_fields:
+                fresh_response_dict["events_retention_applied"] = True
 
             # Attach accumulated warehouse sync warnings before caching, so cache hits replay them.
             # Guard against response classes that don't carry the field: every analytics response

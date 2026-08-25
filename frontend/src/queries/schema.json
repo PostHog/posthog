@@ -158,6 +158,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "type": "boolean"
                 },
@@ -652,6 +656,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "type": "boolean"
                 },
@@ -1026,6 +1034,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -1226,6 +1238,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -1440,6 +1456,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -6225,6 +6245,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "type": "boolean"
                 },
@@ -6358,6 +6382,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "type": "boolean"
                 },
@@ -6482,6 +6510,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -6592,6 +6624,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -6716,6 +6752,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "description": "Wether more breakdown values are available.",
                     "type": "boolean"
@@ -6816,6 +6856,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -6926,6 +6970,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -7029,6 +7077,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -7141,6 +7193,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -7240,6 +7296,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -7354,6 +7414,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "type": "boolean"
                 },
@@ -7462,6 +7526,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -7578,6 +7646,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "type": "boolean"
                 },
@@ -7686,6 +7758,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -7796,6 +7872,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "type": "boolean"
                 },
@@ -7905,6 +7985,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -8476,6 +8560,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "type": "boolean"
                 },
@@ -8586,6 +8674,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -8688,6 +8780,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -8823,6 +8919,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "explain": {
                     "description": "Query explanation output",
@@ -9219,6 +9319,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -9324,6 +9428,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -9433,6 +9541,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -9532,6 +9644,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -9633,6 +9749,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -9732,6 +9852,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -9833,6 +9957,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -9932,6 +10060,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -10033,6 +10165,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -10132,6 +10268,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -10233,6 +10373,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -10332,6 +10476,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -10433,6 +10581,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -10532,6 +10684,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -10633,6 +10789,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -10733,6 +10893,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -10832,6 +10996,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -10934,6 +11102,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -11033,6 +11205,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -11144,6 +11320,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -11273,6 +11453,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -11412,6 +11596,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "type": "boolean"
                 },
@@ -11530,6 +11718,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -11724,6 +11916,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "type": "boolean"
                 },
@@ -11843,6 +12039,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -11943,6 +12143,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -12039,6 +12243,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -12139,6 +12347,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "has_next": {
                     "type": "boolean"
@@ -12248,6 +12460,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -12351,6 +12567,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -12463,6 +12683,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -12607,6 +12831,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "type": "boolean"
                 },
@@ -12719,6 +12947,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -12839,6 +13071,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "type": "boolean"
                 },
@@ -12941,6 +13177,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -13100,6 +13340,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -13282,6 +13526,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "type": "boolean"
                 },
@@ -13398,6 +13646,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -13505,6 +13757,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -13604,6 +13860,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -13712,6 +13972,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "granularity": {
                     "$ref": "#/definitions/SymbolStatsGranularity",
@@ -13826,6 +14090,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -13931,6 +14199,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -14048,6 +14320,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "description": "Wether more breakdown values are available.",
                     "type": "boolean"
@@ -14152,6 +14428,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -14251,6 +14531,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -14352,6 +14636,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -14467,6 +14755,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -14586,6 +14878,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "type": "boolean"
                 },
@@ -14703,6 +14999,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -14815,6 +15115,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -14920,6 +15224,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -15033,6 +15341,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -15155,6 +15467,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -15259,6 +15575,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -15480,6 +15800,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "description": "Wether more breakdown values are available.",
@@ -16725,6 +17049,10 @@
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
                                 },
+                                "events_retention_applied": {
+                                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                                    "type": "boolean"
+                                },
                                 "hasMore": {
                                     "type": "boolean"
                                 },
@@ -16814,6 +17142,10 @@
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
                                 },
+                                "events_retention_applied": {
+                                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                                    "type": "boolean"
+                                },
                                 "hasMore": {
                                     "type": "boolean"
                                 },
@@ -16901,6 +17233,10 @@
                                 "error": {
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
+                                },
+                                "events_retention_applied": {
+                                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                                    "type": "boolean"
                                 },
                                 "hasMore": {
                                     "type": "boolean"
@@ -16995,6 +17331,10 @@
                                 "error": {
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
+                                },
+                                "events_retention_applied": {
+                                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                                    "type": "boolean"
                                 },
                                 "explain": {
                                     "description": "Query explanation output",
@@ -17094,6 +17434,10 @@
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
                                 },
+                                "events_retention_applied": {
+                                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                                    "type": "boolean"
+                                },
                                 "hogql": {
                                     "description": "Generated HogQL query.",
                                     "type": "string"
@@ -17168,6 +17512,10 @@
                                 "error": {
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
+                                },
+                                "events_retention_applied": {
+                                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                                    "type": "boolean"
                                 },
                                 "hasMore": {
                                     "type": "boolean"
@@ -17259,6 +17607,10 @@
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
                                 },
+                                "events_retention_applied": {
+                                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                                    "type": "boolean"
+                                },
                                 "hasMore": {
                                     "type": "boolean"
                                 },
@@ -17342,6 +17694,10 @@
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
                                 },
+                                "events_retention_applied": {
+                                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                                    "type": "boolean"
+                                },
                                 "hasMore": {
                                     "type": "boolean"
                                 },
@@ -17421,6 +17777,10 @@
                                 "error": {
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
+                                },
+                                "events_retention_applied": {
+                                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                                    "type": "boolean"
                                 },
                                 "hasMore": {
                                     "type": "boolean"
@@ -17503,6 +17863,10 @@
                                 "error": {
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
+                                },
+                                "events_retention_applied": {
+                                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                                    "type": "boolean"
                                 },
                                 "hogql": {
                                     "description": "Generated HogQL query.",
@@ -17577,6 +17941,10 @@
                                 "error": {
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
+                                },
+                                "events_retention_applied": {
+                                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                                    "type": "boolean"
                                 },
                                 "hasMore": {
                                     "type": "boolean"
@@ -17654,6 +18022,10 @@
                                 "error": {
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
+                                },
+                                "events_retention_applied": {
+                                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                                    "type": "boolean"
                                 },
                                 "hasMore": {
                                     "type": "boolean"
@@ -17740,6 +18112,10 @@
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
                                 },
+                                "events_retention_applied": {
+                                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                                    "type": "boolean"
+                                },
                                 "hasMore": {
                                     "type": "boolean"
                                 },
@@ -17824,6 +18200,10 @@
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
                                 },
+                                "events_retention_applied": {
+                                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                                    "type": "boolean"
+                                },
                                 "hogql": {
                                     "description": "Generated HogQL query.",
                                     "type": "string"
@@ -17895,6 +18275,10 @@
                                 "error": {
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
+                                },
+                                "events_retention_applied": {
+                                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                                    "type": "boolean"
                                 },
                                 "hasMore": {
                                     "type": "boolean"
@@ -17985,6 +18369,10 @@
                                 "error": {
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
+                                },
+                                "events_retention_applied": {
+                                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                                    "type": "boolean"
                                 },
                                 "hasMore": {
                                     "type": "boolean"
@@ -18065,6 +18453,10 @@
                                 "error": {
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
+                                },
+                                "events_retention_applied": {
+                                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                                    "type": "boolean"
                                 },
                                 "hasMore": {
                                     "type": "boolean"
@@ -18294,6 +18686,10 @@
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
                                 },
+                                "events_retention_applied": {
+                                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                                    "type": "boolean"
+                                },
                                 "hasMore": {
                                     "type": "boolean"
                                 },
@@ -18374,6 +18770,10 @@
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
                                 },
+                                "events_retention_applied": {
+                                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                                    "type": "boolean"
+                                },
                                 "hasMore": {
                                     "type": "boolean"
                                 },
@@ -18451,6 +18851,10 @@
                                 "error": {
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
+                                },
+                                "events_retention_applied": {
+                                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                                    "type": "boolean"
                                 },
                                 "hasMore": {
                                     "type": "boolean"
@@ -18531,6 +18935,10 @@
                                 "error": {
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
+                                },
+                                "events_retention_applied": {
+                                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                                    "type": "boolean"
                                 },
                                 "hasMore": {
                                     "type": "boolean"
@@ -18623,6 +19031,10 @@
                                 "error": {
                                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                                     "type": "string"
+                                },
+                                "events_retention_applied": {
+                                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                                    "type": "boolean"
                                 },
                                 "hasMore": {
                                     "type": "boolean"
@@ -20046,6 +20458,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "type": "boolean"
                 },
@@ -20535,6 +20951,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -20655,6 +21075,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -20788,6 +21212,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -21010,6 +21438,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -21266,6 +21698,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -21552,6 +21988,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -21904,6 +22344,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "type": "boolean"
                 },
@@ -22087,6 +22531,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -22321,6 +22769,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -22796,6 +23248,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -26806,6 +27262,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "type": "boolean"
                 },
@@ -27636,6 +28096,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -27988,6 +28452,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -28732,6 +29200,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "explain": {
                     "description": "Query explanation output",
@@ -30431,6 +30903,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -30624,6 +31100,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -30885,6 +31365,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -31071,6 +31555,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "type": "boolean"
                 },
@@ -31243,6 +31731,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -31367,6 +31859,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -31493,6 +31989,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -31586,6 +32086,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -31694,6 +32198,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -31813,6 +32321,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -31945,6 +32457,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -32056,6 +32572,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -32238,6 +32758,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -32335,6 +32859,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -32452,6 +32980,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -32587,6 +33119,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -32742,6 +33278,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -32861,6 +33401,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -32989,6 +33533,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -33130,6 +33678,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -33313,6 +33865,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -33567,6 +34123,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "type": "boolean"
                 },
@@ -33771,6 +34331,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -34215,6 +34779,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -36344,6 +36912,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -36989,6 +37561,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "type": "boolean"
                 },
@@ -37476,6 +38052,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -37850,6 +38430,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -38713,6 +39297,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -38887,6 +39475,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hasMore": {
                             "type": "boolean"
                         },
@@ -38976,6 +39568,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hasMore": {
                             "type": "boolean"
                         },
@@ -39060,6 +39656,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hasMore": {
                             "type": "boolean"
@@ -39148,6 +39748,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hasMore": {
                             "type": "boolean"
@@ -39350,6 +39954,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hasMore": {
                             "type": "boolean"
                         },
@@ -39445,6 +40053,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "explain": {
                             "description": "Query explanation output",
@@ -39612,6 +40224,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hasMore": {
                             "type": "boolean"
                         },
@@ -39691,6 +40307,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hasMore": {
                             "type": "boolean"
                         },
@@ -39764,6 +40384,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hasMore": {
                             "type": "boolean"
@@ -39839,6 +40463,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hasMore": {
                             "type": "boolean"
                         },
@@ -39906,6 +40534,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hogql": {
                             "description": "Generated HogQL query.",
@@ -39990,6 +40622,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hasMore": {
                             "type": "boolean"
@@ -40359,6 +40995,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hasMore": {
                             "type": "boolean"
                         },
@@ -40439,6 +41079,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -40513,6 +41157,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hasMore": {
                             "type": "boolean"
@@ -40604,6 +41252,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hasMore": {
                             "type": "boolean"
                         },
@@ -40687,6 +41339,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hasMore": {
                             "type": "boolean"
                         },
@@ -40766,6 +41422,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hasMore": {
                             "type": "boolean"
@@ -40848,6 +41508,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hogql": {
                             "description": "Generated HogQL query.",
@@ -40918,6 +41582,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hasMore": {
                             "type": "boolean"
@@ -41009,6 +41677,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -41083,6 +41755,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hasMore": {
                             "type": "boolean"
@@ -41168,6 +41844,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -41243,6 +41923,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hasMore": {
                             "type": "boolean"
@@ -41353,6 +42037,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hasMore": {
                             "type": "boolean"
                         },
@@ -41444,6 +42132,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hasMore": {
                             "type": "boolean"
@@ -41540,6 +42232,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hasMore": {
                             "type": "boolean"
                         },
@@ -41629,6 +42325,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hasMore": {
                             "type": "boolean"
                         },
@@ -41716,6 +42416,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hasMore": {
                             "type": "boolean"
@@ -41810,6 +42514,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "explain": {
                             "description": "Query explanation output",
@@ -41909,6 +42617,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -41983,6 +42695,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hasMore": {
                             "type": "boolean"
@@ -42074,6 +42790,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hasMore": {
                             "type": "boolean"
                         },
@@ -42157,6 +42877,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hasMore": {
                             "type": "boolean"
                         },
@@ -42236,6 +42960,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hasMore": {
                             "type": "boolean"
@@ -42318,6 +43046,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hogql": {
                             "description": "Generated HogQL query.",
@@ -42392,6 +43124,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hasMore": {
                             "type": "boolean"
@@ -42469,6 +43205,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hasMore": {
                             "type": "boolean"
@@ -42555,6 +43295,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hasMore": {
                             "type": "boolean"
                         },
@@ -42639,6 +43383,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -42710,6 +43458,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hasMore": {
                             "type": "boolean"
@@ -42800,6 +43552,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hasMore": {
                             "type": "boolean"
@@ -42880,6 +43636,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hasMore": {
                             "type": "boolean"
@@ -43109,6 +43869,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hasMore": {
                             "type": "boolean"
                         },
@@ -43189,6 +43953,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hasMore": {
                             "type": "boolean"
                         },
@@ -43266,6 +44034,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hasMore": {
                             "type": "boolean"
@@ -43346,6 +44118,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hasMore": {
                             "type": "boolean"
@@ -43439,6 +44215,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hasMore": {
                             "type": "boolean"
                         },
@@ -43531,6 +44311,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hasMore": {
                             "description": "Wether more breakdown values are available.",
                             "type": "boolean"
@@ -43600,6 +44384,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -43663,6 +44451,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hogql": {
                             "description": "Generated HogQL query.",
@@ -43729,6 +44521,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -43794,6 +44590,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -43855,6 +44655,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hogql": {
                             "description": "Generated HogQL query.",
@@ -43920,6 +44724,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hogql": {
                             "description": "Generated HogQL query.",
@@ -43989,6 +44797,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hasMore": {
                             "type": "boolean"
@@ -44084,6 +44896,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "has_next": {
                             "type": "boolean"
                         },
@@ -44162,6 +44978,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hasMore": {
                             "type": "boolean"
                         },
@@ -44238,6 +45058,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -44302,6 +45126,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hogql": {
                             "description": "Generated HogQL query.",
@@ -44368,6 +45196,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -44432,6 +45264,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hasMore": {
                             "type": "boolean"
@@ -44513,6 +45349,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -44585,6 +45425,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -44656,6 +45500,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hogql": {
                             "description": "Generated HogQL query.",
@@ -44742,6 +45590,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hasMore": {
                             "type": "boolean"
                         },
@@ -44813,6 +45665,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hasMore": {
                             "type": "boolean"
                         },
@@ -44883,6 +45739,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hogql": {
                             "description": "Generated HogQL query.",
@@ -44962,6 +45822,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hasMore": {
                             "type": "boolean"
                         },
@@ -45042,6 +45906,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hasMore": {
                             "type": "boolean"
                         },
@@ -45121,6 +45989,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hasMore": {
                             "type": "boolean"
@@ -45232,6 +46104,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -45293,6 +46169,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hogql": {
                             "description": "Generated HogQL query.",
@@ -45362,6 +46242,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hasMore": {
                             "type": "boolean"
@@ -45455,6 +46339,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hasMore": {
                             "type": "boolean"
                         },
@@ -45540,6 +46428,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -45608,6 +46500,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hasMore": {
                             "type": "boolean"
@@ -45685,6 +46581,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -45749,6 +46649,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hogql": {
                             "description": "Generated HogQL query.",
@@ -45815,6 +46719,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -45879,6 +46787,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hogql": {
                             "description": "Generated HogQL query.",
@@ -45945,6 +46857,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -46009,6 +46925,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hogql": {
                             "description": "Generated HogQL query.",
@@ -46075,6 +46995,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -46139,6 +47063,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hogql": {
                             "description": "Generated HogQL query.",
@@ -46206,6 +47134,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -46270,6 +47202,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hogql": {
                             "description": "Generated HogQL query.",
@@ -46336,6 +47272,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -46400,6 +47340,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hogql": {
                             "description": "Generated HogQL query.",
@@ -46466,6 +47410,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -46530,6 +47478,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hogql": {
                             "description": "Generated HogQL query.",
@@ -46596,6 +47548,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -46660,6 +47616,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hogql": {
                             "description": "Generated HogQL query.",
@@ -46726,6 +47686,10 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
@@ -46790,6 +47754,10 @@
                         "error": {
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
+                        },
+                        "events_retention_applied": {
+                            "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                            "type": "boolean"
                         },
                         "hogql": {
                             "description": "Generated HogQL query.",
@@ -47549,6 +48517,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "has_next": {
                     "type": "boolean"
                 },
@@ -48027,6 +48999,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -48586,6 +49562,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "type": "boolean"
                 },
@@ -48795,6 +49775,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "type": "boolean"
                 },
@@ -49002,6 +49986,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -49359,6 +50347,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "type": "boolean"
                 },
@@ -49476,6 +50468,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -50571,6 +51567,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -51480,6 +52480,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "type": "boolean"
                 },
@@ -51558,6 +52562,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -51632,6 +52640,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -51961,6 +52973,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "type": "boolean"
                 },
@@ -52090,6 +53106,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -52223,6 +53243,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -52369,6 +53393,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "type": "boolean"
                 },
@@ -52480,6 +53508,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "granularity": {
                     "$ref": "#/definitions/SymbolStatsGranularity",
@@ -52606,6 +53638,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -52748,6 +53784,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -53274,6 +54314,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "description": "Wether more breakdown values are available.",
                     "type": "boolean"
@@ -53476,6 +54520,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -53663,6 +54711,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",
@@ -54284,6 +55336,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hasMore": {
                     "type": "boolean"
                 },
@@ -54457,6 +55513,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -54635,6 +55695,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -54845,6 +55909,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -55039,6 +56107,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -55206,6 +56278,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -55435,6 +56511,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hasMore": {
                     "type": "boolean"
@@ -55671,6 +56751,10 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -55873,6 +56957,10 @@
                 "error": {
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
+                },
+                "events_retention_applied": {
+                    "description": "True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied.",
+                    "type": "boolean"
                 },
                 "hogql": {
                     "description": "Generated HogQL query.",

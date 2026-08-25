@@ -2594,6 +2594,11 @@ export interface AnalyticsQueryResponseBase {
     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[]
     /** Connector-synced data warehouse sources referenced by this query, if any. */
     used_data_warehouse_sources?: DataWarehouseSourceUsage[]
+    /**
+     * True when the events data retention floor narrowed this query's events scans, so results exclude
+     * events older than the team's retention window. Set server-side where the floor is applied.
+     */
+    events_retention_applied?: boolean
 }
 
 interface CachedQueryResponseMixin {

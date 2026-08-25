@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
-import { IconInfo, IconPulse, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { IconInfo, IconPulse, IconThumbsDown, IconThumbsUp, IconWarning } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import { CardMeta } from 'lib/components/Cards/CardMeta'
@@ -24,11 +24,13 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { Splotch, SplotchColor } from 'lib/lemon-ui/Splotch'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
+import { dataRetentionBannerLogic } from 'scenes/insights/dataRetention/dataRetentionBannerLogic'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -182,6 +184,7 @@ export function InsightMeta({
         })
     )
     const { samplingFactor, hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightLogicProps))
+    const { retentionApplies, retentionPeriodLabel } = useValues(dataRetentionBannerLogic)
     const { nameSortedDashboards } = useValues(dashboardsModel)
     const { copyToDestinations } = useValues(
         dashboardWidgetMenusLogic({
@@ -210,6 +213,16 @@ export function InsightMeta({
     // The ignore flag is surfaced by its own notice, so it alone shouldn't trigger the overrides warning.
     const hasTileOverrides = Object.keys(tileFiltersOverride ?? {}).some((key) => key !== 'ignoreDashboardFilters')
     const dateOverride = getEffectiveDateOverride(insight.filter_override_context, filtersOverride, tileFiltersOverride)
+    // The server marks the response when it narrowed the events scan; shared and exported views give the viewer no
+    // way to act on it.
+    const dataRetentionWarning =
+        retentionApplies &&
+        retentionPeriodLabel &&
+        insightData?.events_retention_applied === true &&
+        placement !== DashboardPlacement.Public &&
+        placement !== DashboardPlacement.Export
+            ? `This insight's date range goes beyond your ${retentionPeriodLabel} data retention, so events older than that aren't included.`
+            : null
     const topHeadingProps = {
         query: insight.query,
         lastRefresh: insight.last_refresh,
@@ -423,6 +436,7 @@ export function InsightMeta({
                         tags={insight.tags}
                         compact={showCompactTile}
                         showDescription={tile?.show_description !== false}
+                        dataRetentionWarning={dataRetentionWarning}
                         infoPopover={
                             showCompactTile ? (
                                 <CompactInfoPopover
@@ -738,6 +752,7 @@ export function InsightMetaContent({
     compact,
     showDescription,
     infoPopover,
+    dataRetentionWarning,
 }: {
     title: string
     fallbackTitle?: string
@@ -749,10 +764,18 @@ export function InsightMetaContent({
     compact?: boolean
     showDescription?: boolean
     infoPopover?: JSX.Element | null
+    /** Tooltip text for the data retention indicator. When set, a warning icon is shown after the title. */
+    dataRetentionWarning?: string | null
 }): JSX.Element {
+    // Next to the title rather than the card's top heading, which compact tiles hide below 14rem.
+    const dataRetentionIndicator = dataRetentionWarning ? (
+        <Tooltip title={dataRetentionWarning}>
+            <IconWarning className="ml-1.5 text-base shrink-0 text-warning" />
+        </Tooltip>
+    ) : null
     const titleContent = (
         <>
-            <span className={clsx('text-primary', infoPopover && 'truncate')}>
+            <span className={clsx('text-primary', (infoPopover || dataRetentionIndicator) && 'truncate')}>
                 {title || <i>{fallbackTitle || 'Untitled'}</i>}
             </span>
             {(loading || loadingQueued) && (
@@ -768,7 +791,7 @@ export function InsightMetaContent({
         <h4
             title={!compact ? title : undefined}
             data-attr="insight-card-title"
-            className={clsx(infoPopover && 'inline-flex items-center overflow-visible')}
+            className={clsx((infoPopover || dataRetentionIndicator) && 'inline-flex items-center overflow-visible')}
         >
             {link ? (
                 <Link to={link} className="max-w-full truncate">
@@ -777,6 +800,7 @@ export function InsightMetaContent({
             ) : (
                 titleContent
             )}
+            {dataRetentionIndicator}
             {infoPopover}
         </h4>
     )

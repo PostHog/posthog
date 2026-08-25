@@ -2595,6 +2595,8 @@ export interface InsightModel extends Cacheable, WithAccessControl {
     query?: Node | null
     query_status?: QueryStatus
     is_cached?: boolean
+    /** Set by the server when the retention floor narrowed this insight's events scan. */
+    events_retention_applied?: boolean | null
     filter_override_context?: InsightFilterOverrideContextApi | null
     /** Only used when creating objects */
     _create_in_folder?: string | null

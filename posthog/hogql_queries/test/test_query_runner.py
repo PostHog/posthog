@@ -181,6 +181,33 @@ class TestQueryRunner(BaseTest):
         assert any(w.get("table_name") == "paid_bills" for w in warnings)
         assert any(w.get("resources") == ["insight"] for w in warnings)
 
+    def test_events_retention_applied_attaches_from_inner_execution(self):
+        # Composite runners (trends, funnels, retention) never touch the printer themselves: the flag is set
+        # by an inner HogQL execution and must reach the outer response through the shared scope.
+        from posthog.hogql.warehouse_warnings import record_events_retention_applied
+
+        TestQueryRunner = self.setup_test_query_runner_class()
+
+        def calculate_with_floor(_self):
+            record_events_retention_applied()
+            return TheTestBasicQueryResponse(results=[])
+
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+        with mock.patch.object(TestQueryRunner, "_calculate", autospec=True, side_effect=calculate_with_floor):
+            response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        assert response.events_retention_applied is True
+
+    def test_events_retention_applied_absent_when_no_execution_floored(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+        with mock.patch.object(
+            TestQueryRunner, "_calculate", autospec=True, side_effect=lambda _s: TheTestBasicQueryResponse(results=[])
+        ):
+            response = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        assert response.events_retention_applied is None
+
     def test_calculate_runs_validators_before_calculation(self):
         TestQueryRunner = self.setup_test_query_runner_class()
         validation_rule = mock.MagicMock()
