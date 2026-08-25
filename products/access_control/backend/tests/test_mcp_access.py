@@ -55,6 +55,26 @@ class TestMCPReadOnlyEnforcement(APIBaseTest):
         response = self._request("post", {"key": f"flag-{_name}", "name": "e2e"}, mcp=mcp)
         assert response.status_code == 201
 
+    def test_root_viewset_caps_against_the_target_org_not_current_org(self) -> None:
+        # The read-only org is the target; the caller's *current* org is a different,
+        # uncapped one. A root environment write must be capped against the target.
+        from posthog.models.organization import Organization
+
+        self._set_read_only(True)
+        other_org, _, _ = Organization.objects.bootstrap(self.user, name="uncapped current org")
+        self.user.current_organization = other_org
+        self.user.save()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/",
+            {"name": "renamed via mcp"},
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {self.key_value}",
+            headers={"User-Agent": f"cursor/1.0 {MCP_USER_AGENT_MARKER}; version: 1.0.0"},
+        )
+        assert response.status_code == 403
+        assert "read-only" in response.json()["detail"]
+
     def test_dangerously_defined_permission_chains_are_still_capped(self) -> None:
         self._set_read_only(True)
 

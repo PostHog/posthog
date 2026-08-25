@@ -876,13 +876,39 @@ class MCPAccessPermission(ScopeBasePermission):
         if not is_mcp_request(request):
             return True
 
-        if getattr(view, "scope_object", None) is None:
-            return True
-        try:
-            organization = get_organization_from_view(view)
-        except ValueError:
+        # Root viewsets (organizations, projects, environments) carry no parent URL kwargs,
+        # and `get_organization_from_view` falls back to the user's current organization
+        # there, which is a UI preference, not the request's target. A member of several
+        # organizations could otherwise have the cap evaluated against the wrong one. Gate
+        # on the fetched object below instead. Views deriving their target from the current
+        # team are the exception: for those the current team is the target by construction.
+        if not view.parent_query_kwargs and not view.param_derived_from_user_current_team:
             return True
 
+        return self._admits(request, view, self._target_organization(view))
+
+    def has_object_permission(self, request, view, object) -> bool:
+        if not is_mcp_request(request):
+            return True
+        if isinstance(object, Organization):
+            return self._admits(request, view, object)
+        organization = getattr(object, "organization", None)
+        if isinstance(organization, Organization):
+            return self._admits(request, view, organization)
+        return True
+
+    @staticmethod
+    def _target_organization(view) -> Optional[Organization]:
+        if getattr(view, "scope_object", None) is None:
+            return None
+        try:
+            return get_organization_from_view(view)
+        except (ValueError, NotFound):
+            return None
+
+    def _admits(self, request, view, organization: Optional[Organization]) -> bool:
+        if organization is None:
+            return True
         required_scopes = self._get_required_scopes(request, view)
         if required_scopes is None:
             # This action is unclassified: no required_scopes, or an INTERNAL scope object.
