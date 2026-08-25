@@ -28,15 +28,15 @@ from uuid import UUID
 from django.db.models import Q, QuerySet
 
 from posthog.models.team import Team
-from posthog.rbac.user_access_control import NO_ACCESS_LEVEL
 
+from products.access_control.backend.facade.user_access_control import NO_ACCESS_LEVEL
 from products.engineering_analytics.backend.facade.contracts import GitHubSource, GitHubSourceNotConnectedError
 from products.warehouse_sources.backend.facade.models import ExternalDataSchema, ExternalDataSource
 from products.warehouse_sources.backend.facade.sources import github_schema_repo_endpoint
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 if TYPE_CHECKING:
-    from posthog.rbac.user_access_control import UserAccessControl
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 # GitHub source endpoints (``ExternalDataSchema.name``) backing the curated builders. The
 # materialized table for each is ``prefix + "github_" + endpoint``, e.g. with prefix
