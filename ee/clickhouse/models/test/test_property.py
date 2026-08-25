@@ -1752,6 +1752,22 @@ def test_prop_filter_json_extract_nullable_materialized_is_set_uses_json(
         assert uuids == expected
 
 
+def test_prop_filter_json_extract_is_set_excludes_explicit_null():
+    # `is_set` previously only checked `JSONHas(...)`, which is true even when the
+    # property's value is JSON `null` -- so a person/event whose property was
+    # explicitly nulled out still matched "is set". `is_not_set` already guards
+    # against the mirror case via `isNull(...)`; `is_set` must too, otherwise
+    # "set" and "not set" can both match the same explicit-null row.
+    query, _ = prop_filter_json_extract(
+        Property(key="email", operator="is_set", value="is_set"),
+        0,
+        allow_denormalized_props=False,
+    )
+
+    assert "JSONHas" in query
+    assert "isNull" in query
+
+
 @pytest.mark.parametrize("property,expected_event_indexes", TEST_PROPERTIES)
 @freeze_time("2021-04-01T01:00:00.000Z")
 def test_prop_filter_json_extract_person_on_events_materialized(

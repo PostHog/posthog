@@ -526,10 +526,11 @@ def prop_filter_json_extract(
                 params,
             )
         return (
-            " {property_operator} JSONHas({prop_var}, %(k{prepend}_{idx})s)".format(
+            " {property_operator} (JSONHas({prop_var}, %(k{prepend}_{idx})s) AND NOT isNull({left}))".format(
                 idx=idx,
                 prepend=prepend,
                 prop_var=prop_var,
+                left=property_expr,
                 property_operator=property_operator,
             ),
             params,
