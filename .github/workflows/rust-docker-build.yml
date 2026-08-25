@@ -207,6 +207,9 @@ jobs:
                     - release: hypercache-server
                       digest_key: hypercache-server
                       values_key: image
+                    - release: usage-ingestion
+                      digest_key: usage-ingestion
+                      values_key: image
         steps:
             - name: check if image was built
               id: check
