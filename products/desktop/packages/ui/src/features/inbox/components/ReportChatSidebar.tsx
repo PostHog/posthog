@@ -333,6 +333,13 @@ function ReportChatStarter({ report }: { report: SignalReport }) {
   // questions worth asking about this report first.
   const suggestedPrompts = normalizeSuggestedPrompts(report.suggested_prompts);
 
+  // Swapping one suggestion for another is safe, but overwriting text the reader
+  // typed or a passage they highlighted is not. The chips stay live while the
+  // draft still equals a suggestion, and step aside once it holds the reader's
+  // own content — the same invariant the fixed starter actions guard below.
+  const draftIsOwnContent =
+    starterDraft.trim().length > 0 && !suggestedPrompts.includes(starterDraft);
+
   const starterPrompts = [
     {
       label: "Fix this issue",
@@ -375,7 +382,7 @@ function ReportChatStarter({ report }: { report: SignalReport }) {
                 type="button"
                 variant="outline"
                 className="h-auto min-h-10 justify-start whitespace-normal rounded-lg px-4 py-2 text-left text-[13px]"
-                disabled={isDiscussing}
+                disabled={isDiscussing || draftIsOwnContent}
                 onClick={() => fillSuggestion(suggestion)}
               >
                 {suggestion}
