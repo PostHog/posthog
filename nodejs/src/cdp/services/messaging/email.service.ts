@@ -417,6 +417,11 @@ export class EmailService {
             !isTest &&
             (await this.teamWorkflowsConfigService.shouldCaptureEngagementEvents(invocation.teamId))
         ) {
+            // A flow's email runs as a hog function invocation built by spreading the flow invocation, so
+            // `hogFlow` is present at runtime even though the type is the narrower hog function shape.
+            const hogFlow =
+                'hogFlow' in invocation ? (invocation as unknown as CyclotronJobInvocationHogFlow).hogFlow : undefined
+
             result.capturedPostHogEvents.push({
                 team_id: invocation.teamId,
                 timestamp: new Date().toISOString(),
@@ -424,7 +429,13 @@ export class EmailService {
                 event: success ? '$workflows_email_sent' : '$workflows_email_failed',
                 properties: {
                     $workflow_id: invocation.functionId,
+                    // The names are what make an insight readable: broken down by id alone, a chart is a
+                    // column of UUIDs. They're a snapshot of the name at send time, so a later rename splits
+                    // the breakdown into two buckets — the ids stay the stable key for anyone who needs one.
+                    $workflow_name: hogFlow?.name,
                     $workflow_action_id: invocation.state.actionId,
+                    $workflow_action_name: hogFlow?.actions.find((action) => action.id === invocation.state.actionId)
+                        ?.name,
                     $email_to: params.to.email,
                     $email_subject: params.subject,
                     // Always set, never conditional: an untracked send can never produce a

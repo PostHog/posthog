@@ -293,7 +293,13 @@ export class EmailTrackingService {
                 timestamp,
                 properties: {
                     $workflow_id: appSourceId,
+                    // The names come off the current `hogFlow`, not the tracking code like the version
+                    // above: they are display labels, and the current name is the one the workflows list
+                    // shows. A rename between send and open therefore splits a name breakdown across two
+                    // buckets — `$workflow_id` stays the stable key.
+                    $workflow_name: hogFlow?.name,
                     $workflow_action_id: actionId,
+                    $workflow_action_name: hogFlow?.actions.find((action) => action.id === actionId)?.name,
                     ...(workflowVersion !== undefined ? { $workflow_version: workflowVersion } : {}),
                     ...properties,
                 },

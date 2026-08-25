@@ -1485,6 +1485,21 @@
             ],
             "label": "Element text"
         },
+        "$email_subject": {
+            "description": "The subject line of the workflow email.",
+            "examples": [
+                "Welcome to PostHog"
+            ],
+            "label": "Email subject"
+        },
+        "$email_to": {
+            "description": "The address the workflow email was sent to.",
+            "label": "Email recipient"
+        },
+        "$email_tracking_enabled": {
+            "description": "Whether open and click tracking was on for this send. An untracked send can never report an open or a click, so exclude untracked sends when you calculate open and click rates.",
+            "label": "Email tracking enabled"
+        },
         "$enabled_feature_flags": {
             "description": "Keys and multivariate values of the feature flags that were active while this event was sent.",
             "examples": [
@@ -2082,6 +2097,14 @@
                 3
             ],
             "label": "Library version (patch)"
+        },
+        "$link_index": {
+            "description": "The position of the clicked link in the workflow email, counted from the top.",
+            "label": "Email link position"
+        },
+        "$link_url": {
+            "description": "The destination of the link the recipient clicked in a workflow email.",
+            "label": "Email link URL"
         },
         "$locale": {
             "description": "The locale of the device",
@@ -3520,6 +3543,34 @@
             "label": "Window ID",
             "system": true
         },
+        "$workflow_action_id": {
+            "description": "The unique identifier of the step inside the workflow that sent the email.",
+            "label": "Workflow step ID"
+        },
+        "$workflow_action_name": {
+            "description": "The name of the step inside the workflow that sent the email, as it was when the event happened.",
+            "examples": [
+                "Welcome email",
+                "Day 3 reminder"
+            ],
+            "label": "Workflow step name"
+        },
+        "$workflow_id": {
+            "description": "The unique identifier of the workflow that sent the email.",
+            "label": "Workflow ID"
+        },
+        "$workflow_name": {
+            "description": "The name of the workflow that sent the email, as it was when the event happened. Renaming a workflow does not rewrite past events, so break down by workflow ID if you need one bucket per workflow.",
+            "examples": [
+                "Onboarding drip",
+                "Weekly digest"
+            ],
+            "label": "Workflow name"
+        },
+        "$workflow_version": {
+            "description": "The version of the workflow that was published when the email was sent.",
+            "label": "Workflow version"
+        },
         "_kx": {
             "description": "Klaviyo Tracking ID",
             "label": "_kx"
@@ -4096,6 +4147,10 @@
             "ignored_in_assistant": true,
             "label": "Set person properties"
         },
+        "$slack_message_received": {
+            "description": "Fires when a message is posted in a Slack channel PostHog is connected to.",
+            "label": "Slack message received"
+        },
         "$snapshot": {
             "description": "Carries session replay data to the backend. These events do not contribute to event counts.",
             "ignored_in_assistant": true,
@@ -4104,6 +4159,49 @@
         "$web_vitals": {
             "description": "Automatically captured web vitals data.",
             "label": "Web vitals"
+        },
+        "$workflows_email_blocked": {
+            "description": "Fires when a recipient marks a workflow email as spam, so later sends to them are blocked.",
+            "label": "Workflow email blocked",
+            "primary_property": "$workflow_name"
+        },
+        "$workflows_email_bounced": {
+            "description": "Fires when a workflow email is rejected by the recipient's mail server.",
+            "label": "Workflow email bounced",
+            "primary_property": "$workflow_name"
+        },
+        "$workflows_email_delivered": {
+            "description": "Fires when the email provider confirms a workflow email reached the recipient's mailbox.",
+            "label": "Workflow email delivered",
+            "primary_property": "$workflow_name"
+        },
+        "$workflows_email_failed": {
+            "description": "Fires when a workflow email could not be handed to the email provider.",
+            "label": "Workflow email failed",
+            "primary_property": "$workflow_name"
+        },
+        "$workflows_email_link_clicked": {
+            "description": "Fires when a recipient clicks a link in a workflow email. Only tracked emails can report clicks.",
+            "label": "Workflow email link clicked",
+            "primary_property": "$workflow_name"
+        },
+        "$workflows_email_opened": {
+            "description": "Fires when a recipient opens a workflow email. Only tracked emails can report opens.",
+            "label": "Workflow email opened",
+            "primary_property": "$workflow_name"
+        },
+        "$workflows_email_sent": {
+            "description": "Fires when a workflow hands an email to the email provider.",
+            "label": "Workflow email sent",
+            "primary_property": "$workflow_name"
+        },
+        "$workflows_email_tracking_consent_updated": {
+            "description": "Fires when a recipient changes whether workflow emails to them may be tracked.",
+            "label": "Workflow email tracking consent updated"
+        },
+        "$workflows_email_unsubscribed": {
+            "description": "Fires when a recipient unsubscribes from a message category. The unsubscribe link carries no workflow, so this event has no workflow properties.",
+            "label": "Workflow email unsubscribed"
         },
         "All events": {
             "description": "This is a wildcard that matches all events.",
@@ -5992,6 +6090,21 @@
             ],
             "label": "Element text"
         },
+        "$email_subject": {
+            "description": "The subject line of the workflow email.",
+            "examples": [
+                "Welcome to PostHog"
+            ],
+            "label": "Email subject"
+        },
+        "$email_to": {
+            "description": "The address the workflow email was sent to.",
+            "label": "Email recipient"
+        },
+        "$email_tracking_enabled": {
+            "description": "Whether open and click tracking was on for this send. An untracked send can never report an open or a click, so exclude untracked sends when you calculate open and click rates.",
+            "label": "Email tracking enabled"
+        },
         "$enabled_feature_flags": {
             "description": "Keys and multivariate values of the feature flags that were active while this event was sent.",
             "examples": [
@@ -7006,6 +7119,14 @@
                 3
             ],
             "label": "Library version (patch)"
+        },
+        "$link_index": {
+            "description": "The position of the clicked link in the workflow email, counted from the top.",
+            "label": "Email link position"
+        },
+        "$link_url": {
+            "description": "The destination of the link the recipient clicked in a workflow email.",
+            "label": "Email link URL"
         },
         "$locale": {
             "description": "The locale of the device",
@@ -8428,6 +8549,34 @@
             "description": "Unique window ID for session recording disambiguation",
             "label": "Window ID",
             "system": true
+        },
+        "$workflow_action_id": {
+            "description": "The unique identifier of the step inside the workflow that sent the email.",
+            "label": "Workflow step ID"
+        },
+        "$workflow_action_name": {
+            "description": "The name of the step inside the workflow that sent the email, as it was when the event happened.",
+            "examples": [
+                "Welcome email",
+                "Day 3 reminder"
+            ],
+            "label": "Workflow step name"
+        },
+        "$workflow_id": {
+            "description": "The unique identifier of the workflow that sent the email.",
+            "label": "Workflow ID"
+        },
+        "$workflow_name": {
+            "description": "The name of the workflow that sent the email, as it was when the event happened. Renaming a workflow does not rewrite past events, so break down by workflow ID if you need one bucket per workflow.",
+            "examples": [
+                "Onboarding drip",
+                "Weekly digest"
+            ],
+            "label": "Workflow name"
+        },
+        "$workflow_version": {
+            "description": "The version of the workflow that was published when the email was sent.",
+            "label": "Workflow version"
         },
         "_kx": {
             "description": "Klaviyo Tracking ID Data from the last time this user was seen.",
