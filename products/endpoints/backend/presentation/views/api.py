@@ -341,11 +341,15 @@ class EndpointViewSet(
         if isinstance(obj, EndpointVersion):
             endpoint = obj.endpoint
             version = obj
-            if hasattr(obj, "endpoint_versions_count"):
-                endpoint.versions_count = obj.endpoint_versions_count
         else:
             endpoint = obj
             version = self._current_version(endpoint)
+
+        versions_count = (
+            obj.endpoint_versions_count
+            if isinstance(obj, EndpointVersion) and hasattr(obj, "endpoint_versions_count")
+            else self._versions_count(endpoint)
+        )
 
         url = None
         ui_url = None
@@ -370,7 +374,7 @@ class EndpointViewSet(
             "is_materialized": version.is_materialized,
             "current_version": endpoint.current_version,
             "current_version_id": str(version.id),
-            "versions_count": self._versions_count(endpoint),
+            "versions_count": versions_count,
             "derived_from_insight": endpoint.derived_from_insight,
             "last_executed_at": endpoint.last_executed_at.isoformat() if endpoint.last_executed_at else None,
             "materialization": build_materialization_info(version),
