@@ -502,8 +502,71 @@ def _repo_request_section(title: str, summary: str, evidence: list[ReportEvidenc
     return "\n".join(lines)
 
 
+# A GitHub repository link: the host, then `owner/repo`. `owner` follows GitHub's own rule
+# (alphanumerics joined by single hyphens); `repo` allows the dot/underscore/hyphen GitHub permits. A
+# deeper path (`/pull/1`, `/blob/...`) still names its `owner/repo`, so a linked PR or file resolves
+# to the repo just as a bare repository link does.
+_GITHUB_REPO_URL_RE = re.compile(
+    r"https?://(?:www\.)?github\.com/"
+    r"(?P<owner>[A-Za-z0-9](?:-?[A-Za-z0-9])*)/"
+    r"(?P<repo>[A-Za-z0-9._-]+)",
+    re.IGNORECASE,
+)
+
+# First-segment GitHub paths that are site features, not a user or org — so `<feature>/<x>` is a page,
+# never a repository.
+_GITHUB_NON_REPO_OWNERS = frozenset(
+    {
+        "about",
+        "apps",
+        "collections",
+        "explore",
+        "features",
+        "join",
+        "login",
+        "marketplace",
+        "new",
+        "notifications",
+        "organizations",
+        "orgs",
+        "pricing",
+        "search",
+        "security",
+        "settings",
+        "sponsors",
+        "topics",
+    }
+)
+
+
+def _extract_linked_repository(title: str, summary: str, evidence: list[ReportEvidence]) -> str | None:
+    """Find the single GitHub repository linked in the report content, or None when it links zero or
+    several distinct repos.
+
+    A deterministic, sandbox-free fallback for a report that named its repo in a GitHub link but did
+    not pass `repository`. Requiring exactly one distinct repo keeps it from guessing: a report that
+    links two repos, or none, resolves to no repo (the prior behavior) rather than a wrong one, which
+    a later Create PR run would fail on."""
+    text = "\n".join([title, summary, *(e.description for e in evidence)])
+    repos: set[str] = set()
+    for match in _GITHUB_REPO_URL_RE.finditer(text):
+        owner = match.group("owner").lower()
+        if owner in _GITHUB_NON_REPO_OWNERS:
+            continue
+        repo = match.group("repo").lower().removesuffix(".git").rstrip(".")
+        if repo:
+            repos.add(f"{owner}/{repo}")
+    return next(iter(repos)) if len(repos) == 1 else None
+
+
 async def _resolve_report_repository(
-    *, team_id: int, repository: str | None, title: str, summary: str, evidence: list[ReportEvidence]
+    *,
+    team_id: int,
+    repository: str | None,
+    title: str,
+    summary: str,
+    evidence: list[ReportEvidence],
+    wants_full_selection: bool,
 ) -> RepoSelectionResult | None:
     """Resolve the scout's `repository` input into a `repo_selection` artefact (or None to write none).
 
@@ -512,12 +575,24 @@ async def _resolve_report_repository(
     free-form path is the slow one — for a team with many repos it spawns a selection sandbox — so a
     scout that knows its repo should pass it explicitly (see the report contract). The cheap
     `NO_REPO` / `owner/repo` cases are validated by `_normalize_repository` up front (before the judge),
-    so by here an explicit repo is already well-formed; only the free-form path remains."""
+    so by here an explicit repo is already well-formed; only the free-form path remains.
+
+    `wants_full_selection` is the PR-intent gate (`_wants_repo_selection`). When it is false the report
+    surfaced without the inputs the selection sandbox exists to serve, so the free-form branch scans
+    the report content for one linked GitHub repository instead — a cheap deterministic match that
+    still seeds a `repo_selection` artefact for a later Create PR run, and writes none when the content
+    names no single repo."""
     repository = _normalize_repository(repository)
     if repository == NO_REPO:
         return RepoSelectionResult(repository=None, reason="Scout passed NO_REPO; report lands without a draft PR.")
     if repository is not None:
         return RepoSelectionResult(repository=repository, reason="Repository provided by the scout.")
+
+    if not wants_full_selection:
+        linked = _extract_linked_repository(title, summary, evidence)
+        if linked is None:
+            return None
+        return RepoSelectionResult(repository=linked, reason="Linked GitHub repository found in the report content.")
 
     # Free-form: let the shared selector pick across the team's repos. Imports are deferred to keep the
     # temporal/agentic + sandbox stack off this harness-tool module's import path (it loads at worker boot).
@@ -1031,9 +1106,14 @@ async def emit_report(
     surfaced = _surfaced(judgement.status)
     repo_selection = (
         await _resolve_report_repository(
-            team_id=team.id, repository=repository, title=title, summary=summary, evidence=evidence
+            team_id=team.id,
+            repository=repository,
+            title=title,
+            summary=summary,
+            evidence=evidence,
+            wants_full_selection=_wants_repo_selection(repository, priority_assessment, reviewers),
         )
-        if surfaced and _wants_repo_selection(repository, priority_assessment, reviewers)
+        if surfaced
         else None
     )
     persisted = await database_sync_to_async(create_scout_report, thread_sensitive=False)(
@@ -1155,9 +1235,14 @@ def emit_report_sync(
     surfaced = _surfaced(judgement.status)
     repo_selection = (
         async_to_sync(_resolve_report_repository)(
-            team_id=team.id, repository=repository, title=title, summary=summary, evidence=evidence
+            team_id=team.id,
+            repository=repository,
+            title=title,
+            summary=summary,
+            evidence=evidence,
+            wants_full_selection=_wants_repo_selection(repository, priority_assessment, reviewers),
         )
-        if surfaced and _wants_repo_selection(repository, priority_assessment, reviewers)
+        if surfaced
         else None
     )
     persisted = create_scout_report(

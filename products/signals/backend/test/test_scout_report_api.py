@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, patch
 from django.apps import apps
 from django.test import SimpleTestCase
 
+from asgiref.sync import async_to_sync
 from parameterized import parameterized
 from rest_framework import status
 from social_django.models import UserSocialAuth
@@ -24,10 +25,13 @@ from products.signals.backend.scout_harness.tools.report import (
     EditReportResult,
     InvalidScoutReportError,
     ReportChartInput,
+    ReportEvidence,
     ReviewerInput,
     _build_suggested_reviewers,
     _capture_report_edited,
+    _extract_linked_repository,
     _report_classification_props,
+    _resolve_report_repository,
     _wants_repo_selection,
 )
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
@@ -1114,6 +1118,75 @@ class TestWantsRepoSelection(SimpleTestCase):
         expected: bool,
     ) -> None:
         assert _wants_repo_selection(repository, priority, reviewers) is expected
+
+
+def _evidence(*descriptions: str) -> list[ReportEvidence]:
+    return [ReportEvidence(description=d, source_id=f"s{i}") for i, d in enumerate(descriptions)]
+
+
+class TestExtractLinkedRepository(SimpleTestCase):
+    """The deterministic linked-repo scan behind the gate-skipped repo-selection fallback. Exactly one
+    distinct repo resolves; zero or several resolve to nothing, so a report that names no single repo
+    never seeds a wrong one for a later Create PR run."""
+
+    @parameterized.expand(
+        [
+            ("root_url", "", "See https://github.com/acme/widgets for context", (), "acme/widgets"),
+            ("deep_pull_link", "", "Broke in https://github.com/acme/widgets/pull/12", (), "acme/widgets"),
+            ("case_and_git_suffix", "", "https://github.com/Acme/Widgets.git broke", (), "acme/widgets"),
+            ("trailing_period", "", "Fixed in https://github.com/acme/widgets.", (), "acme/widgets"),
+            ("from_evidence", "", "no link here", ("https://github.com/acme/widgets/blob/main/x.py",), "acme/widgets"),
+            (
+                "same_repo_twice",
+                "https://github.com/acme/widgets",
+                "and https://github.com/acme/widgets/pull/1",
+                (),
+                "acme/widgets",
+            ),
+            (
+                "two_distinct_repos",
+                "https://github.com/acme/widgets",
+                "vs https://github.com/acme/gadgets",
+                (),
+                None,
+            ),
+            ("no_link", "A plain title", "Users hit read/write errors in acme/widgets", (), None),
+            ("feature_path_not_repo", "", "Configured at https://github.com/apps/dependabot", (), None),
+        ]
+    )
+    def test_extract_linked_repository(
+        self, _name: str, title: str, summary: str, evidence_descriptions: tuple[str, ...], expected: str | None
+    ) -> None:
+        assert _extract_linked_repository(title, summary, _evidence(*evidence_descriptions)) == expected
+
+
+class TestResolveReportRepositoryGateSkipped(SimpleTestCase):
+    """When the PR-intent gate skips full selection, `_resolve_report_repository` still writes an
+    artefact for a single linked repo (so a later Create PR run has a target) and writes none
+    otherwise — never spinning up the selection sandbox."""
+
+    def test_linked_repo_becomes_artefact(self) -> None:
+        result = async_to_sync(_resolve_report_repository)(
+            team_id=1,
+            repository=None,
+            title="Crash on upload",
+            summary="Traced to https://github.com/acme/widgets/pull/7",
+            evidence=_evidence(),
+            wants_full_selection=False,
+        )
+        assert result is not None
+        assert result.repository == "acme/widgets"
+
+    def test_no_linked_repo_writes_nothing(self) -> None:
+        result = async_to_sync(_resolve_report_repository)(
+            team_id=1,
+            repository=None,
+            title="Crash on upload",
+            summary="No repository named here",
+            evidence=_evidence(),
+            wants_full_selection=False,
+        )
+        assert result is None
 
 
 class TestReportClassificationProps(SimpleTestCase):
