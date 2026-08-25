@@ -74,8 +74,14 @@ def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.S
         if is_event_view(customer_view.name):
             person_id_chain = [RevenueAnalyticsCustomerView.get_generic_view_alias(), "id"]
         else:
+            # The `persons` field comes from a user-defined warehouse join, so its name does not
+            # guarantee its target. Reading `id` off some other table casts to NULL below, which would
+            # hide that source's revenue in one unlabeled row, so require the real persons table.
             persons_lazy_join = customer_view.fields.get("persons")
-            if persons_lazy_join is not None and isinstance(persons_lazy_join, ast.LazyJoin):
+            if (
+                isinstance(persons_lazy_join, ast.LazyJoin)
+                and persons_lazy_join.resolve_table(context).to_printed_hogql() == "persons"
+            ):
                 person_id_chain = [RevenueAnalyticsCustomerView.get_generic_view_alias(), "persons", "id"]
 
         if person_id_chain is not None:
@@ -184,6 +190,9 @@ def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.S
             ast.Alias(alias="mrr", expr=ast.Call(name="sum", args=[ast.Field(chain=["mrr"])])),
         ],
         select_from=ast.JoinExpr(table=inner_query),
+        # A cast that fails yields NULL. Dropping those rows keeps unattributable revenue out of the
+        # table rather than pooling it under one key that looks like a person.
+        where=ast.Call(name="isNotNull", args=[ast.Field(chain=["person_id"])]),
         group_by=[ast.Field(chain=["person_id"])],
     )
 

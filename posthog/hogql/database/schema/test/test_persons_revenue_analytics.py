@@ -383,12 +383,57 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
                 ),
             )
 
-    def test_person_id_joins_directly_against_persons_id(self):
-        self.setup_schema_sources()
-        person = _create_person(team_id=self.team.pk, distinct_ids=["cus_1"])
+    def test_warehouse_join_named_persons_pointing_elsewhere_is_ignored(self):
+        self.create_sources()
+        self.team.base_currency = CurrencyCode.GBP.value
+        self.team.save()
 
-        # `person_id` is the documented join target for `persons.id`. Both sides must stay UUID, or a
-        # hand-written join like this one fails in ClickHouse with `NO_COMMON_TYPE`.
+        # `field_name` is user-controlled, so a join can be called `persons` while pointing anywhere.
+        # Reading `id` off that table casts to NULL, which would pool every customer's revenue into
+        # one row keyed on nothing. The source is skipped instead.
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name=f"stripe.posthog_test.{SCHEMA.source_suffix}",
+            source_table_key="id",
+            joining_table_name="posthog_test_stripe_customer",
+            joining_table_key="id",
+            field_name="persons",
+        )
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            results = execute_hogql_query(
+                parse_select("SELECT person_id, revenue FROM persons_revenue_analytics"),
+                self.team,
+                user=self.user,
+                modifiers=self.MODIFIERS,
+            )
+
+            self.assertEqual(results.results, [])
+
+    @parameterized.expand(["events", "warehouse"])
+    def test_person_id_joins_directly_against_persons_id(self, source_kind: str):
+        # `person_id` is the documented join target for `persons.id`. The event leg reaches it through
+        # `toString(persons.id)`, so it is the leg that fails with `NO_COMMON_TYPE` when the column is
+        # not cast back to UUID. The warehouse leg already holds a UUID and passes either way, so both
+        # kinds are covered to stop one of them regressing alone.
+        if source_kind == "events":
+            self.setup_events()
+            self.team.revenue_analytics_config.events = [
+                RevenueAnalyticsEventItem(
+                    eventName=self.PURCHASE_EVENT_NAME,
+                    revenueProperty=self.REVENUE_PROPERTY,
+                    revenueCurrencyProperty=RevenueCurrencyPropertyConfig(static="USD"),
+                    currencyAwareDecimal=True,
+                )
+            ]
+            self.team.revenue_analytics_config.save()
+            self.team.save()
+            expected_row = (UUID(self.PERSON_ID), Decimal("350.42"))
+        else:
+            self.setup_schema_sources()
+            person = _create_person(team_id=self.team.pk, distinct_ids=["cus_1"])
+            expected_row = (person.uuid, Decimal("283.8496260553"))
+
         with freeze_time(self.QUERY_TIMESTAMP):
             results = execute_hogql_query(
                 parse_select(
@@ -403,7 +448,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
                 modifiers=self.MODIFIERS,
             )
 
-            self.assertEqual(results.results, [(person.uuid, Decimal("283.8496260553"))])
+            self.assertEqual(results.results, [expected_row])
 
     def test_query_revenue_analytics_table_sources(self):
         self.setup_schema_sources()
