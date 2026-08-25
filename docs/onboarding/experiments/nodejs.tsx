@@ -1,14 +1,11 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
-import { getNodeJSSteps as getNodeJSStepsPA } from '../product-analytics/nodejs'
+import { getNodeJSInstallSteps } from '../product-analytics/nodejs'
 import { StepDefinition } from '../steps'
 
 export const getNodeJSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { Markdown, dedent, snippets } = ctx
     const ExperimentImplementation = snippets?.ExperimentImplementationSnippet
-
-    // Get installation steps from product-analytics only (exclude "Send an event")
-    const installationSteps = getNodeJSStepsPA(ctx).filter((step: StepDefinition) => step.title !== 'Send an event')
 
     // Add experiments-specific steps
     const experimentSteps: StepDefinition[] = [
@@ -41,7 +38,7 @@ export const getNodeJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
         },
     ]
 
-    return [...installationSteps, ...experimentSteps]
+    return [...getNodeJSInstallSteps(ctx), ...experimentSteps]
 }
 
 export const NodeJSInstallation = createInstallation(getNodeJSSteps)

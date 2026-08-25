@@ -82,12 +82,25 @@ interface ScoutFocus {
     quiet: string
     priority: string
     skip: string
+    /** Replaces the default quiet-window verdict. A watcher's quiet run is a one-line "nothing
+     * crossed the bar"; a digest has no bar to clear, so that line contradicts its own shape. */
+    quietVerdict?: string
+    /** Replaces the default report shape. A watcher reports an exception, so its default is a
+     * takeaway and at most three bullets; a digest summarizes the window whether or not anything
+     * crossed a bar, and that does not fit in three bullets. */
+    shape?: string
 }
 
 /** Every template shares this scaffolding — how to orient, dedupe, file, and handle untrusted
  * observation text — and differs only in what it reads and what it considers report-worthy. The
  * scanner id is the sole baked-in context; the scanner's name, type, and prompt are read live via
  * `vision-scanners-get`, so editing the scanner never requires touching the scout. */
+const DEFAULT_QUIET_VERDICT =
+    'When nothing clears the bar, still file the report: open with the verdict `Nothing notable`, then a short coverage line naming what you read and what it showed ("42 observations across 30 sessions, distributions steady").'
+
+const DEFAULT_REPORT_SHAPE = `- Open with the takeaway in one line, then at most three bullets ordered by impact.
+- Each bullet: what changed, with only the numbers needed to judge it; why it matters; the evidence-backed cause or best next investigation; and the specific next action.`
+
 function buildScoutBody(scannerId: string, focus: ScoutFocus): string {
     return `# ${focus.heading}
 
@@ -130,18 +143,17 @@ ${focus.skip}
 Every successful run leaves exactly one report for the date, and it is the digest: never one report per finding, and never a run that files nothing.
 
 Title it \`<your scout name>: YYYY-MM-DD\`, dating it with the run's date in the project timezone. Your scout name is your own \`skill_name\` with the \`signals-scout-\` prefix dropped, dashes turned into spaces, and the first letter capitalized: \`signals-scout-checkout-trend-watch\` titles as \`Checkout trend watch: 2026-01-31\`. It already carries the scanner, so nothing else has to, and it is what keeps two scouts from writing the same title, which matters because of the next line.
-Before writing, \`inbox-reports-list\` and compare titles exactly: if today's title already exists, \`scout-edit-report\` it rather than authoring a second one. Otherwise \`scout-emit-report\`. Never two reports for the same date, and never a second emit later in the same run — each one delivers again.
+Before writing, find your own report by pointer, never by title: \`scout-scratchpad-search\` for \`${scannerId}:report:<your skill_name>:<today>\` and \`inbox-reports-retrieve\` the id it holds. Edit that report if it exists; otherwise \`scout-emit-report\` and stash the new id under \`${scannerId}:report:<your skill_name>:<today>\`. A title match is not proof the report is yours — several scouts watch this scanner, and more than one of them titles its report after the scanner, so matching on title edits another scout's report and leaves yours unwritten. Never two reports for the same date from you, and never a second emit later in the same run — each one delivers again.
 
 Write the report so it stands alone for a reader with no prior context:
 
-- Open with the takeaway in one line, then at most three bullets ordered by impact.
-- Each bullet: what changed, with only the numbers needed to judge it; why it matters; the evidence-backed cause or best next investigation; and the specific next action.
+${focus.shape ?? DEFAULT_REPORT_SHAPE}
 - Ground every claim in observations you actually read, as real markdown links to the recording: \`[what it shows](/project/<project_id>/replay/<session_id>?t=<seconds>)\`, so the link opens on the moment being claimed. A bare \`[obs 3]\` is not a link and leaves the reader nowhere to go. Two or three per bullet is plenty; link the clearest cases, not every one.
 - Link what another scout already reported rather than restating it: \`[already documented](/project/<project_id>/inbox/<report_id>)\`, taking the id from \`inbox-reports-list\`. Several scouts watch this scanner and read the same window, so without the link one finding gets filed three times.
 - Close with what you checked, and name anything you could not cover and why.
 
-When nothing clears the bar, still file the report, with the verdict \`Nothing notable\` and a short coverage line ("42 observations across 30 sessions, distributions steady"). ${focus.priority}
-These are watcher findings: \`repository=NO_REPO\`. Set \`actionability\` by what the report asks of its reader. \`requires_human_input\` only when someone has to decide or act on what you found: it lands in the inbox awaiting input, and a digest that reports a quiet day does not belong in that queue. Otherwise \`immediately_actionable\`, which surfaces the report without asking anything of anyone. Never \`not_actionable\`: it suppresses the report, which empties the scanner's digest card and stops delivery, so a quiet day reads as a run that never happened. After writing, keep a \`report:\` scratchpad pointer so the next run finds today's report instead of duplicating it.
+${focus.quietVerdict ?? DEFAULT_QUIET_VERDICT} ${focus.priority}
+These are watcher findings: \`repository=NO_REPO\`. Set \`actionability\` by what the report asks of its reader. \`requires_human_input\` only when someone has to decide or act on what you found: it lands in the inbox awaiting input, and a digest that reports a quiet day does not belong in that queue. Otherwise \`immediately_actionable\`, which surfaces the report without asking anything of anyone. Never \`not_actionable\`: it suppresses the report, which empties the scanner's digest card and stops delivery, so a quiet day reads as a run that never happened. After writing, stash the report id under \`${scannerId}:report:<your skill_name>:<today>\` — that pointer, not the title, is how the next run finds this report.
 
 ## Charts, when the shape is the point
 
@@ -230,15 +242,26 @@ export function scannerScoutTemplates(
                 role: 'You write the daily digest for one Replay Vision scanner: read what it observed since your last run and report what a product team should know.',
                 reads: `- \`vision-scanners-observations-stats\` and \`vision-scanners-observations-list\` (scanner_id \`${scannerId}\`) — the primary read: what the scanner saw in the window, and how its outcomes are distributed.
 - \`execute-sql\` over \`$recording_observed\` for counts and distributions across the window when the stats endpoint doesn't answer the question.`,
-                notable: `Judge the window against the scanner's own baseline, not an absolute bar:
+                notable: `Every run summarizes the window. There is no bar to clear: a reader opens a
+digest to learn what the scanner saw, so describe the window whether or not anything changed.
 
+Lead the summary with whatever the window is actually about, and lean on:
+
+- The themes the observations fall into, and roughly how much of the window each accounts for.
 - A friction theme, complaint, or failure mode recurring across several distinct sessions.
 - A verdict rate, score distribution, or tag mix stepping away from the scanner's prior weeks.
 - A single session severe enough that the team should watch the recording today.`,
-                quiet: 'Routine volume, steady distributions, happy-path summaries, and one mild low-score session are baseline. A quiet window is a normal outcome, and still files its digest: verdict `Nothing notable`, plus what you checked.',
+                quiet: 'A window where nothing changed still has content: what users did, which themes dominated, and how the distribution sat against prior weeks.',
                 skip: `- Anything the scanner's own per-session signals already pushed to the inbox.
-- A theme resting on one or two observations; say so rather than inflating it into a trend.
 - Observations whose own signals contradict the claim (a session marked \`friction: none\` is never evidence of an error).`,
+                quietVerdict:
+                    'A digest has no bar to clear, so it never files a bare verdict. Say in the opening line that nothing stood out, then summarize the window as below.',
+                shape: `- Open with one scope line naming the scanner and what you read: \`Summary for [<scanner name>](/project/<project_id>/replay-vision/${scannerId}) — 27 recordings since Aug 21, 2026 at 9:00 AM\`, in the project timezone. The link is how a reader reaches the scanner this came from, and the count and start time are how they judge what it covers.
+- Then \`**TL;DR:**\` and two or three sentences: what users were doing, and what stood out. A reader who stops here should still have the answer.
+- Then a short section per theme, each a heading and two to four bullets, ordered by how much of the window they cover. Bullets, never paragraphs: a digest is read at a glance, and prose hides the one line that mattered.
+- Every theme opens with how many sessions it rests on. A theme you cannot count is a theme you cannot weigh, and a reader has no way to tell the dominant pattern from the anecdote.
+- A theme resting on one or two observations is worth a sentence, not a section: say how thin it is rather than inflating it or dropping it.
+- Close with the detail behind the scope line (how the outcomes split, anything you could not cover), then "What to look at", listing only things a person would actually do, each naming the action and what it would settle. Nothing worth doing means no section: never pad it with "no action needed", and never file "keep monitoring", which is what the next run is for.`,
                 priority: 'Priority P3 by default; P2 when a severe problem is spreading.',
             }),
         },
@@ -255,7 +278,7 @@ export function scannerScoutTemplates(
 - \`vision-scanners-observations-stats\` (scanner_id \`${scannerId}\`) for the distribution the scanner reports for itself.
 - \`vision-scanners-get\` — read \`scanner_version\` and \`updated_at\` before calling any shift a finding: a config edit near the onset explains it.`,
                 notable: lens.notable,
-                quiet: 'Holding steady is the expected outcome. When nothing has moved, refresh your `pattern:` baseline entries and file the digest with verdict `Nothing notable`, saying what you compared.',
+                quiet: 'Holding steady is the expected outcome. When nothing has moved, refresh your `pattern:` baseline entries and say what you compared.',
                 skip: `- Low-volume windows (under roughly 30 sessions in the week) — rates wobble there; write a \`pattern:\` note instead.
 - A shift explained by a scanner config edit, a sampling change, or the scanner being disabled.
 ${lens.skip}`,
@@ -281,7 +304,7 @@ ${lens.skip}`,
 - A failure, error, or friction theme appearing in this scanner's observations with no counterpart in your catalog, across at least two or three distinct sessions.
 - A single new occurrence severe enough to act on regardless of spread: a blocked purchase, lost work, a dead end with no way out.
 - A known problem reappearing after you recorded it as resolved — a regression is new again.`,
-                quiet: 'Most runs find nothing new, and that is the point: this scout is quiet by design. Refresh the catalog, then file the digest with verdict `Nothing notable`, saying what window you diffed.',
+                quiet: 'Most runs find nothing new, and that is the point: this scout is quiet by design. Refresh the catalog, and say what window you diffed.',
                 skip: `- Anything already in your catalog, even when its wording differs. Summaries are freeform prose, so match on what happened, not on how it was phrased.
 - A one-off single session below the severity bar. Note it in the catalog as seen; if it recurs next week, it is a pattern, not a novelty.
 - Something "new" that a scanner prompt or config edit near the onset explains: the scanner changed what it reports, the product did not change. Cite the edit and stop.
@@ -307,7 +330,7 @@ ${lens.skip}`,
                 notable: `<WHAT IS WORTH REPORTING>
 
 Be specific about the bar, so a quiet window stays quiet: how many distinct sessions it takes, how far from this scanner's own prior weeks, and how severe a single case has to be to count on its own.`,
-                quiet: 'A window that clears none of those bars is a normal outcome, and still files its digest: verdict `Nothing notable`, plus what you checked.',
+                quiet: 'A window that clears none of those bars is a normal outcome for this scout.',
                 skip: `- <WHAT THIS SCOUT SHOULD LEAVE ALONE>. Anything another scout or the scanner's own signals already reported belongs here, and so does anything resting on too little evidence to stand up.`,
                 priority: 'Priority P3 by default; P2 when something is severe or spreading.',
             }),

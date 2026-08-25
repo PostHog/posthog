@@ -1,6 +1,6 @@
 import pytest
 
-from django.db import InterfaceError, OperationalError
+from django.db import InterfaceError, InternalError, OperationalError
 
 from posthog.temporal.common.db_errors import is_transient_db_error
 
@@ -43,14 +43,34 @@ def test_is_transient_db_error_by_message(error: BaseException, expected: bool) 
 
 
 @pytest.mark.parametrize(
-    "sqlstate,expected",
+    "error_cls,sqlstate,expected",
     [
-        ("57P03", True),  # cannot_connect_now (server starting up/shutting down)
-        ("3D000", False),  # invalid_catalog_name — persistent misconfiguration
-        ("08P01", False),  # protocol_violation — shared with genuine protocol bugs, so message-only
+        (OperationalError, "57P03", True),  # cannot_connect_now (server starting up/shutting down)
+        (OperationalError, "3D000", False),  # invalid_catalog_name — persistent misconfiguration
+        (OperationalError, "08P01", False),  # protocol_violation — shared with genuine protocol bugs, so message-only
+        # read_only_sql_transaction: a primary briefly refusing writes/locks mid-failover. psycopg
+        # classes this under its own InternalError rather than OperationalError.
+        (InternalError, "25006", True),
+        (InternalError, "42601", False),  # syntax_error — a real bug, must keep reaching error tracking
     ],
 )
-def test_is_transient_db_error_by_sqlstate(sqlstate: str, expected: bool) -> None:
-    error = OperationalError("some driver-specific message")
+def test_is_transient_db_error_by_sqlstate(error_cls: type[Exception], sqlstate: str, expected: bool) -> None:
+    error = error_cls("some driver-specific message")
     error.__cause__ = _WithSqlstate(sqlstate)
     assert is_transient_db_error(error) is expected
+
+
+def test_is_transient_db_error_for_read_only_transaction_failover() -> None:
+    # psycopg raises this under InternalError, not OperationalError — a primary/replica failover
+    # briefly rejects writes with this exact SQLSTATE until promotion completes.
+    error = InternalError("cannot execute INSERT in a read-only transaction")
+    error.__cause__ = _WithSqlstate("25006")
+    assert is_transient_db_error(error) is True
+
+
+def test_is_transient_db_error_rejects_other_internal_errors() -> None:
+    # Class 25 (invalid transaction state) has other codes that are real bugs, not infra hiccups —
+    # only the exact read-only-transaction code should be treated as transient.
+    error = InternalError("current transaction is aborted")
+    error.__cause__ = _WithSqlstate("25P02")
+    assert is_transient_db_error(error) is False

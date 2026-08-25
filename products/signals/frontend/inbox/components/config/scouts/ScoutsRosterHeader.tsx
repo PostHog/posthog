@@ -6,26 +6,13 @@ import { cn } from 'lib/utils/css-classes'
 
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { scratchpadLogic } from '../../../logics/scratchpadLogic'
-import type { NeedsYouScout } from '../../../utils/scoutGroups'
 import { SCOUT_ROSTER_WINDOW_LABEL } from '../../../utils/scoutRunsWindow'
 import { ScoutsRosterFilters } from './ScoutsRosterFilters'
 
-function Stat({
-    value,
-    label,
-    alert = false,
-    compact = false,
-}: {
-    value: string
-    label: string
-    alert?: boolean
-    compact?: boolean
-}): JSX.Element {
+function Stat({ value, label, compact = false }: { value: string; label: string; compact?: boolean }): JSX.Element {
     return (
         <div className={cn('flex flex-col border-r border-primary last:border-r-0', compact ? 'pr-3' : 'pr-4')}>
-            <span className={cn('text-lg font-semibold tabular-nums leading-tight', alert && 'text-danger')}>
-                {value}
-            </span>
+            <span className="text-lg font-semibold tabular-nums leading-tight">{value}</span>
             <span className="text-[11px] text-muted">{label}</span>
         </div>
     )
@@ -50,38 +37,12 @@ export function ScoutsRosterHeader({ compact }: { compact: boolean }): JSX.Eleme
     )
 }
 
-/** Longest list the tooltip shows before it stops being readable at a glance. */
-const NEEDS_YOU_TOOLTIP_MAX = 8
-
-/**
- * Which scouts are waiting on you and why. The count alone sends you hunting through a roster of
- * a hundred-odd rows for the two that stopped, so the stat names them and states the reason the
- * scheduler recorded.
- */
-function NeedsYouTooltip({ scouts }: { scouts: NeedsYouScout[] }): JSX.Element {
-    const shown = scouts.slice(0, NEEDS_YOU_TOOLTIP_MAX)
-    const hidden = scouts.length - shown.length
-    return (
-        <div className="flex flex-col gap-1.5">
-            <span className="font-semibold">Waiting on a decision from you</span>
-            {shown.map((scout) => (
-                <div key={scout.name} className="flex flex-col">
-                    <span className="font-semibold">{scout.name}</span>
-                    <span>{scout.reason}</span>
-                </div>
-            ))}
-            {hidden > 0 && <span>and {hidden} more in the roster below</span>}
-        </div>
-    )
-}
-
 /**
  * The troop's headline numbers. Output is stated as reports filed rather than as a run success
  * rate: every run completing tells you nothing crashed, not that the troop is earning its keep.
  */
 function RosterStats({ compact }: { compact: boolean }): JSX.Element {
-    const { rosterGroupCounts, needsYouScouts, enabledCount, emittedFindingsSummary, fleetFindingsSummaryLoadedOnce } =
-        useValues(scoutFleetLogic)
+    const { enabledCount, emittedFindingsSummary, fleetFindingsSummaryLoadedOnce } = useValues(scoutFleetLogic)
     // Mounted here rather than by the fleet logic, so the 1,000-entry scratchpad read only happens
     // on the surfaces that show it, not on every inbox tab that mounts the fleet.
     const { recentlyLearnedCount, entries: scratchpadEntries } = useValues(scratchpadLogic)
@@ -91,13 +52,6 @@ function RosterStats({ compact }: { compact: boolean }): JSX.Element {
 
     return (
         <div className={cn('flex flex-wrap items-center', compact ? 'gap-x-3 gap-y-2' : 'gap-4')}>
-            {rosterGroupCounts.needs_you > 0 && (
-                <Tooltip title={<NeedsYouTooltip scouts={needsYouScouts} />}>
-                    <span>
-                        <Stat value={String(rosterGroupCounts.needs_you)} label="need you" alert compact={compact} />
-                    </span>
-                </Tooltip>
-            )}
             <Stat value={String(enabledCount)} label="on patrol" compact={compact} />
             <Tooltip title={`Runs your scouts made in the ${SCOUT_ROSTER_WINDOW_LABEL}, quiet ones included.`}>
                 <span>

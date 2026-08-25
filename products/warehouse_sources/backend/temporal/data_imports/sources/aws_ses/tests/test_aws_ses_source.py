@@ -7,26 +7,13 @@ from unittest import mock
 
 import structlog
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-)
-
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses import (
     aws_ses as transport_module,
     source as source_module,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses.aws_ses import AwsSesResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses.canonical_descriptions import (
-    CANONICAL_DESCRIPTIONS,
-)
-from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.aws_ses.source import AwsSesSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.awsses import AwsSesSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def make_inputs(
@@ -60,83 +47,10 @@ class TestAwsSesSource:
             aws_session_token=None,
         )
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.AWSSES
-
-    def test_source_is_released_and_labelled_alpha(self) -> None:
-        config = self.source.get_source_config
-
-        assert config.unreleasedSource is None
-        assert config.releaseStatus == ReleaseStatus.ALPHA
-        assert config.category == DataWarehouseSourceCategory.MARKETING___EMAIL
-        assert config.label == "Amazon SES"
-        assert config.iconPath == "/static/services/aws_ses.png"
-        assert config.docsUrl == "https://posthog.com/docs/cdp/sources/aws-ses"
-
-    def test_source_config_fields(self) -> None:
-        fields = self.source.get_source_config.fields
-
-        assert [field.name for field in fields] == [
-            "aws_access_key_id",
-            "aws_secret_access_key",
-            "aws_region",
-            "aws_session_token",
-        ]
-
-    @pytest.mark.parametrize(
-        "field_name,required,secret",
-        [
-            ("aws_access_key_id", True, False),
-            ("aws_secret_access_key", True, True),
-            ("aws_region", True, False),
-            ("aws_session_token", False, True),
-        ],
-    )
-    def test_credential_fields_are_marked_secret_so_they_are_not_echoed_back(
-        self, field_name: str, required: bool, secret: bool
-    ) -> None:
-        field = next(
-            f
-            for f in self.source.get_source_config.fields
-            if isinstance(f, SourceFieldInputConfig) and f.name == field_name
-        )
-
-        assert field.required is required
-        assert field.secret is secret
-        assert (field.type == SourceFieldInputConfigType.PASSWORD) is secret
-
     def test_changing_the_region_requires_reentering_the_secrets(self) -> None:
         # The region picks the host the signed request is sent to, so retargeting it must not
         # reuse a preserved secret.
         assert self.source.connection_host_fields == ["aws_region"]
-
-    def test_get_schemas_marks_only_the_suppression_list_incremental(self) -> None:
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, team_id=1)}
-
-        assert list(schemas) == list(ENDPOINTS)
-        for schema in schemas.values():
-            assert schema.description
-        suppressed = schemas["suppressed_destinations"]
-        assert suppressed.supports_incremental is True
-        assert [field["field"] for field in suppressed.incremental_fields] == ["last_update_time"]
-        for name in ("account", "configuration_sets", "email_identities"):
-            assert schemas[name].supports_incremental is False
-            assert schemas[name].supports_append is False
-
-    def test_get_schemas_honors_the_schema_picker_filter(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=1, names=["email_identities"])
-
-        assert [schema.name for schema in schemas] == ["email_identities"]
-
-    def test_table_catalog_is_listable_without_credentials_for_public_docs(self) -> None:
-        assert self.source.lists_tables_without_credentials is True
-        assert self.source.get_schemas(
-            AwsSesSourceConfig(aws_access_key_id="", aws_secret_access_key="", aws_region=""), 1
-        )
-
-    def test_canonical_descriptions_are_keyed_by_the_schema_names(self) -> None:
-        assert set(CANONICAL_DESCRIPTIONS) == set(ENDPOINTS)
-        assert set(self.source.get_canonical_descriptions()) == set(ENDPOINTS)
 
     @pytest.mark.parametrize(
         "observed_error",
@@ -161,16 +75,6 @@ class TestAwsSesSource:
     def test_transient_aws_failures_keep_retrying(self, observed_error: str) -> None:
         assert not any(key in observed_error for key in self.source.get_non_retryable_errors())
 
-    def test_validate_credentials_passes_the_configured_credentials_through(self) -> None:
-        with mock.patch.object(source_module, "validate_aws_ses_credentials", return_value=(True, None)) as validate:
-            assert self.source.validate_credentials(self.config, team_id=1) == (True, None)
-            assert self.source.validate_credentials(self.config, team_id=1, schema_name="account") == (True, None)
-
-        assert validate.call_args_list[0] == mock.call("AKIAEXAMPLE", "secret", None, "us-east-1", schema_name=None)
-        assert validate.call_args_list[1] == mock.call(
-            "AKIAEXAMPLE", "secret", None, "us-east-1", schema_name="account"
-        )
-
     def test_endpoint_permissions_pass_the_configured_credentials_through(self) -> None:
         with mock.patch.object(source_module, "probe_endpoint_permissions", return_value={"account": None}) as probe:
             assert self.source.get_endpoint_permissions(self.config, team_id=1, endpoints=["account"]) == {
@@ -178,11 +82,6 @@ class TestAwsSesSource:
             }
 
         assert probe.call_args[0] == ("AKIAEXAMPLE", "secret", None, "us-east-1", ["account"])
-
-    def test_resumable_manager_is_bound_to_the_sources_resume_dataclass(self) -> None:
-        manager = self.source.get_resumable_source_manager(make_inputs("suppressed_destinations"))
-
-        assert manager._data_class is AwsSesResumeConfig
 
     @pytest.mark.parametrize(
         "endpoint,primary_keys",

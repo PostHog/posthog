@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
-from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, models, transaction
 from django.db.models.fields.json import KeyTransform
@@ -1039,7 +1039,7 @@ class Task(DeletedMetaFields, models.Model):
         title: str,
         description: str,
         origin_product: "Task.OriginProduct",
-        user_id: int,  # Will be used to validate the tasks feature flag and create a personal api key for interacting with PostHog.
+        user_id: int,
         repository: str | None = None,  # Format: "organization/repository", e.g. "posthog/posthog-js"
         channel: Channel | None = None,
         create_pr: bool = True,
@@ -1987,6 +1987,19 @@ class TaskRun(models.Model):
         db_table = "posthog_task_run"
         ordering = ["-created_at"]
         indexes = [
+            GinIndex(
+                OpClass(KeyTransform("verified_pr_urls", "state"), name="jsonb_path_ops"),
+                name="task_run_verified_pr_urls_idx",
+            ),
+            GinIndex(
+                OpClass(KeyTransform("head_branches", "output"), name="jsonb_path_ops"),
+                name="task_run_head_branches_idx",
+            ),
+            models.Index(
+                fields=["branch"],
+                name="task_run_branch_idx",
+                condition=models.Q(branch__isnull=False),
+            ),
             # Partial functional index backing the per-PR-webhook lookup
             # `filter(output__pr_url=...)`. The equality lookup implies the key is
             # present, so the `IS NOT NULL` condition keeps the index off the many

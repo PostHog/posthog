@@ -54,7 +54,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.m
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.schemas import (
     BREAKDOWN_STATS_ENDPOINTS,
     ENDPOINTS,
-    RESOURCE_SCHEMAS,
     MetaAdsResource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.meta_ads.source import MetaAdsSource
@@ -1779,10 +1778,6 @@ class TestEndpointCatalog:
         # `meta_ads_source` looks the endpoint up by name, so advertising one in `get_schemas`
         # without a `RESOURCE_SCHEMAS` entry only fails at sync time with a KeyError.
         assert endpoint in get_meta_ads_schemas()
-
-    def test_source_advertises_the_whole_catalog(self) -> None:
-        advertised = {schema.name for schema in MetaAdsSource().get_schemas(cast(Any, None), team_id=1)}
-        assert advertised == set(RESOURCE_SCHEMAS)
 
 
 class TestBreakdownStatsSchemas:

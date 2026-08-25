@@ -1,3 +1,4 @@
+import { rewriteSavedLocation } from "@posthog/shared";
 import type { ProvisionedTaskChannels } from "@posthog/shared/domain-types";
 import { stateStorage } from "@posthog/ui/shell/rendererStorage";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -25,6 +26,36 @@ const general = {
 // the thing under test.
 let identityCounter = 0;
 let identity = "project";
+
+describe("rewriteSavedLocation", () => {
+  // A saved location is a raw href, so an install that last quit before the
+  // routes were flattened would otherwise reopen on a route that is gone.
+  it.each([
+    ["/website", "/spaces"],
+    ["/website/eng", "/spaces/eng"],
+    ["/website/eng/loops", "/spaces/eng/loops"],
+    ["/website/home", "/"],
+    ["/website/activity", "/activity"],
+    ["/website/activity?taskId=task-1", "/activity?taskId=task-1"],
+    ["/website/home#recent", "/#recent"],
+    ["/website/command-center", "/command-center"],
+    ["/website/new", "/new"],
+    ["/code", "/new"],
+    ["/code/inbox/pulls/42", "/inbox/pulls/42"],
+    ["/code/inbox?filter=mine", "/inbox?filter=mine"],
+    ["/code/loops/abc/edit", "/loops/abc/edit"],
+    ["/code/tasks/t1", "/tasks/t1"],
+  ])("moves %s to %s", (saved, expected) => {
+    expect(rewriteSavedLocation(saved)).toBe(expected);
+  });
+
+  it.each(["/spaces/eng", "/inbox", "/settings/general", "/"])(
+    "leaves %s alone",
+    (href) => {
+      expect(rewriteSavedLocation(href)).toBe(href);
+    },
+  );
+});
 
 describe("startup location", () => {
   beforeEach(() => {

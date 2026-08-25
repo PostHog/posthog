@@ -10,7 +10,7 @@
 import * as zod from 'zod'
 
 /**
- * Redeem a PostHog Desktop invite code to enable access.
+ * Redeem a PostHog Desktop invite code to enable legacy access.
  * @summary Redeem invite code
  */
 export const codeInvitesRedeemCreateBodyCodeMax = 50
@@ -2426,6 +2426,11 @@ export const TasksRunsAnalysisInsightCreateBody = /* @__PURE__ */ zod
                 tool_calls: zod.number().min(1).optional().describe('Wasted tool calls, counted from the log.'),
                 seconds: zod.number().min(1).optional().describe('Wall-clock seconds across the wasted span.'),
                 tokens: zod.number().min(1).optional().describe('Token delta across the wasted span.'),
+                output_bytes: zod
+                    .number()
+                    .min(1)
+                    .optional()
+                    .describe('Sum of tool-output sizes across the wasted span.'),
             })
             .optional()
             .describe('Effort measured from the log, never estimated.'),
