@@ -34,10 +34,7 @@ describe('createAiConsumer', () => {
             USAGE_INGESTION_TLS: false,
             USAGE_INGESTION_TIMEOUT_MS: 5000,
             USAGE_INGESTION_MAX_BATCH_SIZE: 500,
-            USAGE_INGESTION_REPORT_EVENTS_TEAMS: '',
-            USAGE_INGESTION_REPORT_AI_EVENTS_TEAMS: '',
-            USAGE_INGESTION_REPORT_EXCEPTIONS_TEAMS: '',
-            USAGE_INGESTION_REPORT_CDP_TEAMS: '',
+            USAGE_INGESTION_REPORT_TEAMS: '',
             // Read eagerly by createAiConsumer (not deferred like the scope-builder services
             // below), so these need real fail-closed values rather than the cast-away pattern.
             AI_BLOB_S3_BUCKET: '',

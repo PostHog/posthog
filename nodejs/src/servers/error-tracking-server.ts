@@ -199,7 +199,7 @@ export class ErrorTrackingServer implements NodeServer {
 
         // One client for the process: the batch factory runs per batch, and each client owns a transport.
         const usageClient = createUsageIngestionClient(this.config, 'exceptions')
-        const usageTeamMatcher = usageReportTeamMatcher(this.config, 'exceptions')
+        const usageTeamMatcher = usageReportTeamMatcher(this.config)
 
         serviceLoaders.push(async () => {
             const consumer = new ErrorTrackingConsumer(

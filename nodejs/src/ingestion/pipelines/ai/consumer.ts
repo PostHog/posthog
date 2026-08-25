@@ -172,7 +172,7 @@ export function createAiConsumer(config: AiConsumerConfig, sharedScope: AiShared
         )
     }
     const usageClient = createUsageIngestionClient(config, 'ai_events')
-    const usageTeamMatcher = usageReportTeamMatcher(config, 'ai_events')
+    const usageTeamMatcher = usageReportTeamMatcher(config)
 
     const aiBlobOffloadConfig = {
         isTeamEnabled: buildIntegerMatcher(config.AI_BLOB_OFFLOAD_TEAMS, true),
