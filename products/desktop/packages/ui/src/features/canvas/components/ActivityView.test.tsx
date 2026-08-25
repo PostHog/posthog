@@ -57,10 +57,17 @@ describe("activityMetadata", () => {
   it.each([
     [
       "completed run",
-      item({ activityKind: "completed" }),
-      "Agent completed · now",
+      item({
+        activityKind: "completed",
+        activityAt: "2026-07-26T16:00:00Z",
+      }),
+      "18h ago · Agent completed",
     ],
-    ["agent reply", item({ activityKind: "message" }), "Agent replied · now"],
+    [
+      "agent reply",
+      item({ activityKind: "message" }),
+      "just now · Agent replied",
+    ],
     [
       "thread reply",
       item({
@@ -72,7 +79,7 @@ describe("activityMetadata", () => {
           first_name: "Ann",
         },
       }),
-      "Ann replied to a thread you participated in · now",
+      "just now · Ann replied to a thread you participated in",
     ],
     [
       "canvas owner comment",
@@ -86,7 +93,7 @@ describe("activityMetadata", () => {
           first_name: "Ann",
         },
       }),
-      "Ann commented on your canvas · now",
+      "just now · Ann commented on your canvas",
     ],
     [
       "own reply",
@@ -99,15 +106,19 @@ describe("activityMetadata", () => {
           first_name: "Me",
         },
       }),
-      "You replied · now",
+      "just now · You replied",
     ],
   ])("labels a %s", (_name, activity, expected) => {
     expect(activityMetadata(activity, "me@posthog.com")).toBe(expected);
   });
 
   it.each([
-    ["shared channel", "engineering", "Agent completed · #engineering · now"],
-    ["personal channel", "personal", "Agent completed · Personal · now"],
+    [
+      "shared channel",
+      "engineering",
+      "just now · Agent completed · #engineering",
+    ],
+    ["personal channel", "personal", "just now · Agent completed · Personal"],
   ])("formats the %s label", (_name, channelName, expected) => {
     expect(
       activityMetadata(
@@ -135,7 +146,7 @@ describe("activityMetadata", () => {
     );
 
     const title = screen.getByText("Tell me a joke");
-    const metadata = screen.getByText("Agent completed · Personal · now");
+    const metadata = screen.getByText("just now · Agent completed · Personal");
     expect(title.compareDocumentPosition(metadata)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
@@ -174,7 +185,7 @@ describe("activityMetadata", () => {
       />,
     );
     const activityButton = screen
-      .getByText("Ann mentioned you · now")
+      .getByText("just now · Ann mentioned you")
       .closest("button");
     if (!activityButton) throw new Error("Expected activity row button");
     fireEvent.click(activityButton);

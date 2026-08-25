@@ -3,7 +3,7 @@ import {
   PERSONAL_CHANNEL_LABEL,
 } from "@posthog/core/canvas/channelName";
 import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
-import { formatRelativeTimeShort } from "@posthog/shared";
+import { formatRelativeAge } from "@posthog/shared";
 import { userDisplayName } from "@posthog/ui/features/canvas/utils/userDisplay";
 
 function ownedItemName(item: TaskActivityItem): string {
@@ -57,9 +57,9 @@ export function activityMetadata(
   currentUserEmail?: string | null,
 ): string {
   return [
+    formatRelativeAge(item.activityAt),
     activityAction(item, currentUserEmail),
     activitySpace(item.channelName),
-    formatRelativeTimeShort(item.activityAt),
   ]
     .filter((part): part is string => part !== null)
     .join(" · ");
