@@ -8,6 +8,7 @@ from django.conf import settings
 
 import structlog
 from slack_sdk.errors import SlackApiError
+from slack_sdk.web import SlackResponse, WebClient
 
 from posthog.dataclasses import frozen
 from posthog.models.integration import Integration, SlackIntegration
@@ -17,7 +18,9 @@ from products.signals.backend.models import SignalReport, SignalScoutEmission, S
 from products.signals.backend.scout_harness.slack_charts import (
     ChartRenderBudget,
     build_scout_report_chart_blocks,
+    has_chart_blocks,
     new_chart_render_budget,
+    strip_chart_blocks,
 )
 from products.signals.backend.slack_formatting import (
     SLACK_SECTION_TEXT_MAX_LEN,
@@ -47,6 +50,11 @@ _PERMANENT_SLACK_ERROR_CODES = frozenset(
         "token_revoked",
     }
 )
+
+# Slack fetches every `image_url` itself while it renders the message, and rejects the whole message
+# with one of these when it cannot reach one. Neither code is permanent, so a chart Slack cannot
+# fetch would otherwise retry and then drop a report that used to post as text.
+_BLOCK_REJECTION_ERROR_CODES = frozenset({"invalid_blocks", "invalid_blocks_format"})
 
 ScoutSlackOutputType = Literal["finding", "report"]
 
@@ -484,6 +492,45 @@ def _post_scout_report_thread_replies(
             )
 
 
+def _post_scout_report_lead_message(
+    client: WebClient,
+    *,
+    channel_id: str,
+    delivery_id: str,
+    blocks: list[dict],
+    fallback: str,
+) -> SlackResponse:
+    """Post the report's channel message, and post it again without the charts if Slack refuses them.
+
+    A chart Slack cannot fetch takes the whole message down, so on any deployment Slack cannot reach
+    a chart-bearing report would never arrive. The prose and the report link are the message; the
+    charts are the extra, and the report still draws every one of them in the inbox."""
+
+    def _post(message_blocks: list[dict]) -> SlackResponse:
+        return client.chat_postMessage(
+            channel=channel_id,
+            blocks=message_blocks,
+            text=fallback,
+            client_msg_id=delivery_id,
+            unfurl_links=False,
+            unfurl_media=False,
+        )
+
+    try:
+        return _post(blocks)
+    except SlackApiError as exc:
+        error_code = slack_api_error_code(exc)
+        if error_code not in _BLOCK_REJECTION_ERROR_CODES or not has_chart_blocks(blocks):
+            raise
+        logger.warning(
+            "signals_scout.slack_report_charts_rejected",
+            channel=channel_id,
+            delivery_id=delivery_id,
+            error_code=error_code,
+        )
+        return _post(strip_chart_blocks(blocks))
+
+
 def post_scout_report_to_slack(
     report: SignalReport,
     run: SignalScoutRun,
@@ -570,13 +617,12 @@ def post_scout_report_to_slack(
 
     client = SlackIntegration(integration).client
     try:
-        response = client.chat_postMessage(
-            channel=channel_id,
+        response = _post_scout_report_lead_message(
+            client,
+            channel_id=channel_id,
+            delivery_id=delivery_id,
             blocks=messages.lead_blocks,
-            text=messages.fallback,
-            client_msg_id=delivery_id,
-            unfurl_links=False,
-            unfurl_media=False,
+            fallback=messages.fallback,
         )
     except SlackApiError as exc:
         error_code = slack_api_error_code(exc)

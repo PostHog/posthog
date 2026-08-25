@@ -13,6 +13,7 @@ from posthog.redis import get_client
 from products.exports.backend.facade.api import RENDER_TIMEOUT
 from products.signals.backend.models import SignalReport, SignalScoutRun
 from products.signals.backend.scout_harness.slack_charts import (
+    CHART_BLOCK_ID_PREFIX,
     MAX_SLACK_REPORT_CHARTS,
     SLACK_REPORT_CHART_RENDER_BUDGET_SECONDS,
     ChartRenderBudget,
@@ -80,14 +81,13 @@ class TestScoutSlackReportCharts(BaseTest):
         assert render_mock.call_args_list[0].kwargs["created_by"] == self.user
         # Every URL mint is pinned to the acting user, so a substituted cache id can't be published.
         assert all(call.kwargs["created_by_id"] == self.user.id for call in url_mock.call_args_list)
-        assert [b for b in blocks if b["type"] == "image"] == [
+        assert [{k: v for k, v in b.items() if k != "block_id"} for b in blocks if b["type"] == "image"] == [
             {"type": "image", "image_url": "https://img/11", "alt_text": "Chart trend"},
             {"type": "image", "image_url": "https://img/12", "alt_text": "Chart saved"},
         ]
-        assert blocks[2] == {
-            "type": "context",
-            "elements": [{"type": "mrkdwn", "text": "Daily signups, last 30 days"}],
-        }
+        assert blocks[2]["elements"] == [{"type": "mrkdwn", "text": "Daily signups, last 30 days"}]
+        # Every block a chart contributes is tagged, so a message Slack refuses can drop them whole.
+        assert all(b["block_id"].startswith(CHART_BLOCK_ID_PREFIX) for b in blocks)
 
     def test_referenced_charts_render_first_and_the_cap_holds(self) -> None:
         run = self._make_run(created_by=self.user)
@@ -334,6 +334,27 @@ class TestScoutSlackReportCharts(BaseTest):
 
         assert render_mock.call_count == 1
         assert len([b for b in blocks if b["type"] == "image"]) == 1
+
+    @parameterized.expand(["_acting_user", "_chart_blocks"])
+    def test_a_failure_outside_the_render_costs_the_charts_not_the_report(self, failing) -> None:
+        # Everything the build does is best effort, not only the render itself: an exception escaping
+        # here would fail the delivery task, which retries and then drops a report that used to post.
+        run = self._make_run(created_by=self.user)
+        report = self._make_report([_chart("trend", _TRENDS)])
+        render, url = self._patched_render()
+        with (
+            render as render_mock,
+            url as url_mock,
+            patch(
+                f"products.signals.backend.scout_harness.slack_charts.{failing}",
+                side_effect=RuntimeError("boom"),
+            ),
+        ):
+            render_mock.return_value = (MagicMock(id=1), b"png")
+            url_mock.return_value = "https://img/1"
+            blocks, _ = build_scout_report_slack_message(report, run)
+
+        assert [b["type"] for b in blocks] == ["context", "header", "section", "actions"]
 
     def test_report_message_places_charts_between_prose_and_link(self) -> None:
         run = self._make_run(created_by=self.user)

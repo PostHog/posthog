@@ -46,6 +46,10 @@ _RENDERED_ASSETS_CACHE_TTL_SECONDS = 24 * 60 * 60
 # the inbox.
 _RENDERABLE_CHART_KINDS = frozenset({"InsightVizNode", "SavedInsightNode"})
 
+# Every block a chart contributes carries a block id under this prefix, so a delivery Slack rejects
+# can drop the charts as whole units — title, image, and caption — and post the prose it can accept.
+CHART_BLOCK_ID_PREFIX = "signals-scout-chart:"
+
 # The chart ids the summary points at, in the order the prose reaches them. Deliberately looser
 # than the inbox's link parse: this only decides which charts go first when the cap bites, and
 # a false positive costs nothing more than ordering.
@@ -87,7 +91,7 @@ def _render_chart_asset_id(*, team: Team, created_by: User, query: dict) -> int 
     return asset.id
 
 
-def _chart_blocks(chart: dict, image_url: str) -> list[dict]:
+def _chart_blocks(chart: dict, image_url: str, position: int) -> list[dict]:
     title = " ".join(str(chart.get("title") or "Chart").split())
     blocks: list[dict] = [
         {"type": "section", "text": {"type": "mrkdwn", "text": f"*{escape_slack_mrkdwn(title)}*"}},
@@ -98,7 +102,25 @@ def _chart_blocks(chart: dict, image_url: str) -> list[dict]:
         blocks.append(
             {"type": "context", "elements": [{"type": "mrkdwn", "text": escape_slack_mrkdwn(caption.strip())}]}
         )
+    for index, block in enumerate(blocks):
+        block["block_id"] = f"{CHART_BLOCK_ID_PREFIX}{position}:{index}"
     return blocks
+
+
+def _is_chart_block(block: dict) -> bool:
+    return str(block.get("block_id") or "").startswith(CHART_BLOCK_ID_PREFIX)
+
+
+def strip_chart_blocks(blocks: list[dict]) -> list[dict]:
+    """Drop every chart block, leaving the prose and the report link.
+
+    Slack fetches each `image_url` itself and rejects the whole message when it cannot reach one, so
+    a delivery Slack refuses can post this instead of losing the report."""
+    return [block for block in blocks if not _is_chart_block(block)]
+
+
+def has_chart_blocks(blocks: list[dict]) -> bool:
+    return any(_is_chart_block(block) for block in blocks)
 
 
 def _acting_user(run: SignalScoutRun, team: Team) -> User | None:
@@ -228,13 +250,30 @@ def build_scout_report_chart_blocks(
 
     Best effort by design: any chart that cannot be rendered — an unsupported query kind, a
     render failure, no acting user, the cap or the time budget — is skipped rather than failing the
-    delivery, since the message still links to the report where the inbox draws every chart.
+    delivery, since the message still links to the report where the inbox draws every chart. That
+    holds for the whole build, not only the render: a chart is a nice-to-have on a message the
+    report needs, so anything unexpected here costs the charts rather than the delivery.
 
     The cap counts attempts, not successes: a report full of failing charts must not launch an
     export workflow per chart. With a `delivery_id`, successful renders are remembered so a retry
     of the same delivery reuses them. Pass a `budget` to spend a render allowance opened before
     this call — a delivery that rebuilds shares one budget across both builds instead of handing
     the rebuild a fresh clock and a fresh set of renders."""
+    try:
+        return _build_scout_report_chart_blocks(report, run, delivery_id=delivery_id, clock=clock, budget=budget)
+    except Exception:
+        logger.warning("signals_scout.slack_report_chart_build_error", report_id=str(report.id), exc_info=True)
+        return []
+
+
+def _build_scout_report_chart_blocks(
+    report: SignalReport,
+    run: SignalScoutRun,
+    *,
+    delivery_id: str | None,
+    clock: Callable[[], float],
+    budget: ChartRenderBudget | None,
+) -> list[dict]:
     from products.exports.backend.facade.api import RENDER_TIMEOUT, get_delivery_image_url  # noqa: PLC0415
 
     charts = _ordered_charts(report)
@@ -300,5 +339,5 @@ def build_scout_report_chart_blocks(
             continue
         if image_url is None:
             continue
-        blocks.extend(_chart_blocks(chart, image_url))
+        blocks.extend(_chart_blocks(chart, image_url, shown))
     return blocks

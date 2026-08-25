@@ -15,6 +15,7 @@ from posthog.models.integration import Integration
 from posthog.redis import get_client
 
 from products.signals.backend.models import SignalReport, SignalScoutEmission, SignalScoutRun
+from products.signals.backend.scout_harness.slack_charts import CHART_BLOCK_ID_PREFIX as PREFIX
 from products.signals.backend.scout_harness.slack_delivery import (
     ScoutSlackPermanentDeliveryError,
     _latest_report_delivery_key,
@@ -659,6 +660,52 @@ class TestScoutSlackDelivery(BaseTest):
 
         assert builds["n"] == 2
         fake_client.chat_postMessage.assert_not_called()
+
+    @parameterized.expand(["invalid_blocks", "invalid_blocks_format"])
+    def test_report_posts_without_its_charts_when_slack_rejects_them(self, error_code) -> None:
+        # Slack fetches every image URL itself, so a chart it cannot reach takes the whole message
+        # down with a code that is not permanent — the delivery would retry and then drop a report
+        # that used to post as text. The prose and the report link go out instead.
+        emission = self._make_emission()
+        report = SignalReport.objects.create(
+            team=self.team,
+            status=SignalReport.Status.READY,
+            title="Checkout failures",
+            summary="Checkout failed",
+        )
+        integration = Integration.objects.create(team=self.team, kind=Integration.IntegrationKind.SLACK)
+        fake_client = MagicMock()
+        fake_client.chat_postMessage.side_effect = [
+            SlackApiError(message="rejected", response=FakeSlackResponse({"error": error_code})),
+            FakeSlackResponse({"ts": "1785418710.000500"}),
+            FakeSlackResponse({"ts": "1785418710.000600"}),
+        ]
+        chart_blocks = [
+            {"type": "section", "text": {"type": "mrkdwn", "text": "*Signups*"}, "block_id": f"{PREFIX}1:0"},
+            {"type": "image", "image_url": "https://img/1", "alt_text": "Signups", "block_id": f"{PREFIX}1:1"},
+        ]
+
+        with (
+            patch("products.signals.backend.scout_harness.slack_delivery.SlackIntegration") as slack_integration,
+            patch(
+                "products.signals.backend.scout_harness.slack_delivery.build_scout_report_chart_blocks",
+                return_value=chart_blocks,
+            ),
+        ):
+            slack_integration.return_value.client = fake_client
+            deliver_scout_slack_output.run(
+                self.team.id,
+                "report",
+                str(report.id),
+                str(emission.scout_run_id),
+                "01864f4c-6957-7d3f-8d85-1d775e527265",
+                integration.id,
+                "CSCOUTS|#scout-findings",
+            )
+
+        rejected, resent = (call.kwargs["blocks"] for call in fake_client.chat_postMessage.call_args_list[:2])
+        assert [b["type"] for b in rejected] == ["context", "header", "section", "section", "image", "actions"]
+        assert [b["type"] for b in resent] == ["context", "header", "section", "actions"]
 
     def test_task_retries_transient_delivery_failure(self) -> None:
         emission = self._make_emission()
