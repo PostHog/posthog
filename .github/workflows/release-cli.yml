@@ -806,11 +806,9 @@ jobs:
                   message: 'posthog-cli release ${{ needs.release.outputs.new-version }} published for ${{ needs.release.outputs.release-tag }}.'
                   emoji_reaction: 'rocket'
 
-    # The other SDK repos put this step inside each job. cargo-dist generates the jobs below from
-    # dist-workspace.toml, so steps added there do not survive a regeneration, and one failure in the
-    # 7-target build matrix would alert 7 times. One job watching them keeps the alert per release.
-    # It excludes the release job, which alerts for itself: a rejected approval marks that job failed,
-    # and a rejection must not raise a release-failure alert.
+    # cargo-dist generates the jobs below, so per-job failure steps do not survive `dist generate`,
+    # and the 7-target matrix would alert 7 times. The release job stays out of the condition: a
+    # rejected approval marks it failed, and a rejection must not raise a release-failure alert.
     notify-publish-failed:
         name: Notify Slack - Publish Failed
         needs:
