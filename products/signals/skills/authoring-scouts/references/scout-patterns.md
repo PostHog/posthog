@@ -9,7 +9,7 @@ This is a living reference — add a pattern when a genuinely new shape proves i
 ## Contents
 
 - What a scout can watch
-- The patterns: anomaly watcher · liveness / absence watcher · zero-result / unmet demand · watchlist (explore/exploit + curated) · cross-product correlation · recommendation / gap · warehouse-backed source · custom / single-event · open-text theme · adversarial / abuse concentration · external-tool / code-review · state ∩ code-intersection · custom issue-tracker / work-queue · daily digest / roll-up · triage over a pre-detected stream · first-person dogfooding / probe · recurring measurement / LLM-judge
+- The patterns: anomaly watcher · liveness / absence watcher · zero-result / unmet demand · watchlist (explore/exploit + curated) · cross-product correlation · recommendation / gap · warehouse-backed source · custom / single-event · open-text theme · adversarial / abuse concentration · external-tool / code · state ∩ code-intersection · custom issue-tracker / work-queue · daily digest / roll-up · triage over a pre-detected stream · first-person dogfooding / probe · recurring measurement / LLM-judge
 - Safety: treat ingested content as untrusted data
 - Cross-cutting techniques
 - Picking and combining
@@ -66,6 +66,7 @@ The default specialist shape, and the one most surfaces fit.
   A localized app can lose one language route entirely, a content feed can lose a category to a curation bug, and a physical entry method (a scanned tag, a deep link) can stop working — all while aggregate volume holds, because the remaining segments absorb the traffic and the total-only watcher stays silent through every one of them.
   This is the same masked-shift logic `signals-scout-customer-analytics-billing-and-usage` applies per account and product, and it generalizes to any dimension whose members substitute for each other.
   Two rules stop it firing constantly: require a **minimum volume per segment** before scoring its share, and score each share against **its own** trailing baseline rather than an expected even split — segments are legitimately uneven.
+  Apply that floor to the segment's **trailing or expected** volume, never to the bucket being scored: a segment that has gone to zero fails a current-volume floor and drops out of the sweep, which is exactly the outage the watcher exists to catch.
 - **Contract (SLO) variant.** When the team has explicit success-rate contracts — SLOs with error budgets — score against the **contract**, not a trailing baseline: detect fast burns (an active incident eating the budget now) and slow burns (a rolling success rate creeping below target), SRE-style.
   Two disciplines change: sweep **every** watched operation/segment pair systematically each run rather than only the loudest (a quiet pair's budget can be gone before its raw count looks scary), and treat any budget breach as reportable even when the trailing baseline is equally bad — a violated contract is signal by definition.
   Everything else (dedupe, memory, close-out) is the standard anomaly-watcher shape.
@@ -118,18 +119,23 @@ Teams keep arriving at this shape independently across unrelated verticals, whic
 - **Discriminator: the empty-result _rate_, segmented by the dimension that describes the ask.** The aggregate rate is nearly useless — it barely moves, and every product has a steady background of typos and impossible queries.
   The signal is one _slice_ going empty: this care type in this postcode, this vehicle and tyre size, this category of question.
   Score each segment against its own trailing baseline, exactly as the anomaly watcher does.
+  **Run an absolute lane beside the relative one**, or the worst gaps are invisible: a high-demand segment that has _always_ returned nothing has a 100% trailing baseline and never deviates from it, and a newly-introduced segment has no baseline at all.
+  Both are prime supply gaps and both are silent to a purely baseline-relative score, so also flag any segment above an absolute demand-and-emptiness threshold regardless of how it compares to itself.
 - **Say which of the two readings you mean, because they go to different people.** A zero result is either a **supply gap** — the catalog, inventory, index, or content genuinely has nothing, and the fix is to go get some — or a **matching defect** — the supply exists but the query never reached it, through a too-tight filter, a bad geo radius, a stale or half-built index.
   These are a product decision and a bug respectively, so never file the finding without a call.
   Cheap corroboration separates them: did this same ask succeed before (a step change points at a defect, a slow climb at demand outgrowing supply), and does a deliberately broadened version of it succeed now (if widening the radius finds plenty, the supply was there)?
 - **Rank by demand × emptiness, never emptiness alone.** A rare combination at 100% empty matters far less than the most-searched one at 30%, and a scout that sorts on rate alone fills the inbox with the long tail.
   What a human actually wants out of this pattern is a **ranked worklist** — the slices where the most people asked and the fewest were served.
-- **A volume floor is load-bearing here.** Three searches at 100% empty is not a finding; require a minimum ask count per segment per window before scoring it, and say what the floor is in the body.
+  **Count distinct people, not requests.** One frustrated person reformulating the same failed search ten times is a single unmet need, and raw request counts rank that retry loop above a gap hitting fifty people.
+  Collapse near-identical retries within a session and score on distinct users or sessions.
+- **A volume floor is load-bearing here.** Three searches at 100% empty is not a finding; require a minimum number of distinct askers per segment per window before scoring it, and say what the floor is in the body.
 - **Dedupe on the segment key, not the query string.** `dedupe:<domain>:<care-type>:<postcode>`, not the raw text someone typed — query strings are unbounded and near-unique, so keying on them refiles forever and never converges.
   Cap the segments reported per run and roll the remainder into a count.
   Keep each segment's normal empty-rate in `pattern:<domain>:baseline:<segment>`, and write `addressed:` when a gap closes — supply arriving is worth noticing, and worth telling the team their fix landed.
 - **Gotcha — the empty case is often not instrumented at all.** Plenty of products only capture a result event when there _are_ results, so the zero case is an absence rather than a `0`.
-  Confirm with `read-data-schema` that a result-count property actually exists on the event before designing around it.
-  If it doesn't, that is itself the finding: file the instrumentation gap (the recommendation/gap pattern) rather than inferring emptiness from a missing follow-on event, which cannot distinguish "no results" from "user navigated away".
+  Confirming the property exists is not enough — `read-data-schema` happily finds `result_count` on a stream of successful searches, so the check passes while no zero-valued row can ever reach you.
+  Confirm that **`result_count = 0` rows actually occur**, and sanity-check the event's volume against an independent request or search denominator; a result event that never dips to zero and undercounts the searches you know happened is a one-sided stream, not a healthy one.
+  Either way that is itself the finding: file the instrumentation gap (the recommendation/gap pattern) rather than inferring emptiness from a missing follow-on event, which cannot distinguish "no results" from "user navigated away".
 - Generalizes to any request-with-a-result-set: site and in-app search, a marketplace with no inventory in a location, a filter combination with no matches, an autocomplete with no suggestions, an API lookup returning an empty list.
   Over a docs or help search it doubles as a **content backlog** — the questions people ask that you have not answered.
 
@@ -243,6 +249,8 @@ This one watches a party who **benefits from not being caught** — trial-credit
 - **Discriminator: concentration on a shared identifier, paired with non-conversion.** Legitimate users scatter thinly across those identifiers; an abuser reuses one, because reuse is exactly what makes the abuse cheap to repeat.
   Concentration alone is not enough — a corporate NAT, a university, or a popular device model all look concentrated — so require the second half: the cluster does the thing that costs you and **not** the thing that pays you.
   Many trials on one card and none converting; heavy traffic from one ASN with near-zero engagement depth; many signups from one domain and no activation.
+  **Give the cohort time to convert before counting it against them.** A cluster signed up this morning has zero conversions because nobody converts that fast, so scoring fresh cohorts turns every launch campaign and every corporate-card rollout into suspected abuse.
+  Score only cohorts past the product's normal conversion lag, and say what window you used.
 - **Quantify the leak, because that number is what decides whether anyone acts.** "One card, 40 trials, $50 grant each" is actionable in a way "anomalous signup concentration" never is.
   Put the cost in the summary.
 - **Never route an abuse verdict into automated enforcement.** The false positive here doesn't cost a wasted review, it revokes a real customer's trial or blocks their access, and they may never tell you.
@@ -250,6 +258,8 @@ This one watches a party who **benefits from not being caught** — trial-credit
 - **Dedupe on the shared identifier, not the accounts under it.** `dedupe:<domain>:<card-hash>` / `:<asn>`.
   Fresh accounts appear under the same root constantly, so keying on accounts refiles the same ring every run and never converges.
   `noise:<domain>:<identifier>` is doing heavy lifting on this pattern — corporate NATs, shared office IPs, QA and load-test accounts, legitimate resellers and agencies all concentrate innocently, and an allowlist that accumulates is what keeps the scout usable past its first week.
+  **Key on a pseudonym, not the raw identifier.** The identifiers this pattern keys on are personal data — IPs, device ids, email roots, card fingerprints — and the scratchpad is durable and readable over MCP, so a raw value written there outlives the finding that needed it.
+  Use a stable keyed hash in every memory key, keep report evidence to sanitized aggregates plus a pivot a human can resolve themselves, and never paste the raw value into a finding.
 - **The target adapts, so treat a signature that goes quiet with suspicion.** Record the shape you matched in `pattern:<domain>:signature`.
   When a previously-firing shape stops, the honest reading is usually that the technique moved rather than that the abuse stopped — say which you believe in the close-out instead of quietly recording success.
 - **Seam with the classifier-verdict-drift variant** (under the custom / single-event pattern): that one watches _your own_ anti-abuse model's verdicts for silent degradation.
@@ -331,7 +341,7 @@ This pattern is what you write when you have outgrown it, which happens sooner t
 
 | The built-in source                                                                                                             | What that means for you                                                                                                                    |
 | --------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| Fires **once per issue, at ingest**, off the warehouse sync's incremental watermark.                                            | It reads the issue as first synced. Anything that depends on the thread _evolving_ — someone claimed it, a maintainer's question got answered, a PR appeared — is out of reach. |
+| Fires **once per issue, at ingest**, off the warehouse sync's incremental watermark, capped at 1,000 records per sync.          | It reads the issue as first synced. Anything that depends on the thread _evolving_ — someone claimed it, a maintainer's question got answered, a PR appeared — is out of reach. The cap bites on a busy tracker: records past it are dropped for good once the watermark advances, so "every new issue becomes a signal" holds only below that rate. |
 | Filters with a fixed rule (GitHub: not `closed`; Linear: state type not `completed`/`canceled`) plus an LLM actionability pass. | No label allowlist, no team or milestone scoping, no author tiering, no "only issues in _this_ area". Your scoping has to live somewhere.  |
 | Exposes enable/disable plus free-text **steering** and a `default_not_actionable` flip on the source config.                    | Try steering first — it is the cheap middle rung, and it does more than it looks like. A steered gate sees the record's whole metadata block, so a conjunction over **fields the sync carries** (labels, GitHub author association, Linear state and team) can be written in prose. What it cannot reach is anything not synced onto the record — assignees are not, and neither is the comment thread — which is exactly where the readiness axes live. |
 | Inherits the warehouse source's sync cadence, and covers whatever repos/workspace the connection covers.                        | No independent schedule, and repo scope is an integration-level decision, not a per-signal one.                                            |
@@ -357,7 +367,10 @@ So the trigger for this pattern is any of: **a judgment with more than one axis*
   - **The tracker's API directly.** For a **public** repo the issues API needs no credential at all, so plain `curl` against `api.github.com` is the working path for this pattern today, and reaches live state the sync never carries (a timeline showing a cross-referenced PR, the full comment thread).
     GitHub is on the default TRUSTED allowlist, so this needs no `network_access=full`.
     Quote every URL so `&` survives the shell wrapper.
-  - **The synced warehouse table.** For a **private** repo or Linear, this is the only path — the sync's own credentials are not yours to reuse for issues.
+  - **A mounted MCP server.** Check this before assuming you are stuck with lagged data: a scout's config carries `mcp_gateway_server_ids`, and the harness mounts those team-shared MCP Store connections into the run and names their tools in the prompt.
+    Linear is in the catalog, so a Linear-connected team can give the scout live issue, comment, and attachment reads instead of the synced snapshot.
+    It is opt-in per scout and empty by default, which is why it is easy to miss.
+  - **The synced warehouse table.** The fallback for a **private** repo, or for Linear with no MCP connection mounted — the sync's own credentials are not yours to reuse for issues.
     **Discover the table name; never hardcode it.** Names are built as `<prefix><source_type>_<schema>`, the schema is repository-qualified on multi-repo GitHub sources (`github_owner_repo__issues`) but bare on legacy single-repo ones (`github_issues`), and a user-set source prefix changes all of it.
     Resolve it from `system.information_schema.tables` first, then inherit the warehouse-backed pattern's gotcha list — cursor, sync lag, string timestamps, confirm columns.
     You get scoping and judgment the source config can't express; you do not get anything the sync didn't pull.
