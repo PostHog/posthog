@@ -2417,6 +2417,21 @@ export const InitialPermissionModeEnumApi = {
 } as const
 
 /**
+ * * `ask` - ask
+ * * `auto` - auto
+ * * `always` - always
+ * * `never` - never
+ */
+export type BabysitModeEnumApi = (typeof BabysitModeEnumApi)[keyof typeof BabysitModeEnumApi]
+
+export const BabysitModeEnumApi = {
+    Ask: 'ask',
+    Auto: 'auto',
+    Always: 'always',
+    Never: 'never',
+} as const
+
+/**
  * Request body for creating a new task run
  */
 export interface ClaudeTaskRunCreateSchemaApi {
@@ -2511,6 +2526,13 @@ export interface ClaudeTaskRunCreateSchemaApi {
      * @nullable
      */
     rtk_enabled?: boolean | null
+    /** What the agent does when the PR's CI needs attention: 'ask' stages the wake-up and waits for approval, 'auto' fires immediately (the default), 'always' fires with no idle wait or cap, 'never' disables the loop for this run. Only honored when the tasks-pr-babysit-opt-in flag is on.
+     *
+     * * `ask` - ask
+     * * `auto` - auto
+     * * `always` - always
+     * * `never` - never */
+    babysit_mode?: BabysitModeEnumApi | null
 }
 
 /**
@@ -2632,6 +2654,13 @@ export interface CodexTaskRunCreateSchemaApi {
      * @nullable
      */
     rtk_enabled?: boolean | null
+    /** What the agent does when the PR's CI needs attention: 'ask' stages the wake-up and waits for approval, 'auto' fires immediately (the default), 'always' fires with no idle wait or cap, 'never' disables the loop for this run. Only honored when the tasks-pr-babysit-opt-in flag is on.
+     *
+     * * `ask` - ask
+     * * `auto` - auto
+     * * `always` - always
+     * * `never` - never */
+    babysit_mode?: BabysitModeEnumApi | null
 }
 
 export interface TaskRunResumeRequestSchemaApi {
@@ -2976,6 +3005,13 @@ export interface TaskRunBootstrapCreateRequestApi {
      * @nullable
      */
     rtk_enabled?: boolean | null
+    /** What the agent does when the PR's CI needs attention: 'ask' stages the wake-up and waits for approval, 'auto' fires immediately (the default), 'always' fires with no idle wait or cap, 'never' disables the loop for this run. Only honored when the tasks-pr-babysit-opt-in flag is on.
+     *
+     * * `ask` - ask
+     * * `auto` - auto
+     * * `always` - always
+     * * `never` - never */
+    babysit_mode?: BabysitModeEnumApi | null
 }
 
 /**

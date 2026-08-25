@@ -1739,6 +1739,17 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .describe(
                     'Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.'
                 ),
+            babysit_mode: zod
+                .union([
+                    zod
+                        .enum(['ask', 'auto', 'always', 'never'])
+                        .describe('\* `ask` - ask\n\* `auto` - auto\n\* `always` - always\n\* `never` - never'),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    "What the agent does when the PR's CI needs attention: 'ask' stages the wake-up and waits for approval, 'auto' fires immediately (the default), 'always' fires with no idle wait or cap, 'never' disables the loop for this run. Only honored when the tasks-pr-babysit-opt-in flag is on.\n\n\* `ask` - ask\n\* `auto` - auto\n\* `always` - always\n\* `never` - never"
+                ),
         })
         .describe('Request body for creating a new task run'),
     zod
@@ -1885,6 +1896,17 @@ export const TasksRunCreateBody = /* @__PURE__ */ zod.union([
                 .nullish()
                 .describe(
                     'Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.'
+                ),
+            babysit_mode: zod
+                .union([
+                    zod
+                        .enum(['ask', 'auto', 'always', 'never'])
+                        .describe('\* `ask` - ask\n\* `auto` - auto\n\* `always` - always\n\* `never` - never'),
+                    zod.null(),
+                ])
+                .optional()
+                .describe(
+                    "What the agent does when the PR's CI needs attention: 'ask' stages the wake-up and waits for approval, 'auto' fires immediately (the default), 'always' fires with no idle wait or cap, 'never' disables the loop for this run. Only honored when the tasks-pr-babysit-opt-in flag is on.\n\n\* `ask` - ask\n\* `auto` - auto\n\* `always` - always\n\* `never` - never"
                 ),
         })
         .describe('Request body for creating a new task run'),
@@ -2286,6 +2308,17 @@ export const TasksRunsCreateBody = /* @__PURE__ */ zod
             .nullish()
             .describe(
                 'Whether rtk command-output compression is enabled for this run. Omitted or null follows the server-side default (enabled); false opts this run out.'
+            ),
+        babysit_mode: zod
+            .union([
+                zod
+                    .enum(['ask', 'auto', 'always', 'never'])
+                    .describe('\* `ask` - ask\n\* `auto` - auto\n\* `always` - always\n\* `never` - never'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "What the agent does when the PR's CI needs attention: 'ask' stages the wake-up and waits for approval, 'auto' fires immediately (the default), 'always' fires with no idle wait or cap, 'never' disables the loop for this run. Only honored when the tasks-pr-babysit-opt-in flag is on.\n\n\* `ask` - ask\n\* `auto` - auto\n\* `always` - always\n\* `never` - never"
             ),
     })
     .describe('Request body for creating a task run without starting execution yet.')

@@ -11154,6 +11154,22 @@ export namespace Schemas {
       AzureBlob: 'AzureBlob',
     } as const;
 
+    /**
+     * * `ask` - ask
+     * * `auto` - auto
+     * * `always` - always
+     * * `never` - never
+     */
+    export type BabysitModeEnum = typeof BabysitModeEnum[keyof typeof BabysitModeEnum];
+
+
+    export const BabysitModeEnum = {
+      Ask: 'ask',
+      Auto: 'auto',
+      Always: 'always',
+      Never: 'never',
+    } as const;
+
     export interface BackfillEstimateResponse {
       /** Upper bound on the sessions the backfill would scan, after sampling and quality filters and excluding sessions this scanner already reported an observation for. */
       total_sessions: number;
@@ -17229,6 +17245,13 @@ export namespace Schemas {
          * @nullable
          */
       rtk_enabled?: boolean | null;
+      /** What the agent does when the PR's CI needs attention: 'ask' stages the wake-up and waits for approval, 'auto' fires immediately (the default), 'always' fires with no idle wait or cap, 'never' disables the loop for this run. Only honored when the tasks-pr-babysit-opt-in flag is on.
+       *
+       * * `ask` - ask
+       * * `auto` - auto
+       * * `always` - always
+       * * `never` - never */
+      babysit_mode?: BabysitModeEnum | null;
     }
 
     export type ClickhouseEventProperties = { [key: string]: unknown };
@@ -17624,6 +17647,13 @@ export namespace Schemas {
          * @nullable
          */
       rtk_enabled?: boolean | null;
+      /** What the agent does when the PR's CI needs attention: 'ask' stages the wake-up and waits for approval, 'auto' fires immediately (the default), 'always' fires with no idle wait or cap, 'never' disables the loop for this run. Only honored when the tasks-pr-babysit-opt-in flag is on.
+       *
+       * * `ask` - ask
+       * * `auto` - auto
+       * * `always` - always
+       * * `never` - never */
+      babysit_mode?: BabysitModeEnum | null;
     }
 
     export type PropertyGroupOperator = typeof PropertyGroupOperator[keyof typeof PropertyGroupOperator];
@@ -81157,6 +81187,13 @@ export namespace Schemas {
          * @nullable
          */
       rtk_enabled?: boolean | null;
+      /** What the agent does when the PR's CI needs attention: 'ask' stages the wake-up and waits for approval, 'auto' fires immediately (the default), 'always' fires with no idle wait or cap, 'never' disables the loop for this run. Only honored when the tasks-pr-babysit-opt-in flag is on.
+       *
+       * * `ask` - ask
+       * * `auto` - auto
+       * * `always` - always
+       * * `never` - never */
+      babysit_mode?: BabysitModeEnum | null;
     }
 
     export interface TaskRunCancelRequest {
