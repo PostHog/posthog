@@ -1,7 +1,7 @@
 ---
 name: review-hog-validation-criteria
 description: >
-  The validation criteria for PostHog Review — the bar for deciding whether a flagged PR issue is worth
+  The validation criteria for PostHog Review, the bar for deciding whether a flagged PR issue is worth
   keeping. Keeps real, user-affecting correctness / security / data-loss / contract / performance
   problems; drops overengineering, speculation, paranoia, never-gonna-happen edge cases, and style.
 metadata:
