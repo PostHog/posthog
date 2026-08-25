@@ -16,7 +16,7 @@ export type AccountOrganizationMember = Pick<OrganizationMemberType, 'id' | 'use
     region: Region.US | Region.EU
 }
 
-export const PAGE_SIZE = 5
+export const PAGE_SIZE = 20
 
 // EU-region orgs have no rows in this region's posthog_user tables; eu_org_members is a
 // materialized DWH pre-join of the EU postgres sync (prod-only, refreshed daily).

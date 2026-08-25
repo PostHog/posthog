@@ -56,7 +56,7 @@ describe('accountRelatedUsersLogic', () => {
         await expectLogic(logic)
             .toFinishAllListeners()
             .toMatchValues({ membersResponse: { ...response, results: [{ ...member, region: Region.US }] } })
-        expect(listForOrg).toHaveBeenCalledWith('org-uuid', { limit: PAGE_SIZE, offset: 0 })
+        expect(listForOrg).toHaveBeenCalledWith('org-uuid', { limit: 20, offset: 0 })
     })
 
     it('does not load when the account has no external id', async () => {
@@ -81,7 +81,7 @@ describe('accountRelatedUsersLogic', () => {
         logic.actions.setPage(2)
 
         await expectLogic(logic).toFinishAllListeners()
-        expect(listForOrg).toHaveBeenLastCalledWith('org-uuid', { limit: PAGE_SIZE, offset: PAGE_SIZE })
+        expect(listForOrg).toHaveBeenLastCalledWith('org-uuid', { limit: 20, offset: 20 })
     })
 
     const buildEuRow = (n: number): unknown[] => [
