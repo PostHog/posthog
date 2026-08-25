@@ -15,6 +15,7 @@ from posthog.constants import AvailableFeature
 from posthog.hogql_queries.ai.utils import HEAVY_COLUMN_NAMES, HEAVY_COLUMN_TO_PROPERTY
 from posthog.models import Organization, OrganizationMembership, Project, Team, User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.evaluations import ModelConfigurationSerializer, _TargetConfigField
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
 from products.ai_observability.backend.models.evaluation_configs import validate_target_config
@@ -22,8 +23,6 @@ from products.ai_observability.backend.models.evaluation_reports import Evaluati
 from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.model_configuration import LLMModelConfiguration
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
-
-from ee.models.rbac.access_control import AccessControl
 
 _DEFAULT_MODEL_CONFIGURATION = {
     "provider": "openai",
