@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, patch
 from django.apps import apps
 from django.test import SimpleTestCase
 
-from asgiref.sync import async_to_sync
+from asgiref.sync import async_to_sync, sync_to_async
 from parameterized import parameterized
 from rest_framework import status
 from social_django.models import UserSocialAuth
@@ -379,6 +379,41 @@ class TestScoutReportAPI(APIBaseTest):
         artefact = self._latest_artefact(created["report_id"], SignalReportArtefact.ArtefactType.REPO_SELECTION)
         assert artefact is not None
         assert json.loads(artefact.content)["repository"] == expected
+
+    def test_combined_rewrite_and_reviewer_edit_autostarts_on_the_refreshed_repository(self) -> None:
+        # One edit can both move the report onto a new repository and add the reviewer that lets an
+        # inferred target autostart. Autostart reads the selection as it stands and is idempotent, so
+        # refreshing after it would open the implementation task against the repository the same edit
+        # just replaced, with no second chance to correct it.
+        run = _make_run(self.team)
+        payload = self._payload(summary="Traced to https://github.com/acme/widgets/pull/7")
+        with (
+            _safe_judge(),
+            patch(EMBED_PATH),
+            patch(CONNECTED_REPOS_PATH, return_value=_CONNECTED_REPOS),
+        ):
+            created = self.client.post(self._emit_url(str(run.id)), data=payload, format="json").json()
+            repository_at_autostart: list[str | None] = []
+
+            async def _capture(**kwargs) -> None:
+                artefact = await sync_to_async(self._latest_artefact)(
+                    created["report_id"], SignalReportArtefact.ArtefactType.REPO_SELECTION
+                )
+                repository_at_autostart.append(json.loads(artefact.content)["repository"] if artefact else None)
+
+            with patch(AUTOSTART_PATH, new=AsyncMock(side_effect=_capture)) as autostart:
+                response = self.client.post(
+                    self._edit_url(str(run.id)),
+                    data={
+                        "report_id": created["report_id"],
+                        "summary": "Actually https://github.com/acme/gadgets/pull/2",
+                        "suggested_reviewers": [{"github_login": "octocat"}],
+                    },
+                    format="json",
+                )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        autostart.assert_awaited_once()
+        assert repository_at_autostart == ["acme/gadgets"]
 
     def test_emit_report_writes_autostart_artefacts(self) -> None:
         # The autostart inputs the scout supplies become the same artefacts a pipeline report carries,

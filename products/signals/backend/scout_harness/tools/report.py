@@ -1391,16 +1391,20 @@ def _do_edit_report(
                 attribution=attribution,
                 author=run.skill_name,
             )
+    # A rewrite can move the report onto a different repository, and an inferred target is only ever a
+    # reading of that text. Outside the transaction above for the same reason autostart is: it reads
+    # the team's GitHub repo cache, which has no business holding the content write open.
+    #
+    # Ordered before autostart, because one edit can both rewrite the content and add a qualifying
+    # reviewer. Autostart reads the selection as it stands and is idempotent, so running it first
+    # would open the task against the repository the rewrite just replaced, with no second chance.
+    if updated_fields:
+        _refresh_inferred_repository(team_id=team.id, report_id=report_id, attribution=attribution)
     # Re-run autostart only when reviewers changed: it's idempotent (a report with an implementation
     # task already started no-ops), but a report that was missing a qualifying reviewer can now open a
     # draft PR. Fired outside any txn since it spawns a Task — mirrors emit's post-commit hand-off.
     if reviewers_set:
         async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=report_id)
-    # A rewrite can move the report onto a different repository, and an inferred target is only ever a
-    # reading of that text. Outside the transaction above for the same reason autostart is: it reads
-    # the team's GitHub repo cache, which has no business holding the content write open.
-    if updated_fields:
-        _refresh_inferred_repository(team_id=team.id, report_id=report_id, attribution=attribution)
     charts_set = len(charts) if charts is not None and charts_changed else None
     prompts_set = len(suggested_prompts) if suggested_prompts is not None and prompts_changed else None
     logger.info(
