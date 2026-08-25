@@ -49,13 +49,21 @@ type InboxSignalsFilterStore = InboxSignalsFilterState &
  * Whether a filter that can hide reports is active. Sort only reorders the
  * list, so it does not count. This is the single definition of "filtered" used
  * by the empty states and the filter bar.
+ *
+ * `includePrFilter` defaults to true. Surfaces that neither apply nor expose the
+ * PR filter (the legacy Reports and Pull requests tabs) pass false, so a stored
+ * PR filter they ignore does not make their empty state read as "filtered".
  */
-export function hasActiveInboxFilters(state: InboxSignalsFilterState): boolean {
+export function hasActiveInboxFilters(
+  state: InboxSignalsFilterState,
+  options?: { includePrFilter?: boolean },
+): boolean {
+  const includePrFilter = options?.includePrFilter ?? true;
   return (
     state.searchQuery.trim().length > 0 ||
     state.sourceProductFilter.length > 0 ||
     state.priorityFilter.length > 0 ||
-    state.prFilter !== "all"
+    (includePrFilter && state.prFilter !== "all")
   );
 }
 

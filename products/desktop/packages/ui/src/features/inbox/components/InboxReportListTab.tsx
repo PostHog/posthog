@@ -171,7 +171,11 @@ export function InboxReportListTab({
     dismissReport != null &&
     (dismissBulkActions.isSuppressing || dismissBulkActions.isSnoozing);
 
-  const hasActiveFilters = useInboxSignalsFilterStore(hasActiveInboxFilters);
+  // This shell never applies or shows the PR filter, so a stored PR filter must
+  // not make its empty state claim filters are hiding results.
+  const hasActiveFilters = useInboxSignalsFilterStore((state) =>
+    hasActiveInboxFilters(state, { includePrFilter: false }),
+  );
   const resetFilters = useInboxSignalsFilterStore((s) => s.resetFilters);
 
   const emptyTitle = resolveEmptyTitle(scope, emptyState);

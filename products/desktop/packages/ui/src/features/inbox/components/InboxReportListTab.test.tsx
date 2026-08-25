@@ -90,6 +90,16 @@ describe("InboxReportListTab", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("keeps the genuine-empty copy when only a PR filter is set, since this shell ignores it", () => {
+    useInboxSignalsFilterStore.getState().setPrFilter("with_pr");
+    renderTab();
+
+    expect(screen.getByText("No reports for you yet")).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Clear filters" }),
+    ).not.toBeInTheDocument();
+  });
+
   it("names filters as the cause and clears them on click", async () => {
     useInboxSignalsFilterStore.getState().setPriorityFilter(["P0"]);
     renderTab();
