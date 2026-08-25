@@ -2,6 +2,7 @@
 
 import html as html_mod
 import json
+import time
 from datetime import datetime, timedelta
 from email.utils import formataddr
 from typing import Any, cast, get_args
@@ -57,6 +58,7 @@ from products.conversations.backend.models import (
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
 from products.conversations.backend.models.ticket import Ticket
 from products.conversations.backend.services.attachments import CONVERSATIONS_MAX_IMAGE_BYTES
+from products.conversations.backend.services.region_routing import replay_to_secondary_region
 from products.conversations.backend.slack import (
     TICKET_CONFIRM_ACTION_DISMISS,
     TICKET_CONFIRM_ACTION_OPEN,
@@ -99,18 +101,65 @@ from products.conversations.backend.teams import (
 from products.conversations.backend.teams_attachments import extract_teams_graph_images
 from products.conversations.backend.teams_formatting import build_teams_reply_html
 
-from .support_slack import SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES, supporthog_missing_file_scopes
+from .support_slack import (
+    SLACK_REQUEST_MAX_AGE_SECONDS,
+    SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES,
+    supporthog_missing_file_scopes,
+)
 
 logger = structlog.get_logger(__name__)
 SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS = 6 * 60
 SUPPORTHOG_EVENT_IDEMPOTENCY_KEY_PREFIX = "supporthog:slack:event:"
 SUPPORTHOG_TEAMS_EVENT_IDEMPOTENCY_KEY_PREFIX = "supporthog:teams:event:"
 SUPPORTHOG_GITHUB_EVENT_IDEMPOTENCY_KEY_PREFIX = "supporthog:github:event:"
+# Retries have to fit inside the Slack signature window, so they stay short and few.
+SUPPORTHOG_REPLAY_MAX_RETRIES = 3
+SUPPORTHOG_REPLAY_RETRY_DELAY_SECONDS = 20
 
 
 def _is_duplicate_supporthog_event(event_id: str) -> bool:
     key = f"{SUPPORTHOG_EVENT_IDEMPOTENCY_KEY_PREFIX}{event_id}"
     return not cache.add(key, True, timeout=SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS)
+
+
+def _slack_signature_expired(headers: dict[str, str]) -> bool:
+    """True once the secondary region would reject the snapshot as an expired signature."""
+    raw_timestamp = next((v for k, v in headers.items() if k.lower() == "x-slack-request-timestamp"), None)
+    if raw_timestamp is None:
+        return False
+    try:
+        return time.time() - float(raw_timestamp) > SLACK_REQUEST_MAX_AGE_SECONDS
+    except ValueError:
+        return False
+
+
+@shared_task(
+    bind=True,
+    ignore_result=True,
+    max_retries=SUPPORTHOG_REPLAY_MAX_RETRIES,
+    default_retry_delay=SUPPORTHOG_REPLAY_RETRY_DELAY_SECONDS,
+)
+@skip_team_scope_audit
+def replay_supporthog_event_to_secondary_region(self, snapshot: dict[str, Any], log_prefix: str) -> None:
+    """Retry a cross-region webhook forward that the inline proxy could not complete.
+
+    The inline proxy waits 3 seconds and then gives up, so a slow moment in the secondary
+    region loses a customer message with no way to get it back. Slack signs each payload with
+    a timestamp, so a replay only helps inside that window. After it, the secondary region
+    rejects the signature and there is nothing left to try.
+    """
+    headers = snapshot.get("headers") or {}
+    if _slack_signature_expired(headers):
+        logger.warning("supporthog_replay_signature_expired", log_prefix=log_prefix)
+        return
+
+    if replay_to_secondary_region(snapshot, log_prefix=log_prefix):
+        return
+
+    try:
+        raise cast(Any, self).retry()
+    except MaxRetriesExceededError:
+        logger.exception("supporthog_replay_to_secondary_region_exhausted", log_prefix=log_prefix)
 
 
 def is_duplicate_teams_event(activity_id: str) -> bool:

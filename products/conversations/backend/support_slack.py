@@ -22,6 +22,10 @@ if TYPE_CHECKING:
 
 SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES = ("slack.com", "slack-edge.com", "slack-files.com")
 
+# Slack signs each request with a timestamp and we reject anything older than this, so a
+# signed request can never be usefully replayed (or retried by Slack) past this window.
+SLACK_REQUEST_MAX_AGE_SECONDS = 300
+
 # Attachment sync in both directions depends on these. Older installs were authorized without
 # them, so the settings page asks those teams to reconnect.
 SUPPORT_SLACK_FILE_READ_SCOPE = "files:read"
@@ -85,7 +89,7 @@ def validate_support_request(request: HttpRequest | Request) -> None:
     try:
         timestamp_diff = time.time() - float(slack_time)
         # Reject requests older than 5 minutes OR from the future (with 60s tolerance for clock skew)
-        if timestamp_diff > 300 or timestamp_diff < -60:
+        if timestamp_diff > SLACK_REQUEST_MAX_AGE_SECONDS or timestamp_diff < -60:
             raise SlackIntegrationError("Expired")
     except ValueError:
         raise SlackIntegrationError("Invalid")

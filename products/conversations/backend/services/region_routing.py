@@ -5,6 +5,7 @@ If the primary region doesn't own the resource, it proxies the
 request to the secondary region (US).
 """
 
+import base64
 from urllib.parse import urlparse, urlunparse
 
 from django.conf import settings
@@ -106,3 +107,63 @@ def proxy_to_secondary_region(request: HttpRequest, *, log_prefix: str, timeout:
     """
     status_code = request_secondary_region_status(request, log_prefix=log_prefix, timeout=timeout)
     return status_code is not None and 200 <= status_code < 300
+
+
+def capture_replayable_request(request: HttpRequest) -> dict | None:
+    """Snapshot a webhook so it can be forwarded to the secondary region out of band.
+
+    The proxy above runs inline with a short timeout, so a slow secondary region loses the
+    webhook for good. Callers that can't afford that take a snapshot and hand it to a task
+    that retries. Returns None when the raw body is no longer available, since a signed
+    payload can only be replayed byte for byte.
+    """
+    try:
+        body = request.body
+    except RawPostDataException:
+        logger.warning("region_routing_replay_capture_unavailable", path=request.path)
+        return None
+
+    parsed_url = urlparse(request.build_absolute_uri())
+    return {
+        "method": request.method or "POST",
+        "url": urlunparse(parsed_url._replace(netloc=SECONDARY_REGION_DOMAIN)),
+        "headers": {key: value for key, value in request.headers.items() if key.lower() != "host"},
+        "body_b64": base64.b64encode(body).decode("ascii") if body else "",
+    }
+
+
+def replay_to_secondary_region(snapshot: dict, *, log_prefix: str, timeout: int = 10) -> bool:
+    """Send a `capture_replayable_request` snapshot to the secondary region."""
+    target_url = snapshot["url"]
+    body = base64.b64decode(snapshot["body_b64"]) if snapshot.get("body_b64") else None
+
+    try:
+        response = requests.request(
+            method=snapshot.get("method") or "POST",
+            url=target_url,
+            data=body,
+            headers=snapshot.get("headers") or {},
+            timeout=timeout,
+        )
+    except RequestException as exc:
+        logger.warning(
+            f"{log_prefix}_replay_to_secondary_region_failed",
+            error=str(exc),
+            target_url=target_url,
+        )
+        return False
+
+    if response.ok:
+        logger.info(
+            f"{log_prefix}_replay_to_secondary_region",
+            target_url=target_url,
+            status_code=response.status_code,
+        )
+        return True
+
+    logger.warning(
+        f"{log_prefix}_replay_to_secondary_region_bad_status",
+        target_url=target_url,
+        status_code=response.status_code,
+    )
+    return False

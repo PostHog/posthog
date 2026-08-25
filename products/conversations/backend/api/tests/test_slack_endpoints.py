@@ -1,4 +1,5 @@
 import json
+import time
 from typing import Any
 from urllib.parse import parse_qs, urlencode, urlparse
 
@@ -6,7 +7,9 @@ from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
+from django.test import SimpleTestCase
 
+from celery.exceptions import Retry
 from parameterized import parameterized
 from rest_framework.test import APIClient
 from slack_sdk.errors import SlackApiError
@@ -15,6 +18,8 @@ from posthog.models.integration import SlackIntegrationError
 from posthog.models.organization import OrganizationMembership
 
 from products.conversations.backend.models import TeamConversationsSlackConfig
+from products.conversations.backend.support_slack import SLACK_REQUEST_MAX_AGE_SECONDS
+from products.conversations.backend.tasks import replay_supporthog_event_to_secondary_region
 
 
 class TestSupportSlackEventsAPI(BaseTest):
@@ -48,20 +53,36 @@ class TestSupportSlackEventsAPI(BaseTest):
 
         assert response.status_code == 403
 
+    @parameterized.expand(
+        [
+            ("with_event_id", {"event_id": "Ev_retry"}, 202, 1),
+            ("without_event_id", {}, 200, 0),
+        ]
+    )
     @patch("products.conversations.backend.api.slack_events.process_supporthog_event")
     @patch("products.conversations.backend.api.slack_events.validate_support_request")
-    def test_slack_retry_returns_200_without_processing(self, mock_validate: MagicMock, mock_process: MagicMock):
+    def test_slack_retry_is_processed_only_when_dedupable(
+        self,
+        _name: str,
+        extra_payload: dict[str, Any],
+        expected_status: int,
+        expected_delay_calls: int,
+        mock_validate: MagicMock,
+        mock_process: MagicMock,
+    ):
         mock_validate.return_value = None
 
         response = self.client.post(
             "/api/conversations/v1/slack/events",
-            data=json.dumps({"type": "event_callback", "team_id": "T123", "event": {"type": "message"}}),
+            data=json.dumps(
+                {"type": "event_callback", "team_id": "T123", "event": {"type": "message"}, **extra_payload}
+            ),
             content_type="application/json",
             headers={"x-slack-retry-num": "1"},
         )
 
-        assert response.status_code == 200
-        mock_process.delay.assert_not_called()
+        assert response.status_code == expected_status
+        assert mock_process.delay.call_count == expected_delay_calls
 
     @patch("products.conversations.backend.api.slack_events.validate_support_request")
     def test_invalid_json_returns_400(self, mock_validate: MagicMock):
@@ -119,13 +140,23 @@ class TestSupportSlackEventsAPI(BaseTest):
         assert response.status_code == 202
         mock_process.delay.assert_called_once()
 
+    @parameterized.expand([("proxy_succeeds", True, 0), ("proxy_fails", False, 1)])
+    @patch("products.conversations.backend.api.slack_events.replay_supporthog_event_to_secondary_region")
     @patch("products.conversations.backend.api.slack_events.proxy_to_secondary_region")
     @patch("products.conversations.backend.api.slack_events.process_supporthog_event")
     @patch("products.conversations.backend.api.slack_events.validate_support_request")
     def test_proxies_to_secondary_when_team_not_found_on_primary(
-        self, mock_validate: MagicMock, mock_process: MagicMock, mock_proxy: MagicMock
+        self,
+        _name: str,
+        proxy_result: bool,
+        expected_replay_calls: int,
+        mock_validate: MagicMock,
+        mock_process: MagicMock,
+        mock_proxy: MagicMock,
+        mock_replay: MagicMock,
     ):
         mock_validate.return_value = None
+        mock_proxy.return_value = proxy_result
 
         with patch("products.conversations.backend.api.slack_events.is_primary_region", return_value=True):
             response = self._post(
@@ -140,6 +171,7 @@ class TestSupportSlackEventsAPI(BaseTest):
         assert response.status_code == 202
         mock_process.delay.assert_not_called()
         mock_proxy.assert_called_once()
+        assert mock_replay.delay.call_count == expected_replay_calls
 
     @patch("products.conversations.backend.api.slack_events.proxy_to_secondary_region")
     @patch("products.conversations.backend.api.slack_events.process_supporthog_event")
@@ -397,3 +429,30 @@ class TestSlackChannelPermissions(BaseTest):
             content_type="application/json",
         )
         assert response.status_code == 200
+
+
+class TestSupporthogSecondaryRegionReplay(SimpleTestCase):
+    def _snapshot(self, signed_at: float) -> dict[str, Any]:
+        return {
+            "method": "POST",
+            "url": "https://us.posthog.com/api/conversations/v1/slack/events",
+            "headers": {"X-Slack-Request-Timestamp": str(int(signed_at))},
+            "body_b64": "",
+        }
+
+    @patch("products.conversations.backend.tasks.replay_to_secondary_region")
+    def test_expired_signature_is_not_replayed(self, mock_replay: MagicMock):
+        snapshot = self._snapshot(time.time() - SLACK_REQUEST_MAX_AGE_SECONDS - 1)
+
+        replay_supporthog_event_to_secondary_region(snapshot=snapshot, log_prefix="supporthog")
+
+        mock_replay.assert_not_called()
+
+    @patch("products.conversations.backend.tasks.replay_to_secondary_region", return_value=False)
+    def test_failed_replay_is_retried(self, mock_replay: MagicMock):
+        snapshot = self._snapshot(time.time())
+
+        with self.assertRaises(Retry):
+            replay_supporthog_event_to_secondary_region(snapshot=snapshot, log_prefix="supporthog")
+
+        mock_replay.assert_called_once()

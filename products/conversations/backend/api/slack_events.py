@@ -11,9 +11,13 @@ import structlog
 
 from posthog.models.integration import SlackIntegrationError
 
-from products.conversations.backend.services.region_routing import is_primary_region, proxy_to_secondary_region
+from products.conversations.backend.services.region_routing import (
+    capture_replayable_request,
+    is_primary_region,
+    proxy_to_secondary_region,
+)
 from products.conversations.backend.support_slack import team_exists_for_slack_workspace, validate_support_request
-from products.conversations.backend.tasks import process_supporthog_event
+from products.conversations.backend.tasks import process_supporthog_event, replay_supporthog_event_to_secondary_region
 
 logger = structlog.get_logger(__name__)
 
@@ -48,9 +52,21 @@ def _route_event_to_relevant_region(request: HttpRequest, data: dict) -> None:
     if team_exists and not (settings.DEBUG and is_primary_region(request)):
         cast(Any, process_supporthog_event).delay(event=event, slack_team_id=slack_team_id, event_id=event_id)
     elif is_primary_region(request):
-        proxy_to_secondary_region(request, log_prefix="supporthog")
+        if not proxy_to_secondary_region(request, log_prefix="supporthog"):
+            _schedule_secondary_region_replay(request)
     else:
         logger.warning("supporthog_no_team_any_region", slack_team_id=slack_team_id)
+
+
+def _schedule_secondary_region_replay(request: HttpRequest) -> None:
+    """Hand a failed inline forward to a task that keeps trying.
+
+    Without this the webhook is gone, and with it whatever the customer said in Slack.
+    """
+    snapshot = capture_replayable_request(request)
+    if snapshot is None:
+        return
+    cast(Any, replay_supporthog_event_to_secondary_region).delay(snapshot=snapshot, log_prefix="supporthog")
 
 
 @csrf_exempt
@@ -74,15 +90,25 @@ def supporthog_event_handler(request: HttpRequest) -> HttpResponse:
         logger.warning("supporthog_event_invalid_request", error=str(e))
         return HttpResponse("Invalid request", status=403)
 
-    retry_num = request.headers.get("X-Slack-Retry-Num")
-    if retry_num:
-        logger.info("supporthog_event_retry_skipped", retry_num=retry_num)
-        return HttpResponse(status=200)
-
     try:
         data = json.loads(request.body)
     except json.JSONDecodeError:
         return HttpResponse("Invalid JSON", status=400)
+
+    retry_num = request.headers.get("X-Slack-Retry-Num")
+    if retry_num:
+        # Slack retries when we answer slowly, which is when an event is most at risk of being
+        # lost, so these are worth taking. `event_id` is what makes that safe: the processing
+        # task dedupes on it, and that entry outlives the 5-minute signature window a retry has
+        # to arrive in. With no id to dedupe against, a retry would double-post.
+        if not isinstance(data.get("event_id"), str):
+            logger.info("supporthog_event_retry_skipped", retry_num=retry_num)
+            return HttpResponse(status=200)
+        logger.info(
+            "supporthog_event_retry_accepted",
+            retry_num=retry_num,
+            retry_reason=request.headers.get("X-Slack-Retry-Reason"),
+        )
 
     logger.info("supporthog_event_received", event_type=data.get("type"))
 
