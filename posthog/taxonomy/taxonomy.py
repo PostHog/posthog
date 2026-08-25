@@ -2714,6 +2714,16 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
                 "Fetch the trace referenced by an AI observability URL.",
             ],
         },
+        "$mcp_skill_name": {
+            "label": "MCP skill name",
+            "description": "The stored skill a skill-* read tool fetched, on `skill-get` and `skill-file-get` (and their `llma-skill-*` aliases). Recorded only when the value matches the shape the skills store enforces at creation, so a name the agent invented is left off rather than echoed. Skill writes are not stamped here — those emit `llma skill *` from the skills API.",
+            "examples": ["prove-the-change", "pr-shepherd"],
+        },
+        "$mcp_skill_body_offset": {
+            "label": "MCP skill body offset",
+            "description": "Where in a skill's body a `skill-get` started reading. Long bodies come back in slices, so one skill load is several calls that differ only by this offset — count calls at offset 0 for loads, or all calls for pages read. Absent when the caller asked for the whole body, and never set on `skill-file-get`, which does not paginate.",
+            "examples": ["0", "5000"],
+        },
         "$mcp_resource_name": {
             "label": "MCP resource name",
             "description": "The name of the MCP resource, prompt, or tool the event refers to.",

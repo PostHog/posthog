@@ -582,5 +582,63 @@ describe('ToolExecutor metrics', () => {
                 $mcp_error_message: 'Exec command rejected: missing_scope',
             })
         })
+
+        // Reading a stored skill is one of the most common tool calls, and nearly all of
+        // them arrive here, as JSON inside a command string rather than as tool arguments.
+        // Without this the event records that *a* skill was read but never which one.
+        describe('skill reads', () => {
+            function lastExtras(): Record<string, unknown> {
+                return (mockTrackToolCall.mock.calls.at(-1)?.[4] ?? {}) as Record<string, unknown>
+            }
+
+            it.each([
+                ['a body read', 'call skill-get {"skill_name":"conductor"}', { $mcp_skill_name: 'conductor' }],
+                [
+                    'a paged continuation',
+                    'call skill-get {"skill_name":"conductor","body_offset":5000}',
+                    { $mcp_skill_name: 'conductor', $mcp_skill_body_offset: 5000 },
+                ],
+                [
+                    'a bundled-file read',
+                    'call skill-file-get {"skill_name":"conductor","file_path":"references/x.md"}',
+                    { $mcp_skill_name: 'conductor' },
+                ],
+            ])('stamps the skill on %s routed through exec', async (_label, command, expected) => {
+                await executor.handleToolCall({ name: 'exec', arguments: { command } }, execState())
+
+                expect(lastExtras()).toMatchObject(expected)
+            })
+
+            it.each([
+                // The agent's text, not a skill that could exist — same rule the exec
+                // verb and target follow.
+                ['a skill name outside the store’s own shape', 'call skill-get {"skill_name":"../../etc/passwd"}'],
+                ['a non-skill tool', 'call docs-search {"query":"skill_name"}'],
+            ])('records no skill for %s', async (_label, command) => {
+                await executor.handleToolCall({ name: 'exec', arguments: { command } }, execState())
+
+                expect(lastExtras()).not.toHaveProperty('$mcp_skill_name')
+            })
+
+            it('stamps the skill name in direct tools mode too', async () => {
+                const tools = catalog.getPreBuiltEntries().map((entry) => {
+                    const preBuilt = catalog.getToolByName(entry.name)!
+                    return {
+                        ...preBuilt.base,
+                        title: entry.title,
+                        description: entry.description ?? '',
+                        annotations: entry.annotations,
+                        scopes: [],
+                    }
+                })
+
+                await executor.handleToolCall(
+                    { name: 'skill-get', arguments: { skill_name: 'conductor' } },
+                    makeState(tools as any)
+                )
+
+                expect(trackToolCallExtras('skill-get')).toMatchObject({ $mcp_skill_name: 'conductor' })
+            })
+        })
     })
 })
