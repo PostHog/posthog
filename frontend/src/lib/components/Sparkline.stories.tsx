@@ -19,6 +19,9 @@ export const BarChart: Story = {
         data: [10, 5, 3, 30, 22, 10, 2],
         labels: ['Mon', 'Tue', 'Wed', 'Thurs', 'Fri', 'Sat', 'Sun'],
     },
+    // `Sparkline` now dispatches to the quill chart, whose canvas has no intrinsic size, so the
+    // wrapper needs an explicit height — a bare `w-full` collapses to zero height under the runner.
+    render: (args) => <Sparkline {...args} className="w-64 h-16" />,
 }
 
 const dataRange = Array.from({ length: 50 }, (_, i) => i)
@@ -56,10 +59,9 @@ export const TimeseriesChart: Story = {
     },
 }
 
-// Quill-rendered variants (see docs/internal/quill-migration-sparkline.md), for side-by-side
-// comparison with the legacy stories above. These render `QuillSparkline` directly rather than
-// flipping the `quill-sparkline` flag: the flag dispatch is unusable under Storybook, whose
-// implicit-action args inject an `onSelectionChange` spy that the dispatch reads as a
+// Quill-rendered variants, for side-by-side comparison with the legacy stories above. These
+// render `QuillSparkline` directly: the dispatch in `Sparkline` is unusable under Storybook,
+// whose implicit-action args inject an `onSelectionChange` spy that the dispatch reads as a
 // legacy-only feature. The quill chart paints onto an absolutely-positioned canvas that adds no
 // intrinsic size, so the wrapper needs an explicit width and height — a `w-full` here would
 // collapse to a zero-width, unsnapshottable root under the test runner.

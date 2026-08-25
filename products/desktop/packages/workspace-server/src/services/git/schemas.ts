@@ -315,6 +315,7 @@ export const getPrDetailsByUrlOutput = z.object({
   draft: z.boolean(),
   headRefName: z.string().nullable(),
   title: z.string().nullable(),
+  author: z.string().nullable(),
 });
 
 export type PrDetailsByUrlOutput = z.infer<typeof getPrDetailsByUrlOutput>;

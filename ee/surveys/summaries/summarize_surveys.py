@@ -1,8 +1,9 @@
 from datetime import datetime
 from typing import Optional, cast
 
-import openai
 import structlog
+import posthoganalytics
+from posthoganalytics.ai.openai import OpenAI
 from prometheus_client import Histogram
 
 from posthog.hogql import ast
@@ -92,7 +93,7 @@ def summarize_survey_responses(
         prepared_data = [x[0] for x in query_response.results if x[0]]
 
     with timer("openai_completion"):
-        result = openai.chat.completions.create(
+        result = OpenAI(posthog_client=posthoganalytics.default_client).chat.completions.create(  # type: ignore[call-overload]
             model="gpt-4.1-mini",  # allows 128k tokens
             temperature=0.7,
             messages=[
@@ -126,6 +127,13 @@ taking into consideration the survey question being asked.
                 },
             ],
             user=f"{instance_region}/{user.pk}",
+            posthog_privacy_mode=True,
+            posthog_distinct_id=user.distinct_id,
+            posthog_properties={
+                "ai_product": "surveys",
+                "ai_feature": "response-summary",
+                "team_id": team.id,
+            },
         )
 
         usage = result.usage.prompt_tokens if result.usage else None

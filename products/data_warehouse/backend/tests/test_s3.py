@@ -123,6 +123,21 @@ class TestEnsureBucketExists(SimpleTestCase):
             ensure_bucket_exists("s3://my-bucket", "key", "secret")
 
     @patch("products.data_warehouse.backend.s3.boto3.client")
+    def test_skips_check_when_botocore_rejects_the_endpoint(self, mock_boto3_client) -> None:
+        # delta-rs accepts endpoints botocore refuses to build a client for (e.g. a service host
+        # with an underscore), so a rejected endpoint must not abort the sync at this pre-check.
+        mock_boto3_client.side_effect = ValueError("Invalid endpoint: http://object_storage:19000")
+
+        ensure_bucket_exists("s3://my-bucket", "key", "secret", "http://object_storage:19000")
+
+    @patch("products.data_warehouse.backend.s3.boto3.client")
+    def test_reraises_unrelated_value_errors(self, mock_boto3_client) -> None:
+        mock_boto3_client.side_effect = ValueError("something else went wrong")
+
+        with self.assertRaises(ValueError):
+            ensure_bucket_exists("s3://my-bucket", "key", "secret")
+
+    @patch("products.data_warehouse.backend.s3.boto3.client")
     def test_reraises_non_404_head_bucket_errors(self, mock_boto3_client) -> None:
         s3_client = MagicMock()
         s3_client.head_bucket.side_effect = _client_error("403")

@@ -182,7 +182,6 @@ async def test_postgres_source_full_refresh(
     external_data_source: ExternalDataSource,
     external_data_schema_full_refresh: ExternalDataSchema,
 ):
-    """Test that a full refresh sync works as expected."""
     table_name = f"postgres_{POSTGRES_TABLE_NAME}"
     expected_num_rows = len(TEST_DATA)
 

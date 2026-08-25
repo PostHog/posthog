@@ -88,6 +88,27 @@ describe("countArtifacts", () => {
       cloudOutput: null,
       expected: 2,
     },
+    {
+      name: "adds PostHog references to the artifact count",
+      manifest: [
+        {
+          id: "phref-1",
+          name: "Checkout funnel",
+          type: "reference" as const,
+          source: "posthog_object" as const,
+          metadata: {
+            reference_type: "posthog_object" as const,
+            object_kind: "insight",
+            object_id: "9pQx3",
+            source_message_ids: ["turn-1"],
+            occurrence_count: 1,
+          },
+        },
+      ],
+      taskOutput: null,
+      cloudOutput: null,
+      expected: 1,
+    },
   ])("$name", ({ manifest, taskOutput, cloudOutput, expected }) => {
     expect(countArtifacts({ manifest, taskOutput, cloudOutput })).toBe(
       expected,

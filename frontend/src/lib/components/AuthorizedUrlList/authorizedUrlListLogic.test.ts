@@ -120,6 +120,28 @@ describe('the authorized urls list logic', () => {
         })
     })
 
+    describe('loading suggestions', () => {
+        // Regression coverage: suggestions are advisory, so a failed query must leave the list empty
+        // and succeed the loader rather than escape as an unhandled kea-loaders error into error tracking.
+        it('returns no suggestions when the query fails', async () => {
+            useMocks({
+                post: {
+                    '/api/environments/:team_id/query/:kind': [
+                        500,
+                        { type: 'server_error', detail: 'error from the API' },
+                    ],
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSuggestions()
+            })
+                .toDispatchActions(['loadSuggestions', 'loadSuggestionsSuccess'])
+                .toNotHaveDispatchedActions(['loadSuggestionsFailure'])
+                .toMatchValues({ suggestions: [] })
+        })
+    })
+
     describe('checkUrlIsAuthorized', () => {
         const testCases: { url: string; authorized: string[]; expected: boolean }[] = [
             // Legitimate matches

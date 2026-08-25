@@ -229,11 +229,20 @@ class TestUpdateTaskRunStatusActivity:
             status=status,
             timed_out_inactivity=timed_out_inactivity,
             timeout_marker=timeout_marker,
+            agent_active_at_termination=False,
+            end_of_turn_received=True,
+            last_agent_heartbeat_at="2026-08-19T10:00:00+00:00",
+            seconds_since_last_agent_heartbeat=1800.0,
         )
         async_to_sync(activity_environment.run)(update_task_run_status, input_data)
 
         captured = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == expected_event]
-        assert captured[0].kwargs["properties"]["termination_reason"] == expected_reason
+        properties = captured[0].kwargs["properties"]
+        assert properties["termination_reason"] == expected_reason
+        assert properties["agent_active_at_termination"] is False
+        assert properties["end_of_turn_received"] is True
+        assert properties["last_agent_heartbeat_at"] == "2026-08-19T10:00:00+00:00"
+        assert properties["seconds_since_last_agent_heartbeat"] == 1800.0
 
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(

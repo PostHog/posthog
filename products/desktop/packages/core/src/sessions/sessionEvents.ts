@@ -47,6 +47,23 @@ export function getStoredLogEventPosition(
   return storedLogEventPositions.get(event);
 }
 
+export function dropEventsCoveredByTail(
+  events: AcpMessage[],
+  taskRunId: string,
+  startEntryIndex: number,
+): AcpMessage[] | undefined {
+  const isCovered = (event: AcpMessage): boolean => {
+    const position = storedLogEventPositions.get(event);
+    return (
+      position !== undefined &&
+      position.taskRunId === taskRunId &&
+      position.entryIndex >= startEntryIndex
+    );
+  };
+  if (!events.some(isCovered)) return undefined;
+  return events.filter((event) => !isCovered(event));
+}
+
 function recordStoredLogEventPosition(
   event: AcpMessage,
   position: StoredLogEventPosition | undefined,
@@ -83,8 +100,9 @@ function storedEntryToAcpMessage(
  * A typed user prompt replayed from an imported Claude Code session arrives as
  * a `user_message_chunk` tagged with `_meta.importedUserPrompt`. The renderer
  * ignores raw user_message_chunks (live, user turns render from session/prompt
- * requests), so promote the tagged ones into a session/prompt user event. Only
- * affects imported sessions; normal logs carry no such marker.
+ * requests), so promote the tagged ones into a session/prompt user event.
+ * Imported sessions and the backend-recorded `/clear` on a finished cloud run
+ * carry the tag; normal logs don't.
  */
 function promoteImportedUserPrompt(
   entry: StoredLogEntry,
@@ -133,6 +151,33 @@ export function createUserPromptEvent(
 
 export function createUserMessageEvent(text: string, ts: number): AcpMessage {
   return createUserPromptEvent([{ type: "text", text }], ts);
+}
+
+/**
+ * Fallback `/clear` frames for a finished cloud run, used only when the
+ * post-clear log repaint cannot confirm the persisted boundary. The backend
+ * has already written the same pair into the run log with its own timestamps,
+ * so this locally stamped copy never reconciles against the log-derived one
+ * and can render a duplicate divider after a later resume.
+ *
+ * The painted user message is a `session/prompt` request because that is the
+ * shape the renderer displays; the persisted copy is a `user_message_chunk`
+ * tagged `importedUserPrompt`, which log replay promotes back into this same
+ * request shape (see {@link promoteImportedUserPrompt}).
+ */
+export function createConversationClearedEvents(ts: number): AcpMessage[] {
+  return [
+    createUserMessageEvent("/clear", ts),
+    {
+      type: "acp_message",
+      ts,
+      message: {
+        jsonrpc: "2.0",
+        method: POSTHOG_NOTIFICATIONS.CONVERSATION_CLEARED,
+        params: {},
+      },
+    },
+  ];
 }
 
 /**

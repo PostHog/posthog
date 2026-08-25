@@ -3,7 +3,7 @@
 # people's OCDs ^_^
 .cache
 .planning
-.pr-review-diff.patch
+.pr-review-diff*.patch
 .qa-frontend/
 __emails__
 __pycache__/
@@ -233,3 +233,4 @@ dump.rdb
 # Log corpora captured for the pattern replay harness. These hold real log bodies —
 # addresses, hostnames, request ids, user agents — and this repository is public.
 corpora/
+.gstack/

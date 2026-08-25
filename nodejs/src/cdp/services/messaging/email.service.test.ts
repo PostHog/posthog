@@ -328,13 +328,18 @@ describe('EmailService', () => {
                 ['a list of addresses', 'a@posthog.com, b@posthog.com'],
                 ['an RFC-822 formatted address', '"Name" <a@posthog.com>'],
                 ['a value that is not an email address', 'not-an-email'],
-            ])('rejects %s without calling SES', async (_desc, email) => {
+            ])('discards %s and sends from the integration sender', async (_desc, email) => {
                 invocation.queueParameters = createEmailParams({
                     from: { integrationId: 1, email },
                 })
                 const result = await service.executeSendEmail(invocation)
-                expect(result.error).toContain(`"${email}"`)
-                expect(sendEmailSpy).not.toHaveBeenCalled()
+                // Failing the send would break every step still carrying the placeholder address
+                // an old sender picker wrote, so an unusable override degrades to the integration's
+                // own sender. The unverified address must never reach the provider either way.
+                expect(result.error).toBeUndefined()
+                const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+                expect(sentCommand.input.FromEmailAddress).toBe('"Test User" <test@posthog.com>')
+                expect(result.logs.some((log) => log.level === 'warn' && log.message.includes(email))).toBe(true)
             })
         })
         describe('email sending', () => {
@@ -397,6 +402,23 @@ describe('EmailService', () => {
                 // No business metric emitted on throttle — the eventual retry
                 // will produce email_sent.
                 expect(result.metrics ?? []).toEqual([])
+            })
+
+            it('keeps the send priority class across a throttle reschedule', async () => {
+                // A bulk send enters the email queue at priority 1. On an SES throttle the job is
+                // rescheduled on the email queue, so its priority must stay 1 — resetting it to the
+                // fast-lane value 0 would let throttled bulk bursts jump ahead of transactional sends,
+                // which is exactly the traffic the fast lane exists to protect.
+                invocation.queuePriority = 1
+                sendEmailSpy.mockRejectedValueOnce(
+                    new TooManyRequestsException({ $metadata: {}, message: 'Too many requests' })
+                )
+
+                const result = await service.executeSendEmail(invocation)
+
+                expect(result.finished).toBe(false)
+                expect(result.invocation.queueScheduledAt).toBeDefined()
+                expect(result.invocation.queuePriority).toBe(1)
             })
 
             it('hard-fails (not retry) when SES returns SendingPausedException', async () => {

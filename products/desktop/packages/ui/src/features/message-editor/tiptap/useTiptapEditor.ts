@@ -15,7 +15,6 @@ import {
   buildMarkdownLink,
   buildPastedTextLabel,
   extractBashCommand,
-  isBashModeText,
   isRepeatOfAutoConvertedPaste,
   isUrlOnly,
   shouldAutoConvertLongText,
@@ -31,7 +30,7 @@ import { TIP_KEYS } from "@posthog/ui/features/settings/tipKeys";
 import { hintToast } from "@posthog/ui/primitives/hintToast";
 import { toast } from "@posthog/ui/primitives/toast";
 import { isSendMessageSubmitKey } from "@posthog/ui/utils/sendMessageKey";
-import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
+import { Fragment, type Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { TextSelection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import { useEditor } from "@tiptap/react";
@@ -42,18 +41,17 @@ import { usePasteUndoStore } from "../pasteUndoStore";
 import { usePromptHistoryStore } from "../promptHistoryStore";
 import { findChipRangeById } from "../tiptap/chipRange";
 import { getEditorExtensions } from "../tiptap/extensions";
+import { editorContentToTiptapJson } from "../tiptap/markdownDoc";
+import { insertPastedMarkdown } from "../tiptap/markdownPaste";
 import { getPromptEditorAttributes } from "../tiptap/promptEditorAttributes";
-import {
-  type DraftContext,
-  editorContentToTiptapJson,
-  useDraftSync,
-} from "../tiptap/useDraftSync";
+import { type DraftContext, useDraftSync } from "../tiptap/useDraftSync";
 import { htmlToMarkdown } from "../utils/htmlToMarkdown";
 import {
   persistImageFile,
   persistTextContent,
   resolveAndAttachDroppedFiles,
 } from "../utils/persistFile";
+import { isBashModeDoc, markdownFragment } from "./composerDocument";
 
 export interface UseTiptapEditorOptions {
   sessionId: string;
@@ -70,6 +68,8 @@ export interface UseTiptapEditorOptions {
     bashMode?: boolean;
   };
   clearOnSubmit?: boolean;
+  /** What the composer starts from when this session has no draft yet. */
+  initialContent?: string;
   getPromptHistory?: () => string[];
   onPromptRecall?: PromptRecallHandler;
   onBeforeSubmit?: (text: string, clearEditor: () => void) => boolean;
@@ -201,8 +201,13 @@ async function resolveGithubRefChip(
 }
 
 function replaceComposerText(view: EditorView, text = "") {
-  const tr = view.state.tr.delete(1, view.state.doc.content.size - 1);
-  return text ? tr.insertText(text, 1) : tr;
+  const { schema, doc, tr } = view.state;
+  // Replaces whole blocks, not just their text, so the recalled document
+  // replaces whatever block the composer held.
+  const content = text
+    ? markdownFragment(schema, text)
+    : Fragment.from(schema.nodes.paragraph.create());
+  return tr.replaceWith(0, doc.content.size, content);
 }
 
 function hasVisibleSuggestionPopup(sessionId: string): boolean {
@@ -243,6 +248,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
     context,
     capabilities = {},
     clearOnSubmit = true,
+    initialContent,
     getPromptHistory,
     onPromptRecall,
     onBeforeSubmit,
@@ -460,7 +466,9 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
                 // Recalling up parks the caret at the start so the next Up
                 // press keeps cycling; recalling down parks it at the end.
                 if (event.key === "ArrowUp") {
-                  tr.setSelection(TextSelection.create(tr.doc, 1));
+                  // atStart, not position 1: a recalled list or fence puts the
+                  // first text position deeper than the first paragraph would.
+                  tr.setSelection(TextSelection.atStart(tr.doc));
                 }
                 view.dispatch(tr);
                 return true;
@@ -669,6 +677,13 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
             return true;
           }
 
+          // Lists, fences and inline code paste as nodes; input rules only fire
+          // while typing, so without this they would stay literal text.
+          if (effectiveText && insertPastedMarkdown(view, effectiveText)) {
+            event.preventDefault();
+            return true;
+          }
+
           // Insert inline; ProseMirror would otherwise drop the HTML formatting.
           if (markdown) {
             event.preventDefault();
@@ -696,7 +711,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
       },
       onUpdate: ({ editor: e }) => {
         const text = e.getText();
-        const newBashMode = enableBashMode && isBashModeText(text);
+        const newBashMode = enableBashMode && isBashModeDoc(e, text);
 
         if (newBashMode !== prevBashModeRef.current) {
           prevBashModeRef.current = newBashMode;
@@ -725,7 +740,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
     [sessionId, disabled, fileMentions, commands, placeholder],
   );
 
-  const draft = useDraftSync(editor, sessionId, context);
+  const draft = useDraftSync(editor, sessionId, context, initialContent);
   draftRef.current = draft;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: `editor` is the trigger: a recreated editor brings a new schema, and restoring a snapshot taken against the old one would throw on replaceWith.
@@ -764,6 +779,14 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft.restoredAttachments, updateAttachments]);
 
+  const clear = useCallback(() => {
+    editor?.commands.clearContent();
+    prevBashModeRef.current = false;
+    pasteCountRef.current = 0;
+    updateAttachments([]);
+    draft.clearDraft();
+  }, [editor, draft, updateAttachments]);
+
   const submit = useCallback(() => {
     if (!editor) return;
     if (disabled || submitDisabled) return;
@@ -777,14 +800,10 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
 
     const doClear = () => {
       if (!clearOnSubmit) return;
-      editor.commands.clearContent();
-      prevBashModeRef.current = false;
-      pasteCountRef.current = 0;
-      updateAttachments([]);
-      draft.clearDraft();
+      clear();
     };
 
-    if (enableBashMode && isBashModeText(text)) {
+    if (enableBashMode && isBashModeDoc(editor, text)) {
       // Bash mode requires immediate execution, can't be queued.
       // Intentionally bypasses onBeforeSubmit — bash commands run inline and
       // cannot be deferred the way normal prompts can.
@@ -798,7 +817,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
       const serialized = contentToXml(content);
 
       if (callbackRefs.current.onBeforeSubmit) {
-        if (!callbackRefs.current.onBeforeSubmit(serialized, doClear)) {
+        if (!callbackRefs.current.onBeforeSubmit(serialized, clear)) {
           return;
         }
       }
@@ -817,7 +836,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
     clearOnSubmit,
     attachments,
     enableBashMode,
-    updateAttachments,
+    clear,
   ]);
 
   submitRef.current = submit;
@@ -830,12 +849,6 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
     }
   }, [editor]);
   const blur = useCallback(() => editor?.commands.blur(), [editor]);
-  const clear = useCallback(() => {
-    editor?.commands.clearContent();
-    prevBashModeRef.current = false;
-    updateAttachments([]);
-    draft.clearDraft();
-  }, [editor, draft, updateAttachments]);
   const getText = useCallback(() => editor?.getText() ?? "", [editor]);
   const setContent = useCallback(
     (content: string | EditorContent) => {
@@ -875,6 +888,7 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
         type: chip.type,
         id: chip.id,
         label: chip.label,
+        objectKind: chip.objectKind,
         pastedText: false,
         chipId: chip.chipId,
         skillPath: chip.skillPath,
@@ -940,7 +954,8 @@ export function useTiptapEditor(options: UseTiptapEditorOptions) {
 
   const isEmpty = !editor || (isEmptyState && attachments.length === 0);
   const isBashMode =
-    enableBashMode && (editor ? isBashModeText(editor.getText()) : false);
+    enableBashMode &&
+    (editor ? isBashModeDoc(editor, editor.getText()) : false);
 
   return {
     editor,

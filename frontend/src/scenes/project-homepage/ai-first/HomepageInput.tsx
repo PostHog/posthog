@@ -459,10 +459,9 @@ function IdleGrid(): JSX.Element {
             ref={gridRef}
             role="grid"
             data-attr="homepage-grid"
-            // Fills the fixed-height swap container (see HomepageInput) so the recents grid and the
-            // capability cards are always the same height. Only shown at @xl+ where columns sit in a row.
+            // Only shown at @xl+ where the homepage columns sit in a row.
             className={cn(
-                'flex flex-col @xl/main-content:flex-row gap-8 @xl/main-content:gap-2 w-full px-3 outline-none h-full',
+                'flex flex-col @xl/main-content:flex-row gap-8 @xl/main-content:gap-2 w-full px-3 outline-none',
                 hasExtraMarginTop && 'mt-8'
             )}
             tabIndex={-1}
@@ -573,11 +572,13 @@ export function HomepageInput(): JSX.Element {
                                 selectedKey={selectedCapability}
                                 onSelect={setSelectedCapability}
                             />
-                            {/* Single fixed-height swap area — the cards and the recents grid both fill
-                                it (h-full), so switching never changes height. */}
+                            {/* Capability suggestions need a fixed basis; the idle grid uses its intrinsic height. */}
                             <div
                                 className="w-full shrink-0 overflow-hidden"
-                                style={{ height: CAPABILITY_CARDS_HEIGHT_PX }}
+                                style={{
+                                    height: selectedCapabilityData ? CAPABILITY_CARDS_HEIGHT_PX : 'auto',
+                                    minHeight: CAPABILITY_CARDS_HEIGHT_PX,
+                                }}
                             >
                                 {selectedCapabilityData ? (
                                     <CapabilitySuggestions

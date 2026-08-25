@@ -413,7 +413,7 @@ class AccessControlViewSetMixin(_GenericViewSet):
             # a project's own default, which has nothing above it to fall back to. "No override"
             # belongs to object defaults only — project-level access is configured in its own
             # panel, which has no inherited tier to fall back to.
-            inherited = SubjectAccessControl(user_access_control.user, team).inherited_access_for_object(obj)
+            inherited = SubjectAccessControl.for_default(user_access_control, team).inherited_access_for_object(obj)
             payload["inherited_access"] = (
                 InheritedAccessSerializer(
                     {**asdict(inherited), "source_display_name": _inherited_source_display_name(obj, inherited)}

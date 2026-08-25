@@ -948,6 +948,47 @@ def test_retry_after_head_move_never_rewrites_a_terminal_run(team, stamphog_chai
     assert [w for w in recorder.github_writes if w["kind"] == "dismiss_review"] == []
 
 
+@pytest.mark.parametrize(
+    "live_base",
+    [
+        pytest.param({"sha": "master-tip", "ref": "master"}, id="retargeted-to-master"),
+        pytest.param({"sha": "parent-tip-2", "ref": "feat/parent"}, id="same-ref-parent-moved"),
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_post_verdict_skips_when_the_base_moved_under_the_run(
+    team, stamphog_chain: StamphogChain, live_base: dict
+) -> None:
+    # A stacked PR's parent merged mid-review (child retargeted to master), or the parent branch
+    # itself moved under the same ref: either rewrites the reviewed diff while the head SHA stays
+    # put. The retarget delivery retracts and re-queues, but it can trail this activity —
+    # post_verdict must recheck the live base itself, or an approval for the old base..head diff
+    # lands on the new one.
+    repo_config = _repo_config(team.id)
+    recorder = stamphog_chain.recorder
+    head_sha = "sha119a"
+    live_pr = _pr_object(119, "devex-dev", head_sha) | {"base": live_base}
+    recorder.register_pr(REPO, 119, live_pr, _pr_files())
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=119, author_login="devex-dev"
+    )
+    reviewed_pr = _pr_object(119, "devex-dev", head_sha) | {"base": {"sha": "parent-tip", "ref": "feat/parent"}}
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha=head_sha,
+        status=ReviewRunStatus.REVIEWING,
+        output={"pr": reviewed_pr, "reviewer_raw": fakes.approved_engine_output().splitlines()[-1]},
+    )
+
+    result = _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    assert result == {"verdict": "skipped_base_retargeted"}
+    assert [w for w in recorder.github_writes if w["kind"] == "approve_review"] == []
+    run.refresh_from_db()
+    assert run.status == ReviewRunStatus.SUPERSEDED
+
+
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_bot_eyes_on_a_later_reactions_page_still_counts_as_in_flight(team, stamphog_chain: StamphogChain) -> None:
     # Anyone can react on a public PR, so an author could bury the trusted bot's fresh 👀 past the
@@ -1077,11 +1118,65 @@ def test_refused_verdict_strips_trigger_label_only_in_label_mode(
     else:
         assert label_removals == []
 
-    # A refused PR hands off to ReviewHog by adding its trigger label, in both review modes —
-    # stamphog couldn't sign off, so a deeper second-opinion review is wanted regardless of how the
-    # review was triggered.
+    # Neither mode hands off to ReviewHog: this PR has a human author who reads the refusal, so a
+    # second unrequested bot review is not stamphog's call to make. Only self-driving runs hand off
+    # (test_refused_verdict_hands_off_to_reviewhog_only_when_self_driving).
+    assert [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "add_label"] == []
+
+
+@pytest.mark.parametrize(
+    "review_mode,inbox_review,expect_handoff",
+    [
+        (ReviewMode.ALL, {"trigger": "inbox"}, True),
+        (ReviewMode.LABEL, {"trigger": "inbox"}, True),
+        (ReviewMode.ALL, None, False),
+        (ReviewMode.LABEL, None, False),
+    ],
+    ids=[
+        "self_driving_in_all_mode_hands_off",
+        "self_driving_in_label_mode_hands_off",
+        "human_pr_in_all_mode_does_not",
+        "human_pr_in_label_mode_does_not",
+    ],
+)
+@pytest.mark.django_db(databases=PRODUCT_DATABASES)
+def test_refused_verdict_hands_off_to_reviewhog_only_when_self_driving(
+    team,
+    stamphog_chain: StamphogChain,
+    review_mode: ReviewMode,
+    inbox_review: dict | None,
+    expect_handoff: bool,
+) -> None:
+    # A self-driving PR has no author to read the refusal, so ReviewHog's deeper review is the next
+    # step; a human PR's author decides that for themselves. Inbox provenance outranks the repo's
+    # review mode both ways, which is why the mode is crossed with it here: an ALL-mode repo must
+    # still hand off its self-driving PRs, and must not hand off the human ones it reviews by default.
+    repo_config = _repo_config(team.id)
+    repo_config.review_mode = review_mode
+    repo_config.save()
+    head_sha = "sha-refused-handoff-trigger"
+    stamphog_chain.recorder.register_pr(REPO, 101, _pr_object(101, "devex-dev", head_sha))
+    pull_request = PullRequest.objects.for_team(team.id).create(
+        team_id=team.id, repo_config=repo_config, pr_number=101, author_login="devex-dev"
+    )
+    output: dict = {"reviewer_raw": _refused_engine_output()}
+    if inbox_review is not None:
+        output["inbox_review"] = inbox_review
+    run = ReviewRun.objects.for_team(team.id).create(
+        team_id=team.id,
+        pull_request=pull_request,
+        head_sha=head_sha,
+        status=ReviewRunStatus.REVIEWING,
+        output=output,
+    )
+
+    _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
+
+    run.refresh_from_db()
+    assert run.verdict == ReviewVerdict.REFUSED
     label_adds = [w for w in stamphog_chain.recorder.github_writes if w["kind"] == "add_label"]
-    assert label_adds == [{"kind": "add_label", "repo": REPO, "number": 101, "labels": ["reviewhog"]}]
+    expected = [{"kind": "add_label", "repo": REPO, "number": 101, "labels": ["reviewhog"]}]
+    assert label_adds == (expected if expect_handoff else [])
 
 
 @pytest.mark.parametrize(
@@ -1111,7 +1206,7 @@ def test_refused_verdict_lands_even_when_reviewhog_handoff_fails(
     # GitHubRateLimitError and a network blip raises requests.RequestException from the egress layer.
     # All four must leave the run COMPLETED + REFUSED, not FAILED. The latter two are the regression:
     # they are not subclasses of StamphogGitHubError, so only a broad catch at the call site contains
-    # them.
+    # them. The run carries inbox provenance because only a self-driving refusal reaches the handoff.
     repo_config = _repo_config(team.id)
     head_sha = "sha-refused-handoff"
     stamphog_chain.recorder.register_pr(REPO, 101, _pr_object(101, "devex-dev", head_sha))
@@ -1127,7 +1222,7 @@ def test_refused_verdict_lands_even_when_reviewhog_handoff_fails(
         pull_request=pull_request,
         head_sha=head_sha,
         status=ReviewRunStatus.REVIEWING,
-        output={"reviewer_raw": _refused_engine_output()},
+        output={"reviewer_raw": _refused_engine_output(), "inbox_review": {"trigger": "inbox"}},
     )
 
     _run_activity(post_verdict, StamphogReviewInput(review_run_id=str(run.id), team_id=team.id))
@@ -1142,7 +1237,8 @@ def test_superseded_refusal_does_not_hand_off_to_reviewhog(team, stamphog_chain:
     # The ReviewHog handoff runs AFTER the conditional terminal save, so a refusal that loses the save
     # to a supersession (a synchronize/re-review delivery landing between the head guard and the save)
     # must not trigger ReviewHog for the stale refusal — a newer run may approve the same head. The run
-    # returns skipped_superseded and the reviewhog label is never added.
+    # returns skipped_superseded and the reviewhog label is never added. The run carries inbox
+    # provenance so the supersession is what blocks the handoff, not the self-driving-only condition.
     repo_config = _repo_config(team.id)
     head_sha = "sha-refused-superseded"
     stamphog_chain.recorder.register_pr(REPO, 101, _pr_object(101, "devex-dev", head_sha))
@@ -1154,7 +1250,7 @@ def test_superseded_refusal_does_not_hand_off_to_reviewhog(team, stamphog_chain:
         pull_request=pull_request,
         head_sha=head_sha,
         status=ReviewRunStatus.REVIEWING,
-        output={"reviewer_raw": _refused_engine_output()},
+        output={"reviewer_raw": _refused_engine_output(), "inbox_review": {"trigger": "inbox"}},
     )
     # A concurrent delivery flips the run to SUPERSEDED during the sticky-comment post (before the
     # terminal save), so the conditional .exclude(status=SUPERSEDED).update(...) matches nothing and the
@@ -1256,7 +1352,7 @@ _OWNERS_YAML_HEAD = "version: 1\nowners: []\n"
         (
             _OWNERS_YAML_HEAD + "teams:\n  other-team:\n    slack: '#elsewhere'\n",
             [{"id": "C-LOGS", "name": "logs"}],
-            ("C-LOGS", False, ChannelResolutionSource.SLACK_NAME_MATCH),
+            ("C-LOGS", True, ChannelResolutionSource.SLACK_NAME_MATCH),
         ),
         (_OWNERS_YAML_HEAD + "teams:\n  logs:\n    slack: '#team-apm'\n", [{"id": "C-LOGS", "name": "logs"}], None),
     ],
@@ -1436,13 +1532,12 @@ def test_unreadable_repo_behind_the_winner_still_provisions(team, stamphog_chain
 
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
-def test_daily_digest_provisions_name_matched_channel_disabled(team, stamphog_chain: StamphogChain) -> None:
-    # A bare Slack name match provisions the channel DISABLED and posts nothing: any workspace
-    # member can pre-create a public channel named after a GitHub team slug, so auto-posting to a
-    # name-matched channel would hand a squatter private repo titles and summaries. A human enables
-    # the channel in the UI; the merged PR stays unlinked so the next run after enabling picks it
-    # up. Repo-declared channels (maintainer's explicit pick) still provision enabled — see the
-    # STAMPHOG_CONFIG test below.
+def test_daily_digest_provisions_name_matched_channel_and_posts_the_same_run(
+    team, stamphog_chain: StamphogChain
+) -> None:
+    # A team's first digest must land without anyone wiring it up: the name match provisions the
+    # channel enabled, the app joins a channel it was never invited to, and the merged PR goes out
+    # on that same run rather than waiting on a human to flip a toggle nobody is watching.
     repo_config = _repo_config(team.id)
     integration = Integration.objects.create(
         team_id=team.id, kind="slack", config={"authed_user": {"id": "U1"}}, sensitive_config={"access_token": "x"}
@@ -1459,30 +1554,24 @@ def test_daily_digest_provisions_name_matched_channel_disabled(team, stamphog_ch
     PullRequestAudience.objects.for_team(team.id).create(
         team_id=team.id, pull_request=pr, audience_key="team-devex", reason=AudienceReason.AUTHORED
     )
-    fakes.FakeSlackIntegration.reset(channels=[{"id": "C-DEVEX", "name": "team-devex"}])
+    fakes.FakeSlackIntegration.reset(channels=[{"id": "C-DEVEX", "name": "team-devex"}], needs_join=["C-DEVEX"])
 
     send_daily_digests()
 
     channel = DigestChannel.objects.for_team(team.id).get(audience_key="team-devex")
-    assert channel.enabled is False
+    assert channel.enabled is True
     assert channel.resolution_source == ChannelResolutionSource.SLACK_NAME_MATCH
     assert channel.slack_integration_id == integration.id
-
-    assert not DigestRun.objects.for_team(team.id).filter(digest_channel=channel).exists()
-    assert fakes.FakeSlackIntegration.posted_messages == []
-    pr.refresh_from_db()
-    assert pr.digest_run_id is None
-
-    # A human enabling the channel is the confirmation step — the next daily run then posts.
-    DigestChannel.objects.for_team(team.id).filter(id=channel.id).update(enabled=True)
-    send_daily_digests()
+    assert fakes.FakeSlackIntegration.joined_channels == ["C-DEVEX"]
 
     run = DigestRun.objects.for_team(team.id).get(digest_channel=channel)
     assert run.status == DigestRunStatus.COMPLETED
     posted = fakes.FakeSlackIntegration.posted_messages
     assert len(posted) == 1
     assert posted[0]["channel"] == "C-DEVEX"
-    assert "#101 Add util helper" in posted[0]["text"]
+    # The notification preview is the change itself now, with the PR number only inside the link.
+    assert posted[0]["text"] == "Add util helper"
+    assert "/pull/101|" in posted[0]["blocks"][0]["text"]["text"]
     assert PullRequestAudience.objects.for_team(team.id).get(pull_request=pr).digest_run_id == run.id
 
 

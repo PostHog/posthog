@@ -90,6 +90,8 @@ export interface BuildResult {
    *  silent: a turn can sit minutes inside one tool call or thinking block
    *  with nothing new to render, and a frozen status word reads as a hang. */
   lastActivityAt: number | null;
+  /** A background turn started without a prompt RPC and has not completed. */
+  isBackgroundTurnActive: boolean;
 }
 
 interface ProgressCardState {
@@ -118,6 +120,8 @@ interface TurnState {
   context: TurnContext;
   gitAction: ReturnType<typeof parseGitActionMessage>;
   itemCount: number;
+  /** Per-turn so item ids survive older-history prepends; the virtualized thread anchors on them. */
+  nextItemId: number;
 }
 
 export interface ItemBuilder {
@@ -131,7 +135,6 @@ export interface ItemBuilder {
   shellExecutes: Map<string, { item: UserShellExecute; index: number }>;
   isCompacting: boolean;
   isClearing: boolean;
-  nextId: () => number;
   /** Progress cards keyed by the backend-supplied `group` id. The first event
    *  for a group opens the card inline where it arrived; every subsequent
    *  event for the same id mutates the same card, regardless of which turn is
@@ -150,13 +153,19 @@ export interface ItemBuilder {
   /** Timestamp (ms) of the newest event fed to this builder. See the field of
    *  the same name on `BuildResult`. */
   lastActivityAt: number | null;
+  isBackgroundTurnActive: boolean;
   /** Runs that emitted `_posthog/run_started`; until then the setup card's
    *  "agent" step stays in_progress rather than completing at HTTP-boot time. */
   runStartedRunIds: Set<string>;
+  /** Plans recovered from `_posthog/permission_request` frames, keyed by
+   *  toolCallId. A sandbox agent that read the plan from a plan file sends the
+   *  ExitPlanMode tool_call plan-less — the plan travels only inside the
+   *  permission request — and the resolving tool_call_update replays the raw
+   *  plan-less input, so the plan is re-applied after every merge. */
+  recoveredPlans: Map<string, string>;
 }
 
 export function createItemBuilder(): ItemBuilder {
-  let idCounter = 0;
   return {
     items: [],
     currentTurn: null,
@@ -165,12 +174,13 @@ export function createItemBuilder(): ItemBuilder {
     shellExecutes: new Map(),
     isCompacting: false,
     isClearing: false,
-    nextId: () => idCounter++,
     progressCards: new Map(),
     lowestTouchedProgressIndex: Number.POSITIVE_INFINITY,
     completedToolCallCount: 0,
     lastActivityAt: null,
+    isBackgroundTurnActive: false,
     runStartedRunIds: new Set(),
+    recoveredPlans: new Map(),
   };
 }
 
@@ -183,6 +193,36 @@ function noteActivity(b: ItemBuilder, ts: number) {
 }
 
 const TERMINAL_TOOL_STATUSES = new Set(["completed", "failed", "cancelled"]);
+
+/** The plan markdown carried by an ExitPlanMode-shaped input, or undefined. */
+function recoveredPlanOf(rawInput: unknown): string | undefined {
+  const plan = (rawInput as { plan?: unknown } | null | undefined)?.plan;
+  return typeof plan === "string" && plan.trim() ? plan : undefined;
+}
+
+function toolCallCarriesPlan(toolCall: ToolCall): boolean {
+  if (recoveredPlanOf(toolCall.rawInput)) return true;
+  return (toolCall.content ?? []).some((item) => {
+    const record = item as {
+      content?: { type?: string; text?: string };
+    } | null;
+    return record?.content?.type === "text" && !!record.content.text?.trim();
+  });
+}
+
+/** Fold a recovered plan into `toolCallId`'s call unless it already carries
+ *  one (an inline plan always wins). Mutates the registered ToolCall, so an
+ *  already-pushed item reflects it. */
+function applyRecoveredPlan(b: ItemBuilder, toolCallId: string): void {
+  const plan = b.recoveredPlans.get(toolCallId);
+  if (!plan) return;
+  const toolCall = b.currentTurn?.toolCalls.get(toolCallId);
+  if (!toolCall || toolCallCarriesPlan(toolCall)) return;
+  toolCall.rawInput = {
+    ...(toolCall.rawInput as Record<string, unknown> | null | undefined),
+    plan,
+  };
+}
 
 function isTerminalToolStatus(status: string | null | undefined): boolean {
   return status != null && TERMINAL_TOOL_STATUSES.has(status);
@@ -237,7 +277,7 @@ function pushItem(b: ItemBuilder, update: RenderItem, ts?: number) {
   turn.itemCount++;
   b.items.push({
     type: "session_update",
-    id: `${turn.id}-item-${b.nextId()}`,
+    id: `${turn.id}-item-${turn.nextItemId++}`,
     update,
     turnContext: turn.context,
     timestamp: ts,
@@ -296,6 +336,7 @@ export function buildConversationItems(
     isClearing: b.isClearing,
     completedToolCallCount: b.completedToolCallCount,
     lastActivityAt: b.lastActivityAt,
+    isBackgroundTurnActive: b.isBackgroundTurnActive,
   };
 }
 
@@ -353,6 +394,7 @@ export function buildAgentConversationItems(
     isClearing: b.isClearing,
     completedToolCallCount: b.completedToolCallCount,
     lastActivityAt: b.lastActivityAt,
+    isBackgroundTurnActive: b.isBackgroundTurnActive,
   };
 }
 
@@ -457,7 +499,7 @@ export function processAgentConversationEvent(
     return;
   }
 
-  if (b.currentTurn) {
+  if (event.type === "turn_completed" && b.currentTurn) {
     completePromptTurn(b, b.currentTurn, event.timestamp, {
       stopReason: event.stopReason,
     });
@@ -566,6 +608,7 @@ function handlePromptRequest(
     context,
     gitAction,
     itemCount: 0,
+    nextItemId: 0,
   };
 
   b.pendingPrompts.set(msg.id, b.currentTurn);
@@ -686,10 +729,39 @@ function handleNotification(
   // products are surfaced as a persistent, de-duplicated bar above the composer
   // (see accumulateSessionResources / SessionResourcesBar).
 
+  if (isNotification(msg.method, POSTHOG_NOTIFICATIONS.PERMISSION_REQUEST)) {
+    // Permission frames persist in the run log, so recovering the plan here
+    // also covers reloads and historical replays — unlike the pending
+    // permission in the session store, which is dropped once answered.
+    const toolCall = (
+      msg.params as
+        | { toolCall?: { toolCallId?: unknown; rawInput?: unknown } }
+        | undefined
+    )?.toolCall;
+    const plan = recoveredPlanOf(toolCall?.rawInput);
+    if (
+      typeof toolCall?.toolCallId === "string" &&
+      toolCall.toolCallId &&
+      plan
+    ) {
+      b.recoveredPlans.set(toolCall.toolCallId, plan);
+      applyRecoveredPlan(b, toolCall.toolCallId);
+    }
+    return;
+  }
+
+  if (
+    isNotification(msg.method, POSTHOG_NOTIFICATIONS.BACKGROUND_TURN_STARTED)
+  ) {
+    b.isBackgroundTurnActive = true;
+    return;
+  }
+
   if (
     isNotification(msg.method, POSTHOG_NOTIFICATIONS.TURN_COMPLETE) ||
     isNotification(msg.method, POSTHOG_NOTIFICATIONS.BACKGROUND_TURN_COMPLETE)
   ) {
+    b.isBackgroundTurnActive = false;
     const params = msg.params as { stopReason?: string } | undefined;
     if (!b.currentTurn) return;
     completePromptTurn(b, b.currentTurn, ts, {
@@ -702,7 +774,7 @@ function handleNotification(
     const params = msg.params as { level?: string; message?: string };
     if (!params?.message) return;
     const level = params.level ?? "info";
-    if (level === "debug" && !options?.showDebugLogs) return;
+    if (!options?.showDebugLogs) return;
     ensureImplicitTurn(b, ts);
     pushItem(b, {
       sessionUpdate: "console",
@@ -979,7 +1051,9 @@ function ensureImplicitTurn(b: ItemBuilder, ts: number) {
   if (b.currentTurn && !b.currentTurn.isComplete) return;
 
   b.currentTurnStartIndex = b.items.length;
-  const turnId = `turn-${ts}-implicit`;
+  // Entries with a missing or unparseable timestamp all share one `ts`, so the
+  // item index is what keeps two implicit turns from emitting the same item ids.
+  const turnId = `turn-${ts}-implicit-${b.currentTurnStartIndex}`;
   const toolCalls = new Map<string, ToolCall>();
   const childItems = new Map<string, ConversationItem[]>();
   const context: TurnContext = {
@@ -998,6 +1072,7 @@ function ensureImplicitTurn(b: ItemBuilder, ts: number) {
     context,
     gitAction: { isGitAction: false, actionType: null, prompt: "" },
     itemCount: 0,
+    nextItemId: 0,
   };
 }
 
@@ -1034,7 +1109,7 @@ function pushChildItem(b: ItemBuilder, parentId: string, update: RenderItem) {
   turn.itemCount++;
   children.push({
     type: "session_update",
-    id: `${turn.id}-child-${b.nextId()}`,
+    id: `${turn.id}-child-${turn.nextItemId++}`,
     update,
     turnContext: turn.context,
   });
@@ -1080,7 +1155,7 @@ function appendTextChunkToChildren(
     turn.itemCount++;
     children.push({
       type: "session_update",
-      id: `${turn.id}-child-${b.nextId()}`,
+      id: `${turn.id}-child-${turn.nextItemId++}`,
       update: { ...update, content: { ...update.content } },
       turnContext: turn.context,
     });
@@ -1133,6 +1208,7 @@ function processSessionUpdate(
           pushItem(b, toolCall, ts);
         }
       }
+      applyRecoveredPlan(b, update.toolCallId);
       break;
     }
 
@@ -1147,6 +1223,7 @@ function processSessionUpdate(
         if (!wasTerminal && isTerminalToolStatus(existing.status)) {
           b.completedToolCallCount++;
         }
+        applyRecoveredPlan(b, update.toolCallId);
       }
       break;
     }

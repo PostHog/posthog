@@ -2,7 +2,14 @@ from datetime import datetime
 from typing import Any
 
 import pytest
-from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
+from posthog.test.base import (
+    APIBaseTest,
+    BaseTest,
+    ClickhouseTestMixin,
+    NewEventsSchemaSnapshotExtension,
+    _create_event,
+    flush_persons_and_events,
+)
 
 from django.conf import settings
 
@@ -26,7 +33,7 @@ class TestStateTransforms(BaseTest):
     def _schema_snapshot(self, printed: str):
         self.snapshot.session.pytest_session.config.option.warn_unused_snapshots = True
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and "events_json" in printed:
-            return self.snapshot(name="new_events_schema")
+            return self.snapshot(name="new_events_schema", extension_class=NewEventsSchemaSnapshotExtension)
         return self.snapshot
 
     def _assert_matches_snapshot(self, printed: str) -> None:

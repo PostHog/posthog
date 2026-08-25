@@ -1744,6 +1744,7 @@ class SessionRecordingViewSet(
             posthog_properties={
                 "ai_product": "session_replay",
                 "ai_feature": "ai_regex",
+                "team_id": self.team.id,
             },
         )
 

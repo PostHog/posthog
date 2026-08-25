@@ -159,6 +159,71 @@ class TestCheckRunner(BaseTest):
 
     @parameterized.expand(
         [
+            # A manual run executes as its initiator so HogQL enforces that user's warehouse access:
+            # a custom_sql check can't reach an object its author was denied.
+            ("manual_with_user", SuiteRunTrigger.MANUAL, True, False),
+            # No actor to authorize against, so the bypass stays -- otherwise every warehouse check errors.
+            ("manual_without_user", SuiteRunTrigger.MANUAL, False, True),
+            ("materialization_ignores_creator", SuiteRunTrigger.MATERIALIZATION, True, True),
+        ]
+    )
+    def test_warehouse_access_control_is_enforced_only_for_user_initiated_runs(
+        self, _name, trigger: SuiteRunTrigger, with_user: bool, expected_bypass: bool
+    ) -> None:
+        suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger=trigger, created_by=self.user if with_user else None
+        )
+        check = self._check()
+        with patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [0, 0])) as query:
+            run_check(check, suite_run, self.team)
+
+        assert query.call_args.kwargs["bypass_warehouse_access_control"] is expected_bypass
+        assert query.call_args.kwargs["user"] == (None if expected_bypass else self.user)
+
+    def _referencing_check(self, check_type: CheckType, created_by) -> DataQualityCheck:
+        # Both types read beyond their declared subject: custom_sql over arbitrary SQL, relationships
+        # over a target subject. The relationships target must resolve so the check compiles.
+        if check_type == CheckType.RELATIONSHIPS:
+            target = DataWarehouseSavedQuery.objects.create(
+                team=self.team, name="customers", query={"kind": "HogQLQuery", "query": "SELECT 1 AS id"}
+            )
+            config = {"to_subject_type": SubjectType.VIEW, "to_subject_uuid": str(target.id), "to_column": "id"}
+            return self._check(check_type=check_type, column_name="customer_id", config=config, created_by=created_by)
+        return self._check(check_type=check_type, column_name="", config={"query": "select 1"}, created_by=created_by)
+
+    @parameterized.expand([("custom_sql", CheckType.CUSTOM_SQL), ("relationships", CheckType.RELATIONSHIPS)])
+    def test_an_automated_referencing_check_runs_as_its_author(self, _name, check_type: CheckType) -> None:
+        # An automated run has no initiator, but a check that reads beyond its declared subject isn't
+        # constrained to it, so it executes as the check's author to enforce that user's warehouse ACL
+        # rather than bypassing it -- otherwise a check outlives its author's access to what it reads.
+        suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger=SuiteRunTrigger.MATERIALIZATION
+        )
+        check = self._referencing_check(check_type, created_by=self.user)
+        with patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [0, 0])) as query:
+            run_check(check, suite_run, self.team)
+
+        assert query.call_args.kwargs["bypass_warehouse_access_control"] is False
+        assert query.call_args.kwargs["user"] == self.user
+
+    @parameterized.expand([("custom_sql", CheckType.CUSTOM_SQL), ("relationships", CheckType.RELATIONSHIPS)])
+    def test_an_automated_referencing_check_without_an_author_errors_without_running(
+        self, _name, check_type: CheckType
+    ) -> None:
+        # No initiator and no author means nobody to authorize the referenced subject against, so the
+        # run is errored rather than executed with the warehouse ACL bypassed.
+        suite_run = DataQualitySuiteRun.objects.for_team(self.team.id).create(
+            team=self.team, trigger=SuiteRunTrigger.MATERIALIZATION
+        )
+        check = self._referencing_check(check_type, created_by=None)
+        with patch(RUNNER_QUERY) as query:
+            outcome = run_check(check, suite_run, self.team)
+
+        query.assert_not_called()
+        assert outcome.status == CheckRunStatus.ERRORED
+
+    @parameterized.expand(
+        [
             ("first_failure", "", CheckSeverity.ERROR, True),
             ("still_failing", CheckRunStatus.FAILED, CheckSeverity.ERROR, False),
             ("warn_severity", "", CheckSeverity.WARN, False),
@@ -175,3 +240,15 @@ class TestCheckRunner(BaseTest):
         assert outcome.became_failing is expected
         check.refresh_from_db()
         assert check.last_status == CheckRunStatus.FAILED
+
+    def test_an_overlapping_run_does_not_claim_the_same_failing_transition(self) -> None:
+        # Stands in for a manual run racing the scheduled one: this run still holds the passing
+        # status it loaded, but the row already moved to failing, so it must not notify a second time.
+        check = self._check(last_status=CheckRunStatus.PASSED, severity=CheckSeverity.ERROR)
+        DataQualityCheck.objects.for_team(self.team.id).filter(id=check.id).update(last_status=CheckRunStatus.FAILED)
+
+        with patch(RUNNER_QUERY, return_value=_Response(["failure_count", "observed_value"], [3, 3])):
+            outcome = run_check(check, self.suite_run, self.team)
+
+        assert outcome.status == CheckRunStatus.FAILED
+        assert outcome.became_failing is False

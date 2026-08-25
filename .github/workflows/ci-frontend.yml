@@ -355,6 +355,12 @@ jobs:
             - name: Lint with Stylelint
               run: pnpm run lint:css
 
+            # Product colour tokens are named as plain strings from TypeScript manifests and
+            # empty-state configs, so nothing type-checks them. A reference to a token that no
+            # longer exists renders a whole surface colourless without failing anything else.
+            - name: Check product colour tokens all resolve
+              run: pnpm --filter=@posthog/frontend check-color-tokens
+
             - name: Lint with Oxlint
               run: pnpm exec oxlint --quiet
 

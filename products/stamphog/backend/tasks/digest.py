@@ -21,7 +21,7 @@ from celery import shared_task
 
 from products.stamphog.backend.facade.enums import DigestRunStatus
 from products.stamphog.backend.logic.channel_resolution import auto_provision_channel
-from products.stamphog.backend.logic.digest import summarize_merged_prs
+from products.stamphog.backend.logic.digest import pr_key, summarize_merged_prs
 from products.stamphog.backend.logic.slack_digest import post_digest
 from products.stamphog.backend.models import DigestChannel, DigestRun, PullRequestAudience
 
@@ -34,7 +34,7 @@ DIGEST_LOOKBACK_DAYS = 7
 # Per-run claim ceiling. An unbounded claim grows the LLM prompt, the stored summary, and the Slack
 # payload with the burst size — and if either rejects the oversized payload, the failure handler
 # unlinks the same PRs and every later run retries the identical oversized batch forever. Capping the
-# claim drains a backlog across daily runs instead; Slack rendering caps at 40 sections regardless.
+# claim drains a backlog across daily runs instead; the digest itself renders at most MAX_DIGEST_PRS.
 DIGEST_MAX_PRS_PER_RUN = 100
 
 # A PENDING DigestRun older than this had its worker die between claiming its PRs and posting (or
@@ -201,6 +201,19 @@ def send_digest_for_channel(digest_channel_id: str, team_id: int) -> None:
             slack_message_ts=message_ts or "",
             posted_at=now,
         )
+        # Release the PRs the digest kept but had no room for, so the next run posts them. Every
+        # other claimed PR stays linked: the model saw it and left it out, which is a decision and
+        # not a backlog. Runs after the proof-of-post write, so a crash here loses a day for those
+        # PRs rather than re-sending the whole digest.
+        if summary.deferred_prs:
+            deferred = set(summary.deferred_prs)
+            PullRequestAudience.objects.for_team(team_id).filter(
+                id__in=[
+                    a.id
+                    for a in audiences
+                    if pr_key(a.pull_request.repo_config.repository, a.pull_request.pr_number) in deferred
+                ]
+            ).update(digest_run=None)
         DigestChannel.objects.for_team(team_id).filter(id=channel.id).update(last_digest_at=now)
 
     logger.info("stamphog_digest_posted", digest_channel_id=digest_channel_id, pr_count=len(prs), run_id=str(run.id))

@@ -72,6 +72,7 @@ _LAZY = {
     "reconcile_redshift_schemas": "redshift_helpers",
     "reproject_direct_redshift_table": "redshift_helpers",
     "schedule_managed_warehouse_tables_reconcile": "tasks.tasks",
+    "schedule_managed_warehouse_direct_source_ensure": "tasks.tasks",
     "schedule_soft_delete_managed_warehouse_sources": "tasks.tasks",
     "HogQLQueryFixerTool": "max_tools",
     "hide_direct_mysql_table": "direct_mysql",

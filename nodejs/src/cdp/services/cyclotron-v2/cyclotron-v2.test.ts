@@ -828,6 +828,65 @@ describe('Cyclotron V2', () => {
                 expect((await queryJob(otherTeamId)).cancel_requested_at).toBeNull()
             })
 
+            it("parentRunId mode: flags the run's resolver job and children, and nothing beyond the run", async () => {
+                const functionId = uuidv7()
+                const parentRunId = uuidv7()
+                // The resolver orchestration job and its children share parent_run_id but
+                // sit on different queues - one selector must flag all of them.
+                const resolverId = await seedParked(functionId, { queueName: 'orchestration', parentRunId })
+                const parkedChildId = await seedParked(functionId, { parentRunId })
+                const runningChildId = await seedParked(functionId, { parentRunId })
+                await assertPool.query(`UPDATE cyclotron_jobs SET status = 'running' WHERE id = $1`, [runningChildId])
+                const otherRunId = await seedParked(functionId, { parentRunId: uuidv7() })
+                const otherTeamId = await seedParked(functionId, { parentRunId, teamId: 2 })
+
+                const result = await manager.cancelJobs({ teamId: 1, functionId, parentRunId })
+
+                expect(result).toEqual({ marked: 3, remaining: 0, done: true })
+                // Parked rows (resolver included) are flagged AND woken; the running child is
+                // flagged in place, its wake pulled forward by the worker's release.
+                const resolver = await queryJob(resolverId)
+                expect(resolver.cancel_requested_at).not.toBeNull()
+                expect(new Date(resolver.scheduled).getTime()).toBeLessThanOrEqual(Date.now())
+                expect((await queryJob(parkedChildId)).cancel_requested_at).not.toBeNull()
+                expect((await queryJob(runningChildId)).cancel_requested_at).not.toBeNull()
+                expect((await queryJob(otherRunId)).cancel_requested_at).toBeNull()
+                expect((await queryJob(otherTeamId)).cancel_requested_at).toBeNull()
+            })
+
+            it('rejects an empty parentRunId instead of widening to the whole workflow', async () => {
+                await expect(manager.cancelJobs({ teamId: 1, functionId: uuidv7(), parentRunId: '' })).rejects.toThrow(
+                    /non-empty/
+                )
+            })
+
+            it('bulkCreateAndCheckIn refuses the page when a cancel flag landed while the worker held the job', async () => {
+                const functionId = uuidv7()
+                const parentRunId = uuidv7()
+                const id = await manager.createJob({ teamId: 1, queueName: QUEUE, functionId, parentRunId })
+                const worker = createWorker()
+                const [job] = await dequeueOneBatch(worker)
+                expect(job.id).toBe(id)
+
+                // The mid-page window: the flag lands after the worker dequeued (and checked)
+                // the job but before it commits the page it is building.
+                await manager.cancelJobs({ teamId: 1, functionId, parentRunId })
+
+                const result = await job.bulkCreateAndCheckIn({
+                    newJobs: [{ teamId: 1, queueName: QUEUE, functionId, parentRunId }],
+                    selfDisposition: { kind: 'reschedule', scheduledAt: FAR_FUTURE() },
+                })
+
+                expect(result).toEqual({ newJobIds: [], cancelRequested: true })
+                // Nothing committed: no child row, and the self row kept its state.
+                expect(await totalJobCount()).toBe(1)
+                const row = await queryJob(id)
+                expect(row.status).toBe('running')
+                // The job is still held - the caller disposes of it.
+                await job.cancel()
+                expect((await queryJob(id)).status).toBe('canceled')
+            })
+
             it('reports remaining and done=false when the chunk budget runs out, and the next call finishes', async () => {
                 const functionId = uuidv7()
                 await Promise.all(Array.from({ length: 3 }, () => seedParked(functionId)))
@@ -889,6 +948,7 @@ describe('Cyclotron V2', () => {
             it.each([
                 ['no selector', {}],
                 ['two selectors', { jobIds: [uuidv7()], all: true }],
+                ['two selectors (parentRunId and all)', { parentRunId: uuidv7(), all: true }],
             ])('rejects a call with %s instead of guessing scope', async (_name, selector) => {
                 await expect(manager.cancelJobs({ teamId: 1, functionId: uuidv7(), ...selector })).rejects.toThrow(
                     /exactly one selector/
@@ -948,6 +1008,21 @@ describe('Cyclotron V2', () => {
 
             expect(jobs).toHaveLength(1)
             expect(jobs[0].queueName).toBe(QUEUE)
+        })
+
+        // Guards against the reschedule options schema silently stripping `priority`
+        // (zod .parse drops unknown keys), which would break the email queue's
+        // class assignment on the hogflow → email reschedule path.
+        it.each([
+            [{ priority: 10 }, 10],
+            [{}, 1],
+        ])('reschedule with options %o leaves the row at priority %i', async (options, expected) => {
+            const { id, job } = await seedAndDequeue({ priority: 1 })
+
+            await job.reschedule(options)
+
+            const res = await assertPool.query('SELECT priority FROM cyclotron_jobs WHERE id = $1', [id])
+            expect(res.rows[0].priority).toBe(expected)
         })
 
         describe('bulkCreateAndCheckIn', () => {
@@ -1669,6 +1744,69 @@ describe('Cyclotron V2', () => {
             // it from the queue name, so an EMAIL_QUEUE worker is already fair.
             const createFairWorker = (overrides?: Record<string, unknown>): CyclotronV2Worker =>
                 createWorker(EMAIL_QUEUE, overrides)
+
+            it('dequeues the fast class before an earlier-enqueued bulk backlog when priority dequeue is enabled', async () => {
+                // A bulk broadcast (priority 1) is already queued when two fast-class
+                // sends (priority 0) arrive, one from the same team. Without priority
+                // ordering, the same-team fast job waits behind the whole backlog.
+                const teamA = 100
+                const teamB = 200
+                await manager.bulkCreateJobs([
+                    ...Array.from({ length: 5 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE, priority: 1 })),
+                    { teamId: teamA, queueName: EMAIL_QUEUE, priority: 0 },
+                    { teamId: teamB, queueName: EMAIL_QUEUE, priority: 0 },
+                ])
+
+                const worker = createFairWorker({ batchMaxSize: 2, priorityDequeue: true })
+                const jobs = await dequeueOneBatch(worker)
+
+                expect(jobs.map((j) => j.priority)).toEqual([0, 0])
+                expect(new Set(jobs.map((j) => j.teamId))).toEqual(new Set([teamA, teamB]))
+            })
+
+            it('keeps the per-team interleave within a priority class', async () => {
+                const teamA = 100
+                const teamB = 200
+                await manager.bulkCreateJobs([
+                    ...Array.from({ length: 2 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE, priority: 1 })),
+                    ...Array.from({ length: 2 }, () => ({ teamId: teamB, queueName: EMAIL_QUEUE, priority: 1 })),
+                    { teamId: teamA, queueName: EMAIL_QUEUE, priority: 0 },
+                ])
+
+                const drained: Array<[number, number]> = []
+                for (let i = 0; i < 5; i++) {
+                    const worker = createFairWorker({ batchMaxSize: 1, priorityDequeue: true })
+                    const batch = await dequeueOneBatch(worker)
+                    expect(batch).toHaveLength(1)
+                    drained.push([batch[0].priority, batch[0].teamId])
+                    await batch[0].ack()
+                }
+
+                expect(drained).toEqual([
+                    [0, teamA],
+                    [1, teamA],
+                    [1, teamB],
+                    [1, teamA],
+                    [1, teamB],
+                ])
+            })
+
+            it('ignores priority when priority dequeue is disabled', async () => {
+                const teamA = 100
+                const teamB = 200
+                await manager.bulkCreateJobs([
+                    ...Array.from({ length: 5 }, () => ({ teamId: teamA, queueName: EMAIL_QUEUE, priority: 1 })),
+                    { teamId: teamA, queueName: EMAIL_QUEUE, priority: 0 },
+                    { teamId: teamB, queueName: EMAIL_QUEUE, priority: 0 },
+                ])
+
+                const worker = createFairWorker({ batchMaxSize: 2 })
+                const jobs = await dequeueOneBatch(worker)
+
+                // Legacy ordering is dequeue_seq only: the first fair round is team A's
+                // first bulk job and team B's fast job, so priorities stay mixed.
+                expect(jobs.map((j) => j.priority).sort((a, b) => a - b)).toEqual([0, 1])
+            })
 
             it('picks small-tenant jobs into the same batch as big-tenant jobs', async () => {
                 // The 2M-vs-1 scenario at a smaller scale: team A enqueues 5,

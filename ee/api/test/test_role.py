@@ -268,13 +268,19 @@ class TestRoleMemberVisibilityRestriction(APILicensedTest):
                 organization_member=user.organization_memberships.get(organization=self.organization),
             )
         # Private project: explicit access for the requester and one project mate, none for `hidden`
-        AccessControl.objects.create(team=self.team, resource="project", access_level="none")
+        AccessControl.objects.create(
+            team=self.team, resource="project", resource_id=str(self.team.id), access_level="none"
+        )
         for membership in [
             self.organization_membership,
             self.mate.organization_memberships.get(organization=self.organization),
         ]:
             AccessControl.objects.create(
-                team=self.team, resource="project", organization_member=membership, access_level="member"
+                team=self.team,
+                resource="project",
+                resource_id=str(self.team.id),
+                organization_member=membership,
+                access_level="member",
             )
 
     def test_restricted_member_cannot_see_hidden_members_via_roles(self):

@@ -291,6 +291,20 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         Delta = "Delta", "Delta"
         DeltaS3Wrapper = "DeltaS3Wrapper", "DeltaS3Wrapper"
 
+    class CreatedVia(models.TextChoices):
+        # The first five mirror `ExternalDataSource.CreatedVia` value-for-value, so table and source
+        # attribution can be counted together. The last three have no source equivalent — they cover
+        # the tables PostHog creates itself, which a request surface would otherwise misattribute to
+        # whoever happened to trigger the run.
+        WEB = "web", "web"
+        API = "api", "api"
+        MCP = "mcp", "mcp"
+        WIZARD = "wizard", "wizard"
+        SELF_DRIVING = "self_driving", "self_driving"
+        SOURCE = "source", "source"
+        MATERIALIZED_VIEW = "materialized_view", "materialized_view"
+        DEMO = "demo", "demo"
+
     name = models.CharField(max_length=128)
     format = models.CharField(max_length=128, choices=TableFormat)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
@@ -300,6 +314,11 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
     credential = models.ForeignKey(DataWarehouseCredential, on_delete=models.CASCADE, null=True, blank=True)
 
     external_data_source = models.ForeignKey("ExternalDataSource", on_delete=models.CASCADE, null=True, blank=True)
+
+    # Where this table came from — the request surface for user-created tables, or the internal
+    # path that built it. Derived server-side (never taken from the request body) so a client can't
+    # self-label. NULL on rows created before this field existed.
+    created_via = models.CharField(max_length=20, choices=CreatedVia, null=True, blank=True)
 
     columns = models.JSONField(
         default=dict,
@@ -502,8 +521,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             # chdb doesn't support parameterized queries
             chdb_query = f"SET use_hive_partitioning = 0; DESCRIBE TABLE {s3_table_func}" % quoted_placeholders
 
-            # TODO: upgrade chdb once https://github.com/chdb-io/chdb/issues/342 is actually resolved
-            # See https://github.com/chdb-io/chdb/pull/374 for the fix
+            # Workaround for chdb not honouring the CSV double-quote setting. The upstream fix
+            # (https://github.com/chdb-io/chdb/pull/374) is merged but is not in the pinned 3.3.0,
+            # so this SET stays until chdb is upgraded past that release.
             if self._is_csv_format() and self.csv_allow_double_quotes is not None:
                 chdb_query = (
                     f"SET format_csv_allow_double_quotes = {1 if self.csv_allow_double_quotes else 0}; {chdb_query}"

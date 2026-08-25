@@ -42,7 +42,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.checkout_c
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import OAuth2Auth
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
+    PartitionFormat,
+    PartitionMode,
+    SourceResponse,
+)
 
 PAYMENTS_ENDPOINTS = ("payments", "payment_actions", "customers", "instruments")
 
@@ -75,6 +79,10 @@ MAX_SEARCH_WINDOW = timedelta(days=90)
 MAX_SEARCH_REQUESTS_PER_SYNC = 2_000
 MAX_FANOUT_LOOKUPS_PER_SYNC = 10_000
 FANOUT_CHUNK_SIZE = 500
+# Bucket count for the md5(id) partitioning of `payments` (see
+# checkout_com_payments_source): enough buckets to keep each per-partition merge small
+# on multi-million-row accounts, matching the count other id-hashed sources use.
+PAYMENTS_PARTITION_COUNT = 200
 
 # Stable marker so the source can classify a budget stop as retryable rather than a bug.
 SYNC_BUDGET_EXCEEDED_MARKER = "Checkout.com sync hit its per-run API budget"
@@ -395,17 +403,33 @@ def checkout_com_payments_source(
 
     if schema_name == "payments":
         primary_keys = ["id"]
-        partition_keys: Optional[list[str]] = ["requested_on"]
+        # The merge matches on primary key *and* partition, and every sync re-reads
+        # `requested_on` from the search index, which does not promise the same value
+        # (or any value at all) for a payment across fetches. A timestamp-keyed
+        # partition can therefore shift between two runs that cover the same payment,
+        # and the merge inserts a second copy it can never match instead of updating
+        # the first, so duplicate ids accumulate. Hashing the immutable id gives every
+        # payment one partition for good while keeping merges partition-bounded.
+        partition_keys: Optional[list[str]] = ["id"]
+        partition_mode: Optional[PartitionMode] = "md5"
+        partition_format: Optional[PartitionFormat] = None
+        partition_count: Optional[int] = PAYMENTS_PARTITION_COUNT
     elif schema_name == "payment_actions":
         # Action ids look globally unique, but the API doesn't document that scope,
         # so the parent payment id is part of the key.
         primary_keys = ["payment_id", "id"]
         partition_keys = ["payment_requested_on"]
+        partition_mode = "datetime"
+        partition_format = "month"
+        partition_count = 1
     else:
         # Customers and instruments are point lookups keyed by their own id; they
         # carry no stable creation timestamp to partition on.
         primary_keys = ["id"]
         partition_keys = None
+        partition_mode = None
+        partition_format = None
+        partition_count = None
 
     return SourceResponse(
         name=schema_name,
@@ -421,10 +445,10 @@ def checkout_com_payments_source(
             db_incremental_field_last_value=db_incremental_field_last_value,
         ),
         primary_keys=primary_keys,
-        partition_count=1 if partition_keys else None,
+        partition_count=partition_count,
         partition_size=1 if partition_keys else None,
-        partition_mode="datetime" if partition_keys else None,
-        partition_format="month" if partition_keys else None,
+        partition_mode=partition_mode,
+        partition_format=partition_format,
         partition_keys=partition_keys,
         # Windows walk oldest-first and each window is sorted before yielding, so the
         # watermark only moves forward.

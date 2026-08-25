@@ -175,21 +175,45 @@ async def enforce_desktop_access(request: Request, user: AuthenticatedUser, prod
     if INTERNAL_RUN_SCOPE in (user.scopes or []):
         return
 
-    resolver: DesktopAccessResolver = request.app.state.desktop_access_resolver
-    if await resolver.has_access(user.user_id, upstream_auth_header(request)):
-        return
+    if user.team_id is None:
+        logger.warning("desktop_access_missing_team", user_id=user.user_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": {
+                    "message": "We couldn't verify PostHog Desktop access. Try again.",
+                    "type": "service_unavailable",
+                    "code": "desktop_access_unavailable",
+                }
+            },
+        )
 
-    logger.warning("desktop_access_denied", user_id=user.user_id, team_id=user.team_id)
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN,
-        detail={
-            "error": {
-                "message": "PostHog Desktop access is required to use this product.",
-                "type": "permission_error",
-                "code": "code_access_required",
-            }
-        },
-    )
+    resolver: DesktopAccessResolver = request.app.state.desktop_access_resolver
+    decision = await resolver.resolve_access(user.user_id, user.team_id, upstream_auth_header(request))
+    if decision.allowed:
+        return
+    if decision.resolution_failed:
+        logger.warning("desktop_access_resolution_failed", user_id=user.user_id, team_id=user.team_id)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": {
+                    "message": "We couldn't verify PostHog Desktop access. Try again.",
+                    "type": "service_unavailable",
+                    "code": "desktop_access_unavailable",
+                }
+            },
+        )
+
+    logger.warning("desktop_access_denied", user_id=user.user_id, team_id=user.team_id, reason=decision.reason)
+    error: dict[str, object] = {
+        "message": "PostHog Desktop access is required to use this product.",
+        "type": "permission_error",
+        "code": "code_access_required",
+    }
+    if decision.reason is not None:
+        error["reason"] = decision.reason
+    raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail={"error": error})
 
 
 async def _extract_end_user_id_from_body(request: Request) -> str | None:
@@ -337,6 +361,7 @@ async def enforce_throttles(
         code_usage_billed=quota_status.code_usage_billing_active,
         billing_period_start=plan_info.billing_period.current_period_start if plan_info.billing_period else None,
         credits_exhausted=quota_status.limited,
+        sandbox_task_id=user.sandbox_task_id,
     )
     request.state.throttle_context = context
     set_throttle_context(runner, context)

@@ -145,11 +145,12 @@ export class CdpApi {
     private batchExportHogFunctionService: BatchExportHogFunctionService
     private groupsManager: GroupsManagerService
     private batchResolverProducer: CyclotronV2JobProducer | null
-    // Scoped auth for the reschedule_parked and invocations/cancel routes (exempted from the
-    // shared internal-secret middleware): Django mints per-call JWTs pinned to a team + workflow,
+    // Scoped auth for the reschedule_parked and cancel routes (exempted from the shared
+    // internal-secret middleware): Django mints per-call JWTs pinned to a team + workflow,
     // one audience per route. Disabled when the key isn't provisioned — the routes then fail closed.
     private rescheduleJwt: ScopedServiceJwt
     private cancelInvocationsJwt: ScopedServiceJwt
+    private cancelBatchJwt: ScopedServiceJwt
 
     constructor(
         private config: PluginsServerConfig,
@@ -207,7 +208,11 @@ export class CdpApi {
         )
         this.cancelInvocationsJwt = new ScopedServiceJwt(
             PosthogJwtAudience.WORKFLOWS_CANCEL_INVOCATIONS,
-            config.WORKFLOWS_RESCHEDULE_JWT_SECRET || ''
+            config.WORKFLOWS_CANCEL_JWT_SECRET || ''
+        )
+        this.cancelBatchJwt = new ScopedServiceJwt(
+            PosthogJwtAudience.WORKFLOWS_CANCEL_BATCH,
+            config.WORKFLOWS_CANCEL_JWT_SECRET || ''
         )
     }
 
@@ -283,6 +288,10 @@ export class CdpApi {
         router.post(
             '/api/projects/:team_id/hog_flows/:id/invocations/cancel',
             asyncHandler(this.postHogFlowCancelInvocations)
+        )
+        router.post(
+            '/api/projects/:team_id/hog_flows/:id/batch_jobs/:batch_job_id/cancel',
+            asyncHandler(this.postHogFlowCancelBatchJob)
         )
         router.get('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.getFunctionStatus()))
         router.patch('/api/projects/:team_id/hog_functions/:id/status', asyncHandler(this.patchFunctionStatus()))
@@ -1034,24 +1043,28 @@ export class CdpApi {
 
     // Shared gate for the per-call scoped JWTs Django mints (reschedule, cancel): verifies the
     // token and requires its claims to match the URL's team + workflow, so a leaked token can't
-    // touch another team or flow. Writes the 401 itself and returns false on any mismatch.
+    // touch another team or flow. Routes scoped tighter than a workflow (batch cancel) pass the
+    // narrower claims via extraClaims and every one must match too. Writes the 401 itself and
+    // returns false on any mismatch.
     private verifyScopedWorkflowJwt(
         jwt: ScopedServiceJwt,
         req: ModifiedRequest,
         res: express.Response,
-        label: string
+        label: string,
+        extraClaims?: Record<string, string>
     ): boolean {
         const { team_id, id } = req.params
         const authHeader = req.headers['authorization']
         const token =
             typeof authHeader === 'string' && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : undefined
-        let claims: { team_id?: number; hog_flow_id?: string } | undefined
+        let claims: Record<string, unknown> | undefined
         try {
             claims = token ? (jwt.verify(token) as typeof claims) : undefined
         } catch {
             claims = undefined
         }
-        if (!claims || claims.team_id !== parseInt(team_id) || claims.hog_flow_id !== id) {
+        const extrasMatch = !extraClaims || Object.entries(extraClaims).every(([key, value]) => claims?.[key] === value)
+        if (!claims || claims.team_id !== parseInt(team_id) || claims.hog_flow_id !== id || !extrasMatch) {
             res.status(401).json({ error: `Unauthorized: Invalid ${label} token` })
             return false
         }
@@ -1156,7 +1169,7 @@ export class CdpApi {
             }
             if (!this.cancelInvocationsJwt.enabled) {
                 return res.status(503).json({
-                    error: 'Workflows scoped auth not configured (WORKFLOWS_RESCHEDULE_JWT_SECRET unset)',
+                    error: 'Workflows scoped auth not configured (WORKFLOWS_CANCEL_JWT_SECRET unset)',
                 })
             }
 
@@ -1217,6 +1230,63 @@ export class CdpApi {
             })
         } catch (e) {
             logger.error('Error cancelling hog flow invocations', {
+                error: e instanceof Error ? e.message : String(e),
+            })
+            return res.status(500).json({ error: e instanceof Error ? e.message : String(e) })
+        }
+    }
+
+    // Stop a batch run: flag its resolver orchestration job and every child run for
+    // cancellation in one sweep — they share parent_run_id, so one selector covers both.
+    // The resolver's in-transaction tombstone check plus Django's repeat-until-done loop
+    // make this converge: once the resolver is flagged it can commit at most the one page
+    // that already held its row lock, and that page's children surface in the next sweep's
+    // remaining count.
+    //
+    // Auth mirrors the other workflows CDP calls: a per-call JWT minted by Django, pinned
+    // to this team + workflow, on its own audience.
+    private postHogFlowCancelBatchJob = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        try {
+            if (!this.batchResolverProducer) {
+                return res.status(503).json({
+                    error: 'Cyclotron producer not initialized (CYCLOTRON_NODE_DATABASE_URL unset)',
+                })
+            }
+            if (!this.cancelBatchJwt.enabled) {
+                return res.status(503).json({
+                    error: 'Workflows scoped auth not configured (WORKFLOWS_CANCEL_JWT_SECRET unset)',
+                })
+            }
+
+            const { team_id, id, batch_job_id } = req.params
+
+            // batch_job_id is pinned in the claims too: without it, a captured token could stop
+            // any sibling batch of the same workflow for the token's lifetime.
+            if (!this.verifyScopedWorkflowJwt(this.cancelBatchJwt, req, res, 'cancel', { batch_job_id })) {
+                return
+            }
+
+            const team = await this.deps.teamManager.getTeam(parseInt(team_id)).catch(() => null)
+            if (!team) {
+                return res.status(404).json({ error: 'Team not found' })
+            }
+
+            if (batch_job_id.length > 200) {
+                return res.status(400).json({ error: 'batch_job_id is too long' })
+            }
+
+            const result = await this.batchResolverProducer.cancelJobs({
+                teamId: team.id,
+                functionId: id,
+                parentRunId: batch_job_id,
+            })
+            return res.json({
+                marked: result.marked,
+                remaining: result.remaining,
+                done: result.done,
+            })
+        } catch (e) {
+            logger.error('Error cancelling hog flow batch job', {
                 error: e instanceof Error ? e.message : String(e),
             })
             return res.status(500).json({ error: e instanceof Error ? e.message : String(e) })

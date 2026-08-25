@@ -4,7 +4,7 @@ from typing import Literal
 from posthog.test.base import BaseTest
 
 from django.apps import apps
-from django.db.models import ForeignKey, Model
+from django.db.models import ForeignKey, Model, UUIDField
 from django.test import SimpleTestCase
 from django.urls import get_resolver
 
@@ -429,6 +429,32 @@ class TestPostgresTablePrimaryKey(BaseTest):
             f"system.{table_name} has access_scope='{table.access_scope}' "
             f"but no single-column primary key (composite PK). "
             f"Object-level access control requires a single-column PK."
+        )
+
+
+class TestPostgresTableIdFieldType(SimpleTestCase):
+    """A UUID primary key must never be declared as an integer.
+
+    The declared type is what `system.information_schema` and the SQL editor report, and what the
+    resolver keys its UUID-literal validation off — so an integer declaration on a UUID column
+    misdocuments joins between system tables and swallows the friendly HogQL error for
+    `WHERE id = 'not-a-uuid'`, leaving a raw ClickHouse CANNOT_PARSE_UUID instead."""
+
+    @parameterized.expand(ALL_POSTGRES_SYSTEM_TABLES)
+    def test_uuid_pk_is_not_declared_as_an_integer(self, table_name: str, table: PostgresTable) -> None:
+        if not isinstance(table.fields.get("id"), IntegerDatabaseField):
+            return
+
+        model = _model_by_pg_table().get(table.postgres_table_name)
+        if model is None:
+            return
+
+        pk = model._meta.pk
+        self.assertNotIsInstance(
+            pk,
+            UUIDField,
+            f"system.{table_name}.id is declared as IntegerDatabaseField, but {model.__name__}'s "
+            f"primary key is a UUID column. Use UUIDDatabaseField.",
         )
 
 

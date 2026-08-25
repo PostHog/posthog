@@ -9,6 +9,9 @@ export const manifest: ProductManifest = {
     scenes: {
         SupportTickets: {
             name: 'Ticket list',
+            description:
+                'Collect support tickets from an in-app widget, email, or Slack into one inbox, with the product context behind every ticket',
+            iconType: 'conversations',
             import: () => import('./frontend/scenes/tickets/SupportTicketsScene'),
             projectBased: true,
             layout: 'app-container',
@@ -61,7 +64,10 @@ export const manifest: ProductManifest = {
             href: urls.supportTickets(),
             type: 'conversations',
             iconType: 'conversations',
-            iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
+            iconColor: [
+                'var(--color-product-support-light)',
+                'var(--color-product-support-dark)',
+            ] as FileSystemIconColor,
             sceneKey: 'SupportTickets',
         },
     ],

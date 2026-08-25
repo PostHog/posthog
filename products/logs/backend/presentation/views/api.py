@@ -708,7 +708,7 @@ class _LogsServicesSummarySerializer(serializers.Serializer):
 class _LogsServicesResponseSerializer(serializers.Serializer):
     services = _LogsServiceAggregateSerializer(
         many=True,
-        help_text="Per-service aggregates, ordered by log_count descending. Capped at 1000 services.",
+        help_text="Per-service aggregates, ordered by log_count descending. Capped at 10000 services.",
     )
     sparkline = _LogsServicesSparklineBucketSerializer(
         many=True,
@@ -720,7 +720,7 @@ class _LogsServicesResponseSerializer(serializers.Serializer):
     )
     total_services = serializers.IntegerField(
         help_text=(
-            "True distinct service count for the window and filters, unaffected by the 1000-service "
+            "True distinct service count for the window and filters, unaffected by the 10000-service "
             "cap on `services`. Greater than the length of `services` when the response is truncated."
         ),
     )

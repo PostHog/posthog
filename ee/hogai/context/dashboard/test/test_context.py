@@ -236,7 +236,7 @@ class TestDashboardContext(BaseTest):
 
         self.assertIn("Dashboard name: Dashboard", result)
         self.assertIn("Dashboard ID: 606", result)
-        self.assertIn(f"Dashboard URL: /project/{self.team.id}/dashboard/606", result)
+        self.assertIn("Dashboard URL: /dashboard/606", result)
 
     async def test_dashboard_url_included_in_format_schema(self):
         dashboard_ctx = DashboardContext(
@@ -249,7 +249,7 @@ class TestDashboardContext(BaseTest):
 
         result = await dashboard_ctx.format_schema()
 
-        self.assertIn(f"Dashboard URL: /project/{self.team.id}/dashboard/12345", result)
+        self.assertIn("Dashboard URL: /dashboard/12345", result)
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_dashboard_url_included_in_execute_and_format(self, mock_execute):
@@ -273,7 +273,7 @@ class TestDashboardContext(BaseTest):
 
         result = await dashboard_ctx.execute_and_format()
 
-        self.assertIn(f"Dashboard URL: /project/{self.team.id}/dashboard/67890", result)
+        self.assertIn("Dashboard URL: /dashboard/67890", result)
 
     @patch("ee.hogai.context.insight.context.execute_and_format_query")
     async def test_custom_max_concurrent_queries(self, mock_execute):

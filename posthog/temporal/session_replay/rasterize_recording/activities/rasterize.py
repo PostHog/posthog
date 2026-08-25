@@ -1,4 +1,5 @@
 from datetime import timedelta
+from typing import Any
 
 from django.conf import settings
 from django.db import close_old_connections, transaction
@@ -7,10 +8,13 @@ import structlog
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from posthog.ph_client import ph_background_capture
 from posthog.session_recordings.recordings.recording_api_jwt import mint_recording_api_token, recording_api_jwt_enabled
 from posthog.storage import object_storage
 
+from products.exports.backend.analytics import capture_export_event
 from products.exports.backend.models.exported_asset import ExportedAsset, is_valid_session_recording_id
+from products.exports.backend.source_authentication import assert_export_authorization
 
 from ..types import (
     RASTERIZE_RENDER_MAX_ATTEMPTS,
@@ -33,16 +37,29 @@ logger = structlog.get_logger(__name__)
 _RASTERIZE_TOKEN_TTL = RASTERIZE_RENDER_TIMEOUT * RASTERIZE_RENDER_MAX_ATTEMPTS + timedelta(hours=1)
 
 _RENDER_FINGERPRINT_KEY = "render_fingerprint"
+
+# Fields cleared when a render succeeds, so a row that failed and was re-rendered doesn't keep
+# showing the old reason next to its content.
+_FAILURE_FIELDS = ["exception", "exception_type", "failure_type"]
 _PERSISTED_OUTPUT_FIELDS: frozenset[str] = frozenset(
     {"video_duration_s", "playback_speed", "truncated", "file_size_bytes", "inactivity_periods"}
 )
+
+
+def report_export_event(asset: ExportedAsset, event: str, **properties: Any) -> None:
+    """Report an export lifecycle event through the client suited to a long-lived worker."""
+    capture_export_event(asset, event, ph_background_capture(), **properties)
 
 
 @activity.defn
 def build_rasterization_input(exported_asset_id: int) -> BuildRasterizationResult:
     close_old_connections()
 
-    asset = ExportedAsset.objects.get(pk=exported_asset_id)
+    asset = ExportedAsset.objects.select_related("team__organization", "created_by").get(pk=exported_asset_id)
+    try:
+        assert_export_authorization(asset)
+    except ValueError as error:
+        raise ApplicationError(str(error), non_retryable=True) from error
     ctx = asset.export_context or {}
 
     session_id = ctx.get("session_recording_id")
@@ -123,7 +140,20 @@ def build_rasterization_input(exported_asset_id: int) -> BuildRasterizationResul
 
     cached = _try_synthesize_cached_output(asset, ctx, fingerprint)
     if cached is not None:
+        # A cache hit returns straight to the workflow without reaching finalize_rasterization, so
+        # this is the only place it can report an outcome. Both events fire so started/succeeded
+        # counts stay comparable.
+        report_export_event(asset, "export started", cached=True)
+        report_export_event(asset, "export succeeded", cached=True)
         return BuildRasterizationResult(cached_output=cached, render_fingerprint=fingerprint)
+
+    report_export_event(
+        asset,
+        "export started",
+        playback_speed=playback_speed,
+        recording_fps=recording_fps,
+        output_format=output_format,
+    )
 
     return BuildRasterizationResult(activity_input=activity_input, render_fingerprint=fingerprint)
 
@@ -177,7 +207,11 @@ def finalize_rasterization(inputs: FinalizeRasterizationInput) -> None:
 
     # Row lock serializes the JSONB read-modify-write against prep_session_video_asset_activity.
     with transaction.atomic():
-        asset = ExportedAsset.objects.select_for_update().get(pk=inputs.exported_asset_id)
+        asset = (
+            ExportedAsset.objects.select_related("team__organization", "created_by")
+            .select_for_update(of=("self",))
+            .get(pk=inputs.exported_asset_id)
+        )
         asset.content_location = result.s3_uri[len(prefix) :]
 
         if asset.export_context is None:
@@ -195,7 +229,11 @@ def finalize_rasterization(inputs: FinalizeRasterizationInput) -> None:
         )
         asset.export_context[_RENDER_FINGERPRINT_KEY] = inputs.render_fingerprint
 
-        asset.save(update_fields=["content_location", "export_context"])
+        asset.exception = None
+        asset.exception_type = None
+        asset.failure_type = None
+
+        asset.save(update_fields=["content_location", "export_context", *_FAILURE_FIELDS])
 
     logger.info(
         "rasterization_finalized",
@@ -204,4 +242,14 @@ def finalize_rasterization(inputs: FinalizeRasterizationInput) -> None:
         video_duration_s=result.video_duration_s,
         file_size_bytes=result.file_size_bytes,
         render_fingerprint=inputs.render_fingerprint,
+    )
+
+    report_export_event(
+        asset,
+        "export succeeded",
+        cached=False,
+        duration_ms=round(result.timings.total_s * 1000, 2),
+        video_duration_s=result.video_duration_s,
+        file_size_bytes=result.file_size_bytes,
+        truncated=result.truncated,
     )

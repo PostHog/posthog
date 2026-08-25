@@ -317,8 +317,7 @@ class TestPublicLeakedKeyReport(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), {"found": True, "type": CANONICAL_OAUTH_REFRESH_TOKEN})
-        leaked_refresh_token.refresh_from_db()
-        self.assertIsNotNone(leaked_refresh_token.revoked)
+        self.assertFalse(OAuthRefreshToken.objects.filter(pk=leaked_refresh_token.pk).exists())
         self.assertFalse(OAuthAccessToken.objects.filter(id=first_access_token.id).exists())
         self.assertFalse(OAuthAccessToken.objects.filter(id=second_access_token.id).exists())
 

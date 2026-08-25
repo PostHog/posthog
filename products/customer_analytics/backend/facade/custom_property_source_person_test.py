@@ -11,7 +11,7 @@ from parameterized import parameterized
 from products.customer_analytics.backend.facade import api
 from products.customer_analytics.backend.models import CustomPropertySource, CustomPropertySyncRun, TargetType
 from products.customer_analytics.backend.models.team_scoped_test_base import TeamScopedTestMixin
-from products.customer_analytics.backend.test.factories import create_custom_property_definition
+from products.customer_analytics.backend.test.factories import create_custom_property_definition, create_saved_query
 from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -31,6 +31,7 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
             team=self.team, source_id="s", connection_id="c", status="Running", source_type="Stripe"
         )
         self.schema = ExternalDataSchema.objects.create(team=self.team, source=source, name="users")
+        self.saved_query = create_saved_query(team_id=self.team.id)
 
     def _create(self, **overrides):
         kwargs: dict = {
@@ -81,19 +82,19 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
     @parameterized.expand(
         [
             (
-                "person_without_schema",
+                "person_without_a_binding",
                 {"external_data_schema_id": None},
-                "needs an external_data_schema",
+                "exactly one of external_data_schema and saved_query",
             ),
             (
-                "person_with_saved_query_binding",
+                "person_with_both_bindings",
                 {"saved_query_id": uuid4()},
-                "not saved_query",
+                "exactly one of external_data_schema and saved_query",
             ),
             (
-                "person_with_source_column_binding",
+                "person_with_source_column",
                 {"source_column": "plan"},
-                "not saved_query",
+                "not source_column",
             ),
             (
                 "person_empty_map",
@@ -323,6 +324,23 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
         run = CustomPropertySyncRun.objects.unscoped().get(source_id=source.id)
         assert run.status == "failed" and run.error == "Failed to start sync"
 
+    @patch("products.customer_analytics.backend.facade.api.person_properties_flag_enabled", return_value=True)
+    def test_backfill_fails_its_run_when_the_warehouse_object_is_gone(self, _flag):
+        # Deleting the source's warehouse object soft-deletes the schema but leaves the source's binding,
+        # so the backfill can't resolve a table. Without failing the placeholder it just created, the run
+        # would sit 'running' until the stale-run sweep, and the trigger would report a coalesced run for a
+        # table that no longer exists (returning False → 'already_running') instead of an invalid source.
+        source = self._create(user_access_control=self._uac(allowed=True))
+        ExternalDataSchema.objects.filter(id=self.schema.id).update(deleted=True)
+
+        result = api.trigger_person_property_backfill(
+            team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=True)
+        )
+
+        assert result is None
+        run = CustomPropertySyncRun.objects.unscoped().get(source_id=source.id)
+        assert run.status == "failed" and run.finished_at is not None
+
     @parameterized.expand(
         [
             ("stale", api.STALE_RUNNING_RUN_AFTER + timedelta(minutes=1), "failed"),
@@ -388,3 +406,96 @@ class TestPersonCustomPropertySource(TeamScopedTestMixin, APIBaseTest):
             )
             is None
         )
+
+    # --- materialized-view bindings ------------------------------------------------------------
+
+    def _create_view_source(self, **overrides):
+        kwargs: dict = {"external_data_schema_id": None, "saved_query_id": self.saved_query.id}
+        kwargs.update(overrides)
+        return self._create(**kwargs)
+
+    def test_create_view_backed_person_source_round_trips(self):
+        view = self._create_view_source(user_access_control=self._uac(allowed=True))
+
+        assert view.saved_query == self.saved_query.id
+        assert view.external_data_schema is None
+        assert view.column_property_map == {"plan": "plan_tier"}
+        # The UI names and links a view-backed source off these, so both have to resolve.
+        assert view.table_name == "enriched_users"
+        assert view.saved_query_name == "enriched_users"
+        assert view.external_data_source is None
+
+        row = CustomPropertySource.objects.unscoped().get(id=view.id)
+        assert row.saved_query_id == self.saved_query.id and row.external_data_schema_id is None
+
+    def test_view_backed_person_source_rejects_an_unmaterialized_view(self):
+        # A view with no materialization has no Delta table, so the source could never sync — an
+        # accepted mapping would sit silently empty forever.
+        unmaterialized = create_saved_query(team_id=self.team.id, name="draft_users", is_materialized=False)
+        with self.assertRaisesMessage(api.CustomPropertySourceValidationError, "not found for this team"):
+            self._create_view_source(saved_query_id=unmaterialized.id)
+
+    def test_view_backed_person_source_rejects_a_view_from_another_team(self):
+        foreign = create_saved_query(team_id=self.organization.teams.create(name="other").id, name="their_users")
+        with self.assertRaisesMessage(api.CustomPropertySourceValidationError, "not found for this team"):
+            self._create_view_source(saved_query_id=foreign.id)
+
+    def test_create_view_backed_person_source_requires_view_editor(self):
+        # Mapping a view into person properties drives real materializations, so it needs editor access
+        # on the view, not account-scope editor alone — the same bar a table binding clears.
+        with self.assertRaises(api.ResourceForbiddenError):
+            self._create_view_source(user_access_control=self._uac(allowed=False))
+
+    @patch("products.customer_analytics.backend.facade.api.person_properties_flag_enabled", return_value=True)
+    def test_sync_now_materializes_the_view_and_opens_a_running_run(self, _flag):
+        source = self._create_view_source(user_access_control=self._uac(allowed=True))
+        with patch(
+            "products.warehouse_sources.backend.facade.temporal.trigger_saved_query_materialization"
+        ) as materialize:
+            assert (
+                api.trigger_person_property_sync(
+                    team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=True)
+                )
+                is True
+            )
+
+        materialize.assert_called_once_with(team_id=self.team.id, saved_query_id=str(self.saved_query.id))
+        run = CustomPropertySyncRun.objects.unscoped().get(source_id=source.id)
+        # The run is attributed to the view, not to a schema it never read.
+        assert run.saved_query_id == self.saved_query.id and run.schema_id is None
+        assert run.status == "running" and run.trigger == "sync"
+
+    @patch("products.customer_analytics.backend.facade.api.person_properties_flag_enabled", return_value=True)
+    def test_sync_now_on_a_view_outside_v2_reports_it_and_fails_the_run(self, _flag):
+        # Only the v2 materialization stages person-property rows. Starting a v1 run would look like a
+        # successful "Sync now" while the properties never update, so it has to surface as an error.
+        from products.warehouse_sources.backend.facade.temporal import SavedQueryNotOnV2ScheduleError
+
+        source = self._create_view_source(user_access_control=self._uac(allowed=True))
+        with patch(
+            "products.warehouse_sources.backend.facade.temporal.trigger_saved_query_materialization",
+            side_effect=SavedQueryNotOnV2ScheduleError("older data modeling schedule"),
+        ):
+            with self.assertRaises(api.ViewNotSyncableError):
+                api.trigger_person_property_sync(
+                    team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=True)
+                )
+
+        run = CustomPropertySyncRun.objects.unscoped().get(source_id=source.id)
+        assert run.status == "failed" and "older data modeling schedule" in (run.error or "")
+
+    @patch("products.customer_analytics.backend.facade.api.person_properties_flag_enabled", return_value=True)
+    def test_backfill_targets_the_view_binding(self, _flag):
+        source = self._create_view_source(user_access_control=self._uac(allowed=True))
+        with patch(
+            "products.warehouse_sources.backend.facade.temporal.start_person_property_backfill", return_value=True
+        ) as start:
+            assert (
+                api.trigger_person_property_backfill(
+                    team_id=self.team.id, source_id=source.id, user_access_control=self._uac(allowed=True)
+                )
+                is True
+            )
+
+        binding = start.call_args.kwargs["binding"]
+        assert (binding.kind, binding.id) == ("saved_query", str(self.saved_query.id))

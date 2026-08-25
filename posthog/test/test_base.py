@@ -1,5 +1,9 @@
 import pytest
-from posthog.test.base import run_clickhouse_statement_in_parallel
+from posthog.test.base import (
+    run_clickhouse_statement_in_parallel,
+    skip_clickhouse_query_snapshots,
+    snapshot_clickhouse_queries,
+)
 
 from django.conf import settings
 
@@ -13,6 +17,19 @@ from posthog.models.event.sql import (
     WRITABLE_EVENTS_DATA_TABLE,
     WRITABLE_EVENTS_JSON_TABLE,
 )
+
+
+def test_snapshot_clickhouse_queries_skips_marked_methods() -> None:
+    class ExampleTests:
+        @skip_clickhouse_query_snapshots
+        def test_behavior(self) -> None:
+            pass
+
+    test_behavior = ExampleTests.test_behavior
+
+    snapshot_clickhouse_queries(ExampleTests)
+
+    assert ExampleTests.test_behavior is test_behavior
 
 
 def test_run_clickhouse_statement_in_parallel_propagates_errors():

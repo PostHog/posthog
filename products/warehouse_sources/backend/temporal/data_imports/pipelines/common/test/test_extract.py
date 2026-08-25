@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from asgiref.sync import async_to_sync
 from parameterized import parameterized
+from redis import exceptions as redis_exceptions
 
 from posthog.temporal.common.errors import NonReportableError
 
@@ -18,6 +19,7 @@ from products.warehouse_sources.backend.models.oom_event import ExternalDataSche
 from products.warehouse_sources.backend.temporal.data_imports.external_data_job import Any_Source_Errors
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
     NON_RETRYABLE_ERROR_RETRY_LIMIT,
+    _get_redis,
     handle_corrupted_delta_log,
     handle_non_retryable_error,
     handle_reset_or_full_refresh,
@@ -675,6 +677,30 @@ class TestValidateIncrementalSync:
         assert [key for key in Any_Source_Errors if key in message]
 
 
+class TestGetRedis:
+    @pytest.mark.asyncio
+    async def test_yields_none_when_ping_fails(self):
+        # `handle_non_retryable_error` only takes its Redis-unreachable fast-fail path when the
+        # yielded client is None; otherwise it calls `.incr()` on the broken client, which raises
+        # the same connection error uncaught instead of failing fast as NonRetryableException.
+        # `get_async_client` only builds a lazy client, so a failed ping is the only signal that
+        # the client is unusable - it must reset the client to None rather than yield it as-is.
+        broken_client = AsyncMock(ping=AsyncMock(side_effect=ConnectionError("Connect call failed")))
+
+        with (
+            patch(f"{_EXTRACT_MODULE}.settings") as mock_settings,
+            patch(f"{_EXTRACT_MODULE}.get_async_client", return_value=broken_client),
+            patch(f"{_EXTRACT_MODULE}.capture_exception") as mock_capture,
+        ):
+            mock_settings.DATA_WAREHOUSE_REDIS_HOST = "localhost"
+            mock_settings.DATA_WAREHOUSE_REDIS_PORT = 6379
+
+            async with _get_redis() as redis_client:
+                assert redis_client is None
+
+        mock_capture.assert_called_once()
+
+
 class TestHandleNonRetryableError:
     def _fake_get_redis(self, incr_return: int):
         redis_client = MagicMock(incr=AsyncMock(return_value=incr_return), expire=AsyncMock())
@@ -717,3 +743,30 @@ class TestHandleNonRetryableError:
 
         assert isinstance(exc_info.value, NonReportableError)
         assert exc_info.value.__cause__ is original_error
+
+    def test_redis_error_after_successful_ping_fails_fast(self):
+        # A successful ping doesn't guarantee `.incr()` still reaches Redis - if it raises, this
+        # must take the same fast-fail path as a `None` client instead of surfacing unwrapped and
+        # masking the already-classified `error` behind an ordinary retryable activity failure.
+        original_error = ValueError("Ad account owner has NOT granted ads_read permission")
+        redis_client = MagicMock(
+            incr=AsyncMock(side_effect=redis_exceptions.ConnectionError("Connect call failed")),
+            expire=AsyncMock(),
+        )
+
+        @asynccontextmanager
+        async def fake_get_redis():
+            yield redis_client
+
+        with (
+            patch(f"{_EXTRACT_MODULE}._get_redis", fake_get_redis),
+            patch(f"{_EXTRACT_MODULE}.capture_exception") as mock_capture,
+        ):
+            with pytest.raises(NonRetryableException) as exc_info:
+                async_to_sync(handle_non_retryable_error)(
+                    1, "source-1", "run-1", str(original_error), MagicMock(adebug=AsyncMock()), original_error
+                )
+
+        assert isinstance(exc_info.value, NonRetryableException)
+        assert exc_info.value.__cause__ is original_error
+        mock_capture.assert_called_once()

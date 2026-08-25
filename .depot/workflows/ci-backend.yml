@@ -10,8 +10,8 @@
 # Intentional deltas vs canonical (everything else is kept apples-to-apples):
 # - runs-on: depot-* labels instead of ubuntu-latest
 # - action paths: ./.depot/actions/... instead of ./.github/actions/... (pnpm-install,
-#   setup-sqlx-cli, and setup-python-cached mirror the canonical composites; any
-#   deltas are documented in each mirror's header)
+#   setup-sqlx-cli, setup-python-cached, and paths-filter mirror the canonical
+#   composites; any deltas are documented in each mirror's header)
 # - permissions: pull-requests:read (no comment/auto-commit side effects)
 # - Stripped side effects: artifact uploads, CI report section posters (canonical
 #   additionally skips these on trunk-merge/** branches to save GITHUB_TOKEN budget;
@@ -30,8 +30,8 @@
 #   on TRUNK_QUARANTINE_ENABLED to decide whether known flakes are masked; since the
 #   shadow strips both the gate and the verdict step entirely, both variables are
 #   no-ops here and there is nothing to mirror. Canonical's turbo-tests gate now calls
-#   ./.github/actions/trunk-quarantine-gate, which retries the upload once; the shadow
-#   has no gate to call it from, so there is no ./.depot/actions mirror of it either)
+#   ./.github/actions/trunk-quarantine-gate to retry once. The shadow has no gate, so it
+#   does not need a mirrored action)
 # - Per-test failure rollup: canonical's django_tests gate uploads product JUnit and, when a
 #   test job fails, downloads that shard's JUnit to list the actual failing tests. The shadow
 #   strips artifact uploads (above), so it has nothing to download and keeps the plain
@@ -48,26 +48,33 @@
 #   The shadow strips artifact uploads (above) and routes every cache write to Depot Cache
 #   (below), so it has neither the artifact to download nor a GitHub cache to fill: the job,
 #   and the check-migrations mig_schema_key output that feeds it, are depot-exempt.
-# - migrated-schema upload settings: canonical tunes the upload (e.g. retention-days);
-#   the shadow strips artifact uploads (above), so those tunings are depot-exempt.
-# - OpenAPI types: the check-openapi-types job is folded into check-migrations as a
-#   check-only step (drift still fails the run); only its auto-commit side effect is dropped
-# - events_json variants: the shadow never doubles the matrix (no RUN_NEW_EVENTS_SCHEMA
-#   plumbing), so canonical changes confined to that gating — e.g. skipping the
-#   events_json suite on master — need no depot bump
+# - migrated-schema upload settings: canonical tunes the upload retention; the shadow
+#   strips artifact uploads (above), so those changes are depot-exempt.
+# - OpenAPI types: validation remains a separate job like canonical, but its
+#   auto-commit side effect is dropped
+# - events_json variants: gated on the test-new-events-schema label only; canonical also
+#   doubles the matrices on workflow_dispatch, but shadow dispatches stay legacy-only so
+#   trial runs do the same work as sampled PR runs
+# - per-segment split plans (.test_durations.core/.temporal): the restore steps mirror
+#   canonical but miss until the depot timing refresher saves those files to Depot Cache;
+#   shards fall back to the union .test_durations
 # - actions/cache reads/writes route to Depot Cache, not GitHub Actions Cache,
 #   so shared keys with canonical (schema, uv, pnpm) do not collide
-# - Three data-modeling tests deselected (Depot-only MinIO 403 quarantine)
 # - GITHUB_TOKEN / OTEL_SERVICE_NAME neutralized (ambient on Depot, not on GHA)
+# - Three data-modeling tests deselected (Depot-only MinIO 403 quarantine)
+# - COMPOSE_PROJECT_NAME pinned to posthog because bin/wait-for-docker filters by that
+#   project name and checkout directory names are not stable across CI providers
+# - Canonical baseline checkouts and comparisons use PostHog/posthog directly so fork
+#   dispatches compare against the authoritative upstream master branch
 # - Docker Hub login reads Depot's secret store (secrets.DOCKERHUB_*) rather than
-#   canonical's env.DOCKERHUB_USERNAME / vars.DOCKERHUB_USER — depot never indirects
+#   canonical's env.DOCKERHUB_USERNAME / vars.DOCKERHUB_USER because Depot never indirects
 #   through env:, so canonical's per-job env-scoping (workflow-level -> job-level,
-#   for the gha-workflow-env-secret Semgrep fix) is depot-exempt
-# - Service launch via `nohup ... --down` (survives Depot's step-shell teardown) and
-#   waits on a superset (objectstorage, Temporal) with an explicit 900s timeout
-# - Path-filter persons-SQL folded into migrations. check-migrations.if also gates
-#   on openapi_types so an OpenAPI-only PR still runs the folded check
-# - Snapshot mode matches canonical, but snapshot patch upload/commit is stripped
+#   for the gha-workflow-env-secret Semgrep fix) is depot-exempt. Login is best-effort
+#   because these jobs only pull public images and can fall back to anonymous pulls.
+# - Path-filter persons-SQL is folded into migrations
+# - Snapshot mode matches canonical, but snapshot patch upload/commit is stripped;
+#   canonical's per-schema-leg patch scoping (legacy legs exclude *.new_events_schema.ambr,
+#   events_json legs ship only those) is therefore depot-exempt too
 # - Test durations restored from Depot Cache (posthog-test-durations- prefix), refreshed by
 #   .depot/workflows/ci-backend-update-test-timing.yml, so shard counts match GitHub Actions.
 #   Committed .test_durations is the fallback.
@@ -76,9 +83,9 @@
 #   strips artifact uploads (above), so it keeps floating restores; no depot bump needed
 #   for changes confined to that pinning.
 # - master (push) runs only check-migrations to prime the shared schema cache; the
-#   test matrices are skipped on master (canonical runs them). PRs and dispatches
-#   run the full graph — that is where the apples-to-apples comparison happens
-# - check-migrations timeout widened to 60m because it also runs the folded OpenAPI generation
+#   test matrices are skipped on master (canonical runs them). Sampled source PRs and
+#   dispatches run the full graph — that is where the apples-to-apples comparison happens.
+#   Trunk merge-queue PRs are excluded because they would repeat a source PR's trial run.
 
 # This workflow runs all of our backend django tests.
 #
@@ -88,11 +95,12 @@ name: '[optional, does not block merge] Backend CI'
 # OPTIONAL, non-blocking shadow of canonical Backend CI — its statuses must never gate
 # merging (hence the "[optional, does not block merge]" name prefix). The
 # CI_DEPOT_SHADOW_PERCENT Depot CI variable (0-100; 0 or unset = fully off) is both the
-# master switch and the pull_request sample rate: when >0, pull_request runs are sampled at
-# that percent; master (push) runs only check-migrations to prime the schema cache (test
-# matrices are skipped there); workflow_dispatch always runs. The `sample` job rolls a deterministic
-# per-run dice; `changes` (root of the needs graph) only runs when sampled in, so the
-# whole workflow cascades off on a miss. This is a Depot variable, NOT a GitHub one —
+# master switch and the eligible pull_request sample rate: when >0, source PR runs are sampled
+# at that percent. Trunk merge-queue PRs and draft PRs labeled `no-ci` are excluded before a
+# runner is allocated. Master (push) runs only check-migrations to prime the schema cache (test
+# matrices are skipped there); workflow_dispatch always runs. The `sample` job rolls deterministic
+# per-run dice; `changes` (root of the needs graph) only runs when sampled in, so the whole
+# workflow cascades off on a miss. This is a Depot variable, NOT a GitHub one —
 # Depot CI reads its own `vars` store. Set it with:
 #   depot ci vars add CI_DEPOT_SHADOW_PERCENT=<n> --repo PostHog/posthog    (n=0 disables)
 # The drift check (.github/workflows/ci-backend-shadow-drift.yml) keeps this file in sync
@@ -107,13 +115,14 @@ on:
                 description: ClickHouse server version. Leave blank for default
                 type: string
     pull_request:
-        # Draft PRs run the snob-selected Django subset (≤3 shards); turbo-tests
-        # still skip drafts. Ready PRs run the full matrices — the merge gate —
-        # and ready_for_review re-triggers them when a PR leaves draft. Add the
-        # `run-ci-backend` label to force the full matrices on a draft; the
+        # Eligible source PRs run the snob-selected Django subset (one shard per active segment),
+        # draft or ready; turbo-tests still skip drafts. When selection can't be
+        # trusted, a ready source PR runs the full matrices and a draft skips them.
+        # Add the `run-ci-backend` label to force the full matrices on a PR; the
         # `no-ci` label silences the workflow on a draft entirely. No
         # labeled/unlabeled triggers, so a label takes effect from the next push
-        # or from ready_for_review. Mirrors canonical.
+        # or from ready_for_review. Trunk merge-queue PRs are filtered by the
+        # sampling gate because their source PR already supplied a trial run.
         types: [opened, synchronize, reopened, ready_for_review]
 concurrency:
     # PRs: one active run per branch, cancel stale. Push: per-SHA so master
@@ -127,6 +136,7 @@ env:
     # ci-e2e-playwright.yml, ci-dagster.yml, ci-mcp.yml and ci-rust-flags-integration.yml restore by the same key; keep their copies in sync when bumping.
     SCHEMA_CACHE_EPOCH: v2
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
+    COMPOSE_PROJECT_NAME: posthog
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
     REDIS_URL: 'redis://localhost'
     CLICKHOUSE_HOST: 'localhost'
@@ -167,11 +177,18 @@ permissions:
     contents: read
     pull-requests: read
 jobs:
-    # Sampling gate (full design in the file header). The `if` keeps the whole workflow
-    # off when the percent is 0/unset; when >0 this job computes `sampled`, and `changes`
-    # — hence the rest of the graph — only runs when it is true.
+    # Manual dispatch bypasses sampling so an explicit full run cannot silently no-op.
+    # Automatic runs still require a nonzero sampling percentage. Exclude automatic
+    # runs that only duplicate work before allocating even this small runner.
     sample:
-        if: vars.CI_DEPOT_SHADOW_PERCENT != '' && vars.CI_DEPOT_SHADOW_PERCENT != '0'
+        if: >-
+            github.event_name == 'workflow_dispatch'
+            || (vars.CI_DEPOT_SHADOW_PERCENT != ''
+                && vars.CI_DEPOT_SHADOW_PERCENT != '0'
+                && (github.event_name != 'pull_request'
+                    || (!startsWith(github.head_ref, 'trunk-merge/')
+                        && (github.event.pull_request.draft != true
+                            || !contains(github.event.pull_request.labels.*.name, 'no-ci')))))
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         name: '[optional, does not block merge] Sample run'
@@ -206,16 +223,10 @@ jobs:
     # Job to decide if we should run backend ci
     # See .github/actions/paths-filter/README.md for filter semantics
     changes:
-        # Root of the `needs` graph: skipped when `sample` says skip (or is itself skipped
-        # at percent 0/unset), which cascades the whole workflow off. Also skipped on
-        # draft PRs labeled `no-ci`, mirroring canonical.
+        # Root of the `needs` graph: skipped when `sample` says skip (or is itself skipped),
+        # which cascades the whole workflow off.
         needs: sample
-        if: >-
-            needs.sample.outputs.sampled == 'true'
-            && (github.event_name != 'pull_request'
-                || github.event.pull_request.draft != true
-                || startsWith(github.head_ref, 'trunk-merge/')
-                || !contains(github.event.pull_request.labels.*.name, 'no-ci'))
+        if: needs.sample.outputs.sampled == 'true'
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         name: Determine need to run backend and migration checks
@@ -243,7 +254,7 @@ jobs:
                   # Use docker to clean up files created by containers
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
-            - uses: ./.github/actions/paths-filter
+            - uses: ./.depot/actions/paths-filter
               id: filter
               if: github.event_name != 'push' # Run all tests on master push
               with:
@@ -316,6 +327,9 @@ jobs:
                         - 'tools/hogli-commands/hogli_commands/hints.py'
                         - 'tools/hogli-commands/hogli_commands/product/**'
                         - 'tools/hogli-commands/hogli_commands/product_structure.yaml'
+                        # product:lint --all checks this generated file against the tree,
+                        # so a baseline-only edit must run it too
+                        - products/isolation_baseline.txt
                         # Make sure we run if someone is explicitly changing the workflow
                         - .depot/workflows/ci-backend.yml
                         - .github/clickhouse-versions.json
@@ -383,11 +397,27 @@ jobs:
                         # so they shouldn't trigger the Django/turbo-discover path either.
                         - '!**/*.md'
                         - '!**/*.mdx'
+                        # Generated from frontend/src/queries/schema.json (see the `schema`
+                        # filter below). Excluding them here routes schema-only PRs into
+                        # turbo-discover's schema-impact narrowing instead of the
+                        # all-products legacy path. This cannot skip Django: the
+                        # schemaChanged branch hard-sets run_legacy=true. It also cannot
+                        # hide a hand-edit to the generated files — ci-python.yml
+                        # regenerates schema.py and fails on any diff, and both files stay
+                        # in the `schema` (and `backend`) filters so turbo-discover still
+                        # takes the schema path for them.
+                        - '!posthog/schema.py'
+                        - '!posthog/schema_enums.py'
                       schema:
                         # Tracked separately from `legacy` so turbo-discover can
                         # diff schema.json and narrow the product matrix to
                         # products that import the changed types.
                         - frontend/src/queries/schema.json
+                        # The generated outputs are excluded from `legacy` above; listing
+                        # them here keeps run_legacy=true (full Django) for any schema
+                        # change, including a stray hand-edit to a generated file.
+                        - posthog/schema.py
+                        - posthog/schema_enums.py
                       migrations:
                         - 'docker/clickhouse/**'
                         - 'posthog/migrations/*.py'
@@ -480,9 +510,11 @@ jobs:
         name: Discover product tests
         outputs:
             run_legacy: ${{ steps.discover.outputs.run_legacy }}
+            run_legacy_reason: ${{ steps.discover.outputs.run_legacy_reason }}
             matrix: ${{ steps.discover.outputs.matrix }}
             schema_cache_key: ${{ steps.schema-key.outputs.key }}
             schema_migrations_key: ${{ steps.schema-key.outputs.migrations_key }}
+            schema_prefix_key: ${{ steps.schema-key.outputs.prefix_key }}
             django_shards: ${{ steps.discover.outputs.django_shards }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -524,6 +556,16 @@ jobs:
                   fi
                   # Exact branch-point key, kept as the fallback restore key below.
                   echo "key=posthog-schema-master-${MERGE_BASE}" >> $GITHUB_OUTPUT
+                  # Last-resort restore prefix: matches the newest saved dump of any
+                  # migration set, for the window where both exact keys miss. Gated on
+                  # checkout age (a day) because a re-run of an old run keeps its original
+                  # commit: a stale checkout can lack migrations the newest dump records,
+                  # and the migrate top-ups only apply forward, so they cannot repair a
+                  # dump that is newer than the code.
+                  HEAD_AGE_SECONDS=$(( $(date +%s) - $(git show -s --format=%ct HEAD) ))
+                  if [ "$HEAD_AGE_SECONDS" -lt 86400 ]; then
+                      echo "prefix_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-" >> $GITHUB_OUTPUT
+                  fi
                   # Shared key: hash merge-base schema inputs, not PR head, so PR migrations still
                   # apply as the pytest delta. uv.lock covers third-party migration changes; the
                   # postgres image is folded in so a server-version bump invalidates the key.
@@ -542,7 +584,7 @@ jobs:
                       MIG_HASH=$(printf '%s\n%s\n%s' "$MIG_FILES" "$PG_IMAGE" "$DB_ROUTING" | sha256sum | cut -c1-40)
                       echo "migrations_key=posthog-schema-mig-${SCHEMA_CACHE_EPOCH}-${MIG_HASH}" >> $GITHUB_OUTPUT
                   fi
-            # Shadow trial: canonical threads a setup-action app token into
+            # Depot shadow: canonical threads a setup-action app token into
             # pnpm-install; mint stripped here (secret not available on Depot).
             - name: Install pnpm dependencies
               uses: ./.depot/actions/pnpm-install
@@ -556,6 +598,15 @@ jobs:
                   key: posthog-test-durations-${{ github.run_id }}
                   restore-keys: |
                       posthog-test-durations-
+            - name: Restore per-segment test durations from cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: |
+                      .test_durations.core
+                      .test_durations.temporal
+                  key: posthog-segment-durations-${{ github.run_id }}
+                  restore-keys: |
+                      posthog-segment-durations-
             - name: Discover products to test
               id: discover
               env:
@@ -575,15 +626,17 @@ jobs:
                   echo "Result: $RESULT"
                   echo "matrix=$(echo "$RESULT" | jq -c '.matrix')" >> $GITHUB_OUTPUT
                   echo "run_legacy=$(echo "$RESULT" | jq -r '.run_legacy')" >> $GITHUB_OUTPUT
+                  echo "run_legacy_reason=$(echo "$RESULT" | jq -r '.run_legacy_reason // empty')" >> "$GITHUB_OUTPUT"
                   echo "django_shards=$(echo "$RESULT" | jq -c '.django_shards // empty')" >> $GITHUB_OUTPUT
 
-    # Pick which Django tests to run on draft PRs. Drafts get the snob-selected
-    # subset for fast feedback; the full matrix runs once the PR is marked ready
-    # for review, and that ready run is the merge gate. When selection can't be
-    # trusted on a draft (legacy graph impact, turbo-discover or selector failure,
-    # a selector full-run signal), the draft skips the heavy matrices entirely —
-    # the pre-selection draft behavior — and defers to the ready full run.
-    # hogli-lint: not-a-required-gate - selects draft coverage and emits no required check.
+    # Pick which Django tests to run on a PR. Both drafts and ready PRs get the
+    # snob-selected subset; the difference is what happens when selection can't be
+    # trusted (product->legacy cascade, turbo-discover or selector failure, a
+    # selector full-run signal). A ready PR then runs the full matrices, a draft
+    # skips them and defers to its ready run — the pre-selection draft behavior.
+    # Master pushes and the queue's trunk-merge/** run never reach this job, so
+    # what gates master is still a full run.
+    # hogli-lint: not-a-required-gate - selects PR coverage and emits no required check.
     #
     # Depot shadow note: canonical uploads /tmp/selection.json for its
     # test-selection-verdict job. The depot shadow strips that job (and all
@@ -591,25 +644,26 @@ jobs:
     select-tests:
         name: Select tests
         needs: [changes, turbo-discover]
-        # Only draft PRs do selective runs; ready PRs and pushes always run full,
-        # which build_django_matrix falls back to
-        # when select-tests is skipped (empty MODE). The run-ci-backend label
-        # forces the full matrices on a draft.
+        # Pushes always run full, which build_django_matrix falls back to when
+        # select-tests is skipped (empty MODE). The run-ci-backend label forces
+        # the full matrices on a PR.
         # Trunk's merge-queue branches open as draft PRs, but their run IS the
         # merge gate, so they must never get the narrowed selection.
         if: |
             github.event_name == 'pull_request' &&
-            github.event.pull_request.draft == true &&
             !startsWith(github.head_ref, 'trunk-merge/') &&
             !contains(github.event.pull_request.labels.*.name, 'run-ci-backend') &&
             needs.changes.outputs.backend == 'true'
         runs-on: depot-ubuntu-24.04
-        timeout-minutes: 5
+        # Headroom over checkout + uv + the selector's whole-tree parse. A timeout here
+        # leaves MODE empty, which on a ready PR means the full matrix — the worst case.
+        timeout-minutes: 10
         outputs:
             mode: ${{ steps.classify.outputs.mode }}
             core_files: ${{ steps.classify.outputs.core_files }}
             poe_files: ${{ steps.classify.outputs.poe_files }}
             temporal_files: ${{ steps.classify.outputs.temporal_files }}
+            compat_files: ${{ steps.classify.outputs.compat_files }}
             run_poe: ${{ steps.classify.outputs.run_poe }}
             run_temporal: ${{ steps.classify.outputs.run_temporal }}
             # Kept apples-to-apples with canonical, though the shadow strips the
@@ -621,49 +675,72 @@ jobs:
             full_run_reasons_count: ${{ steps.classify.outputs.full_run_reasons_count }}
             selected_test_seconds: ${{ steps.classify.outputs.selected_test_seconds }}
             skipped_test_seconds: ${{ steps.classify.outputs.skipped_test_seconds }}
+            # Shards per segment for a narrowed run; build_django_matrix reads them as-is.
+            segment_shards: ${{ steps.classify.outputs.segment_shards }}
             run_legacy: ${{ steps.fallback.outputs.run_legacy }}
+            run_legacy_reason: ${{ steps.fallback.outputs.run_legacy_reason }}
             turbo_result: ${{ steps.fallback.outputs.turbo_result }}
         steps:
-            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-              with:
-                  fetch-depth: 1000
-                  filter: blob:none
-
-            - name: Install uv
-              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
-              with:
-                  version: '0.11.28'
-
+            # Ahead of the checkout on purpose: this reads job outputs only, and when it
+            # decides selection can't be trusted, cloning the repo would just delay the
+            # full matrix that is about to run instead.
             - name: Decide whether selection can be trusted
               id: fallback
               env:
                   RUN_LEGACY: ${{ needs.turbo-discover.outputs.run_legacy }}
+                  RUN_LEGACY_REASON: ${{ needs.turbo-discover.outputs.run_legacy_reason }}
                   TURBO_RESULT: ${{ needs.turbo-discover.result }}
+                  DISABLED: ${{ vars.DISABLE_BACKEND_TEST_SELECTION || 'false' }}
               shell: bash
               run: |
                   set -euo pipefail
                   skip=false
-                  if [[ "$RUN_LEGACY" == "true" ]]; then
-                      # turbo-discover detected product->legacy graph impact; the
-                      # diff-based selector can't see this, so its subset would be
-                      # incomplete. Skip the draft matrices; the ready run is full.
+                  reason=untrusted
+                  if [[ "$DISABLED" == "true" ]]; then
+                      # Kill switch — set the DISABLE_BACKEND_TEST_SELECTION repo variable to
+                      # put every PR back on the full matrices without a code change. Its own
+                      # reason string, so flipping it during an incident stays distinguishable
+                      # from a genuine cascade in the selection telemetry.
+                      skip=true
+                      reason=disabled
+                  elif [[ "$RUN_LEGACY" == "true" && "$RUN_LEGACY_REASON" != "legacy_changed" ]]; then
+                      # turbo-discover inferred legacy impact from a product, contract, or
+                      # schema change rather than seeing a direct edit. The diff-based selector
+                      # cannot see that cascade, so its subset would be incomplete.
+                      # A direct legacy edit is the selector's home turf and is deliberately not
+                      # untrusted here — the selector's own FULL_RUN_PATTERNS decide when a
+                      # legacy change is too broad to narrow.
                       skip=true
                   elif [[ "$TURBO_RESULT" != "success" && "$TURBO_RESULT" != "skipped" ]]; then
                       # Conservative — turbo-discover failed.
                       skip=true
                   fi
                   echo "skip=$skip" >> "$GITHUB_OUTPUT"
-                  # Surface the inputs behind an untrusted skip so the telemetry can
-                  # tell legacy-graph impact apart from a turbo-discover failure.
+                  echo "reason=$reason" >> "$GITHUB_OUTPUT"
+                  # Surface the raw inputs too, so the telemetry can audit the decision.
                   echo "run_legacy=${RUN_LEGACY:-}" >> "$GITHUB_OUTPUT"
+                  echo "run_legacy_reason=${RUN_LEGACY_REASON:-}" >> "$GITHUB_OUTPUT"
                   echo "turbo_result=${TURBO_RESULT:-}" >> "$GITHUB_OUTPUT"
+
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              if: steps.fallback.outputs.skip == 'false'
+              with:
+                  fetch-depth: 1000
+                  filter: blob:none
+
+            - name: Install uv
+              if: steps.fallback.outputs.skip == 'false'
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.28'
 
             - name: Run shadow selector
               id: select
               # continue-on-error so a selector or git fetch failure doesn't fail this
               # job — a failed select-tests would leave MODE empty and build_django_matrix
               # would fall back to an expensive full matrix on a draft. Classify reads
-              # steps.select.outcome (pre-continue-on-error) and emits mode=skip instead.
+              # steps.select.outcome (pre-continue-on-error) and emits the fallback mode
+              # for this PR instead.
               continue-on-error: true
               if: steps.fallback.outputs.skip == 'false'
               env:
@@ -680,7 +757,15 @@ jobs:
               id: classify
               env:
                   FALLBACK_SKIP: ${{ steps.fallback.outputs.skip }}
+                  FALLBACK_REASON: ${{ steps.fallback.outputs.reason }}
                   SELECT_OUTCOME: ${{ steps.select.outcome }}
+                  # Guards the empty-selection backstop below. select-tests only runs on
+                  # pull_request, so the bare filter output is the whole story here.
+                  LEGACY_CHANGED: ${{ needs.changes.outputs.legacy }}
+                  # What an untrusted selection falls back to. A ready PR has no later
+                  # run to defer to, so it must run everything; a draft still skips and
+                  # leans on the ready run, which is the cheaper of the two mistakes.
+                  FALLBACK_MODE: ${{ github.event.pull_request.draft && 'skip' || 'full' }}
               shell: bash
               run: |
                   set -euo pipefail
@@ -706,61 +791,75 @@ jobs:
                       } >> "$GITHUB_OUTPUT"
                   }
 
-                  # Untrusted selection on a draft skips the heavy matrices (the
-                  # pre-selection draft behavior); the ready-for-review run is full.
-                  fall_back_to_skip() {
-                      echo "mode=skip" >> "$GITHUB_OUTPUT"
+                  # Untrusted selection runs the full matrices on a ready PR and skips
+                  # them on a draft (the pre-selection draft behavior).
+                  fall_back() {
+                      echo "mode=$FALLBACK_MODE" >> "$GITHUB_OUTPUT"
                       echo "core_files=" >> "$GITHUB_OUTPUT"
                       echo "poe_files=" >> "$GITHUB_OUTPUT"
                       echo "temporal_files=" >> "$GITHUB_OUTPUT"
+                      echo "compat_files=" >> "$GITHUB_OUTPUT"
                       echo "run_poe=false" >> "$GITHUB_OUTPUT"
                       echo "run_temporal=false" >> "$GITHUB_OUTPUT"
                       emit_metrics false "$1"
                   }
 
                   if [[ "$FALLBACK_SKIP" == "true" ]]; then
-                      fall_back_to_skip untrusted
+                      fall_back "${FALLBACK_REASON:-untrusted}"
                       exit 0
                   fi
 
                   if [[ "$SELECT_OUTCOME" != "success" ]] || [[ ! -s /tmp/selection.json ]]; then
-                      echo "::warning::shadow selector did not produce output; draft skips heavy matrices (full run happens on ready for review)"
-                      fall_back_to_skip selector_error
+                      echo "::warning::shadow selector did not produce output; falling back to mode=$FALLBACK_MODE"
+                      fall_back selector_error
                       exit 0
                   fi
 
                   full_run_reasons=$(jq -r '.ast.full_run_reasons | length' /tmp/selection.json)
                   if [[ "$full_run_reasons" -gt 0 ]]; then
-                      echo "Selector requested a full run; draft defers it to ready for review:"
+                      echo "Selector requested a full run (mode=$FALLBACK_MODE):"
                       jq -r '.ast.full_run_reasons[]' /tmp/selection.json
-                      fall_back_to_skip full_run_requested
+                      fall_back full_run_requested
                       exit 0
                   fi
 
                   # Partition selected files by the Django segment that owns them.
                   # Mirrors the positional path arguments in the Run Core / Run Temporal pytest invocations:
-                  #   Core (POE off): posthog ee/  (minus posthog/temporal, posthog/dags)
+                  #   Core (POE off): posthog ee/  (minus posthog/temporal, posthog/dags,
+                  #                   posthog/test/repo_invariants)
                   #   Core POE on:    posthog/clickhouse, posthog/queries, posthog/api/test/test_insight*,
                   #                   posthog/api/test/dashboards/test_dashboard.py, ee/clickhouse/
                   #   Temporal:       posthog/temporal, products/{batch_exports,tasks}/backend/temporal,
                   #                   products/signals/backend/emission
+                  #   Compat:         CLICKHOUSE_COMPAT_PYTEST_TARGETS (posthog/clickhouse, ee/clickhouse)
                   # Files outside posthog/ and ee/ (e.g. products/foo/backend/test_*) are not in this
                   # matrix. turbo-tests handles them; warehouse_sources and managed_warehouse run
                   # their own temporal suites there.
                   core=()
                   poe=()
                   temporal=()
+                  compat=()
                   while IFS= read -r f; do
                       [[ -z "$f" ]] && continue
+                      # Compat overlaps the POE scope rather than partitioning with it, so
+                      # it is collected separately from the segment case below. Driven by the
+                      # same env var the compat pytest invocation uses, so widening one can't
+                      # silently under-select the other.
+                      for compat_target in $CLICKHOUSE_COMPAT_PYTEST_TARGETS; do
+                          if [[ "$f" == "${compat_target%/}/"* ]]; then
+                              compat+=("$f")
+                              break
+                          fi
+                      done
                       case "$f" in
                           posthog/temporal/*|products/batch_exports/backend/tests/temporal/*|products/tasks/backend/temporal/*|products/signals/backend/emission/*)
                               temporal+=("$f")
                               ;;
-                          posthog/clickhouse/*|posthog/queries/*|ee/clickhouse/*|products/product_analytics/backend/api/test/*|posthog/api/test/test_insight*|posthog/api/test/dashboards/test_dashboard.py)
+                          posthog/clickhouse/*|posthog/queries/*|ee/clickhouse/*|products/product_analytics/backend/tests/api/*|posthog/api/test/test_insight*|posthog/api/test/dashboards/test_dashboard.py)
                               poe+=("$f")
                               core+=("$f")
                               ;;
-                          posthog/dags/*|common/hogvm/python/test/*)
+                          posthog/dags/*|common/hogvm/python/test/*|posthog/test/repo_invariants/*)
                               # Explicitly --ignore'd by the Core invocation; nothing to do.
                               ;;
                           posthog/*|ee/*)
@@ -769,15 +868,32 @@ jobs:
                       esac
                   done < <(jq -r '.combined.tests[]?' /tmp/selection.json)
 
+                  # Backstop: a diff that touched legacy code but selected no Django test at
+                  # all means the selector had no rule for it, not that there is nothing to
+                  # run — a non-Python legacy file (C++ parser sources, a JSON config) reaches
+                  # no import edge. Narrowing to zero would silently gate on nothing, so treat
+                  # it as untrusted. FULL_RUN_PATTERNS covers the known cases; this catches the
+                  # ones that get added to the `legacy` paths filter and forgotten there.
+                  # Products-only diffs legitimately select nothing here and are not legacy.
+                  if [[ "$LEGACY_CHANGED" == "true" && ${#core[@]} -eq 0 && ${#temporal[@]} -eq 0 ]]; then
+                      echo "::warning::legacy files changed but no Django test was selected; falling back to mode=$FALLBACK_MODE"
+                      fall_back empty_selection
+                      exit 0
+                  fi
+
                   echo "mode=selected" >> "$GITHUB_OUTPUT"
                   echo "core_files=${core[*]:-}" >> "$GITHUB_OUTPUT"
                   echo "poe_files=${poe[*]:-}" >> "$GITHUB_OUTPUT"
                   echo "temporal_files=${temporal[*]:-}" >> "$GITHUB_OUTPUT"
+                  echo "compat_files=${compat[*]:-}" >> "$GITHUB_OUTPUT"
                   echo "run_poe=$([[ ${#poe[@]} -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
                   echo "run_temporal=$([[ ${#temporal[@]} -gt 0 ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+                  # Shards per narrowed segment: turbo-discover's per-shard budget applied
+                  # to the selected tests' recorded seconds. Degrades to 1 per segment.
+                  echo "segment_shards=$(node .github/scripts/selected-django-shards.js /tmp/selection.json)" >> "$GITHUB_OUTPUT"
                   emit_metrics true ""
 
-                  echo "Selected: ${#core[@]} core, ${#poe[@]} POE-eligible, ${#temporal[@]} temporal"
+                  echo "Selected: ${#core[@]} core, ${#poe[@]} POE-eligible, ${#temporal[@]} temporal, ${#compat[@]} compat"
 
     build-product-test-matrix:
         name: Build product test matrix
@@ -793,11 +909,19 @@ jobs:
               id: build
               env:
                   PRODUCT_MATRIX_JSON: ${{ needs.turbo-discover.outputs.matrix }}
+                  # Manual shadow runs compare with canonical master pushes, which run legacy schema only.
+                  RUN_NEW_EVENTS_SCHEMA: ${{ contains(github.event.pull_request.labels.*.name, 'test-new-events-schema') }}
               run: |
-                  include=$(jq -cn --argjson matrix "$PRODUCT_MATRIX_JSON" '
+                  if [[ "$RUN_NEW_EVENTS_SCHEMA" == "true" ]]; then
+                      schema_modes='[false, true]'
+                  else
+                      schema_modes='[false]'
+                      echo "Skipping new-events-schema variants (add the test-new-events-schema label to run them)"
+                  fi
+                  include=$(jq -cn --argjson matrix "$PRODUCT_MATRIX_JSON" --argjson schema_modes "$schema_modes" '
                     [
                       $matrix[] as $entry
-                      | [false, true][] as $new_events_schema
+                      | $schema_modes[] as $new_events_schema
                       | $entry + {"new-events-schema": $new_events_schema}
                     ]
                   ')
@@ -831,6 +955,7 @@ jobs:
               continue-on-error: true
             - name: Log in to Docker Hub
               if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+              continue-on-error: true
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -842,13 +967,10 @@ jobs:
                   CLICKHOUSE_SERVER_IMAGE: ${{ needs.get_clickhouse_versions.outputs.local_image }}
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
-                  # nohup detaches the launch so it survives Depot's step-shell teardown
-                  # (which SIGHUPs a plain `&` subshell). Isolated here; bin/ci-wait-for-docker stays == master.
-                  nohup bin/ci-wait-for-docker launch --background --down \
+                  bin/ci-wait-for-docker launch --background --down \
                     db redis7 clickhouse zookeeper kafka objectstorage \
-                    temporal elasticsearch objectstorage-azure \
-                    </dev/null >"${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>&1
-            # Shadow trial: canonical threads a setup-action app token into both
+                    temporal elasticsearch objectstorage-azure
+            # Depot shadow: canonical threads a setup-action app token into both
             # pnpm-install and setup-python; mint stripped here (secret not
             # available on Depot), so setup-python keeps the bot PAT.
             - parallel:
@@ -893,26 +1015,22 @@ jobs:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
                   CLICKHOUSE_SERVER_IMAGE: ${{ needs.get_clickhouse_versions.outputs.local_image }}
-                  WAIT_FOR_DOCKER_TIMEOUT: 900
               # objectstorage answers InvalidAccessKeyId until its bootstrap registers identities.
-              run: |
-                  bin/ci-wait-for-docker wait objectstorage \
-                    || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
-            - name: Register Temporal search attributes
-              env:
-                  WAIT_FOR_DOCKER_TIMEOUT: 900
-              run: |
-                  bin/ci-wait-for-docker wait temporal
-                  python manage.py register_temporal_search_attributes
+              run: bin/ci-wait-for-docker wait objectstorage
             - name: Restore schema cache from master
               if: ${{ github.event_name == 'pull_request' && needs.turbo-discover.outputs.schema_cache_key != '' }}
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
-                  # Prefer the shared content key; fall back to the exact merge-base SHA key.
+                  # Prefer the shared content key; fall back to the exact merge-base SHA key,
+                  # then to the newest dump of any migration set. Right after a migration
+                  # lands on master both exact keys miss until ci-backend re-dumps, and a
+                  # from-scratch migrate costs ~17 minutes per shard; pytest's keepdb
+                  # migrate tops a slightly stale dump up in seconds instead.
                   key: ${{ needs.turbo-discover.outputs.schema_migrations_key || needs.turbo-discover.outputs.schema_cache_key }}
                   restore-keys: |
                       ${{ needs.turbo-discover.outputs.schema_cache_key }}
+                      ${{ needs.turbo-discover.outputs.schema_prefix_key }}
             - name: Prime test_posthog from cached schema
               # Treat cache problems as misses; the migrate step below rebuilds the DB
               # whenever this one reports restored=false.
@@ -951,6 +1069,17 @@ jobs:
                       echo "::warning::Out-of-process migrate failed; pytest --reuse-db will run the full migrate itself"
                       admin_psql -c "DROP DATABASE IF EXISTS test_posthog;" || true
                   fi
+            - name: Register Temporal search attributes
+              run: |
+                  bin/wait-for-docker temporal
+                  python manage.py register_temporal_search_attributes
+            - name: Restore test durations from cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .test_durations
+                  key: posthog-test-durations-${{ github.run_id }}
+                  restore-keys: |
+                      posthog-test-durations-
             - name: Run product tests
               # --force: discover already decided this product needs testing, skip turbo cache
               # --log-order=stream: stream pytest output live instead of buffering until completion
@@ -1029,6 +1158,19 @@ jobs:
                     run: tach check --dependencies --interfaces
                   - name: Check product facade enforcement (import-linter)
                     run: lint-imports
+                  # These guards take the whole repo as input (import graph after
+                  # django.setup(), signal registries, repo-wide AST scans), so diff-based
+                  # test selection can't pick them and the Django matrix skips them on
+                  # products-only diffs and drafts. They need no service containers.
+                  # Branches that predate the directory still carry the guards at their
+                  # old paths, so fall back to those rather than failing on a missing arg.
+                  - name: Run repo invariants (whole-repo pytest guards)
+                    run: |
+                        if [ -d posthog/test/repo_invariants ]; then
+                            pytest -p no:cacheprovider posthog/test/repo_invariants
+                        else
+                            pytest -p no:cacheprovider posthog/test/test_startup_import_budget.py posthog/test/test_dataclass_defaults.py
+                        fi
             # Block deleting historical migration files (see safe-django-migrations.md).
             # GITHUB_ACTIONS=false suppresses the command's PR annotations on the shadow.
             - name: Check deleted migrations
@@ -1092,15 +1234,14 @@ jobs:
               # xargs re-parses the paths-filter escape format, keeping escaped paths whole.
               run: printf '%s' "$CHANGED_FILES" | xargs -r ./bin/hogli owners:lint --live
 
-    # Migration validation and OpenAPI type generation.
-    # This job needs Docker + DB — it checks out master first to run baseline
-    # migrations, then checks out the PR branch. All steps after the PR checkout
-    # require Django + DB. Lightweight checks belong in repo-checks above.
+    # Migration validation.
+    # This job needs Docker + DB. Canonical master is checked out beside the comparison
+    # branch so repository switches cannot disturb live Compose bind mounts.
     check-migrations:
         needs: [changes]
-        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true' || needs.changes.outputs.openapi_types == 'true'
-        timeout-minutes: 60
-        name: Validate migrations and OpenAPI types
+        if: needs.changes.outputs.backend == 'true' || needs.changes.outputs.migrations == 'true'
+        timeout-minutes: 20
+        name: Validate migrations
         runs-on: depot-ubuntu-24.04
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1113,6 +1254,7 @@ jobs:
               continue-on-error: true
             - name: Log in to Docker Hub
               if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+              continue-on-error: true
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -1120,12 +1262,7 @@ jobs:
             - name: Stop/Start stack with Docker Compose
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-                  COMPOSE_PROFILES: temporal,azure
-              run: |
-                  # nohup detaches the launch so it survives Depot's step-shell teardown
-                  # (which SIGHUPs a plain `&` subshell). Isolated here; bin/ci-wait-for-docker stays == master.
-                  nohup bin/ci-wait-for-docker launch --background --down \
-                    </dev/null >"${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>&1
+              run: bin/ci-wait-for-docker launch --background --down db redis7 clickhouse
             - name: Set up Python
               uses: ./.depot/actions/setup-python-cached
               with:
@@ -1152,22 +1289,24 @@ jobs:
             - name: Install sqlx-cli
               uses: ./.depot/actions/setup-sqlx-cli
             # First running migrations from master, to simulate the real-world scenario
-            - name: Checkout master
+            - name: Checkout upstream master
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  repository: PostHog/posthog
                   ref: master
-                  clean: false
+                  path: upstream-master
             - name: Install python dependencies for master
+              working-directory: upstream-master
               run: |
                   UV_PROJECT_ENVIRONMENT=.venv-master uv sync --frozen --dev
             - name: Compute master schema cache key
               # Must match the migration-set computation in turbo-discover and the
               # push-side save below (inputs, hash, and key prefix). Keyed off the
               # master checkout (HEAD here) so a restored dump is exactly the state
-              # that "Run migrations up to master" would build from scratch; any
-              # difference in the migration set is a cache miss, never a stale hit.
+              # that "Run migrations up to master" would build from scratch.
               if: github.event_name != 'push'
               id: master-schema-key
+              working-directory: upstream-master
               run: |
                   MIG_FILES=$(git ls-tree -r --format='%(objectname) %(path)' HEAD \
                       | grep -E '/migrations/[^/]+\.py$|^[0-9a-f]+ uv\.lock$' \
@@ -1189,13 +1328,15 @@ jobs:
               with:
                   path: schema.sql.gz
                   key: ${{ steps.master-schema-key.outputs.key }}
+                  # The exact key misses in the minutes between a master migration
+                  # landing and its dump being saved. The PR base commit's dump is
+                  # always older than the checkout, so migrate just tops it up.
+                  restore-keys: |
+                      posthog-schema-master-${{ github.event.pull_request.base.sha }}
             - name: Wait for Docker services
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
-                  COMPOSE_PROFILES: temporal,azure
-              run: |
-                  bin/ci-wait-for-docker wait objectstorage \
-                    || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
+              run: bin/ci-wait-for-docker wait --only db redis7 clickhouse
             - name: Prime posthog DB from cached schema
               # Turns "Run migrations up to master" below into a no-op instead
               # of a full migration run.
@@ -1210,7 +1351,7 @@ jobs:
                   # ensure_migration_defaults re-seeds data-migration rows the
                   # schema-only dump lacks.
                   if gunzip -c schema.sql.gz | docker compose -f docker-compose.dev.yml exec -T db psql -q -v ON_ERROR_STOP=1 --single-transaction -U posthog posthog > /dev/null \
-                      && .venv-master/bin/python manage.py ensure_migration_defaults; then
+                      && (cd upstream-master && .venv-master/bin/python manage.py ensure_migration_defaults); then
                       echo "Primed posthog DB from cached master schema"
                   else
                       echo "::warning::Cached schema restore failed — recreating empty DB; the next step runs all migrations from scratch"
@@ -1222,6 +1363,7 @@ jobs:
                   fi
                   rm -f schema.sql.gz
             - name: Run migrations up to master
+              working-directory: upstream-master
               run: |
                   # Run Django migrations first (excluding managed=False models)
                   .venv-master/bin/python manage.py migrate
@@ -1230,17 +1372,21 @@ jobs:
                   #   sqlx database create
                   # DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
                   #   sqlx migrate run --source rust/persons_migrations/
-            # Shadow trial: OpenAPI app-token step stripped (secret not available on Depot).
+            - name: Register upstream baseline for migration checks
+              run: git fetch --no-tags --prune --depth=1 "$GITHUB_WORKSPACE/upstream-master" HEAD:refs/remotes/upstream/master
+            # Now we can consider this PR's migrations
             - name: Checkout this PR
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
+                  # For same-repo PRs, checkout the actual branch (not the merge commit)
+                  # so upstream/master..HEAD reflects PR files. Fork PRs fall back
+                  # to the default merge commit.
                   ref: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') && github.event.pull_request.head.ref || github.ref }}
                   clean: false
-                  token: ${{ github.token }}
             - name: Install python dependencies for this PR
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
-            # Shadow trial: migration SQL-comment + risk-analysis-comment steps stripped.
+            # Depot shadow: migration SQL-comment + risk-analysis-comment steps stripped.
             # Keep the risk check itself so blocked migrations still fail the job.
             - name: Run migration risk analysis
               if: github.event_name == 'pull_request'
@@ -1307,18 +1453,77 @@ jobs:
                     sqlx migrate info --source rust/persons_migrations/
                   python manage.py makemigrations --check --dry-run
             - name: Check CH migrations
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
               run: |
+                  # Count only migrations this PR adds; a stacked PR's base branch already carries the lower layers'.
+                  DIFF_BASE=upstream/master
+                  if [ -n "$BASE_REF" ] && [ "$BASE_REF" != "master" ]; then
+                      if git fetch --no-tags --depth=1 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"; then
+                          DIFF_BASE="origin/$BASE_REF"
+                      else
+                          echo "::warning::Could not fetch base ref $BASE_REF; counting CH migrations against master instead"
+                      fi
+                  fi
                   # Same as above, except now for CH looking at files that were added in posthog/clickhouse/migrations/
-                  git diff --name-status origin/master..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' | python manage.py test_ch_migrations_are_safe
-            # Shadow trial: canonical threads a setup-action app token into
-            # pnpm-install; mint stripped here (secret not available on Depot).
-            - name: Install package.json dependencies with pnpm
+                  git diff --name-status "$DIFF_BASE"..HEAD | grep "A\sposthog/clickhouse/migrations/" | grep -v README | awk '{print $2}' | python manage.py test_ch_migrations_are_safe
+    check-openapi-types:
+        needs: [changes]
+        # Not on master push: master only primes the schema cache.
+        if: (needs.changes.outputs.backend == 'true' || needs.changes.outputs.openapi_types == 'true') && github.event_name != 'push'
+        timeout-minutes: 20
+        name: Validate OpenAPI types
+        runs-on: depot-ubuntu-24.04
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') && github.event.pull_request.head.ref || github.ref }}
+                  clean: false
+            - name: Clean up data directories with container permissions
+              run: |
+                  [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
+              continue-on-error: true
+            - name: Log in to Docker Hub
+              if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+              continue-on-error: true
+              uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+              with:
+                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  password: ${{ secrets.DOCKERHUB_TOKEN }}
+            - name: Stop/Start stack with Docker Compose
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+              run: bin/ci-wait-for-docker launch --background --down db clickhouse
+            - name: Set up Python
+              uses: ./.depot/actions/setup-python-cached
+              with:
+                  python-version: 3.13.13
+            - name: Install uv
+              id: setup-uv
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.28'
+                  enable-cache: true
+                  cache-dependency-glob: uv.lock
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+            - name: Install SAML (python3-saml) dependencies
+              if: steps.setup-uv.outputs.cache-hit != 'true'
+              run: |
+                  sudo rm -f /etc/apt/sources.list.d/*twingate*
+                  sudo apt-get update
+                  sudo apt-get install libxml2-dev libxmlsec1-dev libxmlsec1-openssl
+            - name: Install python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+            - name: Install pnpm dependencies
               uses: ./.depot/actions/pnpm-install
               with:
                   install-command: pnpm --filter=@posthog/root --filter=@posthog/frontend... --filter=@posthog/mcp... install --frozen-lockfile
+            - name: Wait for Docker services
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+              run: bin/ci-wait-for-docker wait --only db clickhouse
             - name: Add OpenAPI Problem Matcher
               run: echo "::add-matcher::.github/openapi-problem-matcher.json"
-            # Shadow trial: OpenAPI types are check-only — no auto-commit side effect.
             - name: Check OpenAPI types
               run: |
                   ./bin/hogli build:openapi
@@ -1336,7 +1541,7 @@ jobs:
             !cancelled() &&
             needs.changes.outputs.backend == 'true' &&
             needs.get_clickhouse_versions.result == 'success'
-        runs-on: depot-ubuntu-24.04 # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         outputs:
             include: ${{ steps.build.outputs.include }}
@@ -1351,6 +1556,8 @@ jobs:
                   RUN_POE: ${{ needs.select-tests.outputs.run_poe }}
                   RUN_TEMPORAL: ${{ needs.select-tests.outputs.run_temporal }}
                   CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
+                  COMPAT_FILES: ${{ needs.select-tests.outputs.compat_files }}
+                  SEGMENT_SHARDS: ${{ needs.select-tests.outputs.segment_shards }}
                   # A trunk-merge/** PR opens as a draft but is the merge gate, and
                   # select-tests deliberately does not run for it. Reporting it as a
                   # draft here would turn that empty MODE into "skip" and build an
@@ -1359,12 +1566,14 @@ jobs:
                   # matrix, which is what the queue has to run.
                   IS_DRAFT: ${{ github.event.pull_request.draft && !startsWith(github.head_ref, 'trunk-merge/') }}
                   FORCE_FULL: ${{ contains(github.event.pull_request.labels.*.name, 'run-ci-backend') }}
+                  # Manual shadow runs compare with canonical master pushes, which run legacy schema only.
+                  RUN_NEW_EVENTS_SCHEMA: ${{ contains(github.event.pull_request.labels.*.name, 'test-new-events-schema') }}
               run: |
                   # :NOTE: Keep shard counts/group ranges in sync with historical Django matrix tuning.
                   # Consult #team-devex before changing.
 
-                  # A draft PR must never fall back to the full matrix. select-tests only
-                  # runs on drafts and sets MODE to "skip"/"selected"; an empty MODE on a
+                  # A draft PR must never fall back to the full matrix. select-tests sets
+                  # MODE to "skip"/"full"/"selected"; an empty MODE on a
                   # draft means select-tests was cancelled or failed (typically
                   # ready_for_review superseding it mid-flight). Skip here and defer to the
                   # ready run. The run-ci-backend label intentionally forces full on a draft.
@@ -1381,10 +1590,17 @@ jobs:
                       exit 0
                   fi
                   if [[ "$MODE" == "selected" ]]; then
-                      # Selected mode: collapse to one shard per active segment, skip
-                      # segments with no selected files, drop compat entirely.
+                      # Selected mode: run only the segments that have selected files. Shard
+                      # counts come from select-tests, where selected-django-shards.js applied
+                      # turbo-discover's per-shard budget to the selected tests' recorded
+                      # seconds. A wide selection therefore spreads over several jobs instead
+                      # of running to the job timeout in one. No counts means one shard per
+                      # segment.
+                      segment_shards="${SEGMENT_SHARDS:-}"
+                      [[ -z "$segment_shards" ]] && segment_shards='{"core": 1, "poe": 1, "temporal": 1}'
+
                       core_count=0
-                      [[ -n "$CORE_FILES" ]] && core_count=1
+                      [[ -n "$CORE_FILES" ]] && core_count=$(jq -r '.core' <<< "$segment_shards")
                       core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$core_count" '
                         [range(1; $n + 1) | {
                           segment: "Core",
@@ -1392,9 +1608,9 @@ jobs:
                           "new-events-schema": false,
                           "python-version": "3.13.13",
                           "clickhouse-server-image": $image,
-                          concurrency: 1,
-                          group: 1,
-                          artifact_key: "core-1",
+                          concurrency: $n,
+                          group: .,
+                          artifact_key: ("core-" + (.|tostring)),
                           compat: false
                         }]
                       ')
@@ -1405,14 +1621,14 @@ jobs:
                           "new-events-schema": true,
                           "python-version": "3.13.13",
                           "clickhouse-server-image": $image,
-                          concurrency: 1,
-                          group: 1,
-                          artifact_key: "core-events-json-1",
+                          concurrency: $n,
+                          group: .,
+                          artifact_key: ("core-events-json-" + (.|tostring)),
                           compat: false
                         }]
                       ')
                       poe_count=0
-                      [[ "$RUN_POE" == "true" ]] && poe_count=1
+                      [[ "$RUN_POE" == "true" ]] && poe_count=$(jq -r '.poe' <<< "$segment_shards")
                       core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$poe_count" '
                         [range(1; $n + 1) | {
                           segment: "Core",
@@ -1420,9 +1636,9 @@ jobs:
                           "new-events-schema": false,
                           "python-version": "3.13.13",
                           "clickhouse-server-image": $image,
-                          concurrency: 1,
-                          group: 1,
-                          artifact_key: "core-poe-1",
+                          concurrency: $n,
+                          group: .,
+                          artifact_key: ("core-poe-" + (.|tostring)),
                           compat: false
                         }]
                       ')
@@ -1433,14 +1649,14 @@ jobs:
                           "new-events-schema": true,
                           "python-version": "3.13.13",
                           "clickhouse-server-image": $image,
-                          concurrency: 1,
-                          group: 1,
-                          artifact_key: "core-poe-events-json-1",
+                          concurrency: $n,
+                          group: .,
+                          artifact_key: ("core-poe-events-json-" + (.|tostring)),
                           compat: false
                         }]
                       ')
                       temporal_count=0
-                      [[ "$RUN_TEMPORAL" == "true" ]] && temporal_count=1
+                      [[ "$RUN_TEMPORAL" == "true" ]] && temporal_count=$(jq -r '.temporal' <<< "$segment_shards")
                       temporal=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$temporal_count" '
                         [range(1; $n + 1) | {
                           segment: "Temporal",
@@ -1448,9 +1664,9 @@ jobs:
                           "new-events-schema": false,
                           "python-version": "3.13.13",
                           "clickhouse-server-image": $image,
-                          concurrency: 1,
-                          group: 1,
-                          artifact_key: "temporal-1",
+                          concurrency: $n,
+                          group: .,
+                          artifact_key: ("temporal-" + (.|tostring)),
                           compat: false
                         }]
                       ')
@@ -1461,13 +1677,37 @@ jobs:
                           "new-events-schema": true,
                           "python-version": "3.13.13",
                           "clickhouse-server-image": $image,
-                          concurrency: 1,
-                          group: 1,
-                          artifact_key: "temporal-events-json-1",
+                          concurrency: $n,
+                          group: .,
+                          artifact_key: ("temporal-events-json-" + (.|tostring)),
                           compat: false
                         }]
                       ')
-                      compat="[]"
+                      # Compat covers the older supported ClickHouse versions over
+                      # CLICKHOUSE_COMPAT_PYTEST_TARGETS. Selection can drop it only when the
+                      # diff touches none of those paths — otherwise a narrowed run would
+                      # silently lose the one signal the full matrix has about old servers.
+                      # One unsharded entry per version, over the selected compat files.
+                      if [[ -n "$COMPAT_FILES" ]]; then
+                          compat=$(jq -cn --argjson compat "${COMPAT_MATRIX_JSON:-[]}" '
+                            [ $compat
+                              | map(."clickhouse-server-image") | unique | to_entries[]
+                              | {
+                                  "clickhouse-server-image": .value,
+                                  segment: "Core",
+                                  "person-on-events": false,
+                                  "new-events-schema": false,
+                                  "python-version": "3.13.13",
+                                  concurrency: 1,
+                                  group: 1,
+                                  compat: true,
+                                  artifact_key: ("compat-" + ((.key + 1)|tostring))
+                                }
+                            ]
+                          ')
+                      else
+                          compat="[]"
+                      fi
                   else
                       # Full run: auto-shard counts from turbo-discover (Amdahl's law on .test_durations).
                       # Falls back to hardcoded defaults if turbo-discover failed or data is missing.
@@ -1584,6 +1824,13 @@ jobs:
                       ')
                   fi
 
+                  if [[ "$RUN_NEW_EVENTS_SCHEMA" != "true" ]]; then
+                      echo "Skipping new-events-schema variants (add the test-new-events-schema label to run them)"
+                      core_new_events_schema="[]"
+                      core_persons_on_events_new_schema="[]"
+                      temporal_new_events_schema="[]"
+                  fi
+
                   include=$(jq -cn \
                     --argjson core "$core" \
                     --argjson core_new_events_schema "$core_new_events_schema" \
@@ -1658,6 +1905,7 @@ jobs:
             # Copies the fully versioned UDF xml file for use in CI testing
             - name: Log in to Docker Hub
               if: ${{ secrets.DOCKERHUB_USERNAME != '' && secrets.DOCKERHUB_TOKEN != '' }}
+              continue-on-error: true
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
                   username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -1672,10 +1920,7 @@ jobs:
                   WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 5
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
-                  # nohup detaches the launch so it survives Depot's step-shell teardown
-                  # (which SIGHUPs a plain `&` subshell). Isolated here; bin/ci-wait-for-docker stays == master.
-                  nohup bin/ci-wait-for-docker launch --background --down-all-profiles \
-                    </dev/null >"${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>&1
+                  bin/ci-wait-for-docker launch --background --down-all-profiles
             - name: Add service hostnames to /etc/hosts
               shell: bash
               run: echo "127.0.0.1 db redis7 kafka clickhouse clickhouse-coordinator objectstorage seaweedfs temporal" | sudo tee -a /etc/hosts
@@ -1723,12 +1968,12 @@ jobs:
             - name: Install sqlx-cli
               if: needs.changes.outputs.backend == 'true'
               uses: ./.depot/actions/setup-sqlx-cli
-            - name: Determine if hogql-parser has changed compared to master
+            - name: Determine if hogql-parser has changed compared to upstream master
               shell: bash
               id: hogql-parser-diff
               run: |
-                  git fetch --no-tags --prune --depth=1 origin master
-                  changed=$(git diff --quiet HEAD origin/master -- common/hogql_parser/ && echo "false" || echo "true")
+                  git fetch --no-tags --prune --depth=1 https://github.com/PostHog/posthog.git master
+                  changed=$(git diff --quiet HEAD FETCH_HEAD -- common/hogql_parser/ && echo "false" || echo "true")
                   echo "changed=$changed" >> $GITHUB_OUTPUT
             # tests would intermittently fail in GH actions
             # with exit code 134 _after passing_ all tests
@@ -1746,21 +1991,24 @@ jobs:
               shell: bash
               run: |
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
-            # Shadow trial: canonical precedes this with a setup-node step (.nvmrc,
-            # threading a setup-action app token). The shadow has never mirrored that
-            # step and runs npm on the runner's ambient Node, so the token threading
-            # has nothing to mirror here.
+            - name: Set up Node.js for canvas builder
+              if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' && hashFiles('products/canvas/packages/canvas_builder/package.json') != '' }}
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
             - name: Install canvas builder dependencies
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
               shell: bash
-              run: npm ci --ignore-scripts --omit=dev --prefix products/canvas/packages/canvas_builder
+              run: |
+                  if [[ -f products/canvas/packages/canvas_builder/package.json ]]; then
+                      npm ci --ignore-scripts --omit=dev --prefix products/canvas/packages/canvas_builder
+                  fi
             - name: Install the working version of hogql-parser
               if: ${{ needs.changes.outputs.backend == 'true' && steps.hogql-parser-diff.outputs.changed == 'true' }}
               shell: bash
               # This is not cached, because the current HEAD version of hogql-parser must be built if it has
               # changed (requirements.txt has the already-published version)
               run: |
-                  sudo apt-get install unzip cmake curl uuid pkg-config
                   # Short budget: the `||` mirror is the real fallback for a host that is down.
                   fetch=(curl --fail --location --retry 3 --retry-all-errors --retry-max-time 30 --connect-timeout 10)
                   "${fetch[@]}" https://www.antlr.org/download/antlr4-cpp-runtime-4.13.1-source.zip --output antlr4-source.zip \
@@ -1800,26 +2048,21 @@ jobs:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: temporal,azure
                   CLICKHOUSE_SERVER_IMAGE: ${{ matrix.clickhouse-server-image || needs.get_clickhouse_versions.outputs.oldest_supported_image }}
-                  WAIT_FOR_DOCKER_TIMEOUT: 900
-              run: |
-                  bin/ci-wait-for-docker wait objectstorage \
-                    || { echo "::group::compose launch log"; cat "${RUNNER_TEMP:-/tmp}/compose-launch.log" 2>/dev/null || true; echo "::endgroup::"; exit 1; }
-            - name: Wait for Temporal
-              # Some Core tests reach Temporal indirectly (batch_exports, etc). On
-              # slower Depot runners Temporal is not ready when tests start, so
-              # block here instead of racing in pytest.
-              env:
-                  WAIT_FOR_DOCKER_TIMEOUT: 900
-              run: bin/ci-wait-for-docker wait temporal
+              run: bin/ci-wait-for-docker wait
             - name: Restore schema cache from master
               if: ${{ github.event_name == 'pull_request' && needs.turbo-discover.outputs.schema_cache_key != '' }}
               uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
               with:
                   path: schema.sql.gz
-                  # Prefer the shared content key; fall back to the exact merge-base SHA key.
+                  # Prefer the shared content key; fall back to the exact merge-base SHA key,
+                  # then to the newest dump of any migration set. Right after a migration
+                  # lands on master both exact keys miss until ci-backend re-dumps, and a
+                  # from-scratch migrate costs ~17 minutes per shard; pytest's keepdb
+                  # migrate tops a slightly stale dump up in seconds instead.
                   key: ${{ needs.turbo-discover.outputs.schema_migrations_key || needs.turbo-discover.outputs.schema_cache_key }}
                   restore-keys: |
                       ${{ needs.turbo-discover.outputs.schema_cache_key }}
+                      ${{ needs.turbo-discover.outputs.schema_prefix_key }}
             - name: Prime test_posthog from cached schema
               # Treat cache problems as misses; the migrate step below rebuilds the DB
               # whenever this one reports restored=false.
@@ -1858,6 +2101,22 @@ jobs:
                       echo "::warning::Out-of-process migrate failed; pytest --reuse-db will run the full migrate itself"
                       admin_psql -c "DROP DATABASE IF EXISTS test_posthog;" || true
                   fi
+            - name: Restore test durations from cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .test_durations
+                  key: posthog-test-durations-${{ github.run_id }}
+                  restore-keys: |
+                      posthog-test-durations-
+            - name: Restore per-segment test durations from cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: |
+                      .test_durations.core
+                      .test_durations.temporal
+                  key: posthog-segment-durations-${{ github.run_id }}
+                  restore-keys: |
+                      posthog-segment-durations-
             # Tests
             - name: Set snapshot update flags
               if: ${{ needs.changes.outputs.backend == 'true' && (needs.detect-snapshot-mode.outputs.mode == 'update' || matrix.person-on-events) }}
@@ -1904,9 +2163,12 @@ jobs:
                   MODE: ${{ needs.select-tests.outputs.mode }}
                   CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
                   POE_FILES: ${{ needs.select-tests.outputs.poe_files }}
+                  COMPAT_FILES: ${{ needs.select-tests.outputs.compat_files }}
                   # devex: measure core (posthog/ee) coverage on PRs to size the gap vs products. sysmon = low overhead.
                   COVERAGE_CORE: sysmon
-                  COV_ARGS: ${{ github.event_name == 'pull_request' && '--cov=posthog --cov=ee --cov-config=.github/coverage-core.cfg --cov-report=xml:coverage-core.xml' || '' }}
+                  # Mirrors canonical: the coverage report skips narrowed runs, so
+                  # instrumenting one is pure overhead.
+                  COV_ARGS: ${{ github.event_name == 'pull_request' && needs.select-tests.outputs.mode != 'selected' && '--cov=posthog --cov=ee --cov-config=.github/coverage-core.cfg --cov-report=xml:coverage-core.xml' || '' }}
               shell: 'signal-fanout bash --noprofile --norc -eo pipefail {0}'
               run: |
                   unset GITHUB_TOKEN # reserved var injected by Depot CI; can't override via env: (see workflow env note)
@@ -1934,16 +2196,29 @@ jobs:
                   fi
                   if [[ "$MODE" == "selected" ]]; then
                       # Selected mode: run only the test files chosen by the snob shadow selector.
-                      # No --splits/--group (no sharding), and no --reruns anywhere, mirroring
+                      # Sharded only when build_django_matrix sized the segment above one
+                      # shard, and no --reruns anywhere, mirroring
                       # canonical: retries mask the raw flake signal Trunk needs (the shadow
                       # strips the quarantine gate itself).
-                      if [[ "${{ matrix.person-on-events }}" == "true" ]]; then
+                      if [[ "${{ matrix.compat }}" == "true" ]]; then
+                          targets="$COMPAT_FILES"
+                      elif [[ "${{ matrix.person-on-events }}" == "true" ]]; then
                           targets="$POE_FILES"
                       else
                           targets="$CORE_FILES"
                       fi
+                      # A selection wide enough to need more than one shard is split like a
+                      # full run. Item granularity on purpose: the target list is already
+                      # narrow, so pre-import file skipping saves nothing, and the per-segment
+                      # plan file describes a different run-set than the selected subset.
+                      SELECTED_SPLIT=()
+                      if [[ "${{ matrix.concurrency }}" -gt 1 ]]; then
+                          SELECTED_SPLIT=(--splits "${{ matrix.concurrency }}" --group "${{ matrix.group }}"
+                                          --splitting-algorithm="$SPLITTING_ALGORITHM")
+                      fi
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $targets -m "not async_migrations" \
+                          "${SELECTED_SPLIT[@]}" \
                           -r fEsxX \
                           --junitxml=junit-core.xml \
                           $COV_ARGS \
@@ -1954,7 +2229,7 @@ jobs:
                     if [[ "${{ matrix.compat }}" == "true" ]]; then
                         full_targets="$CLICKHOUSE_COMPAT_PYTEST_TARGETS"
                     elif [[ "${{ matrix.person-on-events }}" == "true" ]]; then
-                        full_targets="./posthog/clickhouse/ ./posthog/queries/ ./products/product_analytics/backend/api/test/ ./posthog/api/test/dashboards/test_dashboard.py ee/clickhouse/"
+                        full_targets="./posthog/clickhouse/ ./posthog/queries/ ./products/product_analytics/backend/tests/api/ ./posthog/api/test/dashboards/test_dashboard.py ee/clickhouse/"
                         full_ignores+=(--ignore=posthog/hogql_queries --ignore=posthog/hogql)
                     fi
                     # shellcheck disable=SC2086
@@ -1962,6 +2237,7 @@ jobs:
                         --ignore=posthog/temporal \
                         --ignore=posthog/dags \
                         --ignore=common/hogvm/python/test \
+                        --ignore=posthog/test/repo_invariants \
                         "${full_ignores[@]}" \
                         --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                         --durations=1000 --durations-min=1.0 \
@@ -1981,11 +2257,6 @@ jobs:
                   else
                       exit $exit_code
                   fi
-            # Uncomment this code to create an ssh-able console so you can debug issues with github actions
-            # (Consider changing the timeout in ci-backend.yml to have more time)
-            # - name: Setup tmate session
-            #   if: failure()
-            #   uses: mxschmitt/action-tmate@v3
             - name: Log test environment diagnostics
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Temporal' }}
               shell: bash
@@ -2039,10 +2310,20 @@ jobs:
                   # two timeout tests fail downstream (hogql_table never reached). Canonical GHA still runs them.
                   # The --deselect guards stay on both branches so a selected run can't re-enable them.
                   if [[ "$MODE" == "selected" ]]; then
-                      # Selected mode: no sharding, no --reruns — see the core selected branch;
+                      # Selected mode: no --reruns — see the core selected branch;
                       # the full run also skips --reruns, mirroring canonical.
+                      # A selection wide enough to need more than one shard is split like a
+                      # full run. Item granularity on purpose: the target list is already
+                      # narrow, so pre-import file skipping saves nothing, and the per-segment
+                      # plan file describes a different run-set than the selected subset.
+                      SELECTED_SPLIT=()
+                      if [[ "${{ matrix.concurrency }}" -gt 1 ]]; then
+                          SELECTED_SPLIT=(--splits "${{ matrix.concurrency }}" --group "${{ matrix.group }}"
+                                          --splitting-algorithm="$SPLITTING_ALGORITHM")
+                      fi
                       # shellcheck disable=SC2086
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call $TEMPORAL_FILES -m "not async_migrations" \
+                          "${SELECTED_SPLIT[@]}" \
                           --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_with_minio_bucket" \
                           --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_timeout_does_not_pause_schedule_without_consecutive_failures" \
                           --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_timeout_pauses_schedule_after_5_consecutive_failures" \
@@ -2051,8 +2332,8 @@ jobs:
                           $PYTEST_ARGS
                   else
                       # No per-test pytest --timeout; rely on the job-level timeout-minutes as the single
-                      # safety net (matches canonical — the per-test guillotine added nothing over it,
-                      # since --timeout-method=thread os._exit()s the whole process anyway).
+                      # safety net. The per-test timeout also terminates the whole process, so it adds
+                      # no protection beyond the job timeout.
                       pytest -v --tb=short --reuse-db -o junit_duration_report=call posthog/temporal products/batch_exports/backend/tests/temporal products/tasks/backend/temporal products/signals/backend/emission -m "not async_migrations" \
                           --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_with_minio_bucket" \
                           --deselect "posthog/temporal/tests/data_modeling/test_run_workflow.py::test_run_workflow_timeout_does_not_pause_schedule_without_consecutive_failures" \
@@ -2084,7 +2365,7 @@ jobs:
         name: Get ClickHouse versions
         needs: [changes]
         if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
-        runs-on: depot-ubuntu-24.04 # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         outputs:
             # Oldest supported version as plain string (for comparisons)
@@ -2177,13 +2458,14 @@ jobs:
                 build_django_matrix,
                 django,
                 check-migrations,
+                check-openapi-types,
                 turbo-discover,
                 build-product-test-matrix,
                 turbo-tests,
                 repo-checks,
             ]
         name: '[optional, does not block merge] Django Tests Pass'
-        runs-on: depot-ubuntu-24.04 # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
+        runs-on: depot-ubuntu-24.04
         timeout-minutes: 5
         # always() collates skipped/failed matrix jobs; gated on the sampling result so it
         # doesn't spin up a lone runner when this run was sampled out (or the shadow is off).
@@ -2200,6 +2482,7 @@ jobs:
                     echo "| build_django_matrix | ${{ needs.build_django_matrix.result }} |"
                     echo "| django | ${{ needs.django.result }} |"
                     echo "| check-migrations | ${{ needs.check-migrations.result }} |"
+                    echo "| check-openapi-types | ${{ needs.check-openapi-types.result }} |"
                     echo "| repo-checks | ${{ needs.repo-checks.result }} |"
                     echo "| turbo-discover | ${{ needs.turbo-discover.result }} |"
                     echo "| build-product-test-matrix | ${{ needs.build-product-test-matrix.result }} |"
@@ -2227,10 +2510,11 @@ jobs:
                   check_required_result "Django matrix build" "${{ needs.build_django_matrix.result }}"
                   check_required_result "Django test matrix" "${{ needs.django.result }}"
                   check_required_result "Migration checks" "${{ needs.check-migrations.result }}"
+                  check_required_result "OpenAPI type checks" "${{ needs.check-openapi-types.result }}"
                   check_required_result "Repo checks" "${{ needs.repo-checks.result }}"
                   check_required_result "Turbo discover" "${{ needs.turbo-discover.result }}"
                   check_required_result "Product test matrix build" "${{ needs.build-product-test-matrix.result }}"
                   check_required_result "Product/Turbo tests" "${{ needs.turbo-tests.result }}"
 
                   echo "All backend and product checks passed."
-    # Shadow trial: calculate-running-time job stripped (would poison trial metrics).
+    # Depot shadow: calculate-running-time is omitted so shadow runs are not recorded as canonical CI data.

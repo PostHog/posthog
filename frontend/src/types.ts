@@ -86,6 +86,7 @@ import type {
     SyncFrequencyBoundsApi,
 } from 'products/data_warehouse/frontend/generated/api.schemas'
 import type { ExperimentFeatureFlagInputApi } from 'products/experiments/frontend/generated/api.schemas'
+import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
 import type { CommentSlackThreadRefApi } from 'products/platform_features/frontend/generated/api.schemas'
 import type { InsightFilterOverrideContextApi } from 'products/product_analytics/frontend/generated/api.schemas'
 import type { AIPromptConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
@@ -294,6 +295,7 @@ export enum AccessControlResourceType {
     Dashboard = 'dashboard',
     DashboardTemplate = 'dashboard_template',
     LlmAnalytics = 'llm_analytics',
+    Evaluation = 'evaluation',
     Tagger = 'tagger',
     LlmSkill = 'llm_skill',
     LlmPlayground = 'llm_playground',
@@ -607,12 +609,7 @@ export interface OrganizationDomainType {
     verification_challenge: string
     jit_provisioning_enabled: boolean
     sso_enforcement: SSOProvider | ''
-    has_saml: boolean
-    has_scim?: boolean
     scim_base_url?: string
-    has_id_jag?: boolean
-    /** Linked IdP config (SAML/SCIM/XAA) — the sole read/write interface for those settings. */
-    identity_provider_config?: string | null
 }
 
 export interface SCIMRequestLogType {
@@ -1176,6 +1173,7 @@ export enum PropertyFilterType {
     DataWarehousePersonProperty = 'data_warehouse_person_property',
     ErrorTrackingIssue = 'error_tracking_issue',
     RevenueAnalytics = 'revenue_analytics',
+    Account = 'account',
     /** Customer analytics account custom property — the key is the property definition id */
     AccountCustomProperty = 'account_custom_property',
     /** Feature flag dependency */
@@ -1853,6 +1851,10 @@ export interface CohortType {
     errors_calculating?: number
     last_calculation?: string
     last_error_message?: string | null
+    /** Number of IDs supplied by the most recent static cohort import. */
+    last_import_total_count?: number | null
+    /** How many of those IDs matched no person, and so were left out of the cohort. */
+    last_import_unmatched_count?: number | null
     is_static?: boolean
     name?: string
     csv?: File
@@ -2377,6 +2379,7 @@ export interface BillingType {
     projected_total_amount_usd_with_limit?: string
     projected_total_amount_usd_with_limit_after_discount?: string
     products: BillingProductV2Type[]
+    usage_summary?: Record<string, { usage?: number | null; limit?: number | null; todays_usage?: number | null }>
 
     custom_limits_usd?: {
         [key: string]: number | null
@@ -2702,7 +2705,13 @@ export interface DashboardType<T = InsightModel> extends DashboardBasicType {
     breakdown_colors?: BreakdownColorConfig[]
     data_color_theme_id?: number | null
     quick_filter_ids?: string[] | null
+    customization?: {
+        tile_spacing?: DashboardTileSpacing
+        layout_compaction?: 'vertical' | 'horizontal' | 'stable'
+    }
 }
+
+export type DashboardTileSpacing = 'tight' | 'condensed' | 'standard' | 'relaxed' | 'wide'
 
 export enum TemplateAvailabilityContext {
     GENERAL = 'general',
@@ -4778,6 +4787,7 @@ export enum PropertyDefinitionType {
     Event = 'event',
     EventMetadata = 'event_metadata',
     RevenueAnalytics = 'revenue_analytics',
+    Account = 'account',
     AccountCustomProperty = 'account_custom_property',
     Person = 'person',
     PersonMetadata = 'person_metadata',
@@ -5582,6 +5592,10 @@ export interface IntegrationType {
     created_by?: UserBasicType | null
     created_at: string
     errors?: string
+    /** GitHub only. When false, disconnecting also uninstalls the App from GitHub. */
+    installation_shared?: IntegrationConfigApi['installation_shared']
+    /** GitHub only. `unavailable` once the App was removed or suspended on GitHub. */
+    installation_status?: IntegrationConfigApi['installation_status']
 }
 
 export interface EmailIntegrationDomainGroupedType {
@@ -5766,6 +5780,7 @@ export const API_SCOPE_OBJECTS = [
     'batch_export',
     'batch_import',
     'batch_import_support',
+    'billing',
     'business_knowledge',
     'canvas',
     'clickhouse_test_cluster_perf',
@@ -5964,15 +5979,15 @@ export type AccessControlResponseType = {
     inherited_access?: InheritedAccessType | null
 }
 
-export type InheritedAccessLevelReason = 'project_default' | 'role_override' | 'organization_admin'
-
 export interface EffectiveAccessControlEntry {
+    /** The subject's own stored rule, if any — what the settings UI edits. */
     access_level: AccessControlLevel | null
+    /** What the subject actually gets, as enforced. */
     effective_access_level: AccessControlLevel | null
-    inherited_access_level: AccessControlLevel | null
-    inherited_access_level_reason: InheritedAccessLevelReason | null
-    /** What applies when no rule exists anywhere. Only returned by the defaults endpoint. */
-    system_default_access_level?: AccessControlLevel
+    /** What the subject would get if their own rule were removed, with the rule that decides
+     * it — resolved by the same walker that enforces access. Null only when nothing sits above
+     * the object's own default (a project's default). */
+    inherited_access: Omit<InheritedAccessType, 'source_display_name'> | null
     minimum: AccessControlLevel
     maximum: AccessControlLevel
 }
@@ -6106,6 +6121,7 @@ export enum ActivityScope {
     TICKET = 'Ticket',
     INSTANCE_SETTING = 'InstanceSetting',
     SIGNAL_SCOUT_CONFIG = 'SignalScoutConfig',
+    SIGNAL_TEAM_CONFIG = 'SignalTeamConfig',
 }
 
 export type CommentType = {
@@ -6237,6 +6253,9 @@ export interface DataWarehouseSavedQuery {
     latest_error: string | null
     latest_history_id?: string
     is_materialized?: boolean
+    /** Whether the view is set up to update incrementally. A run can still rebuild the whole table,
+     * for example on its first run or after the query changes. */
+    is_incremental?: boolean
     /** Engine → suspension details. Only included when fetching a single saved query, not in list responses */
     suspended?: DataWarehouseSavedQueryApiSuspended
     upstream_dependency_count?: number
@@ -6654,34 +6673,14 @@ export interface SimpleDataWarehouseTable {
     row_count: number
 }
 
-export type BatchExportServiceS3 = {
-    type: 'S3'
-    config: {
-        bucket_name: string
-        region: string
-        prefix: string
-        aws_access_key_id: string
-        aws_secret_access_key: string
-        exclude_events: string[]
-        include_events: string[]
-        compression: string | null
-        encryption: string | null
-        kms_key_id: string | null
-        endpoint_url: string | null
-        file_format: string
-        max_file_size_mb: number | null
-        use_virtual_style_addressing: boolean
-    }
-}
-
+// Credentials live on the linked `aws-s3` integration, not in the config.
 export type BatchExportServiceAwsS3 = {
     type: 'AwsS3'
+    integration: number
     config: {
         bucket_name: string
         region: string
         prefix: string
-        aws_access_key_id: string
-        aws_secret_access_key: string
         exclude_events: string[]
         include_events: string[]
         compression: string | null
@@ -6692,18 +6691,17 @@ export type BatchExportServiceAwsS3 = {
     }
 }
 
+// Credentials and the provider endpoint URL live on the linked `s3-compatible` integration.
 export type BatchExportServiceS3Compatible = {
     type: 'S3Compatible'
+    integration: number
     config: {
         bucket_name: string
         region: string
         prefix: string
-        aws_access_key_id: string
-        aws_secret_access_key: string
         exclude_events: string[]
         include_events: string[]
         compression: string | null
-        endpoint_url: string
         use_virtual_style_addressing: boolean
         file_format: string
         max_file_size_mb: number | null
@@ -6833,9 +6831,6 @@ export type BatchExportServiceAzureBlob = {
 // frontend/public/services/
 // and update RenderBatchExportIcon
 export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
-    // 'S3' is the legacy alias kept for reading existing rows and the BatchExportScene validity
-    // guard — it is filtered out of the destination picker in favour of AwsS3 + S3Compatible.
-    'S3',
     'AwsS3',
     'S3Compatible',
     'Snowflake',
@@ -6847,7 +6842,6 @@ export const BATCH_EXPORT_SERVICE_NAMES: BatchExportService['type'][] = [
     'AzureBlob',
 ]
 export type BatchExportService =
-    | BatchExportServiceS3
     | BatchExportServiceAwsS3
     | BatchExportServiceS3Compatible
     | BatchExportServiceSnowflake
@@ -7212,7 +7206,7 @@ export type OnboardingProduct = {
     capabilities?: string[]
     /** Title + problem pairs shown in the post-onboarding modal. Falls back to capabilities if absent. */
     valueProps?: { title: string; problem: string }[]
-    /** Hedgehog illustration for the post-onboarding modal. Falls back to SupermanHog if absent. */
+    /** Hedgehog illustration for the post-onboarding modal. Falls back to HedgehogSuperhero if absent. */
     hedgehog?: React.ComponentType<{ className?: string }>
 }
 
@@ -7235,6 +7229,9 @@ export type CyclotronJobInputSchemaType = {
         | 'non_failure_status_codes'
         | 'customer_analytics_account_properties'
         | 'customer_analytics_account_relationships'
+        | 'task_model'
+        | 'task_repository'
+        | 'task_mcp_installations'
     key: string
     label: string
     choices?: { value: string; label: string }[]
@@ -7295,7 +7292,7 @@ export type CyclotronJobFilterPropertyFilter =
     | FlagPropertyFilter
 
 export interface CyclotronJobFiltersType {
-    source?: 'events' | 'person-updates' | 'data-warehouse-table'
+    source?: 'events' | 'person-updates' | 'data-warehouse-table' | 'data-warehouse-view'
     events?: CyclotronJobFilterEvents[]
     data_warehouse?: CyclotronJobFilterDataWarehouse[]
     actions?: CyclotronJobFilterActions[]
@@ -7876,6 +7873,7 @@ export interface DataWarehouseActivityRecord {
 
 export type HeatmapType = 'screenshot' | 'iframe' | 'recording'
 export type HeatmapStatus = 'processing' | 'completed' | 'failed'
+export type HeatmapSource = 'server' | 'toolbar'
 
 export interface HeatmapScreenshotType {
     id: number

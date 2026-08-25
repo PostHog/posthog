@@ -10,6 +10,12 @@ _TRANSIENT_DB_ERROR_MARKERS = (
     "query_wait_timeout",
     "server closed the connection unexpectedly",
     "connection reset by peer",
+    # pgbouncer's report that the backend connection assigned to an in-flight query died before
+    # answering. Same self-healing dropped-connection condition as the closed/reset markers above,
+    # just detected by the pooler rather than by the client. psycopg raises it as ProtocolViolation
+    # (SQLSTATE 08P01), which is too broad to whitelist by class because a genuine protocol
+    # violation is a driver bug that must keep reaching error tracking, so match the message.
+    "server conn crashed?",
     "the database system is starting up",
     "the database system is shutting down",
     # pgbouncer's server_login_retry cooldown: a backend connect attempt failed, so pgbouncer
@@ -17,6 +23,17 @@ _TRANSIENT_DB_ERROR_MARKERS = (
     # (default 15s) elapses and it retries the backend itself. Self-heals without our retry doing
     # anything special, so it's transient by construction, not a symptom of the underlying cause.
     "server login has been failing, cached error",
+    # psycopg's own message when libpq finds the backend socket already gone (raised as a
+    # ProtocolViolation, SQLSTATE 08P01, which the class-based check above doesn't cover since
+    # 08P01 also covers genuine protocol bugs). Same dead-socket condition as the "closed
+    # unexpectedly" marker above, just detected client-side instead of reported by the server.
+    # Reaches us standalone too, not only wrapped in the cached-login message above.
+    "server conn crashed",
+    # The pooler (pgbouncer/pgcat) itself draining for a restart or deploy, refusing new
+    # connections while it does. Same self-healing shape as "the database system is shutting
+    # down" above, just raised by the pooler in front of Postgres rather than Postgres itself.
+    # A connect failure through a pooler, so no SQLSTATE — falls through to this message match.
+    "pooler is shutting down",
 )
 
 # SQLSTATE class 57P (operator intervention): the server is shutting down or restarting and

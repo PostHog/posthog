@@ -1,10 +1,13 @@
 import posthog from 'posthog-js'
 
+import * as superheroPng from '@posthog/brand/hoggies/png/superhero'
 import { IconOpenSidebar } from '@posthog/icons'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
-import { SupportHeroHog } from 'lib/components/hedgehogs'
+import { pngHoggie } from 'lib/brand/hoggies'
 import { urls } from 'scenes/urls'
+
+const HedgehogSuperhero = pngHoggie(superheroPng)
 
 type SupportActivationButtonProps = {
     source: 'support_empty_state' | 'dashboard_widget'
@@ -52,7 +55,7 @@ export function ConversationsDisabledBanner(): JSX.Element {
         <LemonBanner type="info" hideIcon={true}>
             <div className="flex gap-8 p-8 lg:flex-row justify-center flex-wrap">
                 <div className="hidden lg:flex justify-center items-center w-full lg:w-50">
-                    <SupportHeroHog className="h-[200px] w-[200px]" />
+                    <HedgehogSuperhero className="h-[200px] w-[200px]" />
                 </div>
                 <div className="flex flex-col gap-2 flex-shrink max-w-180">
                     <h2 className="text-lg font-semibold">Welcome to Support</h2>
