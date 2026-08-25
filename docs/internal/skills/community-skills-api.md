@@ -24,6 +24,11 @@ Route: registered in `products/skills/backend/routes.py` as `community_skills` u
   kind, and it passes anyone holding an object-level grant on any one skill, so without the per-object
   check one grant reaches every skill in the project. `model_to_resource` maps `LLMSkill` to
   `llm_skill`; without that mapping the object-level check resolves no resource and passes everything.
+- Known limit: an object-level grant or restriction on a skill is keyed on the `LLMSkill` row id, and
+  every edit publishes a new row, so it stops matching after the next version. The app never creates
+  per-skill grants (the skill scene passes only the resource type), so only the access-control API
+  can create one. Keying the check on the logical skill (`team`, `name`) is the fix, and is tracked as
+  a follow-up rather than done here.
 
 ## Endpoints
 
