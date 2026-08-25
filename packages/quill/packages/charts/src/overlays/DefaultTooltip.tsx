@@ -180,11 +180,13 @@ export function DefaultTooltip<Meta = unknown>({
                             }
                         >
                             <TooltipSwatch color={s.color} />
-                            <span className="relative block min-w-0 overflow-hidden">
-                                <span className="font-semibold invisible block truncate" aria-hidden="true">
+                            {/* Grid-stack the label so an invisible semibold ghost always reserves
+                                the bold width — the visible span toggles weight without reflowing. */}
+                            <span className="min-w-0 overflow-hidden grid">
+                                <span className="font-semibold invisible truncate [grid-area:1/1]" aria-hidden="true">
                                     {labelContent}
                                 </span>
-                                <span data-attr="hog-chart-tooltip-series" className="absolute inset-0 truncate">
+                                <span data-attr="hog-chart-tooltip-series" className="truncate [grid-area:1/1]">
                                     {labelContent}
                                 </span>
                             </span>
