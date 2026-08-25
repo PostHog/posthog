@@ -994,10 +994,10 @@ class TestPersonsDedupTargetGuard:
 class TestPersonsDedupLogVisibility:
     def test_info_records_survive_the_posthog_logger_clamp(self):
         # posthoganalytics calls logging.getLogger("posthog").setLevel(WARNING) at client init,
-        # which happens during django.setup(). Without an explicit level on this module's logger
-        # every INFO record is dropped, and three production runs of this command left no record
-        # of what they did. structlog's capture_logs() replaces the processor chain, so it cannot
-        # see this -- the assertion has to go through a real stdlib handler.
+        # which happens during django.setup(). Without the explicit level settings.LOGGING gives
+        # this module's logger, every INFO record is dropped, and three production runs of this
+        # command left no record of what they did. structlog's capture_logs() replaces the
+        # processor chain, so it cannot see this. The assertion needs a real stdlib handler.
         parent = logging.getLogger("posthog")
         module_logger = logging.getLogger(persons_dedup_command.__name__)
         captured: list[logging.LogRecord] = []

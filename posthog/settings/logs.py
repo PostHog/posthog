@@ -177,6 +177,11 @@ LOGGING: dict[str, Any] = {
         # at client init, so the source-registry prewarm's INFO lifecycle logs need an
         # explicit level to be visible.
         "posthog.warehouse_source_prewarm": {"level": "INFO", "handlers": ["console"], "propagate": False},
+        # Same clamp applies to the persons dedup command, which an operator runs by hand against
+        # production. The level must live here rather than on the module: this config sets
+        # disable_existing_loggers, so a logger it does not name is switched off whenever the config
+        # is applied after that module is imported.
+        "posthog.management.commands.persons_dedup": {"level": "INFO", "handlers": ["console"], "propagate": False},
         "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load": {
             "level": "DEBUG",
             "handlers": ["console"],
