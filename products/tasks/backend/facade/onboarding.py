@@ -13,11 +13,7 @@ from posthog.event_usage import groups
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.signals.backend.facade.api import (
-    enable_onboarding_signal_sources,
-    recent_inbox_reports,
-    waiting_report_count,
-)
+from products.signals.backend.facade.api import enable_onboarding_signal_sources, waiting_reports
 from products.tasks.backend.facade.api import (
     create_and_run_task,
     desktop_users_in_team,
@@ -87,15 +83,15 @@ def onboarding_session_model(team: Team) -> str:
 
 def gather_onboarding_facts(team: Team, user: User) -> tuple[OnboardingFacts, str]:
     sources = enable_onboarding_signal_sources(team.id, user.id)
-    reports_to_offer = tuple(recent_inbox_reports(team.id))
+    waiting = waiting_reports(team.id)
 
     if organization_has_context(team.organization_id):
         return (
             OnboardingFacts(
                 org_has_context=True,
                 has_events=bool(team.ingested_event),
-                signal_reports_waiting=waiting_report_count(team.id),
-                reports_to_offer=reports_to_offer,
+                signal_reports_waiting=waiting.count,
+                reports_to_offer=waiting.offerable,
                 other_members=prose_list(desktop_users_in_team(team, user.id)),
                 sources_enabled=sources.labels,
                 sources_watching=sources.watches,
@@ -110,8 +106,8 @@ def gather_onboarding_facts(team: Team, user: User) -> tuple[OnboardingFacts, st
         org_has_context=False,
         research=research,
         has_events=bool(team.ingested_event),
-        signal_reports_waiting=waiting_report_count(team.id),
-        reports_to_offer=reports_to_offer,
+        signal_reports_waiting=waiting.count,
+        reports_to_offer=waiting.offerable,
         sources_enabled=sources.labels,
         sources_watching=sources.watches,
         sources_newly_enabled=sources.newly_enabled,

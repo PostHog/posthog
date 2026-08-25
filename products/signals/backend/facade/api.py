@@ -263,17 +263,6 @@ _SOURCE_BY_KEY: dict[str, _SourceSpec] = {spec.key: spec for spec in _SOURCE_CAT
 _OFFERABLE_STATUSES = (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT)
 
 
-def waiting_report_count(team_id: int) -> int:
-    """How many reports are still waiting in this team's inbox.
-
-    Counts what `recent_inbox_reports` can offer, so a caller cannot claim more findings are
-    waiting than it can then name.
-    """
-    return SignalReport.objects.filter(
-        team_id=team_id, first_visible_at__isnull=False, status__in=_OFFERABLE_STATUSES
-    ).count()
-
-
 @frozen
 class InboxReportSummary:
     """One report, named well enough for an agent to offer it by id."""
@@ -282,28 +271,49 @@ class InboxReportSummary:
     title: str
 
 
+@frozen
+class WaitingReports:
+    """What a team has waiting in its inbox: how many, and the newest few that can be named.
+
+    `offerable` is shorter than `count` whenever more are waiting than the caller asked for, or one
+    has no title yet. That is expected, not a mismatch — see `waiting_reports`.
+    """
+
+    count: int
+    offerable: tuple[InboxReportSummary, ...]
+
+
 _REPORT_TITLE_LIMIT = 120
 
 
-def recent_inbox_reports(team_id: int, limit: int = 3) -> list[InboxReportSummary]:
-    """The newest reports still waiting in the team's inbox, newest first.
+def waiting_reports(team_id: int, limit: int = 3) -> WaitingReports:
+    """What is waiting in the team's inbox, newest named first.
 
-    `first_visible_at` is stamped once and never cleared, so a report that surfaced and has since
-    been resolved, archived or re-run still carries it. The status filter is what keeps a finished
-    finding from being offered as one that is waiting.
-    A report with no title yet is skipped rather than offered as a blank row.
+    One eligibility rule for both halves, because they drifted apart when there were two:
+    `first_visible_at` is stamped once on the first transition into ready or pending_input and never
+    cleared, so the status filter is the only thing keeping a resolved, archived or re-running report
+    from reading as one that is waiting.
+
+    The two halves then differ on titles, deliberately. `count` is what the inbox will show them, and
+    the inbox renders a titleless report from its summary, so it counts. `offerable` has to name a
+    report in a sentence, so a titleless one is skipped rather than offered as a blank row.
     """
-    rows = (
-        SignalReport.objects.filter(team_id=team_id, first_visible_at__isnull=False, status__in=_OFFERABLE_STATUSES)
-        .exclude(title__isnull=True)
+    waiting = SignalReport.objects.filter(
+        team_id=team_id, first_visible_at__isnull=False, status__in=_OFFERABLE_STATUSES
+    )
+    newest_named = (
+        waiting.exclude(title__isnull=True)
         .exclude(title="")
         .order_by("-first_visible_at")
         .values_list("id", "title")[:limit]
     )
-    return [
-        InboxReportSummary(report_id=str(report_id), title=" ".join((title or "").split())[:_REPORT_TITLE_LIMIT])
-        for report_id, title in rows
-    ]
+    return WaitingReports(
+        count=waiting.count(),
+        offerable=tuple(
+            InboxReportSummary(report_id=str(report_id), title=" ".join((title or "").split())[:_REPORT_TITLE_LIMIT])
+            for report_id, title in newest_named
+        ),
+    )
 
 
 def has_enabled_source(team_id: int) -> bool:
