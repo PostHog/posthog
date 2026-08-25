@@ -111,7 +111,7 @@ def create_workflow_task(
     if replay is not None:
         return replay
 
-    _validate_connectors(team.id, owner_id, mcp_installation_ids)
+    validate_connectors(team.id, owner_id, mcp_installation_ids)
 
     # Snapshot the connector allowlist onto the run: the sandbox mounts only what's here
     # (see loop_mcp_installation_allowlist), so a later edit of the workflow can't change
@@ -225,7 +225,13 @@ def _find_replayed_task(
     return _task_dto(existing, created=False)
 
 
-def _validate_connectors(team_id: int, owner_id: int, mcp_installation_ids: list[str] | None) -> None:
+def validate_connectors(team_id: int, owner_id: int, mcp_installation_ids: list[str] | None) -> None:
+    """Raise `WorkflowTaskConnectorsInvalid` for any id the owner can't mount.
+
+    Called both when a run actually starts and, from the workflows product, when a
+    "Create AI task" action is saved - so a stale or foreign connector id fails at save
+    time instead of only on the workflow's next fire.
+    """
     if not mcp_installation_ids:
         return
     valid_ids = {installation.id for installation in get_active_installations(team_id, owner_id, include_shared=True)}
