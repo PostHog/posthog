@@ -1276,6 +1276,186 @@ async fn deferred_flush_retries_until_a_worker_recovers() {
     harness.stop().await;
 }
 
+/// With no worker ever coming back, the batch must still fail: the flush
+/// loop's own `deferred_flush_timeout` ends it, not a liveness stall, so the
+/// exit lands at the flush timeout rather than at the (shorter) stall window.
+#[tokio::test]
+async fn no_worker_exit_comes_from_the_flush_timeout_not_a_liveness_stall() {
+    let topic = format!("e2e-flush-timeout-liveness-{}", Uuid::new_v4());
+    let flush_timeout = Duration::from_secs(4);
+    let liveness_deadline = Duration::from_millis(1500);
+    let mut harness =
+        Harness::start_with_liveness(&topic, 2, flush_timeout, liveness_deadline, 2).await;
+    let producer = make_producer();
+
+    harness.workers[1].healthy.store(false, Ordering::SeqCst);
+    wait_until(
+        Duration::from_secs(10),
+        "worker 1 to leave the pool",
+        || !in_pool(&harness, &harness.workers[1].url),
+    )
+    .await;
+
+    let guard0 = harness.workers[0].block().await;
+    for seq in 0..4usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+    }
+    wait_until(Duration::from_secs(10), "batch to reach worker 0", || {
+        harness.workers[0].arrived_count() > 0
+    })
+    .await;
+
+    harness.workers[0].healthy.store(false, Ordering::SeqCst);
+    drop(guard0);
+    wait_until(
+        Duration::from_secs(10),
+        "the failed send to be deferred",
+        || harness.dispatcher.stashed_messages() > 0,
+    )
+    .await;
+    let deferred_at = tokio::time::Instant::now();
+
+    assert!(
+        harness
+            .wait_for_consumer_exit(Duration::from_secs(20))
+            .await,
+        "consumer must fail the batch once nothing lands for a full flush timeout"
+    );
+    let waited = deferred_at.elapsed();
+    assert!(
+        waited >= flush_timeout * 3 / 4,
+        "consumer exited after {waited:?}: a liveness stall, not the {flush_timeout:?} flush timeout"
+    );
+    assert_eq!(
+        harness.workers.iter().map(|w| w.count()).sum::<usize>(),
+        0,
+        "nothing should be delivered"
+    );
+}
+
+/// A drain that is slow but moving must complete even when it outlasts both the
+/// liveness deadline and the flush timeout: every landing resets the flush
+/// deadline, and the wait in between keeps the heartbeat going. Two keys land
+/// in two flush rounds, the first only after the original deadline has passed.
+#[tokio::test]
+async fn slow_deferred_drain_with_progress_outlasts_the_flush_timeout() {
+    let topic = format!("e2e-slow-drain-{}", Uuid::new_v4());
+    let flush_timeout = Duration::from_secs(3);
+    let liveness_deadline = Duration::from_millis(1500);
+    let harness =
+        Harness::start_with_liveness(&topic, 3, flush_timeout, liveness_deadline, 2).await;
+    let producer = make_producer();
+
+    // Workers 1 and 2 out, so both keys route to worker 0 together.
+    for i in [1, 2] {
+        harness.workers[i].healthy.store(false, Ordering::SeqCst);
+    }
+    wait_until(
+        Duration::from_secs(10),
+        "workers 1 and 2 to leave the pool",
+        || {
+            !in_pool(&harness, &harness.workers[1].url)
+                && !in_pool(&harness, &harness.workers[2].url)
+        },
+    )
+    .await;
+
+    let guard0 = harness.workers[0].block().await;
+    for seq in 0..4usize {
+        produce(&producer, &topic, 0, "tok", "user-1", seq).await;
+        produce(&producer, &topic, 0, "tok", "user-2", seq).await;
+    }
+    wait_until(Duration::from_secs(10), "batch to reach worker 0", || {
+        harness.workers[0].arrived_count() > 0
+    })
+    .await;
+
+    // Workers 1 and 2 rejoin, blocked, before worker 0 fails, so the flush
+    // sees both and spreads the two keys over them, one request each.
+    let mut guard1 = Some(harness.workers[1].block().await);
+    let guard2 = harness.workers[2].block().await;
+    for i in [1, 2] {
+        harness.workers[i].healthy.store(true, Ordering::SeqCst);
+    }
+    wait_until(
+        Duration::from_secs(10),
+        "workers 1 and 2 to rejoin the pool",
+        || in_pool(&harness, &harness.workers[1].url) && in_pool(&harness, &harness.workers[2].url),
+    )
+    .await;
+    harness.workers[0].healthy.store(false, Ordering::SeqCst);
+    drop(guard0);
+    wait_until(
+        Duration::from_secs(10),
+        "the flush to reach both workers",
+        || harness.workers[1].arrived_count() > 0 && harness.workers[2].arrived_count() > 0,
+    )
+    .await;
+    let flush_started = tokio::time::Instant::now();
+
+    // Worker 2 fails its key now, so that key re-defers into a later round.
+    harness.workers[2].ingest_ok.store(false, Ordering::SeqCst);
+    drop(guard2);
+    wait_until(Duration::from_secs(10), "worker 2 to answer", || {
+        harness.workers[2].arrived_count() == 1 && harness.dispatcher.stashed_messages() > 0
+    })
+    .await;
+    let guard2 = harness.workers[2].block().await;
+    harness.workers[2].ingest_ok.store(true, Ordering::SeqCst);
+
+    // Worker 1 lands its key only after the original flush deadline has passed.
+    tokio::time::sleep(flush_timeout + Duration::from_millis(200)).await;
+    assert!(
+        !harness.shutdown.is_cancelled(),
+        "a slow in-flight send must not trip the liveness stall"
+    );
+    guard1.take();
+    wait_until(
+        Duration::from_secs(10),
+        "the retried key to reach worker 2",
+        || harness.workers[2].arrived_count() == 2,
+    )
+    .await;
+
+    // The second round waits past the liveness deadline again before landing.
+    tokio::time::sleep(liveness_deadline * 3).await;
+    assert!(
+        !harness.shutdown.is_cancelled(),
+        "the second flush round must keep the heartbeat going"
+    );
+    drop(guard2);
+    harness.wait_for(8, Duration::from_secs(15)).await;
+
+    assert!(
+        flush_started.elapsed() > flush_timeout,
+        "the drain must have outlasted the flush timeout for this test to mean anything"
+    );
+    assert!(
+        !harness.shutdown.is_cancelled(),
+        "the consumer must still be running"
+    );
+    let log = harness.delivery_log.lock().unwrap().clone();
+    for user in ["user-1", "user-2"] {
+        let seqs: Vec<usize> = log
+            .iter()
+            .filter(|(did, _)| did == user)
+            .map(|(_, seq)| *seq)
+            .collect();
+        assert_eq!(
+            seqs,
+            vec![0, 1, 2, 3],
+            "{user} must land exactly once, in order; log: {log:?}"
+        );
+    }
+    assert_eq!(
+        harness.workers[0].count(),
+        0,
+        "failed worker recorded nothing"
+    );
+
+    harness.stop().await;
+}
+
 /// A failed multi-key sub-batch replays every key, each in its own Kafka order,
 /// once a worker is available.
 #[tokio::test]
