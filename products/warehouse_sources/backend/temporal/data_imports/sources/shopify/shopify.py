@@ -70,12 +70,16 @@ SHOPIFY_ACCESS_TOKEN_UNSUPPORTED_GRANT_ERROR = (
 
 # Raised on a 4xx whose body reports `error: shop_not_permitted`. Shopify only allows the
 # client_credentials grant when the app and the store belong to the same Shopify organization,
-# so re-entering credentials can never fix it. Surfaced separately so the message points at the
-# organization rather than the credentials.
+# so re-entering credentials can never fix it. Same-org is required but not always enough: a
+# store can stay blocked after the move (extra verification, org migration gates), so the message
+# names the org requirement first, then points at support instead of dead-ending the user who
+# already moved the app and store together.
 SHOPIFY_ACCESS_TOKEN_SHOP_NOT_PERMITTED_ERROR = (
-    "Shopify doesn't allow this app to connect to this store (shop_not_permitted). The app and "
-    "the store must be in the same Shopify organization. In the Shopify Dev Dashboard, open the "
-    "organization that contains your store and create the app there."
+    "Shopify won't let this app connect to this store (shop_not_permitted). Shopify allows this "
+    "connection only when the app and the store are in the same Shopify organization, and some "
+    "stores stay blocked even after that. First check that you created the app in the same "
+    "organization as your store. If you already did and still see this, contact PostHog support "
+    "so we can help you connect."
 )
 
 # Raised when the OAuth token endpoint returns 404 — there is no store at

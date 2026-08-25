@@ -118,9 +118,10 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             category=DataWarehouseSourceCategory.E_COMMERCE,
             iconPath="/static/services/shopify.png",
             caption=(
-                "Create a Shopify Dev Dashboard app, then enter its client ID and secret here to "
-                "pull your Shopify data into the PostHog Data warehouse. The docs walk through the "
-                "app setup steps."
+                "Create a Shopify Dev Dashboard app in the same Shopify organization as your store, "
+                "then enter its client ID and secret here to pull your Shopify data into the PostHog "
+                "Data warehouse. Shopify allows this connection only when the app and the store share "
+                "one organization. The docs walk through the app setup steps."
             ),
             docsUrl="https://posthog.com/docs/data-warehouse/sources/shopify",
             fields=cast(
