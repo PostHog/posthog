@@ -213,17 +213,19 @@ async def select_reenrichment_candidates_activity(inputs: IcpReenrichmentSweepIn
 async def reenrich_organization_activity(inputs: ReenrichOrgInputs) -> dict[str, typing.Any]:
     """One org through the standard enrichment path, recheck-style, with its own event."""
 
+    from django.db.models import Min  # noqa: PLC0415
+
     from asgiref.sync import sync_to_async  # noqa: PLC0415
 
+    from posthog.models.instance_setting import get_instance_setting  # noqa: PLC0415
     from posthog.models.organization import Organization  # noqa: PLC0415
 
     from products.growth.backend.enrichment.core import enrich_organization  # noqa: PLC0415
     from products.growth.backend.enrichment.providers import HarmonicEnrichmentProvider  # noqa: PLC0415
     from products.growth.backend.enrichment.writer import merge_into_record  # noqa: PLC0415
+    from products.growth.backend.models import OrganizationEnrichmentFetch  # noqa: PLC0415
 
     logger = LOGGER.bind(organization_id=inputs.organization_id)
-
-    from posthog.models.instance_setting import get_instance_setting  # noqa: PLC0415
 
     # Re-checked here, not just at selection: a run can span hours, and this is the only
     # gate standing between a flipped-off switch and further paid Harmonic calls.
@@ -241,15 +243,32 @@ async def reenrich_organization_activity(inputs: ReenrichOrgInputs) -> dict[str,
     # Stamped before the org reaches the provider so a raised Harmonic error still counts
     # as an attempt — otherwise a failing org never gets a fetch row and re-occupies the
     # head of tomorrow's selection, burning another MAX_ENRICH_ATTEMPTS Harmonic calls.
-    attempted_at = dt.datetime.now(dt.UTC).isoformat()
+    now = dt.datetime.now(dt.UTC)
+    attempted_at = now.isoformat()
+
+    # previous_status, attempt_number and days_since_first_fetch make the upgrade rate by
+    # attempt and by profile age measurable. That rate decides whether re-fetching an empty
+    # profile is worth its Harmonic quota, and nothing else records it.
+    observed: dict[str, typing.Any] = {}
 
     def _stamp_attempt(current: dict[str, typing.Any]) -> dict[str, typing.Any]:
+        attempt_number = current.get(ICP_REENRICHMENT_ATTEMPT_COUNT_KEY, 0) + 1
+        observed["previous_status"] = current.get("icp_fit_status")
+        observed["attempt_number"] = attempt_number
         return {
             ICP_REENRICHMENT_LAST_ATTEMPTED_AT_KEY: attempted_at,
-            ICP_REENRICHMENT_ATTEMPT_COUNT_KEY: current.get(ICP_REENRICHMENT_ATTEMPT_COUNT_KEY, 0) + 1,
+            ICP_REENRICHMENT_ATTEMPT_COUNT_KEY: attempt_number,
         }
 
     await sync_to_async(merge_into_record)(inputs.organization_id, _stamp_attempt)
+
+    def _first_fetched_at() -> typing.Optional[dt.datetime]:
+        return OrganizationEnrichmentFetch.objects.filter(organization_id=inputs.organization_id).aggregate(
+            first=Min("fetched_at")
+        )["first"]
+
+    first_fetched_at = await sync_to_async(_first_fetched_at)()
+    observed["days_since_first_fetch"] = (now - first_fetched_at).days if first_fetched_at else None
 
     pha_client = get_regional_ph_client()
     if pha_client is None:
@@ -275,14 +294,43 @@ async def reenrich_organization_activity(inputs: ReenrichOrgInputs) -> dict[str,
                 "organization_id": inputs.organization_id,
                 "matched": matched,
                 "icp_fit_status": status,
+                **observed,
             },
             groups={"organization": inputs.organization_id},
         )
-        logger.info("icp_reenrichment_completed", matched=matched, icp_fit_status=status)
-        return {"matched": matched, "icp_fit_status": status}
+        logger.info("icp_reenrichment_completed", matched=matched, icp_fit_status=status, **observed)
+        return {"matched": matched, "icp_fit_status": status, **observed}
     except Exception as e:
         capture_exception(e)
         raise
+    finally:
+        pha_client.shutdown()
+
+
+@dataclasses.dataclass(frozen=True)
+class SweepRunSummary:
+    selected: int
+    attempted: int
+    matched: int
+    failed: int
+
+
+SWEEP_RUN_EVENT = "icp_reenrichment_sweep_completed"
+
+
+@activity.defn
+async def report_sweep_run_activity(summary: SweepRunSummary) -> None:
+    """One event per run, so an alert can see a sweep that stopped firing or selects nothing."""
+    pha_client = get_regional_ph_client()
+    if pha_client is None:
+        LOGGER.error("icp_reenrichment_no_regional_client")
+        return
+    try:
+        pha_client.capture(
+            distinct_id="icp-reenrichment-sweep",
+            event=SWEEP_RUN_EVENT,
+            properties=dataclasses.asdict(summary),
+        )
     finally:
         pha_client.shutdown()
 
@@ -330,4 +378,13 @@ class IcpReenrichmentSweepWorkflow(PostHogWorkflow):
                 # Per-org failures must not sink the sweep; the org stays eligible next run.
                 failed += 1
 
-        return {"selected": len(candidates), "attempted": attempted, "matched": matched, "failed": failed}
+        summary = SweepRunSummary(selected=len(candidates), attempted=attempted, matched=matched, failed=failed)
+        # Patched so an execution recorded before this activity existed still replays.
+        if workflow.patched("icp-sweep-run-summary-2026-08"):
+            await workflow.execute_activity(
+                report_sweep_run_activity,
+                summary,
+                start_to_close_timeout=dt.timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+        return dataclasses.asdict(summary)
