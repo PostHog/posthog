@@ -54578,6 +54578,16 @@ export namespace Schemas {
          */
       readonly already_addressed: boolean | null;
       /**
+         * Verified work state from the latest actionability judgment: fixed, in_progress, not_addressed, or null for legacy reports.
+         * @nullable
+         */
+      readonly addressed_status: string | null;
+      /**
+         * Concrete question that must be answered to unblock the report, when present.
+         * @nullable
+         */
+      readonly human_input_question: string | null;
+      /**
          * Reason code from the latest dismissal artefact, set when the report was suppressed (when present).
          * @nullable
          */
