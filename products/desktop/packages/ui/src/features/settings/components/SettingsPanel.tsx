@@ -120,7 +120,7 @@ export interface SettingsPanelProps {
   /**
    * Override the active category. Defaults to the `$category` URL param
    * (which is what every in-app entry point uses). Provided for the
-   * pre-router `AiApprovalScreen` shell where RouterProvider isn't mounted.
+   * pre-router `ConsentScreen` shell where RouterProvider isn't mounted.
    */
   activeCategory?: SettingsCategory;
   /** Override the close handler. Defaults to router history back. */
@@ -226,7 +226,7 @@ export function SettingsPanel({
           }}
         />
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto [scrollbar-gutter:stable]">
           {searchQuery.trim() ? (
             <SettingsSearchResults
               results={searchResults}

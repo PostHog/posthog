@@ -102,12 +102,9 @@ READ_METER_WORKFLOW_NAME = "replay-vision-meter-scanner-reads"
 READ_METER_WORKFLOW_ID = "replay-vision-scanner-read-meter"
 READ_METER_SCHEDULE_ID = "replay-vision-scanner-read-meter-schedule"
 READ_METER_INTERVAL = dt.timedelta(hours=1)
-# Must cover the metering activity's retries plus the auto-materialize pass, or a slow metering run
-# eats the day's only acting window. Overlap policy is SKIP, so a long run absorbs the next tick.
+# Must cover the metering activity's retries. Overlap policy is SKIP, so a long run absorbs the next tick.
 READ_METER_EXECUTION_TIMEOUT = dt.timedelta(minutes=20)
 METER_SCANNER_READS_TIMEOUT = dt.timedelta(minutes=5)
-# Covers the ON CLUSTER ADD COLUMN round when the auto-materializer acts; candidate scans are seconds.
-AUTO_MATERIALIZE_TIMEOUT = dt.timedelta(minutes=4)
 
 # Children are ABANDONed and don't count against this budget, but activities do: this must cover the
 # prompt-suggestion refresh worst case plus the candidate scan, or a slow refresh kills the whole sweep.

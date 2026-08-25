@@ -136,6 +136,9 @@ jobs:
                         # desktop-* CI and must not drag this suite onto its PRs
                         - '!products/desktop/**'
                         - 'playwright/**'
+                        # The onboarding step components compile into the app and sit in the
+                        # frontend tsconfig program, so they are code, not docs.
+                        - 'docs/**/*.tsx'
                         - .github/workflows/ci-frontend.yml
                         - .oxlintrc.json
                         - .oxfmtrc*
@@ -625,18 +628,19 @@ jobs:
         name: Frontend typechecking
         needs: [changes]
         if: needs.changes.outputs.frontend_code == 'true'
-        # tsgo peaks ~12 GB type-checking the whole frontend, which OOM-kills it on ~6% of runs
-        # on any 16 GB runner (ubuntu-latest and depot-ubuntu-24.04-4 alike). Peak tracks the
-        # type graph, not parallelism or lib checking: skipLibCheck is already on, GOMAXPROCS
-        # and declaration:false change nothing, and dropping all of products/ from include
-        # removes only 891 of 13703 files because imports pull them back in. 32 GB is the next
-        # rung on Depot's ladder. Talk to #team-devex before changing.
+        # tsgo peaks ~12 GB type-checking the whole frontend, which OOM-kills it on a 16 GB
+        # runner (ubuntu-latest and depot-ubuntu-24.04-4 alike). Peak tracks the type graph,
+        # not parallelism or lib checking: skipLibCheck is already on, GOMAXPROCS and
+        # declaration:false change nothing, and dropping all of products/ from include removes
+        # only 891 of 13703 files because imports pull them back in. Both runners below give
+        # the job 32 GB. Talk to #team-devex before changing.
         #
-        # Forks stay on GitHub-hosted: this job runs `pnpm install`, so a fork PR controls
-        # lifecycle scripts, and Depot runners inject shared cache credentials ambiently
-        # (see _rust-build-images.yml, which skips sccache creds for the same reason).
-        # Fork PRs keep the pre-existing OOM flake; internal PRs and master get the fix.
-        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-8' || 'ubuntu-latest' }}
+        # Forks get a GitHub-hosted larger runner instead of Depot: this job runs
+        # `pnpm install`, so a fork PR controls lifecycle scripts, and Depot runners inject
+        # shared cache credentials ambiently (see _rust-build-images.yml, which skips sccache
+        # creds for the same reason). GitHub warns against exposing a larger runner with a
+        # static IP range to fork pull requests, so keep this runner's group off static IPs.
+        runs-on: ${{ (github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false) && 'depot-ubuntu-24.04-8' || 'ubuntu-24.04-8core' }}
         # Kea typegen invalidates on changes to any logic plus everything that depends on it.
         # For changes to shared core (TaxonomicFilter, Insight, etc.) the dependent set is
         # large, so the budget must fit a cache miss on top of the baseline build.

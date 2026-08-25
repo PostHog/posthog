@@ -25,6 +25,8 @@ import {
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PersonRepository } from '~/common/persons/repositories/person-repository'
 import { instrumentFn } from '~/common/tracing/tracing-utils'
+import { UsageIngestionConfig, createUsageIngestionClient, usageReportTeamMatcher } from '~/common/usage-ingestion'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import {
     EventIngestionRestrictionManager,
@@ -64,6 +66,7 @@ import { createAnalyticsOverflowStrategies } from './common/overflow-redirect/ov
 import { IngestionConsumerConfig, IngestionOutputsConfig } from './config'
 
 export type IngestionConsumerFullConfig = IngestionConsumerConfig &
+    UsageIngestionConfig &
     Pick<CommonConfig, 'KAFKA_CLIENT_RACK'> &
     // The general server builds the consumer from a config that includes IngestionOutputsConfig; the
     // merge-events gate reads the topic, so surface it here rather than relying on the runtime shape.
@@ -298,6 +301,7 @@ export class IngestionConsumer {
                 EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS: this.config.EXPERIMENT_EXPOSURE_DUPLICATION_TEAMS,
             },
             concurrentBatches: this.config.INGESTION_WORKER_CONCURRENT_BATCHES,
+            createEventUsageBatch: this.createEventUsageBatch(),
         }
         const joinedPipelineDeps: JoinedIngestionPipelineDeps = {
             personsStore: this.personsStore,
@@ -382,6 +386,12 @@ export class IngestionConsumer {
         return new HealthCheckResultOk()
     }
 
+    private createEventUsageBatch(): () => UsageRecordBatch {
+        const client = createUsageIngestionClient(this.config, 'events')
+        const isTeamEnabled = usageReportTeamMatcher(this.config)
+        return () => new UsageRecordBatch(client, { unit: 'events', isTeamEnabled })
+    }
+
     private runInstrumented<T>(name: string, func: () => Promise<T>): Promise<T> {
         return instrumentFn<T>(`ingestionConsumer.${name}`, func)
     }
@@ -444,7 +454,7 @@ export class IngestionConsumer {
             createOkContext({ message }, { message, debugContext: createKafkaDebugContext(message) })
         )
 
-        const feedResult = await this.joinedPipeline.feed(batch)
+        const feedResult = await this.joinedPipeline.feed(batch, {})
         if (!feedResult.ok) {
             throw new Error(`Pipeline rejected batch: ${feedResult.reason}`)
         }

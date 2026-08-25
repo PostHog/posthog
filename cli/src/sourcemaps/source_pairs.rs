@@ -29,6 +29,24 @@ impl SourcePair {
         self.source.get_chunk_id()
     }
 
+    /// Debug id already present in the pair, if any. The chunk's comment is authoritative
+    /// (sourcemaps can be shared across chunks); the sourcemap's field is only a fallback.
+    pub fn get_debug_id(&self) -> Option<String> {
+        let source_debug_id = self.source.get_debug_id();
+        let sourcemap_debug_id = self.sourcemap.get_debug_id();
+        if let (Some(source_id), Some(map_id)) = (&source_debug_id, &sourcemap_debug_id) {
+            if source_id != map_id {
+                warn!(
+                    "debug id mismatch for {}: chunk has {}, sourcemap has {} — using the chunk's",
+                    self.source.inner.path.display(),
+                    source_id,
+                    map_id
+                );
+            }
+        }
+        source_debug_id.or(sourcemap_debug_id)
+    }
+
     pub fn has_release_id(&self) -> bool {
         self.sourcemap.has_release_id()
     }

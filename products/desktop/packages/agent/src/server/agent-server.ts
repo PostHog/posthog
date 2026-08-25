@@ -28,6 +28,7 @@ import {
   parseMcpToolName,
   readMcpToolDescriptor,
   readPrUrls,
+  sleepWithBackoff,
 } from "@posthog/shared";
 import {
   buildPosthogPropertiesHeaderLines,
@@ -35,6 +36,7 @@ import {
   buildPosthogScopedPropertyHeaderLines,
   buildPosthogScopedPropertyHeaderRecord,
 } from "@posthog/shared/posthog-property-headers";
+import { prependProductEngineerPrompt } from "@posthog/shared/product-engineer-prompt";
 import { appendRichOutputPrompt } from "@posthog/shared/rich-output-prompt";
 import { unzipSync } from "fflate";
 import { Hono } from "hono";
@@ -58,6 +60,7 @@ import {
   classifyAgentError,
   isPromptTooLongError,
 } from "../adapters/error-classification";
+import { GH_STACK_QUALIFIED_TOOL_NAME } from "../adapters/local-tools/tools/gh-stack";
 import { isSupportedReasoningEffort } from "../adapters/reasoning-effort";
 import { appendRtkGuidanceForCodex } from "../adapters/rtk-guidance";
 import {
@@ -107,6 +110,7 @@ import { resolveGatewayProduct, resolveGatewayTarget } from "../utils/gateway";
 import { resolveGithubToken } from "../utils/github-token";
 import { Logger } from "../utils/logger";
 import { logAgentshRuntimeInfo } from "./agentsh-runtime";
+import { AgentBootTracker } from "./boot-phases";
 import {
   normalizeCloudPromptContent,
   promptBlocksToText,
@@ -126,12 +130,14 @@ import {
   validateCommandParams,
 } from "./schemas";
 import type { AgentServerConfig, ClaudeCodeConfig } from "./types";
+import { waitForFile } from "./wait-for-file";
 
 const agentErrorClassificationSchema = z.enum([
   "upstream_stream_terminated",
   "upstream_connection_error",
   "upstream_timeout",
   "upstream_provider_failure",
+  "turn_ended_without_response",
   "agent_error",
 ]) satisfies z.ZodType<AgentErrorClassification>;
 
@@ -168,12 +174,19 @@ export function buildCloudSessionSystemPrompt(
   cloudAppend: string,
   userPrompt: ClaudeCodeConfig["systemPrompt"],
 ): string | { append: string } {
-  if (typeof userPrompt === "string") {
-    return appendRichOutputPrompt([userPrompt, cloudAppend].join("\n\n"));
-  }
+  const prompt = [
+    typeof userPrompt === "string" ? userPrompt : userPrompt?.append,
+    cloudAppend,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  const combinedPrompt = appendRichOutputPrompt(
+    prependProductEngineerPrompt(prompt),
+  );
 
-  const prompt = [userPrompt?.append, cloudAppend].filter(Boolean).join("\n\n");
-  return { append: appendRichOutputPrompt(prompt) };
+  return typeof userPrompt === "string"
+    ? combinedPrompt
+    : { append: combinedPrompt };
 }
 
 function sleep(ms: number): Promise<void> {
@@ -323,6 +336,7 @@ interface InstalledSkillBundle {
 interface BuiltPrompt {
   prompt: ContentBlock[];
   meta?: Record<string, unknown>;
+  messageId?: string;
 }
 
 function hiddenTextBlock(text: string): ContentBlock {
@@ -499,6 +513,7 @@ export class AgentServer {
   private sessionReadyBootMs?: number;
   private sessionInitMs?: number;
   private barrierReleasedAtMs?: number;
+  private bootTracker: AgentBootTracker;
   private logger: Logger;
   private server: ServerType | null = null;
   private session: ActiveSession | null = null;
@@ -629,6 +644,7 @@ export class AgentServer {
 
   constructor(config: AgentServerConfig) {
     this.config = config;
+    this.bootTracker = new AgentBootTracker(config.runId);
     this.posthogExecPermissionRegexSource =
       config.posthogExecPermissionRegex ??
       DEFAULT_POSTHOG_EXEC_PERMISSION_REGEX_SOURCE;
@@ -742,11 +758,14 @@ export class AgentServer {
     const app = new Hono();
 
     app.get("/health", (c) => {
+      const boot = this.bootTracker.snapshot();
       return c.json({
         status: "ok",
         hasSession: !!this.session,
+        readiness: boot.state,
         bootMs: this.sessionReadyBootMs,
         sessionInitMs: this.sessionInitMs,
+        boot,
       });
     });
 
@@ -1233,19 +1252,10 @@ export class AgentServer {
         if (messageId) {
           this.inFlightMessageDeliveries.set(messageId, deliveryOutcome);
         }
-        let deliveryCommitted = retryCompactContinuation;
         let releaseNonSteerDelivery: (() => void) | undefined;
         const commitDelivery = (): void => {
-          deliveryCommitted = true;
           if (!messageId) return;
-          this.deliveredMessageIds.add(messageId);
-          if (this.deliveredMessageIds.size > 500) {
-            const oldest = this.deliveredMessageIds.values().next().value;
-            if (oldest !== undefined) {
-              this.deliveredMessageIds.delete(oldest);
-              this.pendingCompactContinuationMessageIds.delete(oldest);
-            }
-          }
+          this.markMessageDelivered(messageId);
         };
 
         try {
@@ -1455,9 +1465,6 @@ export class AgentServer {
           resolveDelivery(outcome);
           return outcome;
         } catch (error) {
-          if (messageId && !deliveryCommitted) {
-            this.deliveredMessageIds.delete(messageId);
-          }
           rejectDelivery(error);
           throw error;
         } finally {
@@ -1563,6 +1570,21 @@ export class AgentServer {
         );
       }
 
+      case POSTHOG_METHODS.SIDE_QUESTION:
+      case "side_question": {
+        const question = params.question as string;
+
+        this.logger.debug("Side question requested");
+
+        // Returned as the command result rather than emitted as a session
+        // update: a side question is ephemeral, so it must not reach the
+        // event stream or the persisted transcript.
+        return await this.session.clientConnection.extMethod(
+          POSTHOG_METHODS.SIDE_QUESTION,
+          { sessionId: this.session.acpSessionId, question },
+        );
+      }
+
       case POSTHOG_NOTIFICATIONS.PERMISSION_RESPONSE:
       case "permission_response": {
         const requestId = params.requestId as string;
@@ -1643,6 +1665,7 @@ export class AgentServer {
       return;
     }
 
+    this.bootTracker = new AgentBootTracker(payload.run_id);
     this.initializationPromise = this._doInitializeSession(
       payload,
       sseController,
@@ -1651,6 +1674,7 @@ export class AgentServer {
     try {
       await this.initializationPromise;
     } catch (error) {
+      this.bootTracker.markFailed();
       const telemetry = this.initializingTelemetry;
       telemetry?.append(payload.run_id, {
         type: "notification",
@@ -1681,6 +1705,34 @@ export class AgentServer {
     }
   }
 
+  /**
+   * The task's origin decides which origin-gated local tools load, so a transient failure here
+   * would silently drop report_insight from an analysis run. Retry, then give up so a task that
+   * genuinely does not exist still starts the session.
+   */
+  private async fetchTaskForSessionContext(
+    taskId: string,
+  ): Promise<Task | null> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await this.posthogAPI.getTask(taskId);
+      } catch (err) {
+        if (attempt === 2) {
+          this.logger.warn("Failed to fetch task for session context", {
+            taskId,
+            error: err,
+          });
+          return null;
+        }
+        await sleepWithBackoff(attempt, {
+          initialDelayMs: 250,
+          maxDelayMs: 1000,
+        });
+      }
+    }
+    return null;
+  }
+
   private async _doInitializeSession(
     payload: JwtPayload,
     sseController: SseController | null,
@@ -1707,25 +1759,26 @@ export class AgentServer {
       name: process.env.HOSTNAME || "cloud-sandbox",
     };
 
-    const [preTaskRun, preTask] = await Promise.all([
-      this.posthogAPI
-        .getTaskRun(payload.task_id, payload.run_id)
-        .catch((err) => {
-          this.logger.debug("Failed to fetch task run for session context", {
-            taskId: payload.task_id,
-            runId: payload.run_id,
-            error: err,
-          });
-          return null;
-        }),
-      this.posthogAPI.getTask(payload.task_id).catch((err) => {
-        this.logger.debug("Failed to fetch task for session context", {
-          taskId: payload.task_id,
-          error: err,
-        });
-        return null;
-      }),
-    ]);
+    const [preTaskRun, preTask] = await this.bootTracker.measure(
+      "context_fetch",
+      () =>
+        Promise.all([
+          this.posthogAPI
+            .getTaskRun(payload.task_id, payload.run_id)
+            .catch((err) => {
+              this.logger.debug(
+                "Failed to fetch task run for session context",
+                {
+                  taskId: payload.task_id,
+                  runId: payload.run_id,
+                  error: err,
+                },
+              );
+              return null;
+            }),
+          this.fetchTaskForSessionContext(payload.task_id),
+        ]),
+    );
     this.taskRepositories =
       preTask?.repositories ??
       (preTask?.repository ? [preTask.repository] : []);
@@ -1890,10 +1943,14 @@ export class AgentServer {
       clientStream,
     );
 
-    const initializeResult = await clientConnection.initialize({
-      protocolVersion: PROTOCOL_VERSION,
-      clientCapabilities: {},
-    });
+    const initializeResult = await this.bootTracker.measure(
+      "acp_initialize",
+      () =>
+        clientConnection.initialize({
+          protocolVersion: PROTOCOL_VERSION,
+          clientCapabilities: {},
+        }),
+    );
     const steering = extractSteeringCapability(initializeResult);
     const conversationClear =
       extractConversationClearCapability(initializeResult);
@@ -1933,6 +1990,9 @@ export class AgentServer {
       permissionMode: initialPermissionMode,
       ...(channelMode && { channelMode: true }),
       posthogExecPermissionRegex: this.posthogExecPermissionRegexSource,
+      ...(preTask?.origin_product && {
+        taskOriginProduct: preTask.origin_product,
+      }),
       ...(this.config.baseBranch && { baseBranch: this.config.baseBranch }),
       ...(runtimeAdapter === "claude" &&
         this.config.contextWindow && {
@@ -1945,7 +2005,9 @@ export class AgentServer {
       ...this.buildClaudeCodeSessionMeta(runtimeAdapter),
     };
 
-    await this.waitForRepoReady();
+    await this.bootTracker.measure("repository_ready", () =>
+      this.waitForRepoReady(),
+    );
     const existingPrCheckoutPromise =
       this.buildExistingPrCheckoutPromise(prUrl);
     // Overlap the best-effort PR checkout with the rest of session setup. The
@@ -1958,86 +2020,96 @@ export class AgentServer {
     // `.posthog/skills/<runId>/...`, which is gitignored (untracked) in target
     // repos, so `git checkout` — which only updates tracked files — cannot
     // conflict with those writes or leave them associated with the wrong branch.
-    let nativeResume: { sessionId: string; warm: boolean } | null;
     let effectiveSessionMeta: typeof sessionMeta & {
       nativeGoal?: NonNullable<ResumeState["nativeGoal"]>;
     } = sessionMeta;
-    let sessionMcpServers: McpServerConnection[];
-    try {
-      await this.installSkillBundleArtifacts(
-        payload.task_id,
-        payload.run_id,
-        this.getArtifactsById(preTaskRun?.artifacts, pendingUserArtifactIds),
-      );
+    const [nativeResume, sessionMcpServers] = await this.bootTracker.measure(
+      "session_dependencies",
+      async () => {
+        try {
+          await this.installSkillBundleArtifacts(
+            payload.task_id,
+            payload.run_id,
+            this.getArtifactsById(
+              preTaskRun?.artifacts,
+              pendingUserArtifactIds,
+            ),
+          );
+          const preparedNativeResume = await this.prepareNativeResume(
+            payload,
+            posthogAPI,
+            preTaskRun,
+            runtimeAdapter,
+            sessionCwd,
+            initialPermissionMode,
+          );
+          const preparedMcpServers: McpServerConnection[] = [
+            ...(this.config.mcpServers ?? []),
+            ...(await this.startMcpRelayServer()),
+          ];
+          return [preparedNativeResume, preparedMcpServers] as const;
+        } finally {
+          if (existingPrCheckoutPromise) {
+            this.logExistingPrCheckoutResult(
+              prUrl,
+              await existingPrCheckoutPromise,
+            );
+          }
+        }
+      },
+    );
 
-      nativeResume = await this.prepareNativeResume(
-        payload,
-        posthogAPI,
-        preTaskRun,
-        runtimeAdapter,
-        sessionCwd,
-        initialPermissionMode,
-      );
-
-      sessionMcpServers = [
-        ...(this.config.mcpServers ?? []),
-        ...(await this.startMcpRelayServer()),
-      ];
-    } finally {
-      // Always consume the checkout result — on the success path this is the
-      // intended await; on a throw it ensures the in-flight checkout settles
-      // (and aborts its children) instead of mutating the tree in the
-      // background. checkoutExistingPullRequest never rejects.
-      if (existingPrCheckoutPromise) {
-        this.logExistingPrCheckoutResult(
-          prUrl,
-          await existingPrCheckoutPromise,
-        );
-      }
-    }
-
-    let acpSessionId: string | null = null;
-    if (nativeResume) {
-      try {
-        await clientConnection.resumeSession({
-          sessionId: nativeResume.sessionId,
-          cwd: sessionCwd,
-          mcpServers: sessionMcpServers,
-          _meta: { ...effectiveSessionMeta, sessionId: nativeResume.sessionId },
-        });
-        acpSessionId = nativeResume.sessionId;
-        this.nativeResume = nativeResume;
-        this.logger.debug("ACP session resumed", {
-          acpSessionId,
-          runId: payload.run_id,
-          warm: nativeResume.warm,
-        });
-      } catch (error) {
-        // resumeState is still loaded, so the summary resume path takes over
-        // on the fresh session below.
-        this.logger.warn("Native resume failed; starting a fresh session", {
-          sessionId: nativeResume.sessionId,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-    if (!acpSessionId) {
-      const restoredNativeGoal =
-        this.getNativeGoalForFreshSession(runtimeAdapter);
-      effectiveSessionMeta = restoredNativeGoal
-        ? { ...sessionMeta, nativeGoal: restoredNativeGoal }
-        : sessionMeta;
-      const sessionResponse = await clientConnection.newSession({
-        cwd: sessionCwd,
-        mcpServers: sessionMcpServers,
-        _meta: effectiveSessionMeta,
-      });
-      acpSessionId = sessionResponse.sessionId;
-      this.logger.debug("ACP session created", {
-        acpSessionId,
-        runId: payload.run_id,
-      });
-    }
+    const acpSessionId = await this.bootTracker.measure(
+      "session_create",
+      async () => {
+        let sessionId: string | null = null;
+        if (nativeResume) {
+          try {
+            await clientConnection.resumeSession({
+              sessionId: nativeResume.sessionId,
+              cwd: sessionCwd,
+              mcpServers: sessionMcpServers,
+              _meta: {
+                ...effectiveSessionMeta,
+                sessionId: nativeResume.sessionId,
+              },
+            });
+            sessionId = nativeResume.sessionId;
+            this.nativeResume = nativeResume;
+            this.logger.debug("ACP session resumed", {
+              acpSessionId: sessionId,
+              runId: payload.run_id,
+              warm: nativeResume.warm,
+            });
+          } catch (error) {
+            // resumeState is still loaded, so the summary resume path takes over
+            // on the fresh session below.
+            this.logger.warn("Native resume failed; starting a fresh session", {
+              sessionId: nativeResume.sessionId,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        }
+        if (!sessionId) {
+          const restoredNativeGoal =
+            this.getNativeGoalForFreshSession(runtimeAdapter);
+          effectiveSessionMeta = restoredNativeGoal
+            ? { ...sessionMeta, nativeGoal: restoredNativeGoal }
+            : sessionMeta;
+          const sessionResponse = await clientConnection.newSession({
+            cwd: sessionCwd,
+            mcpServers: sessionMcpServers,
+            _meta: effectiveSessionMeta,
+          });
+          sessionId = sessionResponse.sessionId;
+          this.logger.debug("ACP session created", {
+            acpSessionId: sessionId,
+            runId: payload.run_id,
+          });
+        }
+        return sessionId;
+      },
+    );
 
     this.evaluatedPrUrls.clear();
     this.prAttributionChain = Promise.resolve();
@@ -2072,6 +2144,7 @@ export class AgentServer {
       0,
       Date.now() - (this.barrierReleasedAtMs ?? Date.now()),
     );
+    this.bootTracker.markReady();
     this.logger.debug("Session initialized successfully", {
       bootMs: this.sessionReadyBootMs,
       sessionInitMs: this.sessionInitMs,
@@ -2342,6 +2415,7 @@ export class AgentServer {
     }
 
     if (this.nativeResume) {
+      if (await this.settleIdleResume(payload, taskRun)) return;
       await this.sendResumeContinuation(payload, taskRun);
       return;
     }
@@ -2362,6 +2436,8 @@ export class AgentServer {
       return;
     }
 
+    let promptDispatched = false;
+    let releaseSelfDelivery: (() => void) | undefined;
     try {
       const task = await this.posthogAPI.getTask(payload.task_id);
 
@@ -2377,9 +2453,11 @@ export class AgentServer {
       )?.prewarmed;
       let initialPrompt: ContentBlock[] = [];
       let initialPromptMeta: Record<string, unknown> | undefined;
+      let initialPromptMessageId: string | undefined;
       if (pendingUserPrompt?.prompt.length) {
         initialPrompt = pendingUserPrompt.prompt;
         initialPromptMeta = pendingUserPrompt.meta;
+        initialPromptMessageId = pendingUserPrompt.messageId;
       } else if (initialPromptOverride) {
         initialPrompt = [{ type: "text", text: initialPromptOverride }];
       } else if (task.description && !prewarmed) {
@@ -2407,6 +2485,21 @@ export class AgentServer {
       if (!acpSessionId) {
         throw new Error("Agent session is missing its ACP session ID");
       }
+
+      if (initialPromptMessageId) {
+        if (
+          this.deliveredMessageIds.has(initialPromptMessageId) ||
+          this.inFlightMessageDeliveries.has(initialPromptMessageId)
+        ) {
+          this.logger.info(
+            "Pending message already delivered by a forwarded command; skipping the startup prompt",
+            { messageId: initialPromptMessageId },
+          );
+          return;
+        }
+        releaseSelfDelivery = this.beginSelfDelivery(initialPromptMessageId);
+      }
+      promptDispatched = true;
 
       const result = await this.runStartupTurn(() =>
         this.promptWithUpstreamRetry({
@@ -2439,7 +2532,12 @@ export class AgentServer {
       if (this.session) {
         await this.session.logWriter.flushAll();
       }
+      if (promptDispatched) {
+        await this.clearPendingInitialPromptState(payload, taskRun);
+      }
       await this.handleTurnFailure(payload, "initial", error);
+    } finally {
+      releaseSelfDelivery?.();
     }
   }
 
@@ -2466,8 +2564,10 @@ export class AgentServer {
 
       let resumePromptBlocks: ContentBlock[];
       let resumePromptMeta: Record<string, unknown> | undefined;
+      let resumePromptMessageId: string | undefined;
       if (pendingUserPrompt?.prompt.length) {
         resumePromptMeta = pendingUserPrompt.meta;
+        resumePromptMessageId = pendingUserPrompt.messageId;
         resumePromptBlocks = [
           hiddenTextBlock(
             `You are resuming a previous conversation. ${checkpointContext}\n\n` +
@@ -2504,8 +2604,38 @@ export class AgentServer {
       return {
         prompt: resumePromptBlocks,
         ...(resumePromptMeta ? { meta: resumePromptMeta } : {}),
+        messageId: resumePromptMessageId,
       };
     });
+  }
+
+  private async settleIdleResume(
+    payload: JwtPayload,
+    taskRun: TaskRun | null,
+  ): Promise<boolean> {
+    if (!this.session || process.env.POSTHOG_RESUME_IDLE !== "1") return false;
+
+    const pendingUserPrompt = await this.getPendingUserPrompt(taskRun);
+    if (pendingUserPrompt?.prompt.length) return false;
+
+    const checkpointApplied = this.nativeResume?.warm
+      ? false
+      : await this.applyResumeGitCheckpoint(payload);
+
+    this.logger.debug("Idle resume settled without a turn", {
+      taskId: payload.task_id,
+      runId: payload.run_id,
+      sessionId: this.nativeResume?.sessionId,
+      warm: this.nativeResume?.warm,
+      checkpointApplied,
+    });
+
+    this.resumeState = null;
+    this.nativeResume = null;
+
+    this.broadcastTurnComplete("end_turn");
+    await this.session.logWriter.flushAll();
+    return true;
   }
 
   private async sendResumeContinuation(
@@ -2533,7 +2663,6 @@ export class AgentServer {
                 text: "Continue from where you left off. The user is waiting for your response.",
               },
             ];
-
         this.logger.debug("Sending resume continuation", {
           taskId: payload.task_id,
           sessionId: this.nativeResume?.sessionId,
@@ -2545,6 +2674,7 @@ export class AgentServer {
         return {
           prompt,
           ...(pendingUserPrompt?.meta ? { meta: pendingUserPrompt.meta } : {}),
+          messageId: pendingUserPrompt?.messageId,
         };
       },
       { retryOnOversizedPrompt: true },
@@ -2637,6 +2767,8 @@ export class AgentServer {
   ): Promise<void> {
     if (!this.session) return;
 
+    let promptDispatched = false;
+    let releaseSelfDelivery: (() => void) | undefined;
     try {
       const builtPrompt = await buildPrompt();
 
@@ -2645,6 +2777,11 @@ export class AgentServer {
       if (!acpSessionId) {
         throw new Error("Agent session is missing its ACP session ID");
       }
+
+      if (builtPrompt.messageId) {
+        releaseSelfDelivery = this.beginSelfDelivery(builtPrompt.messageId);
+      }
+      promptDispatched = true;
 
       const result = await this.runStartupTurn(() =>
         this.promptWithUpstreamRetry({
@@ -2688,7 +2825,12 @@ export class AgentServer {
       ) {
         return;
       }
+      if (promptDispatched) {
+        await this.clearPendingInitialPromptState(payload, taskRun);
+      }
       await this.handleTurnFailure(payload, "resume", error);
+    } finally {
+      releaseSelfDelivery?.();
     }
   }
 
@@ -2741,12 +2883,28 @@ export class AgentServer {
     return trimmed.length > 0 ? trimmed : null;
   }
 
+  private markMessageDelivered(messageId: string): void {
+    this.deliveredMessageIds.add(messageId);
+    if (this.deliveredMessageIds.size > 500) {
+      const oldest = this.deliveredMessageIds.values().next().value;
+      if (oldest !== undefined) {
+        this.deliveredMessageIds.delete(oldest);
+        this.pendingCompactContinuationMessageIds.delete(oldest);
+      }
+    }
+  }
+
   private async getPendingUserPrompt(
     taskRun: TaskRun | null,
   ): Promise<BuiltPrompt | null> {
     if (!taskRun) return null;
     const state = taskRun.state as Record<string, unknown> | undefined;
     const message = state?.pending_user_message;
+    const pendingMessageId =
+      typeof state?.pending_user_message_id === "string" &&
+      state.pending_user_message_id
+        ? state.pending_user_message_id
+        : undefined;
     const artifactIds = Array.isArray(state?.pending_user_artifact_ids)
       ? state.pending_user_artifact_ids.filter(
           (artifactId): artifactId is string =>
@@ -2821,7 +2979,10 @@ export class AgentServer {
       lostAttachmentCount,
       blockTypes: prompt.prompt.map((block) => block.type),
     });
-    return prompt.prompt.length > 0 ? prompt : null;
+    if (prompt.prompt.length === 0) {
+      return null;
+    }
+    return { ...prompt, messageId: pendingMessageId };
   }
 
   private async resolvePendingArtifactManifest(
@@ -2900,6 +3061,7 @@ export class AgentServer {
     const pendingKeys = [
       "pending_user_message",
       "pending_user_artifact_ids",
+      "pending_user_message_id",
       "pending_user_message_ts",
     ].filter((key) => key in state);
 
@@ -2915,9 +3077,31 @@ export class AgentServer {
       return;
     }
 
-    await this.posthogAPI.updateTaskRun(payload.task_id, payload.run_id, {
-      state_remove_keys: stateRemoveKeys,
+    try {
+      await this.posthogAPI.updateTaskRun(payload.task_id, payload.run_id, {
+        state_remove_keys: stateRemoveKeys,
+      });
+    } catch (error) {
+      this.logger.warn("Failed to clear pending prompt state", {
+        taskId: payload.task_id,
+        runId: payload.run_id,
+        error: getErrorMessage(error),
+      });
+    }
+  }
+
+  private beginSelfDelivery(messageId: string): () => void {
+    this.markMessageDelivered(messageId);
+    let release: () => void = () => {};
+    const outcome = new Promise<unknown>((resolve) => {
+      release = () => {
+        this.inFlightMessageDeliveries.delete(messageId);
+        resolve({ stopReason: "duplicate_delivery", duplicate: true });
+      };
     });
+    void outcome.catch(() => {});
+    this.inFlightMessageDeliveries.set(messageId, outcome);
+    return release;
   }
 
   private async buildPromptFromContentAndArtifacts({
@@ -3472,40 +3656,28 @@ export class AgentServer {
     }
 
     const REPO_READY_TIMEOUT_MS = 5 * 60_000;
-    const POLL_MS = 100;
-    const startedAt = Date.now();
-    let loggedUnexpectedError = false;
-
-    for (;;) {
-      try {
-        await access(readyFile);
-        this.barrierReleasedAtMs = Date.now();
-        this.logger.debug("Repo-ready barrier released", {
+    const result = await waitForFile(readyFile, {
+      timeoutMs: REPO_READY_TIMEOUT_MS,
+      onError: (error) => {
+        this.logger.debug("Repo-ready barrier check failed", {
           readyFile,
-          waitedMs: Date.now() - startedAt,
+          code: error.code,
+          message: error.message,
         });
-        return;
-      } catch (err) {
-        const code = (err as NodeJS.ErrnoException)?.code;
-        if (code !== "ENOENT" && !loggedUnexpectedError) {
-          loggedUnexpectedError = true;
-          this.logger.debug("Repo-ready barrier access error; still polling", {
-            readyFile,
-            code,
-            error: err instanceof Error ? err.message : String(err),
-          });
-        }
-      }
-      if (Date.now() - startedAt > REPO_READY_TIMEOUT_MS) {
-        this.barrierReleasedAtMs = Date.now();
-        this.logger.warn("Repo-ready barrier timed out; proceeding", {
-          readyFile,
-          waitedMs: Date.now() - startedAt,
-        });
-        return;
-      }
-      await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+      },
+    });
+    this.barrierReleasedAtMs = Date.now();
+    if (result.timedOut) {
+      this.logger.warn("Repo-ready barrier timed out; proceeding", {
+        readyFile,
+        waitedMs: result.waitedMs,
+      });
+      return;
     }
+    this.logger.debug("Repo-ready barrier released", {
+      readyFile,
+      waitedMs: result.waitedMs,
+    });
   }
 
   private async autoInitializeSession(): Promise<void> {
@@ -3968,6 +4140,30 @@ we want:
   Generated-By: PostHog Desktop
   Task-Id: ${taskId}`;
 
+    // A stack is several PRs, so this would contradict the review-first modes.
+    const stackInstructions = shouldAutoCreatePr
+      ? `
+## Stacked pull requests
+Stack only when the layers are independently reviewable (schema, then backend, then UI) or the
+user asked for a stack. Keep stacks shallow — 2 to 4 layers. One PR remains the default.
+Do NOT use the \`gh stack\` CLI: its publishing commands (\`submit\`, \`sync\`, \`push\`, \`link\`)
+all run \`git push\`, which is blocked here. Build the stack this way instead:
+1. Commit the bottom layer with \`git_signed_commit\`, passing \`branch\`, then open its pull
+   request based on the base branch.
+2. For each layer above, commit with \`git_signed_commit\` and a new \`branch\` — your checkout
+   already sits on the layer below, so the branch starts there — then open its pull request
+   based on the branch of the layer below (\`--base <that branch>\`).
+3. Link them with the \`gh_stack\` tool (full name \`${GH_STACK_QUALIFIED_TOOL_NAME}\`),
+   operation "create", passing \`pull_requests\` bottom to top. Every layer must target the
+   branch of the one below it, or the link is refused.
+When a lower layer changes, restack the layers above it bottom-first. For each layer: check
+that layer out, \`git rebase <its parent branch>\`, then republish it with
+\`git_signed_rewrite\` passing \`onto\` = the parent branch. Check the layer out every time —
+\`git_signed_rewrite\` replays whatever your local HEAD points at and uses \`branch\` only to
+pick which remote ref moves, so rewriting from the wrong checkout publishes the wrong history
+to that layer.`
+      : "";
+
     const prLinkInstructions = `
 ## Referencing pull requests
 When you mention a pull request in any reply or summary, always hyperlink it to its full URL
@@ -3987,7 +4183,7 @@ Optimize for the fewest shell round trips.
 When you create a non-code file the user should be able to download (such as a report, chart, image, archive, or data file), call the \`upload_artifact\` tool with its path before your final reply. In your final reply, link to the download URL returned by the tool—never link to the file's local workspace path. Files left in the workspace don't reach the user. Don't upload source code or repository changes—those belong in a commit or PR.`;
 
     // Closes out every branch below, so a new section is added once rather than five times.
-    const commonInstructions = `${signedCommitInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildSourceControlAccessInstructions()}`;
+    const commonInstructions = `${signedCommitInstructions}${stackInstructions}${prLinkInstructions}${shellEfficiencyInstructions}${artifactInstructions}${this.buildSlackDeliveryInstructions()}${this.buildSourceControlAccessInstructions()}`;
 
     const whyContextInstruction = `   - Add a brief **Why** to the body — one or two sentences capturing the reason the user asked for this change (the motivation, not a restatement of the diff). Keep it short.`;
     const publicRepoSafetyInstruction = `   - **Public-repo safety.** Treat the target repository as public-readable unless you have verified otherwise. The PR title, description, and commit messages must not contain private operational scale (exact event counts, internal row volumes, customer-usage percentages), customer names / emails / companies, references to internal tickets or incidents, the contents of Slack threads (do not quote or paraphrase what was said), or unreleased roadmap details. Linking to the originating Slack thread is fine and encouraged — Slack links are auth-gated and useful as context — as are channel references like "raised in #team-foo". Describe findings qualitatively ("present on nearly all X events, absent from Y") rather than with quantitative figures pulled from analytics queries — the reasoning that uses those numbers can stay in the thread; the PR copy cannot.`;
@@ -4938,9 +5134,9 @@ ${commonInstructions}
       baseBranch: this.config.baseBranch ?? null,
     });
     if (!owned) {
-      // Info, not debug: a wrongly rejected PR leaves the run with no PR until the
-      // webhook backstop binds it, and this line is the only trace of why.
-      this.logger.info(
+      // Keep the evidence available for diagnosing wrongly rejected PRs without
+      // surfacing every unrelated PR URL found in routine agent output.
+      this.logger.debug(
         "PR seen in output is not this run's, skipping attribution",
         {
           runId: payload.run_id,

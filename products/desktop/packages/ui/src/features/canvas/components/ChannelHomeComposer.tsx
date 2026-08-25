@@ -15,6 +15,8 @@ import {
 } from "react";
 import { useConnectivity } from "../../../hooks/useConnectivity";
 import { toast } from "../../../primitives/toast";
+import { useChannelWikiContext } from "../../context-wiki/hooks/useContextWiki";
+import { useContextLayerFlag } from "../../feature-flags/useContextLayerFlag";
 import { useFeatureFlag } from "../../feature-flags/useFeatureFlag";
 import { useFeatureFlagsLoaded } from "../../feature-flags/useFeatureFlagsLoaded";
 import { useUserRepositoryIntegration } from "../../integrations/useIntegrations";
@@ -31,14 +33,10 @@ import {
   type AgentAdapter,
   useSettingsStore,
 } from "../../settings/settingsStore";
-import {
-  type WorkspaceMode,
-  WorkspaceModeSelect,
-} from "../../task-detail/components/WorkspaceModeSelect";
-import { useCloudModeEnabled } from "../../task-detail/hooks/useCloudModeEnabled";
+import { WorkspaceModeSelect } from "../../task-detail/components/WorkspaceModeSelect";
 import { usePreviewConfig } from "../../task-detail/hooks/usePreviewConfig";
+import { useResolvedWorkspaceMode } from "../../task-detail/hooks/useResolvedWorkspaceMode";
 import { useTaskCreation } from "../../task-detail/hooks/useTaskCreation";
-import { resolveWorkspaceModePreference } from "../../task-detail/hooks/workspaceModePreference";
 import { useUpdateTaskChannelRepositories } from "../hooks/useTaskChannels";
 import {
   resolveTaskRepositoryDraft,
@@ -93,6 +91,9 @@ export const ChannelHomeComposer = forwardRef<
   ref,
 ) {
   const sessionId = `channel-home:${channelId}`;
+  const contextLayerEnabled = useContextLayerFlag();
+  const wiki = useChannelWikiContext(channelId, contextLayerEnabled);
+  const effectiveChannelContext = wiki.useLegacy ? channelContext : undefined;
   const editorRef = useRef<EditorHandle>(null);
   const [editorIsEmpty, setEditorIsEmpty] = useState(true);
   const { isOnline } = useConnectivity();
@@ -104,9 +105,6 @@ export const ChannelHomeComposer = forwardRef<
     setLastUsedAgentRuntime,
     lastUsedPiModel,
     setLastUsedPiModel,
-    lastUsedWorkspaceMode,
-    setLastUsedWorkspaceMode,
-    setLastUsedLocalWorkspaceMode,
     allowBypassPermissions,
     defaultInitialTaskMode,
     lastUsedInitialTaskMode,
@@ -145,19 +143,14 @@ export const ChannelHomeComposer = forwardRef<
     );
   }, [flagsLoaded, lastUsedAgentRuntime, piHarnessEnabled]);
 
-  const cloudModeEnabled = useCloudModeEnabled();
-  const { hasGithubIntegration } = useUserRepositoryIntegration();
+  const { hasGithubIntegration, isLoadingIntegrations } =
+    useUserRepositoryIntegration();
 
-  // Repo-less channel tasks only run local or cloud (worktree needs a repo), so
-  // collapse any lingering worktree preference down to local for the initial pick.
-  const [workspaceMode, setWorkspaceModeState] = useState<WorkspaceMode>(() =>
-    resolveWorkspaceModePreference({
-      preferredMode: lastUsedWorkspaceMode === "cloud" ? "cloud" : "local",
-      cloudModeEnabled,
-      hasGithubIntegration,
-      lastUsedLocalWorkspaceMode: "local",
-    }),
-  );
+  const { workspaceMode, setWorkspaceMode } = useResolvedWorkspaceMode({
+    hasGithubIntegration,
+    isLoadingIntegrations,
+    allowWorktree: false,
+  });
   const [selectedCloudEnvId, setSelectedCloudEnvId] = useState<string | null>(
     null,
   );
@@ -179,14 +172,6 @@ export const ChannelHomeComposer = forwardRef<
     channelGithubIntegration,
   );
   const updateChannelRepositories = useUpdateTaskChannelRepositories();
-  const setWorkspaceMode = useCallback(
-    (mode: WorkspaceMode) => {
-      setWorkspaceModeState(mode);
-      setLastUsedWorkspaceMode(mode);
-      if (mode !== "cloud") setLastUsedLocalWorkspaceMode(mode);
-    },
-    [setLastUsedWorkspaceMode, setLastUsedLocalWorkspaceMode],
-  );
 
   const {
     modeOption,
@@ -286,7 +271,9 @@ export const ChannelHomeComposer = forwardRef<
     contextWindow: runtime === "pi" ? undefined : currentContextWindow,
     fastMode: runtime === "pi" ? undefined : currentFastMode,
     allowNoRepo: true,
-    channelContext,
+    channelContext: effectiveChannelContext,
+    channelContextPath: wiki.path,
+    submissionBlocked: wiki.blocked,
     channelName,
     channelId,
     channelContextId: channelId,

@@ -5,9 +5,9 @@ use tracing::info;
 
 use crate::{
     api::{self, releases::ReleaseBuilder, symbol_sets::SymbolSetUpload},
-    dsym::{find_dsym_bundles, DsymFile, PlistInfo},
+    dsym::{find_dsym_bundles, DsymFile},
     sourcemaps::args::{pack_version, ReleaseArgs, UploadConflictArgs},
-    utils::git::get_git_info,
+    utils::{git::get_git_info, xcode::PlistInfo},
 };
 
 #[derive(clap::Args, Clone)]
@@ -52,7 +52,7 @@ pub fn upload(args: &Args) -> Result<()> {
         include_source,
         no_release_bind,
     } = args;
-    let release_args = release;
+    let release_args = release.resolve_info_plist()?;
 
     let directory = directory.canonicalize().map_err(|e| {
         anyhow!(

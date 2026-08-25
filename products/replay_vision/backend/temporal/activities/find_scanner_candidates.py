@@ -4,15 +4,19 @@ import datetime as dt
 from django.utils import timezone
 
 from pydantic import ValidationError
+from rest_framework.exceptions import (
+    PermissionDenied,
+    ValidationError as DRFValidationError,
+)
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.schema import RecordingsQuery
 
 from posthog.dataclasses import frozen
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import read_stuck_session_ids
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import SETTLE_INTERVAL, ReplayScanner
 from products.replay_vision.backend.queries import excluded_sessions
@@ -36,7 +40,12 @@ from products.replay_vision.backend.temporal.constants import (
     SCANNER_SCHEDULE_INTERVAL,
 )
 from products.replay_vision.backend.temporal.decorators import track_activity
-from products.replay_vision.backend.temporal.metrics import record_deep_sweep_failure, record_sweep_outcome
+from products.replay_vision.backend.temporal.metrics import (
+    record_candidate_page_full,
+    record_deep_candidates,
+    record_deep_sweep_failure,
+    record_sweep_outcome,
+)
 from products.replay_vision.backend.temporal.read_meter_types import (
     deep_spend_bytes_per_day,
     deep_sweep_throttle_factor,
@@ -82,7 +91,7 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         return FindScannerCandidatesOutput(candidates=[], saturated=False)
 
     try:
-        query = scanner.recordings_query()
+        query = scanner.targeted_recordings_query()
     except ValidationError as exc:
         raise ApplicationError(
             f"ReplayScanner {inputs.scanner_id} has malformed query: {exc}", non_retryable=True
@@ -98,6 +107,8 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
     candidate_query = ScannerCandidateQuery(
         team=scanner.team,
         query=query,
+        # The exposure filter's access check runs as the creator, matching the defence-in-depth check above.
+        user=scanner.created_by,
         last_swept_at=scanner.last_swept_at,
         sampling_rate=scanner.sampling_rate,
         sampling_salt=str(scanner.id),
@@ -109,10 +120,19 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         skip_negative_blocklists=True,
         scanner_id=str(scanner.id),
     )
-    fetched = candidate_query.run()
-    # A full batch means there may be more past the keyset; the next sweep resumes from the last row.
-    # Measured before exclusion, since the keyset walks what was fetched, not what survived.
-    saturated = len(fetched) == limit
+    try:
+        batch = candidate_query.run_batch(limit)
+    except (DRFValidationError, PermissionDenied):
+        # The exposure filter (run as the creator) can't resolve the targeted experiment: the creator
+        # lost experiment access, or the experiment can't answer for its exposed population — most
+        # often a draft that hasn't launched, but also deleted, group-aggregated, or renamed-variant.
+        # A draft heals itself at launch and none of the rest are the sweep's to repair, so skip the
+        # tick (no watermark advance) instead of failing it on every fire.
+        record_sweep_outcome("experiment_linkage_unresolved")
+        return FindScannerCandidatesOutput(candidates=[], saturated=False)
+    fetched = batch.matched
+    if batch.saturated:
+        record_candidate_page_full()
 
     # Deliberately not wrapped: the in-query blocklists are off, so a swallowed failure here would
     # dispatch the batch unfiltered. Returns empty when the scanner excludes nothing.
@@ -178,16 +198,18 @@ def find_scanner_candidates_activity(inputs: FindScannerCandidatesInputs) -> Fin
         deep_candidates = [c for c in deep_candidates if c.session_id not in stuck]
         priming_candidates = [c for c in priming_candidates if c.session_id not in stuck]
 
+    if deep_candidates:
+        record_deep_candidates(len(deep_candidates))
     record_sweep_outcome(
         "candidates_found" if candidates or deep_candidates or priming_candidates else "no_candidates",
         candidates=len(candidates) + len(deep_candidates) + len(priming_candidates),
     )
     return FindScannerCandidatesOutput(
         candidates=[CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in candidates],
-        saturated=saturated,
+        saturated=batch.saturated,
         swept_through=candidate_query.settle_cutoff,
-        keyset_end=fetched[-1].session_end if fetched else None,
-        keyset_session_id=fetched[-1].session_id if fetched else "",
+        keyset_end=batch.keyset_end,
+        keyset_session_id=batch.keyset_session_id,
         deep_candidates=[
             CandidateSessionPayload(session_id=c.session_id, session_end=c.session_end) for c in deep_candidates
         ],
@@ -339,6 +361,7 @@ def _deep_sweep(
     deep_query = WindowedCandidateQuery(
         team=scanner.team,
         query=query,
+        user=scanner.created_by,
         window_start=swept_through,
         window_end=window_end,
         ascending=True,

@@ -30,6 +30,18 @@ import { issueActionsLogic } from '../components/IssueActions/issueActionsLogic'
 import { mergeIssues } from '../utils'
 import { batchSpikeEventsLogic } from './batchSpikeEventsLogic'
 
+const ISSUE_STATE_MUTATION_NAMES = new Set([
+    'resolveIssues',
+    'suppressIssues',
+    'activateIssues',
+    'assignIssues',
+    'updateIssueAssignee',
+    'updateIssueStatus',
+    'updateIssueSeverity',
+    'updateIssueName',
+    'updateIssueDescription',
+])
+
 export interface IssuesDataNodeLogicProps {
     query: DataNodeLogicProps['query']
     key: DataNodeLogicProps['key']
@@ -89,6 +101,9 @@ export interface issuesDataNodeLogicActions {
         error: unknown
         mutationName: string
     } // issueActionsLogic
+    mutationSuccess: (mutationName: string) => {
+        mutationName: string
+    } // issueActionsLogic
     resolveIssues: (ids: string[]) => {
         ids: string[]
     } // issueActionsLogic
@@ -101,6 +116,13 @@ export interface issuesDataNodeLogicActions {
     ) => {
         assignee: ErrorTrackingIssueAssignee | null
         id: string
+    } // issueActionsLogic
+    updateIssueSeverity: (
+        id: string,
+        severity: null | import('~/queries/schema').ErrorTrackingQueryIssueSeverity
+    ) => {
+        id: string
+        severity: null | import('~/queries/schema').ErrorTrackingQueryIssueSeverity
     } // issueActionsLogic
     updateIssueStatus: (
         id: string,
@@ -268,6 +290,8 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
                     'assignIssues',
                     'updateIssueAssignee',
                     'updateIssueStatus',
+                    'updateIssueSeverity',
+                    'mutationSuccess',
                     'mutationFailure',
                     'clearNeedsReload',
                 ],
@@ -410,12 +434,11 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
             const response = values.response
             if (response) {
                 const results = ('results' in response ? response.results : []) as ErrorTrackingIssue[]
-                const recordIndex = results.findIndex((r) => r.id === id)
-                if (recordIndex > -1) {
-                    const issue = { ...results[recordIndex], assignee }
-                    results.splice(recordIndex, 1, issue)
-                    // optimistically update local results
-                    actions.setResponse({ ...response, results: results })
+                if (results.some((issue) => issue.id === id)) {
+                    actions.setResponse({
+                        ...response,
+                        results: results.map((issue) => (issue.id === id ? { ...issue, assignee } : issue)),
+                    })
                 }
             }
         },
@@ -424,17 +447,33 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
             const response = values.response
             if (response) {
                 const results = ('results' in response ? response.results : []) as ErrorTrackingIssue[]
-                const recordIndex = results.findIndex((r) => r.id === id)
-                if (recordIndex > -1) {
-                    const issue = { ...results[recordIndex], status }
-                    results.splice(recordIndex, 1, issue)
-                    // optimistically update local results
-                    actions.setResponse({ ...response, results: results })
+                if (results.some((issue) => issue.id === id)) {
+                    actions.setResponse({
+                        ...response,
+                        results: results.map((issue) => (issue.id === id ? { ...issue, status } : issue)),
+                    })
                 }
             }
         },
 
-        // on mutation success a phantom pending update is injected into the query, so it reloads itself
+        updateIssueSeverity: ({ id, severity }) => {
+            const response = values.response
+            if (response) {
+                const results = ('results' in response ? response.results : []) as ErrorTrackingIssue[]
+                if (results.some((issue) => issue.id === id)) {
+                    actions.setResponse({
+                        ...response,
+                        results: results.map((issue) => (issue.id === id ? { ...issue, severity } : issue)),
+                    })
+                }
+            }
+        },
+
+        mutationSuccess: ({ mutationName }) => {
+            if (ISSUE_STATE_MUTATION_NAMES.has(mutationName)) {
+                actions.reloadData()
+            }
+        },
         mutationFailure: () => actions.reloadData(),
     })),
 

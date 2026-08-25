@@ -26,6 +26,7 @@ from products.metrics.backend.facade.contracts import (
     MetricQueryClause,
     MetricQueryRequest,
     MetricSeries,
+    MetricsOverview,
 )
 from products.metrics.backend.facade.enums import FilterOp, MetricAggregation, MetricType
 from products.metrics.backend.formula import evaluate, parse_formula
@@ -36,8 +37,9 @@ from products.metrics.backend.metric_attributes_query_runner import (
     MetricAttributeValuesQueryRunner,
 )
 from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
-from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner
+from products.metrics.backend.metric_names_query_runner import cached_metric_names
 from products.metrics.backend.metric_query_runner import MetricQueryRunner
+from products.metrics.backend.metrics_overview_query_runner import MetricsOverviewQueryRunner
 
 # MetricQueryRunner still speaks the legacy aggregation strings; this shrinks
 # as later PRs teach the runner the remaining MetricAggregation values.
@@ -222,9 +224,21 @@ def list_metric_names(
     Returns a list of `{"name": str, "metric_type": str}` dicts ordered by
     most-recently-seen, with exact-name matches floated to the top.
     Raises `ValueError` for an out-of-range limit.
+
+    The unsearched list is cached per team for a minute; searches are not.
     """
-    runner = MetricNamesQueryRunner(team=team, search=search, limit=limit)
-    return runner.run()
+    return cached_metric_names(team=team, search=search, limit=limit)
+
+
+def get_metrics_overview(*, team: Team, lookback: dt.timedelta | None = None) -> MetricsOverview:
+    """Ingestion rollup for the overview page: freshness of the newest
+    datapoint plus window-scoped metric/series counts per service.
+
+    Raises `ValueError` for a non-positive lookback.
+    """
+    if lookback is None:
+        return MetricsOverviewQueryRunner(team=team).run()
+    return MetricsOverviewQueryRunner(team=team, lookback=lookback).run()
 
 
 def list_metric_attribute_keys(

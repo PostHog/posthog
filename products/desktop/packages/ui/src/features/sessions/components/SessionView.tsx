@@ -42,6 +42,7 @@ import { QueuedMessagesDock } from "@posthog/ui/features/sessions/components/Que
 import { ReasoningLevelSelector } from "@posthog/ui/features/sessions/components/ReasoningLevelSelector";
 import { RawLogsView } from "@posthog/ui/features/sessions/components/raw-logs/RawLogsView";
 import { SessionInitializingView } from "@posthog/ui/features/sessions/components/SessionInitializingView";
+import { SideQuestionCard } from "@posthog/ui/features/sessions/components/SideQuestionCard";
 import { SteerQueueToggle } from "@posthog/ui/features/sessions/components/SteerQueueToggle";
 import {
   isSubmittedContentUnchanged,
@@ -78,7 +79,14 @@ import {
   usePendingTaskPrompt,
 } from "@posthog/ui/shell/pendingTaskPromptStore";
 import { Box, Button, ContextMenu, Flex, Text } from "@radix-ui/themes";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 export function getNewAttachments(
   previousIds: ReadonlySet<string>,
@@ -117,6 +125,8 @@ interface SessionViewProps {
   isActiveSession?: boolean;
   /** Hide the message input and permission UI — log-only view. */
   hideInput?: boolean;
+  /** Contextual actions shown between the thread and its composer. */
+  threadActions?: ReactNode;
 }
 
 const DEFAULT_ERROR_MESSAGE =
@@ -151,6 +161,7 @@ export function SessionView({
   compact = false,
   isActiveSession = true,
   hideInput = false,
+  threadActions,
 }: SessionViewProps) {
   const sessionService = useService<SessionService>(SESSION_SERVICE);
   useSessionEventsResidency(taskId);
@@ -408,6 +419,7 @@ export function SessionView({
     (s) => !!s?.editingQueuedId,
   );
   const cancelQueuedEdit = useCancelQueuedMessageEdit(taskId);
+  const activeTaskRunId = useSessionSelector(taskId, (s) => s?.taskRunId);
 
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const promptRecallRef = useRef<PromptRecallHandler | null>(null);
@@ -662,6 +674,8 @@ export function SessionView({
 
                 <PlanStatusBar plan={latestPlan} />
 
+                {threadActions}
+
                 {hasError && !showInlineBanner ? (
                   <Flex
                     align="center"
@@ -740,6 +754,12 @@ export function SessionView({
                       }`}
                     >
                       <ComposerWidth compact={compact}>
+                        {taskId && (
+                          <SideQuestionCard
+                            taskId={taskId}
+                            taskRunId={activeTaskRunId}
+                          />
+                        )}
                         {taskId && <QueuedMessagesDock taskId={taskId} />}
                         <PromptInput
                           ref={editorRef}

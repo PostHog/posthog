@@ -48,6 +48,7 @@ from posthog.test.persons import (
 )
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import CohortErrorCode, get_friendly_error_message
@@ -72,8 +73,6 @@ from products.feature_flags.backend.user_blast_radius import get_user_blast_radi
 from products.product_analytics.backend.facade.models import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
-
-from ee.models.rbac.access_control import AccessControl
 
 
 def _make_feature_flag_psak(
@@ -14272,6 +14271,37 @@ class TestFeatureFlagEvaluationReasons(APIBaseTest, ClickhouseTestMixin):
 
         self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
         self.assertIn("error", response.json())
+
+
+class TestFeatureFlagMyFlags(APIBaseTest, ClickhouseTestMixin):
+    @parameterized.expand(
+        [
+            ("repeated_params", {"flag_keys": ["wanted"]}),
+            ("mcp_json_array_string", {"flag_keys": '["wanted"]'}),
+        ]
+    )
+    @patch("products.feature_flags.backend.api.feature_flag.get_flags_from_service")
+    def test_my_flags_scopes_to_flag_keys(self, _name, query_flag_keys, mock_get_flags):
+        # flag_keys must scope both the flag definitions returned and the flags service call,
+        # otherwise the response lists every flag in the project. MCP clients JSON-stringify
+        # array query params into a single value, so that encoding must scope the same way.
+        FeatureFlag.objects.create(team=self.team, key="wanted")
+        FeatureFlag.objects.create(team=self.team, key="other")
+        mock_get_flags.return_value = {"flags": {"wanted": {"enabled": True, "variant": None}}}
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/feature_flags/my_flags/",
+            query_flag_keys,
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(mock_get_flags.call_args.kwargs["flag_keys"], ["wanted"])
+        # Must request all runtimes, otherwise the flags service reads the internal
+        # python-requests User-Agent as a server runtime and drops client-only flags,
+        # reporting a client-only flag that is on as false.
+        self.assertEqual(mock_get_flags.call_args.kwargs["evaluation_runtime"], "all")
+        returned_keys = {item["feature_flag"]["key"] for item in response.json()}
+        self.assertEqual(returned_keys, {"wanted"})
 
 
 class TestFeatureFlagFiltersMetrics(APIBaseTest):

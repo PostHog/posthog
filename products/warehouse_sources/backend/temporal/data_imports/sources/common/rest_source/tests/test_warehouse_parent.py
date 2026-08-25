@@ -167,6 +167,56 @@ def test_resolve_pins_to_last_completed_snapshot_while_parent_is_syncing(tmp_pat
     assert pinned.version == v0
 
 
+class TestParentSnapshotCoversThrough(APIBaseTest):
+    def _schema_with_completed_job(self) -> tuple[Any, Any, Any, Any]:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type="Sentry",
+            job_inputs={"auth_token": "token", "organization_slug": "acme"},
+        )
+        schema = ExternalDataSchema.objects.create(name="issues", team=self.team, source=source)
+        now = datetime.now(UTC)
+        started_at, finished_at = now - timedelta(hours=3), now - timedelta(hours=1)
+        job = ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=source,
+            schema=schema,
+            status="Completed",
+            workflow_id="wf-0",
+            finished_at=finished_at,
+        )
+        ExternalDataJob.objects.filter(id=job.id).update(created_at=started_at)
+        return source, schema, started_at, finished_at
+
+    def test_coverage_is_when_the_sync_started_not_when_it_finished(self) -> None:
+        source, _schema, started_at, finished_at = self._schema_with_completed_job()
+
+        covers_through = warehouse_parent.parent_snapshot_covers_through(self.team.pk, str(source.pk), "issues")
+
+        assert covers_through is not None
+        assert abs(covers_through - started_at) < timedelta(seconds=1)
+        assert covers_through < finished_at
+
+    def test_none_without_a_completed_sync(self) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type="Sentry",
+            job_inputs={"auth_token": "token", "organization_slug": "acme"},
+        )
+        ExternalDataSchema.objects.create(name="issues", team=self.team, source=source)
+
+        assert warehouse_parent.parent_snapshot_covers_through(self.team.pk, str(source.pk), "issues") is None
+
+    def test_none_when_the_parent_schema_does_not_exist(self) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_type="Sentry",
+            job_inputs={"auth_token": "token", "organization_slug": "acme"},
+        )
+
+        assert warehouse_parent.parent_snapshot_covers_through(self.team.pk, str(source.pk), "issues") is None
+
+
 class TestSnapshotPinAsOf(APIBaseTest):
     def _schema_with_jobs(self, statuses: list[str], finished_at_hours_ago: float = 1.0) -> tuple[Any, dict[int, Any]]:
         """Jobs in the given order, oldest first, all finishing `finished_at_hours_ago` back."""
