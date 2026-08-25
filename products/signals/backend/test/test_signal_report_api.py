@@ -257,6 +257,38 @@ class TestSignalReportListAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert response.json()["priority"] == "P0"
 
+    @parameterized.expand([("unassigned", False), ("assigned", True)])
+    def test_retrieve_includes_channel_id(self, _name, assign):
+        from products.tasks.backend.facade.api import (
+            Channel,  # noqa: PLC0415 — test-only cross-product read, through the facade
+        )
+
+        channel = Channel.objects.create(team=self.team, name="Reports") if assign else None
+        report = self._create_report(channel=channel)
+
+        url = f"/api/projects/{self.team.id}/signals/reports/{report.id}/"
+        response = self.client.get(url)
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["channel_id"] == (str(channel.id) if channel else None)
+
+    def test_filter_by_channel_id_narrows_to_that_space(self):
+        from products.tasks.backend.facade.api import (
+            Channel,  # noqa: PLC0415 — test-only cross-product read, through the facade
+        )
+
+        channel = Channel.objects.create(team=self.team, name="Reports")
+        in_space = self._create_report(title="In space", channel=channel)
+        self._create_report(title="Unassigned")
+
+        response = self.client.get(self._list_url(channel_id=str(channel.id)))
+        assert response.status_code == status.HTTP_200_OK
+        ids = {row["id"] for row in response.json()["results"]}
+        assert ids == {str(in_space.id)}
+
+    def test_filter_by_channel_id_rejects_non_uuid(self):
+        response = self.client.get(self._list_url(channel_id="not-a-uuid"))
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
     # --- priority filter ---
 
     @parameterized.expand(

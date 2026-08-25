@@ -17,6 +17,12 @@ export const SignalsReportsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const SignalsReportsListQueryParams = /* @__PURE__ */ zod.object({
+    channel_id: zod
+        .string()
+        .optional()
+        .describe(
+            'Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.'
+        ),
     has_implementation_pr: zod
         .boolean()
         .optional()

@@ -255,6 +255,11 @@ export interface SignalReportApi {
      * * `posthog_onboarding` - PostHog onboarding
      * * `posthog_system` - PostHog system */
     readonly billing_exempt_reason: BillingExemptReasonEnumApi | null
+    /**
+     * The space (task channel) this report is assigned to, or null when unassigned. The general view lists every report regardless of this value.
+     * @nullable
+     */
+    readonly channel_id: string | null
 }
 
 export interface PaginatedSignalReportListApi {
@@ -4037,6 +4042,10 @@ export type SignalsProcessingListParams = {
 }
 
 export type SignalsReportsListParams = {
+    /**
+     * Narrow to reports assigned to one space (channel). Absent or empty means all reports regardless of assignment.
+     */
+    channel_id?: string
     /**
      * Filter reports by whether a shipped implementation pull request exists. 'true' keeps only reports with a PR; 'false' keeps only those without. Pair with limit=1 to count PR reports cheaply.
      */

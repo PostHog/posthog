@@ -795,6 +795,7 @@ class SignalReportViewSet(
         qs = self._apply_signal_report_scout_filter(qs)
         qs = self._apply_signal_report_scout_prefix_filter(qs)
         qs = self._apply_signal_report_implementation_pr_filter(qs)
+        qs = self._apply_signal_report_channel_filter(qs)
         qs = self._apply_signal_report_suggested_reviewer_filter(qs)
         qs = self._apply_signal_report_task_filter(qs)
         qs = self._annotate_latest_actionability_value(qs)
@@ -1027,6 +1028,18 @@ class SignalReportViewSet(
             )
         pr_filter = self._implementation_pr_report_filter()
         return queryset.filter(pr_filter) if wants_pr else queryset.exclude(pr_filter)
+
+    def _apply_signal_report_channel_filter(self, queryset):
+        # `channel_id=<uuid>` narrows to reports assigned to one space. Absent or empty
+        # leaves the list unchanged (the general view lists every report); a non-UUID is a 400.
+        raw = self.request.query_params.get("channel_id")
+        if raw is None or not raw.strip():
+            return queryset
+        try:
+            channel_id = uuid.UUID(raw.strip())
+        except (ValueError, AttributeError):
+            raise serializers.ValidationError({"channel_id": f"Invalid value: {raw!r}. Expected a UUID."})
+        return queryset.filter(channel_id=channel_id)
 
     def _apply_signal_report_suggested_reviewer_filter(self, queryset):
         suggested_reviewer_filter = self.request.query_params.get("suggested_reviewers")
@@ -1442,6 +1455,16 @@ class SignalReportViewSet(
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description="Case-insensitive substring match against report title and summary.",
+            ),
+            OpenApiParameter(
+                name="channel_id",
+                type=OpenApiTypes.UUID,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description=(
+                    "Narrow to reports assigned to one space (channel). Absent or empty means all "
+                    "reports regardless of assignment."
+                ),
             ),
             OpenApiParameter(
                 name="source_product",

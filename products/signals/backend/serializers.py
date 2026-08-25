@@ -538,6 +538,14 @@ class SignalReportSerializer(serializers.ModelSerializer):
     refund = serializers.SerializerMethodField(
         help_text="The report's PR refund, when one exists. One refund per report, ever.",
     )
+    channel_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "The space (task channel) this report is assigned to, or null when unassigned. "
+            "The general view lists every report regardless of this value."
+        ),
+    )
 
     class Meta:
         model = SignalReport
@@ -567,6 +575,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "refund",
             "refund_ineligibility_reason",
             "billing_exempt_reason",
+            "channel_id",
         ]
         read_only_fields = fields
         extra_kwargs = {

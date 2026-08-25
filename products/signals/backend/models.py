@@ -221,6 +221,21 @@ class SignalReport(UUIDModel):
         POSTHOG_SYSTEM = "posthog_system", "PostHog system"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    # The space (task channel) that owns this report. Null means unassigned: the report shows
+    # only in the "general" catch-all view, which lists every report regardless of channel.
+    # Mirrors Canvas.channel — a real FK with db_constraint=False to avoid a cross-app schema
+    # constraint. SET_NULL so deleting a space drops its reports back to the general view.
+    # db_index=False: reports are always queried team-scoped over a bounded set, so the added
+    # channel filter needs no dedicated index, and this keeps the migration a lock-free ADD COLUMN.
+    channel = models.ForeignKey(
+        "tasks.Channel",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        db_constraint=False,
+        db_index=False,
+        related_name="+",
+    )
     status = models.CharField(max_length=20, choices=Status, default=Status.POTENTIAL)
     # System billing exemption: non-null means this report's implementation PRs must never be
     # charged (PostHog-system origins, e.g. health-check scout findings). Prospective-only —
