@@ -80,8 +80,9 @@ from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by
 # `test_person_metadata_fields_match_taxonomy` enforces the Python ↔ taxonomy half.
 PERSON_METADATA_FIELDS = {"created_at"}
 
-# Negated operators paired with the match they invert. Used by array-valued properties, where the
-# negation has to wrap the whole match rather than the comparison inside it.
+# Negated operators paired with the match they invert, for wrapping negation around a whole array
+# match rather than the comparison inside it. Only `visited_page` uses this so far: the
+# EXCEPTION_STRING_ARRAY_PROPERTIES still negate per element inside arrayExists.
 NEGATED_TO_POSITIVE_OPERATORS: dict[PropertyOperator, OperatorType] = {
     PropertyOperator.IS_NOT: "exact",
     PropertyOperator.NOT_ICONTAINS: "icontains",
@@ -1295,11 +1296,15 @@ def property_to_expr(
             all_urls_field = ast.Call(name="groupUniqArrayArray", args=[ast.Field(chain=["all_urls"])])
 
             # Every match below compiles to arrayExists over the recording's URLs, so negating the
-            # comparison inside the lambda asks "some URL does not match" — true for any recording with
-            # a second page. Build the positive match and negate the whole thing instead, so the filter
-            # means "no URL matches". Negating out here also keeps the multi-value paths correct, which
-            # recurse on property.operator and pick AND vs OR from it.
+            # comparison inside the lambda asks "some URL does not match", which is true for any
+            # recording with a second page. Build the positive match and negate the whole thing
+            # instead, so the filter means "no URL matches". Negating out here also keeps the
+            # multi-value paths correct, which recurse on property.operator and pick AND vs OR from it.
             if operator in NEGATED_TO_POSITIVE_OPERATORS:
+                # An empty value is an unfinished filter. The positive form compiles to a match-all
+                # no-op, and negating that would hide every recording, so no-op here too.
+                if value is None or value == "" or (isinstance(value, list) and len(value) == 0):
+                    return ast.Constant(value=1)
                 return ast.Not(
                     expr=property_to_expr(
                         Property(
