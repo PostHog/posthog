@@ -257,9 +257,63 @@ _SOURCE_CATALOG: tuple[_SourceSpec, ...] = (
 _SOURCE_BY_KEY: dict[str, _SourceSpec] = {spec.key: spec for spec in _SOURCE_CATALOG}
 
 
-def visible_report_count(team_id: int) -> int:
-    """How many reports have surfaced to this team's inbox."""
-    return SignalReport.objects.filter(team_id=team_id, first_visible_at__isnull=False).count()
+# The two statuses a reader still has something to do about, and the only two that stamp
+# `first_visible_at`. An allowlist rather than a denylist, so a status added later is not silently
+# offered to a first-time user.
+_OFFERABLE_STATUSES = (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT)
+
+
+@frozen
+class InboxReportSummary:
+    """One report, named well enough for an agent to offer it by id."""
+
+    report_id: str
+    title: str
+
+
+@frozen
+class WaitingReports:
+    """What a team has waiting in its inbox: how many, and the newest few that can be named.
+
+    `offerable` is shorter than `count` whenever more are waiting than the caller asked for, or one
+    has no title yet. That is expected, not a mismatch — see `waiting_reports`.
+    """
+
+    count: int
+    offerable: tuple[InboxReportSummary, ...]
+
+
+_REPORT_TITLE_LIMIT = 120
+
+
+def waiting_reports(team_id: int, limit: int = 3) -> WaitingReports:
+    """What is waiting in the team's inbox, newest named first.
+
+    One eligibility rule for both halves, because they drifted apart when there were two:
+    `first_visible_at` is stamped once on the first transition into ready or pending_input and never
+    cleared, so the status filter is the only thing keeping a resolved, archived or re-running report
+    from reading as one that is waiting.
+
+    The two halves then differ on titles, deliberately. `count` is what the inbox will show them, and
+    the inbox renders a titleless report from its summary, so it counts. `offerable` has to name a
+    report in a sentence, so a titleless one is skipped rather than offered as a blank row.
+    """
+    waiting = SignalReport.objects.filter(
+        team_id=team_id, first_visible_at__isnull=False, status__in=_OFFERABLE_STATUSES
+    )
+    newest_named = (
+        waiting.exclude(title__isnull=True)
+        .exclude(title="")
+        .order_by("-first_visible_at")
+        .values_list("id", "title")[:limit]
+    )
+    return WaitingReports(
+        count=waiting.count(),
+        offerable=tuple(
+            InboxReportSummary(report_id=str(report_id), title=" ".join((title or "").split())[:_REPORT_TITLE_LIMIT])
+            for report_id, title in newest_named
+        ),
+    )
 
 
 def has_enabled_source(team_id: int) -> bool:
