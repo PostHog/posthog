@@ -1,6 +1,6 @@
 import json
-import threading
 from datetime import UTC, datetime, timedelta
+from functools import partial
 from typing import Any, Optional
 from zoneinfo import ZoneInfo
 
@@ -35,6 +35,7 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.hogql_queries.insights.trends.trends_query_runner import TrendsQueryRunner
 from posthog.hogql_queries.query_runner import QueryRunner
+from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.queries.trends.util import ALL_SUPPORTED_MATH_FUNCTIONS
 
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY
@@ -270,12 +271,12 @@ class ExperimentTrendsQueryRunner(QueryRunner):
             run(self.count_query_runner, "count_result", False)
             run(self.exposure_query_runner, "exposure_result", False)
         else:
-            jobs = [
-                threading.Thread(target=run, args=(self.count_query_runner, "count_result", True)),
-                threading.Thread(target=run, args=(self.exposure_query_runner, "exposure_result", True)),
-            ]
-            [j.start() for j in jobs]  # type: ignore
-            [j.join() for j in jobs]  # type: ignore
+            run_in_parallel_threads(
+                [
+                    partial(run, self.count_query_runner, "count_result", True),
+                    partial(run, self.exposure_query_runner, "exposure_result", True),
+                ]
+            )
 
         # Raise any errors raised in a separate thread
         if errors:

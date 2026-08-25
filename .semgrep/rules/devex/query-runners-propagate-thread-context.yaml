@@ -1,0 +1,37 @@
+rules:
+    - id: query-runners-propagate-thread-context
+      message: |
+          Bare `threading.Thread` in a query runner. A new thread starts with empty ContextVars, so
+          the worker loses everything the query path reads from context: the OpenTelemetry span
+          context, the ClickHouse query tags, and the warehouse-warning accumulator. Losing the span
+          context means each worker opens its spans with no parent, so one parallel insight reports
+          a separate trace per series instead of a single request trace, and the request trace shows
+          an unexplained gap where the query work should be.
+
+          Use `run_in_parallel_threads` from `posthog.hogql_queries.utils.parallel`, which copies the
+          caller's context into every worker. Pass thunks (`functools.partial`) instead of
+          `target=`/`args=`:
+
+              run_in_parallel_threads([partial(run, index, query) for index, query in enumerate(queries)])
+
+          A `ThreadPoolExecutor` needs the same treatment — submit
+          `contextvars.copy_context().run` rather than the bare callable.
+
+          For a thread that genuinely must not inherit the caller's context, add
+          `# nosemgrep: query-runners-propagate-thread-context` with a one-line why.
+      severity: ERROR
+      languages: [python]
+      paths:
+          include:
+              - 'posthog/hogql_queries/**'
+              - 'products/*/backend/hogql_queries/**'
+          exclude:
+              # the sanctioned implementation — this is the helper the rule points callers to
+              - 'posthog/hogql_queries/utils/parallel.py'
+      pattern-either:
+          - pattern: threading.Thread(...)
+          - pattern: Thread(...)
+      metadata:
+          category: best-practice
+          subcategory:
+              - audit

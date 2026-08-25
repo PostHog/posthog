@@ -1,7 +1,7 @@
-import threading
 from collections.abc import Sequence
 from copy import deepcopy
 from datetime import date, datetime, timedelta
+from functools import partial
 from math import ceil
 from operator import itemgetter
 from typing import Any, Optional, Union
@@ -53,8 +53,6 @@ from posthog.caching.insights_api import (
     REAL_TIME_INSIGHT_REFRESH_INTERVAL,
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
 )
-from posthog.clickhouse import query_tagging
-from posthog.clickhouse.query_tagging import QueryTags
 from posthog.hogql_queries.insights.trends.display import TrendsDisplay
 from posthog.hogql_queries.insights.trends.series_with_extras import SeriesWithExtras
 from posthog.hogql_queries.insights.trends.trend_validation_rules import (
@@ -75,6 +73,7 @@ from posthog.hogql_queries.insights.utils.breakdowns import (
 from posthog.hogql_queries.insights.utils.utils import get_response_hogql
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, resolve_series_custom_name
 from posthog.hogql_queries.utils.formula_ast import FormulaAST
+from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.hogql_queries.utils.query_compare_to_date_range import QueryCompareToDateRange
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
@@ -387,12 +386,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             query: ast.SelectQuery | ast.SelectSetQuery,
             timings: HogQLTimings,
             is_parallel: bool,
-            query_tags: Optional[QueryTags] = None,
         ):
             try:
-                if query_tags:
-                    query_tagging.update_tags(query_tags)
-
                 series_with_extra = self.series[index]
 
                 response = execute_hogql_query(
@@ -428,21 +423,12 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 for index, query in enumerate(queries):
                     run(index, query, self.timings.clone_for_subquery(index), False)
             else:
-                jobs = [
-                    threading.Thread(
-                        target=run,
-                        args=(
-                            index,
-                            query,
-                            self.timings.clone_for_subquery(index),
-                            True,
-                            query_tagging.get_query_tags().model_copy(deep=True),
-                        ),
-                    )
-                    for index, query in enumerate(queries)
-                ]
-                [j.start() for j in jobs]  # type:ignore
-                [j.join() for j in jobs]  # type:ignore
+                run_in_parallel_threads(
+                    [
+                        partial(run, index, query, self.timings.clone_for_subquery(index), True)
+                        for index, query in enumerate(queries)
+                    ]
+                )
 
         # Raise any errors raised in a seperate thread
         if len(errors) > 0:
