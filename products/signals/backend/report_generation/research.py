@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import asyncio
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -805,6 +805,44 @@ Respond with a JSON object matching this schema:
 </jsonschema>"""
 
 
+def _collect_ref_names(node: object, defs: dict[str, Any], seen: set[str]) -> None:
+    """Add every `$defs` name reachable from `node` by `$ref` to `seen`, followed transitively."""
+    if isinstance(node, dict):
+        ref = node.get("$ref")
+        if isinstance(ref, str) and ref.startswith("#/$defs/"):
+            name = ref.removeprefix("#/$defs/")
+            if name not in seen and name in defs:
+                seen.add(name)
+                _collect_ref_names(defs[name], defs, seen)
+        for key, value in node.items():
+            if key != "$ref":
+                _collect_ref_names(value, defs, seen)
+    elif isinstance(node, list):
+        for item in node:
+            _collect_ref_names(item, defs, seen)
+
+
+def _prune_unreferenced_defs(schema_dict: dict[str, Any]) -> None:
+    """Drop `$defs` entries no longer reachable from the rest of the schema (in place).
+
+    Removing a field from a JSON schema can orphan its type definitions in `$defs`. Dropping the
+    orphans keeps the prompt schema tight, but a definition another field still references (e.g.
+    `ConfidenceLedger` for the required `confidence` field) has to stay, or its `$ref` dangles.
+    """
+    defs = schema_dict.get("$defs")
+    if not defs:
+        return
+    referenced: set[str] = set()
+    for key, value in schema_dict.items():
+        if key != "$defs":
+            _collect_ref_names(value, defs, referenced)
+    kept = {name: defs[name] for name in referenced}
+    if kept:
+        schema_dict["$defs"] = kept
+    else:
+        schema_dict.pop("$defs", None)
+
+
 def build_report_presentation_prompt(
     total_signals: int,
     *,
@@ -815,12 +853,14 @@ def build_report_presentation_prompt(
 ) -> str:
     schema_dict = ReportPresentationOutput.model_json_schema()
     if not charts_enabled:
-        # Emit a chart-free schema when the team isn't opted in: drop the `charts` field (and the
-        # now-unreferenced chart type defs) so the model is never shown — let alone told to fill —
-        # a field whose description mentions authoring `chart:` links. Combined with the caller
-        # dropping any charts anyway, an un-opted report can never carry one.
+        # Emit a chart-free schema when the team isn't opted in: drop the `charts` field so the model
+        # is never shown - let alone told to fill - a field whose description mentions authoring
+        # `chart:` links, then prune the now-orphaned chart type defs. Prune rather than drop `$defs`
+        # wholesale: the required `confidence` field references `ConfidenceLedger`, so wiping every
+        # def leaves that `$ref` dangling. Combined with the caller dropping any charts anyway, an
+        # un-opted report can never carry one.
         schema_dict.get("properties", {}).pop("charts", None)
-        schema_dict.pop("$defs", None)
+        _prune_unreferenced_defs(schema_dict)
     schema = json.dumps(schema_dict, indent=2)
     previous_presentation_context = _render_previous_presentation_context(previous_title, previous_summary)
 

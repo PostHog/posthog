@@ -1,3 +1,5 @@
+import re
+import json
 from datetime import datetime
 
 import pytest
@@ -174,3 +176,19 @@ class TestBuildReportPresentationPrompt:
         assert "Charts this report already shows" in on
         assert "signups-drop" in on
         assert "Charts this report already shows" not in off
+
+    # The chart-free branch prunes `$defs`; if it drops a definition a surviving field still
+    # references (the required `confidence` field points at `ConfidenceLedger`), the embedded schema
+    # ships a dangling `$ref` and the model gets the field with no structure. Parse the schema out of
+    # both prompts and assert every `$ref` resolves, so a future field or a revert to dropping
+    # `$defs` wholesale is caught here rather than at generation time.
+    @pytest.mark.parametrize("charts_enabled", [False, True])
+    def test_embedded_schema_has_no_dangling_ref(self, charts_enabled):
+        prompt = build_report_presentation_prompt(2, charts_enabled=charts_enabled)
+        raw = prompt.split("<jsonschema>", 1)[1].split("</jsonschema>", 1)[0]
+        schema = json.loads(raw)
+        defined = set(schema.get("$defs", {}).keys())
+        referenced = set(re.findall(r"#/\$defs/([A-Za-z0-9_]+)", json.dumps(schema)))
+        assert referenced <= defined, f"dangling $ref(s): {sorted(referenced - defined)}"
+        # `confidence` is required regardless of charts, so its definition must always survive.
+        assert "ConfidenceLedger" in defined
