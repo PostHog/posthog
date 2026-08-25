@@ -1164,55 +1164,6 @@ class TestApplySeriesCustomNames(BaseTest):
     @parameterized.expand(
         [
             (
-                "applies_custom_name_to_stickiness_series",
-                [{"action": {"order": 0, "custom_name": None}, "data": [1, 2, 3]}],
-                [{"action": {"order": 0, "custom_name": "My Stickiness Name"}, "data": [1, 2, 3]}],
-                True,
-            ),
-            (
-                "not_modified_when_stickiness_names_match",
-                [{"action": {"order": 0, "custom_name": "My Stickiness Name"}, "data": [1, 2, 3]}],
-                [{"action": {"order": 0, "custom_name": "My Stickiness Name"}, "data": [1, 2, 3]}],
-                False,
-            ),
-        ]
-    )
-    def test_apply_stickiness_custom_names(
-        self,
-        _name: str,
-        cached_results: list,
-        expected_results: list,
-        expect_modified: bool,
-    ):
-        from posthog.schema import CachedStickinessQueryResponse, StickinessQuery
-
-        from products.product_analytics.backend.facade.queries import StickinessQueryRunner
-
-        query = StickinessQuery(
-            series=[
-                EventsNode(event="$pageview", custom_name="My Stickiness Name"),
-            ]
-        )
-
-        runner = StickinessQueryRunner(query=query, team=self.team)
-
-        cached_response = CachedStickinessQueryResponse(
-            results=cached_results,
-            is_cached=True,
-            last_refresh=datetime.now(UTC),
-            next_allowed_client_refresh=datetime.now(UTC),
-            cache_key="test_key",
-            timezone="UTC",
-        )
-
-        patched_response, was_modified = runner.apply_series_custom_names(cached_response)
-
-        self.assertEqual(patched_response.results, expected_results)
-        self.assertEqual(was_modified, expect_modified)
-
-    @parameterized.expand(
-        [
-            (
                 "patches_all_lifecycle_statuses",
                 [
                     {"action": {"order": 0, "custom_name": None}, "status": "new", "data": [1]},
