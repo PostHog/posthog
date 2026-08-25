@@ -55,6 +55,7 @@ const ERROR_FILTER_ALLOW_LIST = [
     'loadPrComments', // The Inbox report detail's PR comments section renders its own error state
     'loadMonitoringSnapshot', // The managed warehouse Monitoring tab renders its own retry state
     'loadMonitoringSeries', // The managed warehouse Monitoring tab renders its own partial/error state
+    'getTemplateSchema', // Background fetch that only powers JSON validation inside the dashboard template editor modal
 ]
 
 /*
@@ -188,7 +189,20 @@ export function initKea({
                         errorMessage = null
                     }
                     if (errorMessage) {
-                        lemonToast.error(`${identifierToHuman(actionKey)} failed: ${errorMessage}`)
+                        const isServerError = typeof error.status === 'number' && error.status >= 500
+                        if (isServerError && isLoadAction) {
+                            // A backend blip can fail many background loaders on a rendering page at once.
+                            // Collapse those 5xx failures into one self-dismissing toast (shared id) instead
+                            // of stacking a sticky toast per request that the user must dismiss one by one.
+                            // Write actions keep their per-action message, since the user triggered them.
+                            lemonToast.error('Something went wrong on our end. Please try again in a moment.', {
+                                toastId: 'api-server-error',
+                                autoClose: 6000,
+                                pauseOnFocusLoss: false,
+                            })
+                        } else {
+                            lemonToast.error(`${identifierToHuman(actionKey)} failed: ${errorMessage}`)
+                        }
                     }
                 }
                 // Cooperative cancellation (an aborted fetch, or a query superseded via
