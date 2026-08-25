@@ -36,12 +36,11 @@ class ReadTaxonomyMCPTool(MCPTool[ReadTaxonomyToolArgs]):
         except ValueError as e:
             raise MaxToolRetryableError(str(e))
         except OperationalError as e:
-            # Only a statement cancelled by statement_timeout (SQLSTATE 57014) is worth retrying with
-            # a narrower read. Let connection loss, shutdown, deadlocks, and the like reach the generic
-            # handler so they are logged and captured instead of mislabeled as a timeout.
+            # Only a statement cancelled by statement_timeout (SQLSTATE 57014) is worth a retry.
+            # Let connection loss, shutdown, deadlocks, and the like reach the generic handler so
+            # they are logged and captured instead of mislabeled as a timeout.
             if not is_query_canceled(e):
                 raise
-            raise MaxToolTransientError(
-                "Reading the taxonomy timed out. This can happen on large projects. "
-                "You may retry, or read a narrower part of the taxonomy."
-            ) from e
+            # MaxToolError appends its own retry hint and a period, so this ends bare. The hint for
+            # a transient error offers one unchanged retry, so do not suggest narrowing the read.
+            raise MaxToolTransientError("Reading the taxonomy timed out. This can happen on large projects") from e
