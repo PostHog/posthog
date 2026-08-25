@@ -34,7 +34,7 @@ export function ConsentStep({
     <div className="flex h-full items-center px-8">
       <div className="flex h-full w-full flex-col items-center pt-[24px] pb-[40px]">
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-          <div className="m-auto w-full max-w-[560px]">
+          <div className="m-auto w-full max-w-[480px]">
             <AnimatePresence mode="wait" initial={false}>
               <motion.div
                 key={consent.status}

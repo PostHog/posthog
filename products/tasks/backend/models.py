@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
-from django.contrib.postgres.indexes import GinIndex
+from django.contrib.postgres.indexes import GinIndex, OpClass
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, models, transaction
 from django.db.models.fields.json import KeyTransform
@@ -725,6 +725,7 @@ class Task(DeletedMetaFields, models.Model):
         description: str,
         origin_product: "Task.OriginProduct",
         user_id: int,
+        title_manually_set: bool = False,
         repository: str | None = None,
         channel: Channel | None = None,
         slack_thread_context: Optional["SlackThreadContext"] = None,
@@ -850,6 +851,7 @@ class Task(DeletedMetaFields, models.Model):
         task = Task.objects.create(
             team=team,
             title=title,
+            title_manually_set=title_manually_set,
             description=description,
             origin_product=origin_product,
             client_provenance=client_provenance,
@@ -1040,6 +1042,7 @@ class Task(DeletedMetaFields, models.Model):
         description: str,
         origin_product: "Task.OriginProduct",
         user_id: int,
+        title_manually_set: bool = False,
         repository: str | None = None,  # Format: "organization/repository", e.g. "posthog/posthog-js"
         channel: Channel | None = None,
         create_pr: bool = True,
@@ -1091,6 +1094,7 @@ class Task(DeletedMetaFields, models.Model):
             description=description,
             origin_product=origin_product,
             user_id=user_id,
+            title_manually_set=title_manually_set,
             repository=repository,
             channel=channel,
             slack_thread_context=slack_thread_context,
@@ -1987,6 +1991,19 @@ class TaskRun(models.Model):
         db_table = "posthog_task_run"
         ordering = ["-created_at"]
         indexes = [
+            GinIndex(
+                OpClass(KeyTransform("verified_pr_urls", "state"), name="jsonb_path_ops"),
+                name="task_run_verified_pr_urls_idx",
+            ),
+            GinIndex(
+                OpClass(KeyTransform("head_branches", "output"), name="jsonb_path_ops"),
+                name="task_run_head_branches_idx",
+            ),
+            models.Index(
+                fields=["branch"],
+                name="task_run_branch_idx",
+                condition=models.Q(branch__isnull=False),
+            ),
             # Partial functional index backing the per-PR-webhook lookup
             # `filter(output__pr_url=...)`. The equality lookup implies the key is
             # present, so the `IS NOT NULL` condition keeps the index off the many

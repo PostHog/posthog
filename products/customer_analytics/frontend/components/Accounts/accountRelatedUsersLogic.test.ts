@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 import api, { CountedPaginatedResponse } from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
-import type { OrganizationMemberType } from '~/types'
+import { OrganizationMemberType, Region } from '~/types'
 
 import { accountRelatedUsersLogic, PAGE_SIZE } from './accountRelatedUsersLogic'
 
@@ -13,6 +13,7 @@ const buildMember = (overrides: Partial<OrganizationMemberType> = {}): Organizat
         id: 'membership-1',
         level: 1,
         user: {
+            id: 1,
             uuid: 'user-uuid-1',
             distinct_id: 'distinct-1',
             first_name: 'Alex',
@@ -44,14 +45,17 @@ describe('accountRelatedUsersLogic', () => {
         logic?.unmount()
     })
 
-    it('loads the first page of organization members for the account external id', async () => {
-        const response = buildResponse([buildMember()], 1)
+    it('loads the first page of US organization members for the account external id', async () => {
+        const member = buildMember()
+        const response = buildResponse([member], 1)
         const listForOrg = jest.spyOn(api.organizationMembers, 'listForOrg').mockResolvedValue(response)
 
         logic = accountRelatedUsersLogic({ externalId: 'org-uuid' })
         logic.mount()
 
-        await expectLogic(logic).toFinishAllListeners().toMatchValues({ membersResponse: response })
+        await expectLogic(logic)
+            .toFinishAllListeners()
+            .toMatchValues({ membersResponse: { ...response, results: [{ ...member, region: Region.US }] } })
         expect(listForOrg).toHaveBeenCalledWith('org-uuid', { limit: PAGE_SIZE, offset: 0 })
     })
 
@@ -81,6 +85,7 @@ describe('accountRelatedUsersLogic', () => {
     })
 
     const buildEuRow = (n: number): unknown[] => [
+        100 + n,
         `eu-m-${n}`,
         `First${n}`,
         `Last${n}`,
@@ -100,8 +105,16 @@ describe('accountRelatedUsersLogic', () => {
         expect(logic.values.membersResponse).toMatchObject({
             count: 2,
             results: [
-                { id: 'eu-m-1', user: { first_name: 'First1', email: 'eu1@example.com', distinct_id: 'did-1' } },
-                { id: 'eu-m-2', user: { first_name: 'First2', email: 'eu2@example.com', distinct_id: 'did-2' } },
+                {
+                    id: 'eu-m-1',
+                    user: { id: 101, first_name: 'First1', email: 'eu1@example.com', distinct_id: 'did-1' },
+                    region: Region.EU,
+                },
+                {
+                    id: 'eu-m-2',
+                    user: { id: 102, first_name: 'First2', email: 'eu2@example.com', distinct_id: 'did-2' },
+                    region: Region.EU,
+                },
             ],
         })
     })

@@ -173,7 +173,7 @@ export const RAIL_DESTINATIONS: readonly RailDestination[] = [
   {
     pane: "inbox",
     customizableId: "inbox",
-    label: "Inbox",
+    label: "Self-driving",
     analyticsId: "inbox",
     Icon: EnvelopeSimple,
     href: "/inbox",

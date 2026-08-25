@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, Field
 
 from products.signals.backend.report_charts import MAX_REPORT_CHARTS
+from products.signals.backend.report_prompts import MAX_SUGGESTED_PROMPT_LENGTH, MAX_SUGGESTED_PROMPTS
 from products.signals.backend.scout_harness.skill_loader import LoadedSkill, SkillAuthor, skill_uses_report_channel
 
 if TYPE_CHECKING:
@@ -48,7 +49,11 @@ def _compute_harness_prompt_version() -> str:
 
 
 # Values imported from other modules that templates in this file render into the prompt.
-_RENDERED_IMPORTS: dict[str, object] = {"MAX_REPORT_CHARTS": MAX_REPORT_CHARTS}
+_RENDERED_IMPORTS: dict[str, object] = {
+    "MAX_REPORT_CHARTS": MAX_REPORT_CHARTS,
+    "MAX_SUGGESTED_PROMPTS": MAX_SUGGESTED_PROMPTS,
+    "MAX_SUGGESTED_PROMPT_LENGTH": MAX_SUGGESTED_PROMPT_LENGTH,
+}
 
 
 HARNESS_PROMPT_VERSION = _compute_harness_prompt_version()
@@ -554,6 +559,26 @@ A trends chart and a graph built from SQL, as they arrive in `charts`:
 ]
 ```"""
 
+_REPORT_SUGGESTED_PROMPTS = f"""# Suggesting follow-up questions
+
+`suggested_prompts` on the report tools carries questions the inbox offers above the report's `Ask AI` box. Clicking one fills the box with it, so the reader can send it as written or edit it first. Nothing is sent on the click. You did the research and know which threads you left open, so this hands the reader that knowledge instead of leaving them to invent a question from an empty box.
+
+Optional, and worth it only when you can name a question worth an agent run. Write none rather than pad to the cap: an obvious question the reader would have typed anyway costs them a read and gains nothing, and a report with no suggestions looks exactly as it did before.
+
+- **At most {MAX_SUGGESTED_PROMPTS}, each up to {MAX_SUGGESTED_PROMPT_LENGTH} characters.** They render as rows the reader scans before choosing, so three is a ceiling and one or two is the usual answer.
+- **Write the question the reader would ask, in their words.** "Which customers are hitting this?" reads as a question. "Analyze the affected cohort" reads as an instruction to a machine, and the reader has to translate it before they can tell whether they want it.
+- **Ask what your research left open, not what it already answered.** A question the summary answers wastes an agent run to restate the report. Good ones widen the finding (who else is affected, since when, what changed), test the hypothesis you could not, or ask for the next step you did not have the standing to take.
+- **Each one stands alone.** The question goes to an agent that gets the report as context but not your run, so it must name what it is asking about rather than pointing at "the above" or "the second chart".
+- **No two the same.** Duplicates are refused, and near-duplicates cost the reader a choice that is not one.
+- **`suggested_prompts` on an edit is the report's whole set, not an addition.** It replaces what the report had, the way `summary` replaces the summary, so to keep a question send it again. Leave the field out entirely and the report keeps the questions it has; send `suggested_prompts: []` to take them down, which is what you want once a rewrite has left them answering the old report.
+
+```json
+[
+  "Which teams are hitting this exception the most?",
+  "Did the error rate change after the 18 June deploy?"
+]
+```"""
+
 # Heading kept bare so the *Writing the summary* cross-references in the close-out step and the
 # edit-only guidance name it exactly; the surface it describes is the section's first sentence.
 _WRITING_SUMMARY = f"""# Writing the summary
@@ -813,6 +838,7 @@ def _report_tail_sections(
             *([_github_evidence_section(can_emit=can_emit)] if github_read_access else []),
             _WRITING_REPORT,
             _REPORT_CHARTS,
+            _REPORT_SUGGESTED_PROMPTS,
         ]
     elif can_emit:
         how_a_run_works = f"{head}\n{_REPORT_STEPS_EMIT_ONLY}\n{_REPORT_CLOSE_OUT_STEP}"
@@ -823,6 +849,7 @@ def _report_tail_sections(
             *([_github_evidence_section(can_emit=can_emit)] if github_read_access else []),
             _WRITING_REPORT,
             _REPORT_CHARTS,
+            _REPORT_SUGGESTED_PROMPTS,
         ]
     else:  # edit-only — no authoring, so no suggested-reviewers / writing-a-report sections
         how_a_run_works = f"{head}\n{_REPORT_STEPS_EDIT_ONLY}\n{_REPORT_CLOSE_OUT_STEP}"
@@ -831,6 +858,7 @@ def _report_tail_sections(
             _REPORT_SCRATCHPAD_POINTER,
             *([_github_evidence_section(can_emit=can_emit)] if github_read_access else []),
             _REPORT_CHARTS,
+            _REPORT_SUGGESTED_PROMPTS,
         ]
     return [
         how_a_run_works,

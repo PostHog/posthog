@@ -139,7 +139,7 @@ export const KEYBOARD_SHORTCUTS: KeyboardShortcut[] = [
   {
     id: "inbox",
     keys: SHORTCUTS.INBOX,
-    description: "Open inbox",
+    description: "Open Self-driving",
     category: "navigation",
   },
   {

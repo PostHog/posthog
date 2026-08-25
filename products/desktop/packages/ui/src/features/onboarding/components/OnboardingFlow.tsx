@@ -26,7 +26,6 @@ import { ConsentStep } from "@posthog/ui/features/consent/ConsentStep";
 import { useUserGithubIntegrations } from "@posthog/ui/features/integrations/useIntegrations";
 import { ConnectGitHubStep } from "@posthog/ui/features/onboarding/components/ConnectGitHubStep";
 import { InstallCliStep } from "@posthog/ui/features/onboarding/components/InstallCliStep";
-import { StepIndicator } from "@posthog/ui/features/onboarding/components/StepIndicator";
 import { useOnboardingFlow } from "@posthog/ui/features/onboarding/hooks/useOnboardingFlow";
 import { useOnboardingStore } from "@posthog/ui/features/onboarding/onboardingStore";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
@@ -39,7 +38,7 @@ import { logger } from "@posthog/ui/shell/logger";
 import { useHostCapabilities } from "@posthog/ui/shell/useHostCapabilities";
 import { Button, Flex } from "@radix-ui/themes";
 import { useQueryClient } from "@tanstack/react-query";
-import { AnimatePresence, LayoutGroup, motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import { useEffect, useRef, useState } from "react";
 import { useHotkeys } from "react-hotkeys-hook";
 import { ProjectSelectStep } from "./ProjectSelectStep";
@@ -312,7 +311,7 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
           Log out
         </Button>
       )}
-      {IS_DEV && (
+      {IS_DEV && isAuthenticated && (
         <Button
           size="1"
           variant="ghost"
@@ -329,101 +328,97 @@ export function OnboardingFlow({ onOpenSupport }: OnboardingFlowProps) {
 
   return (
     <FullScreenLayout footerRight={footerRight} onOpenSupport={onOpenSupport}>
-      <LayoutGroup>
-        <AnimatePresence mode="wait" custom={direction}>
-          {currentStep === "project-select" && (
-            <motion.div
-              key="project-select"
-              custom={direction}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              variants={stepVariants}
-              transition={{ duration: 0.3 }}
-              className="min-h-0 w-full flex-1"
-            >
-              <ProjectSelectStep onNext={handleNext} onBack={onBack} />
-            </motion.div>
-          )}
+      <AnimatePresence mode="wait" custom={direction}>
+        {currentStep === "project-select" && (
+          <motion.div
+            key="project-select"
+            custom={direction}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            variants={stepVariants}
+            transition={{ duration: 0.3 }}
+            className="min-h-0 w-full flex-1"
+          >
+            <ProjectSelectStep onNext={handleNext} onBack={onBack} />
+          </motion.div>
+        )}
 
-          {currentStep === "consent" && (
-            <motion.div
-              key="consent"
-              custom={direction}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              variants={stepVariants}
-              transition={{ duration: 0.3 }}
-              className="min-h-0 w-full flex-1"
-            >
-              <ConsentStep
-                onNext={handleNext}
-                onBack={onBack}
-                requirements={consentRequirement}
-                onSubmittingChange={setConsentSubmitting}
-              />
-            </motion.div>
-          )}
+        {currentStep === "consent" && (
+          <motion.div
+            key="consent"
+            custom={direction}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            variants={stepVariants}
+            transition={{ duration: 0.3 }}
+            className="min-h-0 w-full flex-1"
+          >
+            <ConsentStep
+              onNext={handleNext}
+              onBack={onBack}
+              requirements={consentRequirement}
+              onSubmittingChange={setConsentSubmitting}
+            />
+          </motion.div>
+        )}
 
-          {currentStep === "connect-github" && (
-            <motion.div
-              key="connect-github"
-              custom={direction}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              variants={stepVariants}
-              transition={{ duration: 0.3 }}
-              className="min-h-0 w-full flex-1"
-            >
-              <ConnectGitHubStep onNext={handleNext} onBack={onBack} />
-            </motion.div>
-          )}
+        {currentStep === "connect-github" && (
+          <motion.div
+            key="connect-github"
+            custom={direction}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            variants={stepVariants}
+            transition={{ duration: 0.3 }}
+            className="min-h-0 w-full flex-1"
+          >
+            <ConnectGitHubStep onNext={handleNext} onBack={onBack} />
+          </motion.div>
+        )}
 
-          {currentStep === "install-cli" && (
-            <motion.div
-              key="install-cli"
-              custom={direction}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              variants={stepVariants}
-              transition={{ duration: 0.3 }}
-              className="min-h-0 w-full flex-1"
-            >
-              <InstallCliStep onNext={handleNext} onBack={handleBack} />
-            </motion.div>
-          )}
+        {currentStep === "install-cli" && (
+          <motion.div
+            key="install-cli"
+            custom={direction}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            variants={stepVariants}
+            transition={{ duration: 0.3 }}
+            className="min-h-0 w-full flex-1"
+          >
+            <InstallCliStep onNext={handleNext} onBack={handleBack} />
+          </motion.div>
+        )}
 
-          {currentStep === "select-repo" && (
-            <motion.div
-              key="select-repo"
-              custom={direction}
-              initial="enter"
-              animate="center"
-              exit="exit"
-              variants={stepVariants}
-              transition={{ duration: 0.3 }}
-              className="min-h-0 w-full flex-1"
-            >
-              <SelectRepoStep
-                onComplete={handleComplete}
-                onBack={handleBack}
-                selectedDirectory={selectedDirectory}
-                detectedRepo={detectedRepo}
-                isDetectingRepo={isDetectingRepo}
-                onDirectoryChange={handleDirectoryChange}
-                selectedCloudRepo={selectedCloudRepo}
-                onCloudRepoChange={handleCloudRepoChange}
-                hasGithubIntegration={hasGithubIntegration}
-              />
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <StepIndicator currentStep={currentStep} activeSteps={activeSteps} />
-      </LayoutGroup>
+        {currentStep === "select-repo" && (
+          <motion.div
+            key="select-repo"
+            custom={direction}
+            initial="enter"
+            animate="center"
+            exit="exit"
+            variants={stepVariants}
+            transition={{ duration: 0.3 }}
+            className="min-h-0 w-full flex-1"
+          >
+            <SelectRepoStep
+              onComplete={handleComplete}
+              onBack={handleBack}
+              selectedDirectory={selectedDirectory}
+              detectedRepo={detectedRepo}
+              isDetectingRepo={isDetectingRepo}
+              onDirectoryChange={handleDirectoryChange}
+              selectedCloudRepo={selectedCloudRepo}
+              onCloudRepoChange={handleCloudRepoChange}
+              hasGithubIntegration={hasGithubIntegration}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </FullScreenLayout>
   );
 }
