@@ -11,7 +11,7 @@ from posthog.temporal.common.utils import asyncify
 
 from products.tasks.backend.error_telemetry import truncate_error_message
 from products.tasks.backend.metrics import observe_wizard_run_unbound
-from products.tasks.backend.models import TaskRun
+from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.metrics import record_run_token_usage
 from products.tasks.backend.temporal.observability import log_with_activity_context
 
@@ -142,6 +142,53 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
     )
 
 
+def _capture_posthog_ai_chat_analytics(
+    task_run: TaskRun, input: UpdateTaskRunStatusInput, *, termination_reason: Optional[str]
+) -> None:
+    """Emit the PostHog AI chat outcome events, the sandbox counterpart to legacy `chat with ai`.
+
+    PostHog AI usage series are built on `chat with ai`, which only the LangGraph runner emits
+    (`ee/hogai/chat_agent/runner.py`). A sandbox conversation never reaches that runner, so without
+    this the series decay to zero as conversations move over.
+
+    This sits on the run transition rather than on each turn, so it fires only once the outcome is
+    known. A run spans every turn its sandbox stays alive, so the event counts runs where the legacy
+    one counted turns — `usage_turns` carries the turn count for a series that needs it.
+    """
+    if task_run.task.origin_product != Task.OriginProduct.POSTHOG_AI:
+        return
+    properties = {
+        "agent_runtime": "sandbox",
+        # Agent modes are a LangGraph concept, and the sandbox runtime has none.
+        "agent_mode": None,
+        "is_new_conversation": _is_first_run_of_task(task_run),
+        "duration_seconds": task_run._duration_seconds(),
+        "termination_reason": termination_reason,
+    }
+    if input.status == TaskRun.Status.COMPLETED:
+        task_run.capture_event("chat with ai", properties)
+        return
+    task_run.capture_event(
+        "chat with ai failed",
+        {
+            **properties,
+            "error_message": truncate_error_message(input.error_message or task_run.error_message),
+            "error_type": input.error_type or "unspecified",
+        },
+    )
+
+
+def _is_first_run_of_task(task_run: TaskRun) -> bool:
+    """Whether this run opened the conversation, the run-level reading of `is_new_conversation`.
+
+    A terminal run resumes into a successor rather than reopening, so "no earlier run" is what
+    separates a new conversation from a continued one.
+    """
+    return not TaskRun.objects.filter(
+        task_id=task_run.task_id, team_id=task_run.team_id, created_at__lt=task_run.created_at
+    ).exists()
+
+
 def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInput) -> None:
     """Emit the terminal analytics event and token-expenditure metrics.
 
@@ -179,6 +226,8 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
                     **relay_state,
                 },
             )
+
+        _capture_posthog_ai_chat_analytics(task_run, input, termination_reason=termination_reason)
 
         state = task_run.state if isinstance(task_run.state, dict) else {}
         usage = state.get("token_usage")

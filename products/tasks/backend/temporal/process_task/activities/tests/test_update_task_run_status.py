@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import pytest
 from unittest.mock import patch
 
@@ -5,7 +7,7 @@ from asgiref.sync import async_to_sync
 from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
-from products.tasks.backend.models import Loop, TaskRun
+from products.tasks.backend.models import Loop, Task, TaskRun
 from products.tasks.backend.temporal.process_task.activities.update_task_run_status import (
     SANDBOX_GONE_STATE_KEY,
     TIMED_OUT_INACTIVITY_STATE_KEY,
@@ -275,12 +277,75 @@ class TestUpdateTaskRunStatusActivity:
     @pytest.mark.django_db(transaction=True)
     @patch("products.tasks.backend.models.posthoganalytics.capture")
     def test_repeated_terminal_update_does_not_double_capture(self, mock_capture, activity_environment, test_task_run):
+        test_task_run.task.origin_product = Task.OriginProduct.POSTHOG_AI
+        test_task_run.task.save(update_fields=["origin_product"])
         input_data = UpdateTaskRunStatusInput(run_id=str(test_task_run.id), status=TaskRun.Status.COMPLETED)
         async_to_sync(activity_environment.run)(update_task_run_status, input_data)
         async_to_sync(activity_environment.run)(update_task_run_status, input_data)
 
         completed = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "task_run_completed"]
         assert len(completed) == 1
+        chats = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "chat with ai"]
+        assert len(chats) == 1
+
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.parametrize(
+        "origin_product,status,expected_event",
+        [
+            (Task.OriginProduct.POSTHOG_AI, TaskRun.Status.COMPLETED, "chat with ai"),
+            (Task.OriginProduct.POSTHOG_AI, TaskRun.Status.FAILED, "chat with ai failed"),
+            (Task.OriginProduct.USER_CREATED, TaskRun.Status.COMPLETED, None),
+            (Task.OriginProduct.USER_CREATED, TaskRun.Status.FAILED, None),
+        ],
+    )
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_posthog_ai_chat_outcome_is_captured_per_origin_and_status(
+        self, mock_capture, activity_environment, test_task_run, origin_product, status, expected_event
+    ):
+        test_task_run.task.origin_product = origin_product
+        test_task_run.task.save(update_fields=["origin_product"])
+
+        async_to_sync(activity_environment.run)(
+            update_task_run_status,
+            UpdateTaskRunStatusInput(
+                run_id=str(test_task_run.id),
+                status=status,
+                error_message="boom" if status == TaskRun.Status.FAILED else None,
+            ),
+        )
+
+        chats = [c for c in mock_capture.call_args_list if str(c.kwargs.get("event", "")).startswith("chat with ai")]
+        if expected_event is None:
+            assert chats == []
+            return
+        assert [c.kwargs["event"] for c in chats] == [expected_event]
+        props = chats[0].kwargs["properties"]
+        assert props["agent_runtime"] == "sandbox"
+        assert props["agent_mode"] is None
+        assert props["is_new_conversation"] is True
+        if status == TaskRun.Status.FAILED:
+            assert props["error_message"] == "boom"
+
+    @pytest.mark.django_db(transaction=True)
+    @patch("products.tasks.backend.models.posthoganalytics.capture")
+    def test_a_resumed_conversation_is_not_a_new_one(self, mock_capture, activity_environment, test_task_run):
+        test_task_run.task.origin_product = Task.OriginProduct.POSTHOG_AI
+        test_task_run.task.save(update_fields=["origin_product"])
+        successor = TaskRun.objects.create(
+            task=test_task_run.task, team=test_task_run.team, status=TaskRun.Status.QUEUED
+        )
+        # `created_at` is auto_now_add, so pin the ordering rather than trusting two inserts
+        # microseconds apart.
+        TaskRun.objects.filter(id=successor.id).update(created_at=test_task_run.created_at + timedelta(seconds=1))
+
+        async_to_sync(activity_environment.run)(
+            update_task_run_status,
+            UpdateTaskRunStatusInput(run_id=str(successor.id), status=TaskRun.Status.COMPLETED),
+        )
+
+        chats = [c for c in mock_capture.call_args_list if c.kwargs.get("event") == "chat with ai"]
+        assert len(chats) == 1
+        assert chats[0].kwargs["properties"]["is_new_conversation"] is False
 
     @pytest.mark.django_db(transaction=True)
     def test_terminal_retry_completes_loop_bookkeeping_exactly_once(self, activity_environment, test_task_run):

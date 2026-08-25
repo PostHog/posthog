@@ -12,7 +12,6 @@ import { initKeaTests } from '~/test/init'
 import { tasksRunsCommandCreate, tasksRunsStreamTokenRetrieve } from 'products/tasks/frontend/generated/api'
 
 import type { AttachedContextItem } from '../types/contextTypes'
-import { OriginProduct } from '../types/taskTypes'
 import type { PermissionRequestFrame, StoredLogEntry } from '../types/wireTypes'
 import { contextItemLine, wrapWithPosthogContext } from '../utils/posthogContextBlock'
 import { attachedContextLogic } from './attachedContextLogic'
@@ -33,7 +32,6 @@ import {
     SSE_RECONNECT_BASE_DELAY_MS,
     SSE_RECONNECT_MAX_DELAY_MS,
 } from './runStreamLogic'
-import { taskLogic } from './taskLogic'
 import { toolStreamEventsLogic } from './toolStreamEventsLogic'
 
 jest.mock('products/tasks/frontend/generated/api', () => ({
@@ -2817,7 +2815,6 @@ describe('runStreamLogic', () => {
                     status: 'in_progress',
                 }) as any,
                 sessionUpdate({ sessionUpdate: 'tool_call_update', toolCallId: 't1', status: 'completed' }) as any,
-                notification('_posthog/turn_complete', {}) as any,
             ])
             jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'completed' } as any)
 
@@ -2828,113 +2825,8 @@ describe('runStreamLogic', () => {
             // events re-fire — the run lived and died in a prior session.
             expect(logic.values.runStarted).toEqual(true)
             expect(logic.values.currentRunStatus).toEqual('completed')
-            const lifecycleEvents = ['task_run_started', 'task_run_terminated', 'tool_call_completed', 'chat with ai']
+            const lifecycleEvents = ['task_run_started', 'task_run_terminated', 'tool_call_completed']
             expect(captureSpy.mock.calls.filter((c) => lifecycleEvents.includes(c[0] as string))).toEqual([])
-        })
-
-        it('counts a turn at its first agent output, once, and again after a follow-up', async () => {
-            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
-            logic.actions.openSseForRun({ taskId: 'task-1', runId: 'run-1', traceId: 'trace-1' })
-
-            // The turn is counted here, not at completion — a turn whose reader navigates away
-            // mid-generation still counts.
-            await expectLogic(logic, () => {
-                logic.actions.ingestAcpFrame(notification('_posthog/run_started', {}))
-                logic.actions.ingestAcpFrame(
-                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'hi' } })
-                )
-            }).toFinishAllListeners()
-
-            let chats = captureSpy.mock.calls.filter((c) => c[0] === 'chat with ai')
-            expect(chats).toHaveLength(1)
-            expect(chats[0][1]).toEqual(
-                expect.objectContaining({
-                    turn_index: 0,
-                    is_new_conversation: true,
-                    agent_mode: null,
-                    agent_runtime: 'sandbox',
-                    conversation_id: 'test-conversation',
-                    trace_id: 'trace-1',
-                    run_id: 'run-1',
-                    task_id: 'task-1',
-                })
-            )
-
-            // More output, then completion. A turn carries two turn_complete frames: the agent-server
-            // broadcasts one and Django injects its own after a synchronous follow-up delivery. None
-            // of this counts the turn a second time.
-            await expectLogic(logic, () => {
-                logic.actions.ingestAcpFrame(
-                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: ' there' } })
-                )
-                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
-                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', { source: 'posthog' }))
-            }).toFinishAllListeners()
-
-            expect(captureSpy.mock.calls.filter((c) => c[0] === 'chat with ai')).toHaveLength(1)
-
-            // The next human message reopens the turn — a latch that never reopened would silently
-            // stop counting every turn after the first.
-            await expectLogic(logic, () => {
-                logic.actions.pushHumanMessage('and again')
-                logic.actions.ingestAcpFrame(
-                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'sure' } })
-                )
-            }).toFinishAllListeners()
-
-            chats = captureSpy.mock.calls.filter((c) => c[0] === 'chat with ai')
-            expect(chats).toHaveLength(2)
-            // `turn_index` is not asserted here: it tracks the fold's separator count, which the
-            // duplicate frame above also inflates. The two agreeing is the point, not the value.
-            expect(chats[1][1]).toEqual(expect.objectContaining({ is_new_conversation: false }))
-        })
-
-        it('does not recount a turn whose agent output arrived before a reload', async () => {
-            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
-            // An in-progress run, replayed from the top: this turn was already counted in the session
-            // that started it, so resuming its live frames must not count it again.
-            jest.spyOn(api.tasks.runs, 'getLogEntries').mockResolvedValue([
-                notification('_posthog/run_started', {}) as any,
-                sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'wor' } }) as any,
-            ])
-            jest.spyOn(api.tasks.runs, 'get').mockResolvedValue({ status: 'in_progress' } as any)
-
-            logic.actions.bootstrapRun({ taskId: 'task-1', runId: 'run-1' })
-            await flushPromises()
-
-            await expectLogic(logic, () => {
-                logic.actions.ingestAcpFrame(
-                    sessionUpdate({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: 'king' } })
-                )
-                logic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
-            }).toFinishAllListeners()
-
-            expect(captureSpy.mock.calls.filter((c) => c[0] === 'chat with ai')).toEqual([])
-        })
-
-        it.each([
-            ['skips a turn on a task with no PostHog AI origin', undefined, 0],
-            ['counts a turn on a runner-scene task, which carries no conversation id', OriginProduct.POSTHOG_AI, 1],
-        ])('%s', async (_label, originProduct, expected) => {
-            const captureSpy = jest.spyOn(posthog, 'capture').mockImplementation(() => undefined as any)
-            const task = taskLogic({ taskId: 'task-9' })
-            task.mount()
-            task.actions.loadTaskSuccess({ id: 'task-9', origin_product: originProduct } as any)
-            // No conversationId: the Max scene supplies one, the runner scene never does, so this run
-            // can only be recognized through the task's own origin.
-            const viewerLogic = runStreamLogic({ streamKey: 'task-9' })
-            viewerLogic.mount()
-            try {
-                viewerLogic.actions.openSseForRun({ taskId: 'task-9', runId: 'run-9' })
-                await expectLogic(viewerLogic, () => {
-                    viewerLogic.actions.ingestAcpFrame(notification('_posthog/turn_complete', {}))
-                }).toFinishAllListeners()
-
-                expect(captureSpy.mock.calls.filter((c) => c[0] === 'chat with ai')).toHaveLength(expected)
-            } finally {
-                viewerLogic.unmount()
-                task.unmount()
-            }
         })
     })
 
