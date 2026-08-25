@@ -37,6 +37,7 @@ from products.signals.backend.scout_harness.tools.report import (
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
 from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout, _make_run
 from products.skills.backend.models.skills import LLMSkill, LLMSkillOwner
+from products.tasks.backend.facade.repo_selection import RepoSelectionResult
 
 JUDGE_PATH = "products.signals.backend.scout_report.judge.judge_report_safety"
 EMBED_PATH = "products.signals.backend.scout_report.persistence.emit_embedding_request"
@@ -1124,17 +1125,17 @@ def _evidence(*descriptions: str) -> list[ReportEvidence]:
     return [ReportEvidence(description=d, source_id=f"s{i}") for i, d in enumerate(descriptions)]
 
 
-class TestExtractLinkedRepository(SimpleTestCase):
-    """The deterministic linked-repo scan behind the gate-skipped repo-selection fallback. Exactly one
-    distinct repo resolves; zero or several resolve to nothing, so a report that names no single repo
-    never seeds a wrong one for a later Create PR run."""
+_CONNECTED_REPOS = ["acme/widgets", "acme/gadgets"]
 
+
+class TestExtractLinkedRepository(SimpleTestCase):
     @parameterized.expand(
         [
             ("root_url", "", "See https://github.com/acme/widgets for context", (), "acme/widgets"),
             ("deep_pull_link", "", "Broke in https://github.com/acme/widgets/pull/12", (), "acme/widgets"),
             ("case_and_git_suffix", "", "https://github.com/Acme/Widgets.git broke", (), "acme/widgets"),
             ("trailing_period", "", "Fixed in https://github.com/acme/widgets.", (), "acme/widgets"),
+            ("clone_url_ending_a_sentence", "", "Clone https://github.com/acme/widgets.git.", (), "acme/widgets"),
             ("from_evidence", "", "no link here", ("https://github.com/acme/widgets/blob/main/x.py",), "acme/widgets"),
             (
                 "same_repo_twice",
@@ -1151,42 +1152,44 @@ class TestExtractLinkedRepository(SimpleTestCase):
                 None,
             ),
             ("no_link", "A plain title", "Users hit read/write errors in acme/widgets", (), None),
+            ("unconnected_upstream_repo", "", "Upstream bug: https://github.com/other/sdk/issues/3", (), None),
             ("feature_path_not_repo", "", "Configured at https://github.com/apps/dependabot", (), None),
         ]
     )
     def test_extract_linked_repository(
         self, _name: str, title: str, summary: str, evidence_descriptions: tuple[str, ...], expected: str | None
     ) -> None:
-        assert _extract_linked_repository(title, summary, _evidence(*evidence_descriptions)) == expected
+        assert (
+            _extract_linked_repository(title, summary, _evidence(*evidence_descriptions), _CONNECTED_REPOS) == expected
+        )
+
+    def test_no_connected_repos_resolves_nothing(self) -> None:
+        assert _extract_linked_repository("", "https://github.com/acme/widgets", _evidence(), []) is None
 
 
 class TestResolveReportRepositoryGateSkipped(SimpleTestCase):
-    """When the PR-intent gate skips full selection, `_resolve_report_repository` still writes an
-    artefact for a single linked repo (so a later Create PR run has a target) and writes none
-    otherwise — never spinning up the selection sandbox."""
+    def _resolve(self, summary: str) -> RepoSelectionResult | None:
+        with patch(
+            "products.signals.backend.scout_harness.tools.report._connected_repositories",
+            return_value=_CONNECTED_REPOS,
+        ):
+            return async_to_sync(_resolve_report_repository)(
+                team_id=1,
+                repository=None,
+                title="Crash on upload",
+                summary=summary,
+                evidence=_evidence(),
+                wants_full_selection=False,
+            )
 
-    def test_linked_repo_becomes_artefact(self) -> None:
-        result = async_to_sync(_resolve_report_repository)(
-            team_id=1,
-            repository=None,
-            title="Crash on upload",
-            summary="Traced to https://github.com/acme/widgets/pull/7",
-            evidence=_evidence(),
-            wants_full_selection=False,
-        )
+    def test_linked_repo_seeds_a_manual_only_target(self) -> None:
+        result = self._resolve("Traced to https://github.com/acme/widgets/pull/7")
         assert result is not None
         assert result.repository == "acme/widgets"
+        assert result.autostart_eligible is False
 
     def test_no_linked_repo_writes_nothing(self) -> None:
-        result = async_to_sync(_resolve_report_repository)(
-            team_id=1,
-            repository=None,
-            title="Crash on upload",
-            summary="No repository named here",
-            evidence=_evidence(),
-            wants_full_selection=False,
-        )
-        assert result is None
+        assert self._resolve("No repository named here") is None
 
 
 class TestReportClassificationProps(SimpleTestCase):

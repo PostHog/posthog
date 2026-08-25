@@ -194,6 +194,21 @@ def _list_candidate_repos(github: GitHubIntegrationBase, team_id: int, *, allow_
     return sorted(repos)
 
 
+def list_team_connected_repositories(team_id: int) -> list[str]:
+    """The `owner/repo` names the team's own GitHub installation can reach, lowercased.
+
+    The candidate list without the agent — for a caller that already has a repository in hand and
+    only needs to know whether the team connected it. `team_only` because such a caller runs under
+    the team's identity with no requester to act for, and the personal-connection fallbacks would
+    let one member's private repos answer for the team. Reads the cache as-is: an unattended caller
+    should not make a repo check storm GitHub with refreshes.
+    """
+    github = resolve_team_github_integration(team_id, team_only=True)
+    if github is None:
+        return []
+    return _list_candidate_repos(github, team_id, allow_refresh=False)
+
+
 def _list_eligible_full_names(github: GitHubIntegrationBase, team_id: int) -> set[str]:
     """Repos the agent can reason about: present in the heavy cache and not archived.
     Anything else is dropped from the candidate list (no SQL evidence, or unfixable code)."""

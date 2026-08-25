@@ -1,4 +1,5 @@
 import re
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -23,6 +24,7 @@ from products.signals.backend.auto_start import (
     _resolve_autostart_assignee,
     _resolve_autostart_fallback_user,
     _resolve_triggering_user,
+    maybe_autostart_from_report_artefacts,
     maybe_autostart_implementation_task,
 )
 from products.signals.backend.models import (
@@ -699,3 +701,51 @@ async def test_quota_gate_blocks_autostart_only_when_enforced(enforced):
         )
 
     assert (mock_create.call_count == 0) is enforced
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("autostart_eligible", [True, False])
+async def test_inferred_repository_does_not_autostart(autostart_eligible):
+    # A repo inferred from the report's own text (no scout PR intent) is a target for someone who
+    # clicks Create PR, not a mandate to open one. Without this gate the reviewer-less fallback opens
+    # a draft PR against a repo nobody chose, on a report that never asked for one.
+    def _setup() -> tuple[Team, SignalReport]:
+        organization = Organization.objects.create(name="inferred-org")
+        team = Team.objects.create(organization=organization, name="inferred-team")
+        report = SignalReport.objects.create(
+            team=team, status=SignalReport.Status.READY, title="t", summary="s", signal_count=0, total_weight=0.0
+        )
+        for artefact_type, content in (
+            (
+                SignalReportArtefact.ArtefactType.ACTIONABILITY_JUDGMENT,
+                {
+                    "explanation": "Clear fix in the affected module.",
+                    "actionability": ActionabilityChoice.IMMEDIATELY_ACTIONABLE.value,
+                    "already_addressed": False,
+                },
+            ),
+            (
+                SignalReportArtefact.ArtefactType.REPO_SELECTION,
+                {
+                    "repository": "owner/repo",
+                    "reason": "Linked GitHub repository found in the report content.",
+                    "autostart_eligible": autostart_eligible,
+                },
+            ),
+            (
+                SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT,
+                {"explanation": "Affects many sessions.", "priority": Priority.P2.value},
+            ),
+        ):
+            SignalReportArtefact.objects.create(
+                team=team, report=report, type=artefact_type, content=json.dumps(content)
+            )
+        return team, report
+
+    team, report = await sync_to_async(_setup)()
+
+    with patch("products.signals.backend.auto_start.maybe_autostart_implementation_task") as mock_autostart:
+        await maybe_autostart_from_report_artefacts(team_id=team.id, report_id=str(report.id))
+
+    assert (mock_autostart.call_count == 1) is autostart_eligible

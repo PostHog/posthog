@@ -35,6 +35,7 @@ from pydantic import ValidationError
 
 from posthog.api.capture import capture_internal
 from posthog.event_usage import groups
+from posthog.git import extract_linked_repo
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
@@ -502,61 +503,28 @@ def _repo_request_section(title: str, summary: str, evidence: list[ReportEvidenc
     return "\n".join(lines)
 
 
-# A GitHub repository link: the host, then `owner/repo`. `owner` follows GitHub's own rule
-# (alphanumerics joined by single hyphens); `repo` allows the dot/underscore/hyphen GitHub permits. A
-# deeper path (`/pull/1`, `/blob/...`) still names its `owner/repo`, so a linked PR or file resolves
-# to the repo just as a bare repository link does.
-_GITHUB_REPO_URL_RE = re.compile(
-    r"https?://(?:www\.)?github\.com/"
-    r"(?P<owner>[A-Za-z0-9](?:-?[A-Za-z0-9])*)/"
-    r"(?P<repo>[A-Za-z0-9._-]+)",
-    re.IGNORECASE,
-)
+def _connected_repositories(team_id: int) -> list[str]:
+    """The repos the team's own GitHub installation can reach, or an empty list when it has none.
 
-# First-segment GitHub paths that are site features, not a user or org — so `<feature>/<x>` is a page,
-# never a repository.
-_GITHUB_NON_REPO_OWNERS = frozenset(
-    {
-        "about",
-        "apps",
-        "collections",
-        "explore",
-        "features",
-        "join",
-        "login",
-        "marketplace",
-        "new",
-        "notifications",
-        "organizations",
-        "orgs",
-        "pricing",
-        "search",
-        "security",
-        "settings",
-        "sponsors",
-        "topics",
-    }
-)
+    Reads the cache as-is and never starts the selection sandbox, which is what keeps the gate-skipped
+    path the cheap one."""
+    from products.tasks.backend.facade.repo_selection import (
+        list_team_connected_repositories,  # noqa: PLC0415 — break worker-boot import cycle
+    )
+
+    return list_team_connected_repositories(team_id)
 
 
-def _extract_linked_repository(title: str, summary: str, evidence: list[ReportEvidence]) -> str | None:
-    """Find the single GitHub repository linked in the report content, or None when it links zero or
-    several distinct repos.
+def _extract_linked_repository(
+    title: str, summary: str, evidence: list[ReportEvidence], connected_repos: list[str]
+) -> str | None:
+    """Find the single connected GitHub repository linked in the report content, or None.
 
-    A deterministic, sandbox-free fallback for a report that named its repo in a GitHub link but did
-    not pass `repository`. Requiring exactly one distinct repo keeps it from guessing: a report that
-    links two repos, or none, resolves to no repo (the prior behavior) rather than a wrong one, which
-    a later Create PR run would fail on."""
-    text = "\n".join([title, summary, *(e.description for e in evidence)])
-    repos: set[str] = set()
-    for match in _GITHUB_REPO_URL_RE.finditer(text):
-        owner = match.group("owner").lower()
-        if owner in _GITHUB_NON_REPO_OWNERS:
-            continue
-        repo = match.group("repo").lower().removesuffix(".git").rstrip(".")
-        if repo:
-            repos.add(f"{owner}/{repo}")
-    return next(iter(repos)) if len(repos) == 1 else None
+    Report content quotes ingested project data, so a link in it is untrusted: matching against the
+    team's connected repos is what stops a linked upstream or attacker-placed repo from becoming a
+    target. Ambiguity resolves to nothing too — a report linking two connected repos names no single
+    one, and guessing between them would seed a wrong target for a later Create PR run."""
+    return extract_linked_repo("\n".join([title, summary, *(e.description for e in evidence)]), connected_repos)
 
 
 async def _resolve_report_repository(
@@ -579,9 +547,10 @@ async def _resolve_report_repository(
 
     `wants_full_selection` is the PR-intent gate (`_wants_repo_selection`). When it is false the report
     surfaced without the inputs the selection sandbox exists to serve, so the free-form branch scans
-    the report content for one linked GitHub repository instead — a cheap deterministic match that
-    still seeds a `repo_selection` artefact for a later Create PR run, and writes none when the content
-    names no single repo."""
+    the report content for one linked connected repository instead — a cheap deterministic match that
+    seeds a `repo_selection` artefact so a person clicking Create PR has a target. That inferred
+    selection is `autostart_eligible=False`: the report never signalled PR intent, so it must not open
+    one on its own."""
     repository = _normalize_repository(repository)
     if repository == NO_REPO:
         return RepoSelectionResult(repository=None, reason="Scout passed NO_REPO; report lands without a draft PR.")
@@ -589,10 +558,15 @@ async def _resolve_report_repository(
         return RepoSelectionResult(repository=repository, reason="Repository provided by the scout.")
 
     if not wants_full_selection:
-        linked = _extract_linked_repository(title, summary, evidence)
+        connected_repos = await database_sync_to_async(_connected_repositories, thread_sensitive=False)(team_id)
+        linked = _extract_linked_repository(title, summary, evidence, connected_repos)
         if linked is None:
             return None
-        return RepoSelectionResult(repository=linked, reason="Linked GitHub repository found in the report content.")
+        return RepoSelectionResult(
+            repository=linked,
+            reason="Linked GitHub repository found in the report content.",
+            autostart_eligible=False,
+        )
 
     # Free-form: let the shared selector pick across the team's repos. Imports are deferred to keep the
     # temporal/agentic + sandbox stack off this harness-tool module's import path (it loads at worker boot).

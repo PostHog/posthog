@@ -804,13 +804,24 @@ async def maybe_autostart_from_report_artefacts(*, team_id: int, report_id: str)
     repo_selection = await _latest_artefact_as(
         report_id, SignalReportArtefact.ArtefactType.REPO_SELECTION, RepoSelectionResult
     )
-    repository = repo_selection.repository if repo_selection else None
-    if not repository:
+    repository = repo_selection.repository if repo_selection is not None else None
+    if repo_selection is None or not repository:
         logger.info(
             "signals auto-start re-eval skipped",
             report_id=report_id,
             team_id=team_id,
             reason="no repository selected",
+        )
+        return
+    if not repo_selection.autostart_eligible:
+        # The repo was inferred from the report's content, not chosen by a caller asking for a PR.
+        # It is a target for a person who clicks Create PR, so opening one unprompted would act on
+        # intent nobody expressed — and the reviewer-less fallback below would do exactly that.
+        logger.info(
+            "signals auto-start re-eval skipped",
+            report_id=report_id,
+            team_id=team_id,
+            reason="repository was inferred, not selected with PR intent",
         )
         return
     priority = await _latest_artefact_as(
