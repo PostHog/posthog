@@ -162,7 +162,7 @@ async def test_start_failure_does_not_report_network_enforcement_observation(moc
 async def test_await_agent_server_ready_relaunches_on_activity_retries(mocker, attempt, expects_relaunch) -> None:
     context = _context()
     sandbox = mocker.Mock(id="sandbox-id")
-    sandbox.read_agent_server_session_init_ms.return_value = None
+    sandbox.read_agent_server_boot_metrics.return_value = (None, {})
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.Sandbox.get_by_id",
         return_value=sandbox,
@@ -442,6 +442,7 @@ async def test_start_agent_server_uses_captured_sandbox_event_ingest_flag(mocker
     sandbox = mocker.Mock()
     sandbox.execute.return_value.stdout = ""
     sandbox.execute.return_value.stderr = ""
+    sandbox.read_agent_server_boot_metrics.return_value = (None, {})
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.Sandbox.get_by_id",
         return_value=sandbox,
@@ -515,6 +516,7 @@ async def test_start_agent_server_forwards_imported_and_relayed_mcp_servers(mock
     sandbox = mocker.Mock()
     sandbox.execute.return_value.stdout = ""
     sandbox.execute.return_value.stderr = ""
+    sandbox.read_agent_server_boot_metrics.return_value = (None, {})
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.Sandbox.get_by_id",
         return_value=sandbox,
@@ -573,6 +575,7 @@ async def test_start_agent_server_passes_initial_permission_mode(mocker) -> None
     sandbox = mocker.Mock()
     sandbox.execute.return_value.stdout = ""
     sandbox.execute.return_value.stderr = ""
+    sandbox.read_agent_server_boot_metrics.return_value = (None, {})
     mocker.patch(
         "products.tasks.backend.temporal.process_task.activities.start_agent_server.Sandbox.get_by_id",
         return_value=sandbox,
