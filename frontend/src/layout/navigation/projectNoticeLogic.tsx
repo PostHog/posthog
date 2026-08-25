@@ -126,29 +126,46 @@ function shouldFetchProxyRecords(user: UserType | null, currentOrganizationId: s
     return !!user && !!currentOrganizationId && new Date().getDate() <= 7 && !isNoticeDismissed('missing_reverse_proxy')
 }
 
+function buildBillingAlertAction(
+    billingAlert: BillingAlertConfig,
+    canAccessBilling: boolean
+): LemonBannerProps['action'] | undefined {
+    if (billingAlert.action) {
+        return billingAlert.action
+    }
+
+    if (billingAlert.contactSupport) {
+        return {
+            to: 'mailto:sales@posthog.com',
+            children: billingAlert.buttonCTA || 'Contact support',
+            onClick: () => billingLogic.actions.reportBillingAlertActionClicked(billingAlert),
+        }
+    }
+
+    if (!canAccessBilling) {
+        return undefined
+    }
+
+    return {
+        to: getBillingAlertBillingUrl(billingAlert),
+        children: 'Manage billing',
+        onClick: () => billingLogic.actions.reportBillingAlertActionClicked(billingAlert),
+    }
+}
+
+function getBillingAlertBillingUrl(billingAlert: BillingAlertConfig): string {
+    return urls.organizationBilling(billingAlert.productKey ? [billingAlert.productKey] : undefined)
+}
+
 function buildBillingAlertNotice(
     billingAlert: BillingAlertConfig,
     canAccessBilling: boolean,
-    currentPathname: string
+    currentLocation: { pathname: string; search: string }
 ): ProjectNoticeBlueprint {
+    const currentUrl = `${currentLocation.pathname}${currentLocation.search}`
     const showButton =
-        billingAlert.action || billingAlert.contactSupport || currentPathname !== urls.organizationBilling()
-
-    const action = billingAlert.action
-        ? billingAlert.action
-        : billingAlert.contactSupport
-          ? {
-                to: 'mailto:sales@posthog.com',
-                children: billingAlert.buttonCTA || 'Contact support',
-                onClick: () => billingLogic.actions.reportBillingAlertActionClicked(billingAlert),
-            }
-          : canAccessBilling
-            ? {
-                  to: urls.organizationBilling(),
-                  children: 'Manage billing',
-                  onClick: () => billingLogic.actions.reportBillingAlertActionClicked(billingAlert),
-              }
-            : undefined
+        billingAlert.action || billingAlert.contactSupport || currentUrl !== getBillingAlertBillingUrl(billingAlert)
+    const action = buildBillingAlertAction(billingAlert, canAccessBilling)
 
     return {
         message: (
@@ -514,11 +531,7 @@ export const projectNoticeLogic = kea<projectNoticeLogicType>([
                         if (!effectiveBillingAlert) {
                             return null
                         }
-                        const notice = buildBillingAlertNotice(
-                            effectiveBillingAlert,
-                            canAccessBilling,
-                            currentLocation.pathname
-                        )
+                        const notice = buildBillingAlertNotice(effectiveBillingAlert, canAccessBilling, currentLocation)
                         const canClose = dismiss || notice.onClose
                         return {
                             ...notice,

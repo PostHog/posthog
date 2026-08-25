@@ -60,7 +60,7 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
     connectors = serializers.ListField(
         child=serializers.CharField(max_length=64),
         required=False,
-        help_text="MCP server installation IDs the run may mount. Must be active installations of the workflow owner.",
+        help_text="MCP server installation IDs the run may mount. Must be active team-shared installations or personal ones of the workflow owner.",
     )
     posthog_mcp_scopes = serializers.ChoiceField(
         choices=["read_only", "full"],

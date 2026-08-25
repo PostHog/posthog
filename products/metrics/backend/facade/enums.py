@@ -54,8 +54,16 @@ class MetricType(StrEnum):
 class MetricAggregation(StrEnum):
     """How a clause collapses the values in each time bucket into one number.
 
-    Instant aggregations operate on the values that fell in the bucket:
-    SUM, AVG, COUNT, MIN, MAX, QUANTILE.
+    Every aggregation resolves per series first, then combines across series,
+    so a result never depends on how often a series was scraped.
+
+    Instant aggregations take each series' last sample in the bucket and
+    combine those: SUM is the total across series, AVG and QUANTILE are
+    computed over series, COUNT is how many series reported, and MIN and MAX
+    are the smallest and largest last sample across series. MIN and MAX still
+    need the per-series step once they are implemented, because taken over raw
+    samples they would report a stale within-bucket extreme rather than the
+    current cross-series one.
 
     Counter functions operate on the change across the bucket (cumulative
     counters get reset-corrected; deltas are summed): RATE, INCREASE.

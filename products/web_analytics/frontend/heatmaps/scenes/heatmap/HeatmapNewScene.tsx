@@ -5,6 +5,7 @@ import { IconCheckCircle, IconWarning } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonCard, LemonLabel, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { appEditorUrl } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
@@ -375,6 +376,20 @@ function ChooseBackgroundStep(): JSX.Element {
                 {pageAccess === 'public' ? <PublicBackgroundChoice /> : null}
                 {pageAccess === 'login' && displayUrl ? (
                     <div className="flex flex-col gap-4">
+                        <LemonBanner
+                            type="info"
+                            action={{
+                                children: 'Open in toolbar',
+                                to: appEditorUrl(displayUrl, { userIntent: 'heatmaps' }),
+                                targetBlank: true,
+                                type: 'primary',
+                                'data-attr': 'heatmap-creation-toolbar-capture',
+                            }}
+                        >
+                            Open your site with the toolbar, turn on Heatmaps, then choose "Save to PostHog". It
+                            captures the signed-in page from your browser and saves the heatmap here, with no session
+                            recording needed.
+                        </LemonBanner>
                         <LemonBanner type="info">
                             Session recordings preserve the signed-in page state. Choose a recording and we will guide
                             you through selecting the exact moment to use as the background. We will bring that state

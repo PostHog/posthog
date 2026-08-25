@@ -1186,6 +1186,10 @@ export const FeatureRequestsListQueryParams = /* @__PURE__ */ zod.object({
         .describe(
             'Whether to return active requests, archived requests, or all requests.\n\n\* `active` - Active\n\* `archived` - Archived\n\* `all` - All'
         ),
+    created_by_ids: zod
+        .array(zod.number().min(1))
+        .optional()
+        .describe('Creator user IDs to include. Multiple values use OR semantics.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     priorities: zod
@@ -1231,6 +1235,12 @@ export const FeatureRequestsCreateParams = /* @__PURE__ */ zod.object({
 export const featureRequestsCreateBodyTitleMax = 400
 
 export const featureRequestsCreateBodyDescriptionDefault = ``
+export const featureRequestsCreateBodyEvidenceOneSummaryDefault = ``
+export const featureRequestsCreateBodyEvidenceOneCustomerQuoteDefault = ``
+export const featureRequestsCreateBodyEvidenceOneEvidenceSourceMax = 200
+
+export const featureRequestsCreateBodyEvidenceOneSourceUrlDefault = ``
+export const featureRequestsCreateBodyEvidenceOneSourceUrlMax = 2000
 
 export const FeatureRequestsCreateBody = /* @__PURE__ */ zod.object({
     title: zod.string().max(featureRequestsCreateBodyTitleMax).describe('Required customer-facing request title.'),
@@ -1247,6 +1257,39 @@ export const FeatureRequestsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Client-generated key that makes retries return the original request instead of creating a duplicate.'
         ),
+    evidence: zod
+        .union([
+            zod.object({
+                summary: zod
+                    .string()
+                    .default(featureRequestsCreateBodyEvidenceOneSummaryDefault)
+                    .describe("Internal summary of this account's request evidence."),
+                customer_quote: zod
+                    .string()
+                    .default(featureRequestsCreateBodyEvidenceOneCustomerQuoteDefault)
+                    .describe('Customer quote kept with this evidence item.'),
+                evidence_source: zod
+                    .string()
+                    .max(featureRequestsCreateBodyEvidenceOneEvidenceSourceMax)
+                    .describe('Free-form name of the source where this evidence was recorded.'),
+                source_url: zod
+                    .url()
+                    .max(featureRequestsCreateBodyEvidenceOneSourceUrlMax)
+                    .default(featureRequestsCreateBodyEvidenceOneSourceUrlDefault)
+                    .describe('Optional HTTP or HTTPS link to the source.'),
+                requested_on: zod.iso
+                    .date()
+                    .nullish()
+                    .describe('Date the account made the request, or null when unknown.'),
+                image_ids: zod
+                    .array(zod.string())
+                    .optional()
+                    .describe('Uploaded image IDs from this project to attach in display order.'),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Optional first evidence item to create for the selected account.'),
 })
 
 export const FeatureRequestsRetrieveParams = /* @__PURE__ */ zod.object({
@@ -1356,6 +1399,10 @@ export const FeatureRequestsAddAccountCreateBody = /* @__PURE__ */ zod.object({
                     .date()
                     .nullish()
                     .describe('Date the account made the request, or null when unknown.'),
+                image_ids: zod
+                    .array(zod.string())
+                    .optional()
+                    .describe('Uploaded image IDs from this project to attach in display order.'),
             }),
             zod.null(),
         ])
@@ -1398,6 +1445,10 @@ export const FeatureRequestsAddEvidenceCreateBody = /* @__PURE__ */ zod.object({
         .default(featureRequestsAddEvidenceCreateBodySourceUrlDefault)
         .describe('Optional HTTP or HTTPS link to the source.'),
     requested_on: zod.iso.date().nullish().describe('Date the account made the request, or null when unknown.'),
+    image_ids: zod
+        .array(zod.string())
+        .optional()
+        .describe('Uploaded image IDs from this project to attach in display order.'),
     expected_version: zod
         .number()
         .min(1)
@@ -1507,6 +1558,10 @@ export const FeatureRequestsUpdateEvidenceCreateBody = /* @__PURE__ */ zod.objec
         .default(featureRequestsUpdateEvidenceCreateBodySourceUrlDefault)
         .describe('Optional HTTP or HTTPS link to the source.'),
     requested_on: zod.iso.date().nullish().describe('Date the account made the request, or null when unknown.'),
+    image_ids: zod
+        .array(zod.string())
+        .optional()
+        .describe('Uploaded image IDs from this project to attach in display order.'),
     expected_version: zod
         .number()
         .min(1)

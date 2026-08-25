@@ -6,7 +6,6 @@ import { IconCheck, IconX } from '@posthog/icons'
 import { LemonButton, LemonColorGlyph, LemonSkeleton, LemonTable, ProfilePicture } from '@posthog/lemon-ui'
 
 import type { DataColorToken } from 'lib/colors'
-import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { MemberSelect } from 'lib/components/MemberSelect'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { Sparkline } from 'lib/components/Sparkline'
@@ -33,6 +32,7 @@ import type {
 
 import { ACCOUNTS_TABLE_DATA_NODE_KEY } from '../../constants'
 import { formatCustomPropertyValue } from '../../scenes/CustomerAnalyticsConfigurationScene/account/customPropertyTypes'
+import { AccountNameCell } from './AccountNameCell'
 import { AccountNotebooksExpansion } from './AccountNotebooksExpansion'
 import { AccountColumnDisplayConfig, LEGACY_ROLE_COLUMNS, accountsColumnConfigLogic } from './accountsColumnConfigLogic'
 import { AccountExpansionTab, accountsExpansionLogic } from './accountsExpansionLogic'
@@ -41,7 +41,7 @@ import { accountsTableCell, isAccountsTableRow } from './accountsTableQuery'
 import { AccountsEvents } from './constants'
 
 // Shape the name renderer uses from the keyed AccountsTableRow identity fields.
-type AccountNameCell = { name: string; external_id: string | null; id: string }
+type AccountNameCellData = { name: string; external_id: string | null; id: string }
 
 const COLUMN_WIDTHS = {
     name: '240px',
@@ -56,7 +56,7 @@ function useGetCell(): (record: unknown, column: string) => unknown {
         isAccountsTableRow(record) ? accountsTableCell(record, column, accountsTableQueryPlan) : undefined
 }
 
-function getNameCell(record: unknown): AccountNameCell | undefined {
+function getNameCell(record: unknown): AccountNameCellData | undefined {
     if (!isAccountsTableRow(record)) {
         return undefined
     }
@@ -75,46 +75,24 @@ function NameCell({ record }: { record: unknown }): JSX.Element {
     const { isAccountExpanded } = useValues(accountsExpansionLogic)
     const { toggleAccountExpanded } = useActions(accountsExpansionLogic)
     const cell = getNameCell(record)
-    const name = cell?.name ?? ''
-    const externalId = cell?.external_id ?? ''
     const accountId = cell?.id
     return (
-        <div className="flex flex-col min-w-40" data-account-id={accountId}>
-            {accountId ? (
-                <Link
-                    // Plain click opens the account details inline (keeping the list mounted); the href
-                    // stays so a modifier-click (cmd/ctrl/shift) opens the account's deep-link page in a new tab/window.
-                    to={urls.customerAnalyticsAccount(accountId)}
-                    className="font-semibold"
-                    onClick={(event) => {
-                        if (event.metaKey || event.ctrlKey || event.shiftKey) {
-                            return
-                        }
-                        event.preventDefault()
-                        event.stopPropagation()
-                        if (!isAccountExpanded(accountId)) {
-                            posthog.capture(AccountsEvents.AccountOpened)
-                        }
-                        toggleAccountExpanded(accountId)
-                    }}
-                >
-                    {name}
-                </Link>
-            ) : (
-                <span className="font-semibold">{name}</span>
-            )}
-            {externalId ? (
-                <CopyToClipboardInline
-                    explicitValue={externalId}
-                    iconStyle={{ color: 'var(--color-accent)' }}
-                    iconSize="xsmall"
-                    description="account ID"
-                    className="text-xs text-muted"
-                >
-                    {externalId}
-                </CopyToClipboardInline>
-            ) : null}
-        </div>
+        <AccountNameCell
+            accountId={accountId}
+            name={cell?.name ?? ''}
+            externalId={cell?.external_id}
+            onClick={(event) => {
+                if (!accountId || event.metaKey || event.ctrlKey || event.shiftKey) {
+                    return
+                }
+                event.preventDefault()
+                event.stopPropagation()
+                if (!isAccountExpanded(accountId)) {
+                    posthog.capture(AccountsEvents.AccountOpened)
+                }
+                toggleAccountExpanded(accountId)
+            }}
+        />
     )
 }
 
@@ -296,7 +274,6 @@ function CustomPropertyHistoryCell({
                     data={chartPoints.map(([, value]) => value)}
                     labels={chartPoints.map(([timestamp]) => dayjs.unix(timestamp).format('MMM D, YYYY HH:mm'))}
                     renderTooltipValue={formatValue}
-                    maximumIndicator={false}
                 />
             </div>
         )
@@ -325,7 +302,7 @@ function CustomPropertyHistoryCell({
 }
 
 const CANONICAL_PROPERTY_TAB: Record<string, AccountExpansionTab> = {
-    'Last Slack message at': 'summaries',
+    'Last Slack message at': 'conversations',
 }
 
 export function getCanonicalPropertyTab(definition: CustomPropertyDefinitionApi): AccountExpansionTab | undefined {

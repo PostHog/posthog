@@ -87,6 +87,29 @@ describe('summaryViewLogic', () => {
         expect(logic.values.summaryError).toBe('Generating this summary took too long. Try again in a moment.')
     })
 
+    it('maps a bodyless payload-size rejection to a readable message, not a bare status', async () => {
+        mockSummarization(Promise.reject(new ApiError('API request failed with status: 413', 413)))
+
+        await generateSummary()
+
+        expect(logic.values.summaryError).not.toContain('413')
+        expect(logic.values.summaryError).toBe(
+            'This trace is too large to summarize. Open a single generation and summarize that instead.'
+        )
+    })
+
+    it('keeps a response body the backend sent instead of guessing from the status', async () => {
+        mockSummarization(
+            Promise.reject(
+                new ApiError('Failed to generate summary', 413, undefined, { detail: 'Failed to generate summary' })
+            )
+        )
+
+        await generateSummary()
+
+        expect(logic.values.summaryError).toBe('Failed to generate summary')
+    })
+
     it('clears a stale summary when regeneration fails', async () => {
         await generateSummary()
         expect(logic.values.summaryData?.summary.title).toBe('Summary')

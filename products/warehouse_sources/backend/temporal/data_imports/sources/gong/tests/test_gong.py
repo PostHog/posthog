@@ -323,6 +323,7 @@ class TestGongSource:
     @parameterized.expand(
         [
             ("calls", "id", "started", "asc"),
+            ("transcripts", "callId", "started", "asc"),
             ("users", "id", "created", "asc"),
             ("scorecards", "scorecardId", "created", "asc"),
             ("workspaces", "id", None, "asc"),
@@ -344,7 +345,14 @@ class TestGongSource:
             assert response.partition_mode is None
 
     def test_every_endpoint_has_a_config(self) -> None:
-        assert set(GONG_ENDPOINTS) == {"calls", "calls_extensive", "users", "scorecards", "workspaces"}
+        assert set(GONG_ENDPOINTS) == {
+            "calls",
+            "calls_extensive",
+            "transcripts",
+            "users",
+            "scorecards",
+            "workspaces",
+        }
 
 
 class TestExtensiveCalls:
@@ -439,33 +447,128 @@ class TestExtensiveCalls:
         assert second_body["cursor"] == "page2"
         assert all("?" not in url for url in session.requested_urls)
 
-    def test_response_body_capture_disabled_for_extensive_only(self) -> None:
-        # Extensive responses carry participant names and free-form CRM fields, so they must be
-        # excluded from HTTP sample capture; basic list endpoints stay captured for troubleshooting.
-        last_value = datetime.now(UTC) - timedelta(days=5)
+    @parameterized.expand(
+        [
+            # Extensive responses carry participant names and free-form CRM fields, and transcript
+            # responses carry verbatim conversation text, so neither may reach HTTP sample capture.
+            # Basic list endpoints stay captured for troubleshooting.
+            ("calls_extensive", [{"calls": [{"metaData": {"id": "c1"}}]}], False),
+            (
+                "transcripts",
+                [{"calls": [{"id": "c1", "started": "2026-03-01T00:00:00Z"}]}, {"callTranscripts": [{"callId": "c1"}]}],
+                False,
+            ),
+            ("users", [{"users": [{"id": "u1"}]}], True),
+        ]
+    )
+    def test_response_body_capture_per_endpoint(
+        self, endpoint: str, payloads: list[dict], expected_capture: bool
+    ) -> None:
+        session = _FakeSession([_FakeResponse(json_data=payload) for payload in payloads])
 
-        extensive_session = _FakeSession([_FakeResponse(json_data={"calls": [{"metaData": {"id": "c1"}}]})])
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
-            return_value=extensive_session,
-        ) as extensive_factory:
+            return_value=session,
+        ) as session_factory:
             list(
                 get_rows(
                     "key",
                     "secret",
-                    "calls_extensive",
+                    endpoint,
+                    mock.MagicMock(),
+                    _FakeResumableManager(),
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=datetime.now(UTC) - timedelta(days=5),
+                )
+            )
+
+        assert session_factory.call_args.kwargs["capture"] is expected_capture
+
+
+class TestTranscripts:
+    def test_drives_from_calls_and_stamps_each_transcript_with_its_call_start(self) -> None:
+        last_value = datetime.now(UTC) - timedelta(days=5)
+        session = _FakeSession(
+            [
+                _FakeResponse(
+                    json_data={
+                        "calls": [{"id": "c1", "started": "2026-03-01T00:00:00Z"}],
+                        "records": {"cursor": "calls-page2"},
+                    }
+                ),
+                _FakeResponse(json_data={"callTranscripts": [{"callId": "c1", "transcript": [{"speakerId": "u1"}]}]}),
+                _FakeResponse(json_data={"calls": [{"id": "c2", "started": "2026-03-02T00:00:00Z"}]}),
+                _FakeResponse(json_data={"callTranscripts": [{"callId": "c2", "transcript": []}]}),
+            ]
+        )
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
+            return_value=session,
+        ):
+            batches = list(
+                get_rows(
+                    "key",
+                    "secret",
+                    "transcripts",
                     mock.MagicMock(),
                     _FakeResumableManager(),
                     should_use_incremental_field=True,
                     db_incremental_field_last_value=last_value,
                 )
             )
-        assert extensive_factory.call_args.kwargs["capture"] is False
 
-        users_session = _FakeSession([_FakeResponse(json_data={"users": [{"id": "u1"}]})])
+        # `started` comes from the call the transcript belongs to — the transcript response has no
+        # date of its own, so without it the table can't sync incrementally or partition.
+        assert batches == [
+            [{"callId": "c1", "transcript": [{"speakerId": "u1"}], "started": "2026-03-01T00:00:00Z"}],
+            [{"callId": "c2", "transcript": [], "started": "2026-03-02T00:00:00Z"}],
+        ]
+        # Every page of the calls walk drives its own transcript request, so a second page of calls
+        # isn't dropped.
+        assert f"fromDateTime={_format_datetime(last_value)}" in unquote(session.requested_urls[0])
+        assert session.requested_urls[1] == f"{GONG_BASE_URL}/v2/calls/transcript"
+        assert "cursor=calls-page2" in session.requested_urls[2]
+        assert session.requested_urls[3] == f"{GONG_BASE_URL}/v2/calls/transcript"
+        # Each request asks only for the ids on the page that drove it.
+        assert [body["filter"]["callIds"] for body in session.posted_bodies if body] == [["c1"], ["c2"]]
+
+    @parameterized.expand(
+        [
+            # A call with no start time leaves its transcript with nothing to partition or sync on.
+            ("call_without_start_time", [{"id": "c1"}], [{"callId": "c1"}]),
+            # A transcript for a call we never asked for has no start time to borrow either.
+            (
+                "transcript_for_unrequested_call",
+                [{"id": "c1", "started": "2026-03-01T00:00:00Z"}],
+                [{"callId": "other"}],
+            ),
+        ]
+    )
+    def test_unstampable_transcript_stops_the_sync(
+        self, _name: str, calls: list[dict], transcripts: list[dict]
+    ) -> None:
+        session = _FakeSession(
+            [
+                _FakeResponse(json_data={"calls": calls}),
+                _FakeResponse(json_data={"callTranscripts": transcripts}),
+            ]
+        )
+
         with mock.patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
-            return_value=users_session,
-        ) as users_factory:
-            list(get_rows("key", "secret", "users", mock.MagicMock(), _FakeResumableManager()))
-        assert users_factory.call_args.kwargs["capture"] is True
+            return_value=session,
+        ):
+            rows = get_rows(
+                "key",
+                "secret",
+                "transcripts",
+                mock.MagicMock(),
+                _FakeResumableManager(),
+                should_use_incremental_field=True,
+                db_incremental_field_last_value=datetime.now(UTC) - timedelta(days=5),
+            )
+            # Writing the row with `started=None` would bury it in the fallback partition and keep
+            # it out of the watermark, so no later run would ever correct it.
+            with pytest.raises(ValueError):
+                list(rows)

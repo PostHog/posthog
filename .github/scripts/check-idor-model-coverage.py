@@ -180,6 +180,10 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # Instance-global classifier definition, so there is no team_id to scope on. Seeded by
         # migration and read by the batch runner; no API endpoint, never looked up by user-supplied ID.
         "EnrichmentPromptConfig",
+        # Instance-global versioned ICP curated-list rows (created_by is authorship provenance,
+        # not access scoping). Written by a management command, read by the enrichment scorer;
+        # admin-only surface, never looked up by user-supplied ID.
+        "IcpScoringConfig",
         # Shadow classifier output, org-scoped rather than team-scoped. Written only by the batch
         # runner and read-only in admin; no API endpoint, never looked up by user-supplied ID.
         # It carries an Organization FK, so the org_scoped rule would otherwise cover it: remove this

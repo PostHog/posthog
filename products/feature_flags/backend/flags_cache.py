@@ -43,6 +43,7 @@ from django.utils import timezone
 
 import structlog
 import posthoganalytics
+from celery.exceptions import SoftTimeLimitExceeded
 
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.kafka_client.routing import producer_scope
@@ -130,6 +131,8 @@ _COHORT_RECALCULATION_FIELDS = frozenset(
         "last_calculation_duration_ms",
         "errors_calculating",
         "last_error_at",
+        "last_import_total_count",
+        "last_import_unmatched_count",
         # NOTE: `groups` is the legacy cohort-condition field (deprecated in favour of
         # `filters`).  calculate_people_ch() always saves it in update_fields even when
         # unchanged (see cohort.py:347).  Real definition changes go through a full save
@@ -922,6 +925,10 @@ FLAGS_HYPERCACHE_MANAGEMENT_CONFIG = HyperCacheManagementConfig(
     cache_name="flags",
     get_teams_queryset_fn=get_teams_with_flags_queryset,
     get_team_ids_to_skip_fix_fn=get_team_ids_with_recently_updated_flags,
+    # Late-bound via lambda: the attribution fn lives in the transitional
+    # Kafka-routing block further down this module and is deleted with it at
+    # cutover, so it isn't defined yet when this config is constructed.
+    get_primary_writer_fn=lambda team_id: get_team_primary_flags_writer(team_id),
     # The refresh loads flags by team id/project_id; it reads no other Team columns.
     # Narrowing the SELECT keeps it resilient to newly added Team columns the read
     # replica may not have applied yet (organization_id keeps the select_related valid).
@@ -1031,8 +1038,10 @@ def get_cache_stats() -> dict[str, Any]:
 # outlives cutover — `cohort_changed_flags_cache` still calls it directly until
 # cohort invalidation gets its own topic. Throwaway code by design; don't polish.
 #
-# Transitional surface: KAFKA_ROUTING_FLAG, _route_to_kafka,
-# _produce_invalidation, _enqueue_invalidation, and the Kafka branch inside it.
+# Transitional surface: KAFKA_ROUTING_FLAG, _evaluate_kafka_routing_flag,
+# _route_to_kafka, get_team_primary_flags_writer (and its config binding on
+# FLAGS_HYPERCACHE_MANAGEMENT_CONFIG), _produce_invalidation,
+# _enqueue_invalidation, and the Kafka branch inside it.
 # The signal handlers themselves stay; their tails simplify at cutover.
 
 # Per-team gate that routes invalidation to Kafka instead of Celery — see
@@ -1040,6 +1049,56 @@ def get_cache_stats() -> dict[str, Any]:
 # string is kept as "dual-write" (not renamed to match KAFKA_ROUTING_FLAG) since
 # it's the live PostHog flag key — renaming it would repoint the rollout.
 KAFKA_ROUTING_FLAG = "flags-cache-kafka-dual-write"
+
+
+def _evaluate_kafka_routing_flag(team_id: int) -> bool | None:
+    # The SDK annotates feature_enabled as returning bool, but it returns
+    # None when local evaluation can't resolve the flag. Widen the type so
+    # callers can handle the None branch under type checking.
+    result: bool | None = posthoganalytics.feature_enabled(
+        KAFKA_ROUTING_FLAG,
+        f"team-{team_id}",
+        groups={"project": str(team_id)},
+        group_properties={"project": {"id": str(team_id)}},
+        only_evaluate_locally=True,
+        send_feature_flag_events=False,
+    )
+    return result
+
+
+def get_team_primary_flags_writer(team_id: int) -> str:
+    """Which writer owns this team's flags.json entry: "rust" when the routing
+    flag sends its invalidations to the Kafka builder, otherwise "python".
+
+    Attributes verifier fixes to the writer whose output needed fixing. During
+    the Kafka-builder ramp, a fix on a rust-routed team is the signal that the
+    Rust builder diverged from the Python one, which the unattributed fix
+    counter cannot separate from baseline repair noise. Evaluation failures
+    resolve to "unknown" rather than "python" so an attribution outage cannot
+    masquerade as a clean Rust ramp.
+    """
+    try:
+        result = _evaluate_kafka_routing_flag(team_id)
+    except SoftTimeLimitExceeded:
+        # A Celery soft-time-limit is a task-control signal, not an attribution
+        # failure. Let it propagate so the verify sweep winds down, matching the
+        # other SoftTimeLimitExceeded guards in the verifier.
+        raise
+    except Exception:
+        # Mirror _route_to_kafka's evaluation-failure logging so a broken
+        # attribution client is diagnosable in Sentry, because otherwise it only
+        # shows up as a rise in writer="unknown" that cannot be told apart from a
+        # cold local flag cache (which returns None below and is expected at boot).
+        logger.warning(
+            "flags_cache_writer_attribution_flag_evaluation_failed",
+            team_id=team_id,
+            flag=KAFKA_ROUTING_FLAG,
+            exc_info=True,
+        )
+        return "unknown"
+    if result is None:
+        return "unknown"
+    return "rust" if result else "python"
 
 
 def _route_to_kafka(team_id: int) -> bool:
@@ -1052,17 +1111,7 @@ def _route_to_kafka(team_id: int) -> bool:
     expected; a sustained non-zero rate means polling is broken.
     """
     try:
-        # The SDK annotates feature_enabled as returning bool, but it returns
-        # None when local evaluation can't resolve the flag. Widen the type so
-        # the None branch below survives type checking.
-        result: bool | None = posthoganalytics.feature_enabled(
-            KAFKA_ROUTING_FLAG,
-            f"team-{team_id}",
-            groups={"project": str(team_id)},
-            group_properties={"project": {"id": str(team_id)}},
-            only_evaluate_locally=True,
-            send_feature_flag_events=False,
-        )
+        result = _evaluate_kafka_routing_flag(team_id)
     except Exception:
         # If the flag client misbehaves, default to Celery-only — never block the signal handler.
         # Log so a silent disable across the fleet during rollout is visible in Sentry.

@@ -1,6 +1,7 @@
 from typing import Any, TypeVar, cast
 from uuid import UUID
 
+from django.db import transaction
 from django.db.models import QuerySet
 
 from products.error_tracking.backend.models import (
@@ -8,6 +9,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingBypassRule,
     ErrorTrackingGroupingRule,
     ErrorTrackingIssueFingerprintV2,
+    ErrorTrackingSeverityRule,
     ErrorTrackingSuppressionRule,
 )
 
@@ -16,8 +18,16 @@ CLIENT_EVALUABLE_PROPERTIES = frozenset({"$exception_types", "$exception_values"
 # Regex and numeric coercion differ between posthog-js and the server evaluator, so those rules stay server-side.
 CLIENT_EVALUABLE_OPERATORS = frozenset({"exact", "is_not", "icontains", "not_icontains"})
 
+# Keep these limits in sync with rust/cymbal/src/modes/processing/rules/severity.rs.
+MAX_SEVERITY_RULES_PER_TEAM = 100
+MAX_SEVERITY_RULE_BYTECODE_OPS = 10_000
+
 
 class ErrorTrackingInvalidBytecodeError(Exception):
+    pass
+
+
+class ErrorTrackingSeverityRuleLimitError(Exception):
     pass
 
 
@@ -65,6 +75,7 @@ _ReorderableRule = TypeVar(
     ErrorTrackingAssignmentRule,
     ErrorTrackingBypassRule,
     ErrorTrackingGroupingRule,
+    ErrorTrackingSeverityRule,
     ErrorTrackingSuppressionRule,
 )
 
@@ -148,6 +159,76 @@ def delete_assignment_rule(team_id: int, rule_id: str) -> bool:
 
 def reorder_assignment_rules(team_id: int, orders: dict[str, int]) -> None:
     _reorder_rules(ErrorTrackingAssignmentRule, team_id, orders)
+
+
+def list_severity_rules(team_id: int) -> QuerySet[ErrorTrackingSeverityRule]:
+    return ErrorTrackingSeverityRule.objects.filter(team_id=team_id).order_by("order_key", "created_at", "id")
+
+
+def get_severity_rule(team_id: int, rule_id: str) -> ErrorTrackingSeverityRule | None:
+    return ErrorTrackingSeverityRule.objects.filter(team_id=team_id, id=rule_id).first()
+
+
+def _validate_severity_rule_bytecode(bytecode: list[Any]) -> None:
+    if len(bytecode) > MAX_SEVERITY_RULE_BYTECODE_OPS:
+        raise ErrorTrackingSeverityRuleLimitError(
+            f"Severity rule bytecode cannot exceed {MAX_SEVERITY_RULE_BYTECODE_OPS} operations."
+        )
+
+
+def create_severity_rule(
+    team_id: int, *, filters: dict, severity: str, order_key: int = 0
+) -> ErrorTrackingSeverityRule:
+    from posthog.models.team.team import Team  # noqa: PLC0415
+
+    bytecode = _rule_bytecode(team_id, filters)
+    _validate_severity_rule_bytecode(bytecode)
+
+    # Serialize creates for this team so concurrent requests cannot all pass the count check.
+    with transaction.atomic():
+        Team.objects.select_for_update().only("id").get(id=team_id)
+        if ErrorTrackingSeverityRule.objects.filter(team_id=team_id).count() >= MAX_SEVERITY_RULES_PER_TEAM:
+            raise ErrorTrackingSeverityRuleLimitError(
+                f"A project can have at most {MAX_SEVERITY_RULES_PER_TEAM} severity rules."
+            )
+        return ErrorTrackingSeverityRule.objects.create(
+            team_id=team_id,
+            filters=filters,
+            bytecode=bytecode,
+            severity=severity,
+            order_key=order_key,
+        )
+
+
+def update_severity_rule(
+    team_id: int,
+    rule_id: str,
+    *,
+    filters: dict | None = None,
+    severity: str | None = None,
+) -> ErrorTrackingSeverityRule | None:
+    rule = get_severity_rule(team_id, rule_id)
+    if rule is None:
+        return None
+    if filters is not None:
+        bytecode = _rule_bytecode(team_id, filters)
+        _validate_severity_rule_bytecode(bytecode)
+        rule.filters = filters
+        rule.bytecode = bytecode
+        rule.disabled_data = None
+    if severity is not None:
+        rule.severity = severity
+    rule.save()
+    return rule
+
+
+def delete_severity_rule(team_id: int, rule_id: str) -> bool:
+    deleted, _ = ErrorTrackingSeverityRule.objects.filter(team_id=team_id, id=rule_id).delete()
+    return deleted > 0
+
+
+def reorder_severity_rules(team_id: int, orders: dict[str, int]) -> None:
+    _reorder_rules(ErrorTrackingSeverityRule, team_id, orders)
 
 
 def list_grouping_rules(team_id: int) -> QuerySet[ErrorTrackingGroupingRule]:

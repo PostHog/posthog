@@ -12,19 +12,18 @@ Shortcuts taken to ship the first version. Revisit when they bite.
 
 ## Custom property view sync
 
-- **Celery, not Temporal.** The sync runs in a Celery task, not a dedicated Temporal workflow. No
-  durable retries and no run-level UI inspection — failures surface via `last_sync_error` on the
-  source + error tracking. Move to Temporal if we need durable retries, long-running syncs, or
-  per-run inspection.
-- **No retries.** A failed run is not retried; it records the failure (advancing the auto-disable
-  streak) and waits for the next materialization. Only transient write conflicts retry, in-logic.
-- **Direct dispatch by task name, not a signal.** Core (`succeed_materialization_activity`) enqueues
-  this product's sync task by name via `send_task`. A generic core signal the product subscribes to
-  would keep core ignorant of the consumer, but for a single consumer that isn't worth the wiring (a
-  signal definition + a receiver + an app-ready hook). By-name dispatch also keeps the product and
-  HogQL out of the data-modeling worker's process, since core imports nothing from here. Trade-off:
-  core hardcodes this consumer's task name. If a second consumer ever needs the materialization event,
-  switch to a core-owned signal (inversion of control) rather than adding another direct dispatch.
+- **Two bulk paths during rollout.** The legacy Celery task still re-queries the live view, records
+  source status, and has no retry. A flagged successful materialization starts an isolated Temporal
+  workflow that reads its committed Delta snapshot and writes job-scoped Parquet. Staging failures
+  remain visible in Temporal and logs without failing the materialized view. Keep the legacy recorder
+  until the staged path can aggregate both segment outcomes without double-counting failures. Source
+  create and re-enable still use Celery until the staged path gains manual recovery.
+- **Staged runs have no run-level UI yet.** Temporal shows the staging workflow and both segment
+  workflows, while logs carry the job and view identifiers. The job-scoped Parquet stays until both
+  segments succeed. A bounded sweep removes abandoned staging prefixes.
+- **Tracked and ignored segments are independent.** They use separate snapshots, retries, and
+  completion markers. Churned accounts are excluded from both. Only staged-file cleanup waits for
+  both markers.
 - **No save-time column validation.** Creating/updating a source does not check that `source_column`
   / `key_column` exist in the view's schema. A bad column surfaces as a per-source sync error (and
   advances the auto-disable streak) on the next run, not as a 400 on save. Validate against the saved

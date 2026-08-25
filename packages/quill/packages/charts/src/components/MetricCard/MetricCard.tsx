@@ -107,8 +107,8 @@ function MetricCardInner({
     subtitle,
     restingSubtitle,
     hoverChangeFromPreviousPoint = false,
-    animationMs = 350,
-    hoverIntentMs = 140,
+    animationMs = 120,
+    hoverIntentMs = 60,
     className,
     dataAttr,
 }: Omit<MetricCardProps, 'onError'>): React.ReactElement | null {

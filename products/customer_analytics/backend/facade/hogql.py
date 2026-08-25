@@ -806,6 +806,12 @@ feature_request_evidence: PostgresTable = PostgresTable(
         "requested_on": DateDatabaseField(
             name="requested_on", nullable=True, description="Date the account made the request, or NULL when unknown."
         ),
+        "_image_ids": StringArrayDatabaseField(name="image_ids", hidden=True),
+        "image_ids": ExpressionField(
+            name="image_ids",
+            expr=parse_expr("arrayMap(image_id -> toString(image_id), _image_ids)"),
+            description="Uploaded image UUIDs attached to this evidence item, in display order.",
+        ),
         "created_by_id": IntegerDatabaseField(
             name="created_by_id", nullable=True, description="PostHog user who added the evidence."
         ),

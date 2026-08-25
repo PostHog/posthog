@@ -1,5 +1,4 @@
 from django.test import TestCase
-from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -52,39 +51,6 @@ class CommentActivityTestCase(TestCase):
 
 
 class TestCommentActivity(CommentActivityTestCase):
-    def test_task_activity_can_open_a_backing_canvas(self):
-        canvas_id = "1588f730-b246-4cdb-b9aa-761d86b3e930"
-        self.task.state = {"activity_target": {"scope": "desktop_canvas", "id": canvas_id}}
-        self.task.save(update_fields=["state"])
-        TaskActivity.record(
-            team_id=self.team.id,
-            user_id=self.peer.id,
-            task_id=self.task.id,
-            kind=TaskActivity.Kind.MENTION,
-            activity_at=timezone.now(),
-        )
-
-        activity = tasks_facade.list_task_activity(self.team.id, self.peer.id).results[0]
-
-        assert activity.target_scope == "desktop_canvas"
-        assert activity.target_id == canvas_id
-
-    def test_invalid_canvas_activity_target_falls_back_to_the_task(self):
-        self.task.state = {"activity_target": {"scope": "desktop_canvas", "id": ""}}
-        self.task.save(update_fields=["state"])
-        TaskActivity.record(
-            team_id=self.team.id,
-            user_id=self.peer.id,
-            task_id=self.task.id,
-            kind=TaskActivity.Kind.MENTION,
-            activity_at=timezone.now(),
-        )
-
-        activity = tasks_facade.list_task_activity(self.team.id, self.peer.id).results[0]
-
-        assert activity.target_scope is None
-        assert activity.target_id is None
-
     def test_mention_on_an_artifact_comment_reaches_the_feed(self):
         comment = self._comment()
 
@@ -109,19 +75,6 @@ class TestCommentActivity(CommentActivityTestCase):
             name="Launch canvas",
             created_by=self.peer,
             generation_task_id=self.task.id,
-        )
-        comment = self._comment(scope="desktop_canvas", item_id=str(canvas.id))
-
-        self._record_activity(comment, [self.author.id])
-
-        assert TaskCommentActivity.objects.filter(team=self.team, user=self.author, task=self.task).exists()
-
-    def test_canvas_comment_uses_its_stable_discussion_task(self):
-        canvas = Canvas.objects.create(
-            team=self.team,
-            channel=self.channel,
-            name="Report canvas",
-            discussion_task_id=self.task.id,
         )
         comment = self._comment(scope="desktop_canvas", item_id=str(canvas.id))
 

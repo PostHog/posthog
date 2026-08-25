@@ -114,17 +114,6 @@ class CanvasAPIBaseTest(APIBaseTest):
 
 
 class TestCanvasCrud(CanvasAPIBaseTest):
-    def test_retrieve_includes_the_stable_discussion_task(self):
-        canvas_id = self._create_canvas()
-        discussion_task_id = uuid4()
-        with team_scope(self.team.id):
-            Canvas.objects.filter(id=canvas_id).update(discussion_task_id=discussion_task_id)
-
-        response = self.client.get(f"/api/projects/{self.team.id}/canvases/{canvas_id}/")
-
-        assert response.status_code == status.HTTP_200_OK
-        assert response.json()["discussion_task_id"] == str(discussion_task_id)
-
     def test_missing_user_only_sees_public_channels(self):
         with team_scope(self.team.id):
             public = Channel.objects.create(team=self.team, name="public")
@@ -155,6 +144,41 @@ class TestCanvasCrud(CanvasAPIBaseTest):
 
         response = self.client.get(f"/api/projects/{self.team.id}/canvases/")
         assert {row["id"] for row in response.json()["results"]} == {canvas_id, other_id}
+
+    def test_can_file_canvas_to_another_visible_channel(self):
+        canvas_id = self._create_canvas()
+        with team_scope(self.team.id):
+            destination = Channel.objects.create(team=self.team, name="destination")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/",
+            {"channel_id": str(destination.id)},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json()["channel"] == str(destination.id)
+        assert Canvas.objects.unscoped().get(id=canvas_id).channel_id == destination.id
+
+    def test_cannot_file_canvas_to_another_users_personal_channel(self):
+        canvas_id = self._create_canvas()
+        other_user = self._create_user("canvas-owner@example.com")
+        with team_scope(self.team.id):
+            destination = Channel.objects.create(
+                team=self.team,
+                name="me",
+                channel_type=Channel.ChannelType.PERSONAL,
+                created_by=other_user,
+            )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/",
+            {"channel_id": str(destination.id)},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert Canvas.objects.unscoped().get(id=canvas_id).channel_id == self.channel.id
 
     def test_personal_channel_canvases_are_invisible_to_other_users(self):
         # A canvas filed into a teammate's personal channel is private to them:
@@ -257,7 +281,7 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         # The rejection names the task's channel so the agent can recover in one step.
         assert str(self.channel.id) in wrong_channel.json()["detail"]
 
-    def test_task_bound_sandbox_can_write_its_linked_canvas_and_canvases_created_by_the_actor(self):
+    def test_task_bound_sandbox_can_read_canvases_created_by_the_authenticated_user(self):
         bound_task = Task.objects.create(
             team=self.team,
             channel=self.channel,
@@ -314,8 +338,7 @@ class TestCanvasCrud(CanvasAPIBaseTest):
         assert earlier_detail.status_code == status.HTTP_200_OK
         assert update.status_code == status.HTTP_200_OK
         assert update.json()["name"] == "Updated by later task"
-        assert linked_update.status_code == status.HTTP_200_OK
-        assert linked_update.json()["name"] == "Linked but unowned"
+        assert linked_update.status_code == status.HTTP_404_NOT_FOUND
 
     def test_rebound_sandbox_does_not_inherit_task_creator_canvas_access(self) -> None:
         actor = self._create_user("rebound-sandbox-actor@example.com")
@@ -539,6 +562,35 @@ class TestCanvasCrud(CanvasAPIBaseTest):
             f"/api/projects/{self.team.id}/canvases/{canvas_id}/", {"pinned": False}, format="json"
         )
         assert response.json()["pinned"] is False
+
+    def test_moving_canvas_clears_channel_pin(self):
+        canvas_id = self._create_canvas()
+        with team_scope(self.team.id):
+            destination = Channel.objects.create(team=self.team, name="destination", created_by=self.user)
+        self.client.patch(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/",
+            {"pinned": True},
+            format="json",
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/",
+            {"channel_id": str(destination.id)},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["pinned"] is False
+        assert self._changes(self._activity("updated")[-1]) == [
+            {
+                "type": "Canvas",
+                "action": "changed",
+                "field": "channel",
+                "before": str(self.channel.id),
+                "after": str(destination.id),
+            },
+            {"type": "Canvas", "action": "changed", "field": "pinned", "before": True, "after": False},
+        ]
 
     def test_generation_task_pointer_validates_team(self):
         canvas_id = self._create_canvas()
@@ -1274,8 +1326,15 @@ class TestCanvasState(CanvasAPIBaseTest):
             assert self._set_state(canvas_id, "shared", "one", 11).status_code == status.HTTP_200_OK
             assert self._set_state(canvas_id, "shared", "three", 3).status_code == status.HTTP_400_BAD_REQUEST
 
-    def test_sandbox_tokens_cannot_use_state(self):
+    def test_sandbox_tokens_use_their_users_state_on_visible_canvases(self):
         canvas_id = self._state_canvas()
+        other_user = self._create_user("state-owner@example.com")
+        Canvas.objects.unscoped().filter(id=canvas_id).update(created_by=other_user)
+        self.client.force_login(other_user)
+        assert self._set_state(canvas_id, "user", "draft", "owners-private-state").status_code == status.HTTP_200_OK
+        self.client.force_login(self.user)
+        assert self._set_state(canvas_id, "shared", "progress", {"completed": 12}).status_code == status.HTTP_200_OK
+        assert self._set_state(canvas_id, "user", "draft", "my-private-state").status_code == status.HTTP_200_OK
         task = Task.objects.create(
             team=self.team,
             channel=self.channel,
@@ -1291,15 +1350,26 @@ class TestCanvasState(CanvasAPIBaseTest):
             f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/",
             HTTP_X_POSTHOG_TASK_ID=str(task.id),
         )
-        write = client.post(
+        write_shared = client.post(
             f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/set/",
-            {"scope": "shared", "key": "k", "value": 1},
+            {"scope": "shared", "key": "progress", "value": {"completed": 13}},
+            format="json",
+            HTTP_X_POSTHOG_TASK_ID=str(task.id),
+        )
+        write_user = client.post(
+            f"/api/projects/{self.team.id}/canvases/{canvas_id}/state/set/",
+            {"scope": "user", "key": "draft", "value": "updated-by-agent"},
             format="json",
             HTTP_X_POSTHOG_TASK_ID=str(task.id),
         )
 
-        assert read.status_code == status.HTTP_403_FORBIDDEN
-        assert write.status_code == status.HTTP_403_FORBIDDEN
+        assert read.status_code == status.HTTP_200_OK
+        assert {(entry["scope"], entry["key"]): entry["value"] for entry in read.json()["entries"]} == {
+            ("shared", "progress"): {"completed": 12},
+            ("user", "draft"): "my-private-state",
+        }
+        assert write_shared.status_code == status.HTTP_200_OK
+        assert write_user.status_code == status.HTTP_200_OK
 
 
 class TestCanvasErrorReports(CanvasAPIBaseTest):

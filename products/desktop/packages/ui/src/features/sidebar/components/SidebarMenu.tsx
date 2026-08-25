@@ -8,12 +8,14 @@ import {
 import { isTaskActivelyRunning } from "@posthog/core/sidebar/taskRunning";
 import { resolveBulkTaskContextMenuIntent } from "@posthog/core/tasks/contextMenuActions";
 import { useHostTRPCClient } from "@posthog/host-router/react";
-import type { Task } from "@posthog/shared/types";
+import type { Task, UserBasic } from "@posthog/shared/types";
 import {
   archiveTasksImperative,
   useArchiveCacheKeys,
   useArchiveTask,
 } from "@posthog/ui/features/archive/useArchiveTask";
+import { useAuthStateValue } from "@posthog/ui/features/auth/store";
+import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
 import { useCommandCenterStore } from "@posthog/ui/features/command-center/commandCenterStore";
 import { placeTaskInCommandCenter } from "@posthog/ui/features/command-center/placeTaskInCommandCenter";
 import { useExternalAppAction } from "@posthog/ui/features/external-apps/useExternalAppAction";
@@ -29,6 +31,7 @@ import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { useSidebarBulkActions } from "@posthog/ui/features/sidebar/useSidebarBulkActions";
 import { useSidebarData } from "@posthog/ui/features/sidebar/useSidebarData";
 import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
+import { HandoffTaskDialog } from "@posthog/ui/features/task-detail/components/HandoffTaskDialog";
 import { useTaskContextMenu } from "@posthog/ui/features/tasks/useTaskContextMenu";
 import { useRenameTask } from "@posthog/ui/features/tasks/useTaskMutations";
 import { useTasks } from "@posthog/ui/features/tasks/useTasks";
@@ -50,6 +53,15 @@ import { TaskListView } from "./TaskListView";
 
 const log = logger.scope("sidebar-menu");
 
+function creatorName(createdBy: UserBasic | null | undefined): string | null {
+  if (!createdBy) return null;
+  const name = [createdBy.first_name, createdBy.last_name]
+    .filter(Boolean)
+    .join(" ")
+    .trim();
+  return name || createdBy.email || null;
+}
+
 function SidebarMenuComponent() {
   const hostClient = useHostTRPCClient();
   const archiveCacheKeys = useArchiveCacheKeys();
@@ -70,6 +82,8 @@ function SidebarMenuComponent() {
 
   const { showContextMenu, editingTaskId, setEditingTaskId } =
     useTaskContextMenu();
+  const authStatus = useAuthStateValue((s) => s.status);
+  const currentUser = useCurrentUser();
   const { archiveTask } = useArchiveTask();
   const { renameTask } = useRenameTask();
   const { togglePin, setPinnedMany } = usePinnedTasks();
@@ -82,6 +96,14 @@ function SidebarMenuComponent() {
     () => new Map<string, Task>(allTasks.map((task) => [task.id, task])),
     [allTasks],
   );
+  const creatorNameByTaskId = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const task of allTasks) {
+      const name = creatorName(task.created_by);
+      if (name) names.set(task.id, name);
+    }
+    return names;
+  }, [allTasks]);
 
   const commandCenterCells = useCommandCenterStore((s) => s.cells);
 
@@ -117,6 +139,8 @@ function SidebarMenuComponent() {
     taskTitle: string;
     runId?: string;
   } | null>(null);
+  const [handoffTaskId, setHandoffTaskId] = useState<string | null>(null);
+  const handoffTask = handoffTaskId ? taskMap.get(handoffTaskId) : undefined;
 
   useClearSelectionOnEscape();
   const listAnchorRef = useRef<HTMLDivElement | null>(null);
@@ -322,6 +346,14 @@ function SidebarMenuComponent() {
         (id) => id === taskId && taskMap.has(id),
       );
 
+      // The menu mirrors the header's rule: only the owner sees Hand off.
+      // Read through the full task map: the sidebar's summary rows don't
+      // always carry `created_by`.
+      const canHandoff =
+        authStatus === "authenticated" &&
+        currentUser.data?.id != null &&
+        taskMap.get(taskId)?.created_by?.id === currentUser.data.id;
+
       showContextMenu(task, e, {
         worktreePath: workspace?.worktreePath ?? undefined,
         folderPath: workspace?.folderPath ?? undefined,
@@ -333,6 +365,8 @@ function SidebarMenuComponent() {
         runId,
         isInCommandCenter,
         hasEmptyCommandCenterCell: true,
+        canHandoff,
+        onHandoff: () => setHandoffTaskId(task.id),
         onTogglePin: () => handleTaskTogglePin(taskId),
         onStop: (stopTaskId, taskTitle, stopRunId) =>
           setStopConfirm({
@@ -526,6 +560,7 @@ function SidebarMenuComponent() {
               onTaskEditSubmit={handleTaskEditSubmit}
               onTaskEditCancel={handleTaskEditCancel}
               onGroupContextMenu={handleGroupContextMenu}
+              creatorNameByTaskId={creatorNameByTaskId}
               hasMore={sidebarData.hasMore}
             />
           )}
@@ -549,6 +584,15 @@ function SidebarMenuComponent() {
         onConfirm={handleConfirmArchive}
         onCancel={() => setArchiveConfirm(null)}
       />
+      {handoffTask ? (
+        <HandoffTaskDialog
+          task={handoffTask}
+          open
+          onOpenChange={(open) => {
+            if (!open) setHandoffTaskId(null);
+          }}
+        />
+      ) : null}
       {stopConfirm ? (
         <StopCloudRunDialog
           open

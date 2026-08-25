@@ -246,7 +246,7 @@ export function FeedQueryInput({
         />
       </div>
       {visible && (
-        <div className="absolute top-full right-0 left-0 z-50 mt-1.5 overflow-hidden rounded-lg border border-(--gray-a6) bg-(--color-panel-solid) shadow-lg">
+        <div className="absolute top-full right-0 left-0 z-50 mt-1.5 overflow-hidden rounded-lg border border-border bg-card shadow-lg">
           {group.heading !== "" && (
             <div className="px-3 pt-2 pb-1 font-medium text-(--gray-9) text-[11px] uppercase tracking-wider">
               {group.heading}

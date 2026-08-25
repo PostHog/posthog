@@ -207,6 +207,63 @@ class TestGmailSync(BaseTest):
         assert gmail_sync.GMAIL_PENDING_MESSAGE_IDS_CONFIG_KEY not in self.integration.config
         assert EmailThreadMessage.objects.for_team(self.team.id).count() == 2
 
+    def test_deleted_message_is_skipped_and_cursor_advances(self) -> None:
+        self.integration.config[gmail_sync.GMAIL_HISTORY_ID_CONFIG_KEY] = "100"
+        self.integration.save(update_fields=["config"])
+        history = {
+            "history": [
+                {
+                    "id": "101",
+                    "messagesAdded": [
+                        {"message": {"id": "deleted-1"}},
+                        {"message": {"id": "gmail-2"}},
+                    ],
+                }
+            ],
+            "historyId": "101",
+        }
+        second_message = _gmail_message(
+            label="INBOX", sender="second@example.com", recipient=self.user.email, message_id="gmail-2"
+        )
+
+        with patch.object(
+            gmail_sync,
+            "google_workspace_request",
+            side_effect=[
+                _response(history),
+                _response({"error": {"message": "Requested entity was not found."}}, status_code=404),
+                _response(second_message),
+            ],
+        ):
+            gmail_sync.sync_gmail_integration(self.integration.id, self.team.id)
+
+        self.integration.refresh_from_db()
+        assert self.integration.config[gmail_sync.GMAIL_HISTORY_ID_CONFIG_KEY] == "101"
+        assert gmail_sync.GMAIL_PENDING_MESSAGE_IDS_CONFIG_KEY not in self.integration.config
+        message = EmailThreadMessage.objects.for_team(self.team.id).select_related("comment").get()
+        assert message.comment.content == "Customer message body"
+
+    def test_deleted_attachment_is_skipped(self) -> None:
+        message = _gmail_message(label="INBOX", sender="customer@example.com", recipient=self.user.email)
+        message["payload"]["body"] = {"attachmentId": "body-attachment"}
+
+        with patch.object(
+            gmail_sync,
+            "google_workspace_request",
+            side_effect=[
+                _response({"emailAddress": self.user.email, "historyId": "100"}),
+                _response({"messages": [{"id": "gmail-1"}]}),
+                _response(message),
+                _response({"error": {"message": "Requested entity was not found."}}, status_code=404),
+            ],
+        ):
+            gmail_sync.sync_gmail_integration(self.integration.id, self.team.id)
+
+        imported = EmailThreadMessage.objects.for_team(self.team.id).select_related("comment").get()
+        assert imported.comment.content == ""
+        self.integration.refresh_from_db()
+        assert self.integration.config[gmail_sync.GMAIL_HISTORY_ID_CONFIG_KEY] == "100"
+
     def test_incremental_sync_is_idempotent(self) -> None:
         self.integration.config[gmail_sync.GMAIL_HISTORY_ID_CONFIG_KEY] = "100"
         self.integration.save(update_fields=["config"])

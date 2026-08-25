@@ -41,6 +41,7 @@ from posthog.exceptions_capture import capture_exception  # noqa: F401
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DEFAULT_NUMERIC_PRECISION,
     DEFAULT_NUMERIC_SCALE,
+    BinaryColumnReporter,
     build_pyarrow_decimal_type,
     restrict_schema_to_columns,
     table_from_iterator,
@@ -1446,6 +1447,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         primary_keys, arrow_schema, chunk_size, partition_settings, rows_to_sync = (
             _retry_on_transient_tablet_unavailable(_discover_metadata, logger)
         )
+        binary_reporter = BinaryColumnReporter(logger)
 
         def _stream_with_optional_force_index(force_index_name: str | None) -> Iterator[Any]:
             """Open a fresh connection and stream rows.
@@ -1525,7 +1527,12 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                         if not batch:
                             break
 
-                        yield table_from_iterator((dict(zip(column_names, row)) for row in batch), read_schema)
+                        yield table_from_iterator(
+                            (dict(zip(column_names, row)) for row in batch),
+                            read_schema,
+                            primary_keys=primary_keys,
+                            binary_reporter=binary_reporter,
+                        )
                 finally:
                     # Tear the streaming cursor down without draining the rest of
                     # the unbuffered result set — see `_release_streaming_cursor`.

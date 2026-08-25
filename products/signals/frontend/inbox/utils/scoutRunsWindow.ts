@@ -6,7 +6,6 @@
 // the runs endpoint's `date_to` cursor past its 100-row page cap).
 
 import { humanFriendlyDuration } from 'lib/utils/durations'
-import { objectsEqual } from 'lib/utils/objects'
 import { pluralize } from 'lib/utils/strings'
 
 import type { SignalScoutConfigApi as SignalScoutConfig } from 'products/signals/frontend/generated/api.schemas'
@@ -330,34 +329,6 @@ function emptyRollup(): ScoutRollup {
         runningRun: null,
         runs: [],
     }
-}
-
-/**
- * Reuse the previous poll's object reference for any item whose content is unchanged. The runs
- * endpoint returns freshly parsed objects on every 60s poll, so without this every run reference
- * changes each poll and every memoized row re-renders even when nothing changed. Matching by id and
- * reusing the old reference when deep-equal keeps identity stable through the rollup selectors, so
- * `React.memo` on the rows can actually bite.
- *
- * Cost: O(n·fields) per call — one Map build + one deep-equal per matched pair. Fine for the
- * runs window (≤100 items, 60s cadence); keep that in mind if pointed at a large, hot list.
- */
-export function reconcileById<T>(
-    previous: T[],
-    next: T[],
-    getId: (item: T) => string,
-    // Items whose rendering depends on wall-clock time (e.g. a live run's ticking duration) must
-    // NOT be reused: a preserved reference lets a memoized row skip the poll's re-render and freeze.
-    isReusable: (item: T) => boolean = () => true
-): T[] {
-    if (previous.length === 0) {
-        return next
-    }
-    const previousById = new Map(previous.map((item) => [getId(item), item]))
-    return next.map((item) => {
-        const existing = previousById.get(getId(item))
-        return existing && isReusable(item) && objectsEqual(existing, item) ? existing : item
-    })
 }
 
 /**

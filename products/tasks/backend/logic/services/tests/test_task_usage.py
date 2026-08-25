@@ -126,6 +126,46 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
 
         assert usage.compute_cost_usd == Decimal("0.20")
 
+    def test_usage_is_reported_before_the_first_rate_card_takes_effect(self) -> None:
+        rate_start = datetime(2026, 8, 1, tzinfo=UTC)
+        rate_card = ComputeRateCard(
+            version="test",
+            effective_at=rate_start,
+            expires_at=None,
+            cpu_core_second_usd=Decimal("0.01"),
+            memory_gib_second_usd=Decimal("0.01"),
+        )
+        run = TaskRun.objects.create(task=self.task, team=self.team)
+        SandboxSession.objects.unscoped().create(
+            team=self.team,
+            task_run=run,
+            sandbox_id="sandbox-before-rates",
+            origin_product=Task.OriginProduct.USER_CREATED,
+            client_provenance=TaskClientProvenance.POSTHOG_DESKTOP,
+            cpu_cores=1,
+            memory_gb=1,
+            ttl_seconds=3600,
+            burstable=False,
+            created_at=rate_start - timedelta(hours=2),
+            ttl_expires_at=rate_start - timedelta(hours=1),
+            user_attributed_at=rate_start - timedelta(hours=2),
+            ended_at=rate_start - timedelta(hours=1, seconds=50),
+        )
+
+        with (
+            patch.object(task_usage, "COMPUTE_RATE_CARDS", (rate_card,)),
+            patch.object(task_usage, "_get_task_token_cost", return_value=Decimal("2.5")),
+            patch.object(task_usage.timezone, "now", return_value=rate_start - timedelta(days=1)),
+        ):
+            usage = task_usage.get_task_usage(
+                team_id=self.team.id,
+                task_id=self.task.id,
+                task_created_at=self.task.created_at,
+            )
+
+        assert usage.compute_cost_usd == Decimal(0)
+        assert usage.total_cost_usd == Decimal("2.5")
+
     def test_eu_token_cost_uses_cross_region_source(self) -> None:
         with (
             self.settings(
