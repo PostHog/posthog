@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_sea
     FRESHNESS_LAG_DAYS,
     HISTORY_DAYS,
     QUOTA_MAX_RETRIES,
+    REQUEST_TIMEOUT_SECONDS,
     GoogleSearchConsoleQuotaExceededError,
     GoogleSearchConsoleResumeConfig,
     _credentials,
@@ -816,14 +817,22 @@ def test_query_server_error_bubbles_http_error_after_max_retries(monkeypatch):
     assert session.post.call_count == QUOTA_MAX_RETRIES + 1
 
 
-def test_query_retries_connection_error_then_succeeds(monkeypatch):
+@pytest.mark.parametrize(
+    "error",
+    [
+        requests.ConnectionError("Connection aborted."),
+        # ReadTimeout subclasses requests.Timeout, not ConnectionError, so it needs its own arm.
+        requests.ReadTimeout("Read timed out."),
+    ],
+)
+def test_query_retries_network_error_then_succeeds(monkeypatch, error):
     monkeypatch.setattr(gsc.time, "sleep", lambda _s: None)
     monkeypatch.setattr(gsc, "_throttle", lambda _site: None)
 
     session = mock.MagicMock()
     session.post.side_effect = [
-        requests.ConnectionError("Connection aborted."),
-        requests.ConnectionError("Connection aborted."),
+        error,
+        error,
         _fake_response(200, {"rows": [{"keys": ["2026-04-15"], "clicks": 1}]}),
     ]
 
@@ -833,16 +842,23 @@ def test_query_retries_connection_error_then_succeeds(monkeypatch):
     assert session.post.call_count == 3
 
 
-def test_query_connection_error_bubbles_after_max_retries(monkeypatch):
+@pytest.mark.parametrize(
+    ("error", "expected"),
+    [
+        (requests.ConnectionError("Connection aborted."), requests.ConnectionError),
+        (requests.ReadTimeout("Read timed out."), requests.ReadTimeout),
+    ],
+)
+def test_query_network_error_bubbles_after_max_retries(monkeypatch, error, expected):
     monkeypatch.setattr(gsc.time, "sleep", lambda _s: None)
     monkeypatch.setattr(gsc, "_throttle", lambda _site: None)
 
     session = mock.MagicMock()
-    session.post.side_effect = requests.ConnectionError("Connection aborted.")
+    session.post.side_effect = error
 
-    # A persistent connection reset exhausts the inline budget and surfaces the real
-    # ConnectionError (retryable at the activity level).
-    with pytest.raises(requests.ConnectionError):
+    # A persistent reset or timeout exhausts the inline budget and surfaces the real
+    # error, which Temporal retries at the activity level.
+    with pytest.raises(expected):
         _query_search_analytics(session, "sc-domain:example.com", "2026-04-15", "2026-04-15", ["date"], 0)
 
     assert session.post.call_count == QUOTA_MAX_RETRIES + 1
@@ -984,6 +1000,17 @@ def test_query_sends_search_type(monkeypatch, resource_name, expected_type):
     )
 
     assert session.post.call_args.kwargs["json"]["type"] == expected_type
+
+
+def test_query_sends_explicit_request_timeout(monkeypatch):
+    # Without an explicit timeout, AuthorizedSession waits 120s on a stalled read and parks the worker.
+    monkeypatch.setattr(gsc, "_throttle", lambda _site: None)
+
+    session = mock.MagicMock()
+    session.post.return_value = _fake_response(200, {"rows": []})
+    _query_search_analytics(session, "sc-domain:example.com", "2026-04-15", "2026-04-15", ["date"], 0)
+
+    assert session.post.call_args.kwargs["timeout"] == REQUEST_TIMEOUT_SECONDS
 
 
 def test_suffixed_schema_queries_base_dimensions_under_suffixed_table_name(monkeypatch):

@@ -77,6 +77,11 @@ DAILY_QUOTA_REASONS = frozenset({"dailyLimitExceeded"})
 QUOTA_MAX_RETRIES = 5
 QUOTA_BACKOFF_BASE_SECONDS = 2.0  # exponential: ~2, 4, 8, 16, 32s — QPS windows reset within seconds
 
+# Deliberate per-request timeout for searchAnalytics.query. Without it, AuthorizedSession
+# falls back to a 120s library default, so a stalled read parks the worker that long. A read
+# that runs over is transient, so the retry loop below backs off and tries again.
+REQUEST_TIMEOUT_SECONDS = 60.0
+
 # Proactive client-side throttle to stay under the per-site QPS burst cap before
 # Google rejects us. Spaces consecutive requests to the same property; the limit
 # is 1,200 QPM (20 QPS) but we leave headroom for the undocumented per-second
@@ -339,18 +344,19 @@ def _query_search_analytics(
     for attempt in range(QUOTA_MAX_RETRIES + 1):
         _throttle(site_url)
         try:
-            response = session.post(url, json=body)
-        except requests.ConnectionError:
-            # A dropped connection (RemoteDisconnected / connection reset) is raised before any
-            # response, so the quota/5xx handling below never sees it, and the tracked adapter's
-            # retry skips it because searchAnalytics.query is a POST. It's transient, so retry
-            # inline like a 5xx; once the inline budget is spent, let it bubble so Temporal
-            # retries the activity (resuming from the last saved date).
+            response = session.post(url, json=body, timeout=REQUEST_TIMEOUT_SECONDS)
+        except (requests.ConnectionError, requests.Timeout):
+            # A dropped connection (RemoteDisconnected / connection reset) or a read/connect timeout
+            # is raised before any response, so the quota/5xx handling below never sees it, and the
+            # tracked adapter's retry skips it because searchAnalytics.query is a POST. `ReadTimeout`
+            # subclasses `requests.Timeout`, not `ConnectionError`, so it needs its own arm. Both are
+            # transient, so retry inline like a 5xx; once the inline budget is spent, let it bubble so
+            # Temporal retries the activity (resuming from the last saved date).
             if attempt == QUOTA_MAX_RETRIES:
                 raise
             wait = QUOTA_BACKOFF_BASE_SECONDS * (2**attempt)
             logger.warning(
-                "GSC request connection error, backing off",
+                "GSC request network error, backing off",
                 site_url=site_url,
                 attempt=attempt,
                 wait_seconds=wait,
