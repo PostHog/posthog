@@ -1305,7 +1305,9 @@ class AutoresearchSuggestionSerializer(DataclassSerializer):
         read_only=True,
         help_text="Lifecycle status: 'queued' (awaiting pickup), 'picked_up' (agent is applying as a constraint), 'acted_on' (agent spawned iterations), 'dismissed' (agent rejected with rationale).",
     )
-    source = serializers.ChoiceField(
+    # Named `source` to keep the field the API already exposes; it shadows DRF's own
+    # Field.source attribute, which is a typing conflict only.
+    source = serializers.ChoiceField(  # type: ignore[assignment]
         choices=SUGGESTION_SOURCE_CHOICES,
         read_only=True,
         help_text="'user' for human-submitted suggestions; 'agent' for agent-generated hypotheses.",

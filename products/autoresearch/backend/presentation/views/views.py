@@ -133,8 +133,17 @@ class _FacadePaginationMixin:
 
 
 def _parent_pipeline_id(view: Any) -> str | None:
+    """The pipeline this nested route is scoped to, or None on the unscoped collection route."""
     pipeline_id = view.kwargs.get("parent_lookup_pipeline_id")
     return str(pipeline_id) if pipeline_id else None
+
+
+def _require_parent_pipeline_id(view: Any) -> str:
+    """The pipeline id for a route that cannot act without one."""
+    pipeline_id = _parent_pipeline_id(view)
+    if pipeline_id is None:
+        raise ValidationError("Pipeline not found.")
+    return pipeline_id
 
 
 def _pipeline_write_fields(validated: Any, raw_data: dict, *, creating: bool) -> dict[str, Any]:
@@ -361,7 +370,7 @@ class AutoresearchPipelineViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMixin
                 self.team_id,
                 self.kwargs["pk"],
                 iteration_budget=request.validated_data.get("iteration_budget"),
-                user_id=request.user.id,
+                user_id=cast(User, request.user).id,
             )
         except PipelineNotFound:
             raise NotFound("Pipeline not found.")
@@ -618,7 +627,7 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
         try:
             training_run = api.open_training_run(
                 self.team_id,
-                _parent_pipeline_id(self),
+                _require_parent_pipeline_id(self),
                 iteration_budget=request.validated_data.get("iteration_budget"),
             )
         except (PipelineNotFound, AutoresearchConflict) as exc:
@@ -758,7 +767,7 @@ class AutoresearchTrainingRunViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMi
         except (TypeError, ValueError):
             limit = 5
         try:
-            history = api.training_run_history(self.team_id, _parent_pipeline_id(self), limit=limit)
+            history = api.training_run_history(self.team_id, _require_parent_pipeline_id(self), limit=limit)
         except PipelineNotFound as exc:
             raise ValidationError(str(exc)) from exc
         return Response(TrainingRunHistorySerializer(instance=history).data)
@@ -943,7 +952,7 @@ class AutoresearchSuggestionViewSet(TeamAndOrgViewSetMixin, _FacadePaginationMix
         try:
             suggestion = api.create_suggestion(
                 self.team_id,
-                _parent_pipeline_id(self),
+                _require_parent_pipeline_id(self),
                 prompt=data["prompt"],
                 priority=data.get("priority", "consider"),
                 # The permission class rejects anonymous callers, so this is always a real user.

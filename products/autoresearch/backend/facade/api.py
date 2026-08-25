@@ -77,6 +77,20 @@ _AGENT_FEATURE_DIR = "/tmp/workspace/autoresearch/data"
 _HISTORY_LIMIT_MAX = 20
 
 
+def _as_uuid(value: str | UUID | None) -> UUID | None:
+    """A pk from a URL as a UUID, or None when it cannot be one.
+
+    An id that is not a UUID matches nothing, so callers filter it down to an empty result
+    rather than letting the malformed value reach the database.
+    """
+    if value is None:
+        return None
+    try:
+        return value if isinstance(value, UUID) else UUID(str(value))
+    except (ValueError, AttributeError, TypeError):
+        return None
+
+
 # ── Mappers ────────────────────────────────────────────────────────────────
 
 
@@ -456,7 +470,7 @@ def validate_features_sql(features_sql: str) -> None:
 def list_models(team_id: int, *, pipeline_id: str | UUID | None, offset: int, limit: int) -> tuple[list[Model], int]:
     qs = AutoresearchModel.objects.for_team(team_id).select_related("pipeline").order_by("-created_at")
     if pipeline_id:
-        qs = qs.filter(pipeline_id=str(pipeline_id))
+        qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
     count = qs.count()
     return [_model_to_contract(row) for row in qs[offset : offset + limit]], count
 
@@ -472,7 +486,7 @@ def get_model(team_id: int, model_id: str | UUID) -> Model | None:
 def list_runs(team_id: int, *, pipeline_id: str | UUID | None, offset: int, limit: int) -> tuple[list[Run], int]:
     qs = AutoresearchRun.objects.for_team(team_id).select_related("pipeline", "model").order_by("-created_at")
     if pipeline_id:
-        qs = qs.filter(pipeline_id=str(pipeline_id))
+        qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
     count = qs.count()
     return [_run_to_contract(row) for row in qs[offset : offset + limit]], count
 
@@ -519,7 +533,7 @@ def list_training_runs(
         .order_by("-created_at")
     )
     if pipeline_id:
-        qs = qs.filter(pipeline_id=str(pipeline_id))
+        qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
     count = qs.count()
     return [_training_run_to_contract(row) for row in qs[offset : offset + limit]], count
 
@@ -586,13 +600,14 @@ def record_iteration(team_id: int, training_run_id: str | UUID, *, fields: dict[
     # Scope the suggestion lookup to this run's pipeline so a foreign suggestion id
     # cannot be attached across tenants.
     parent_suggestion = None
-    parent_suggestion_id = fields.get("parent_suggestion")
-    if parent_suggestion_id:
-        parent_suggestion = (
-            AutoresearchSuggestion.objects.for_team(team_id)
-            .filter(id=parent_suggestion_id, pipeline=training_run.pipeline)
-            .first()
-        )
+    parent_suggestion_id = _as_uuid(fields.get("parent_suggestion"))
+    if fields.get("parent_suggestion"):
+        if parent_suggestion_id is not None:
+            parent_suggestion = (
+                AutoresearchSuggestion.objects.for_team(team_id)
+                .filter(id=parent_suggestion_id, pipeline=training_run.pipeline)
+                .first()
+            )
         if parent_suggestion is None:
             raise AutoresearchConflict("parent_suggestion not found on this pipeline.")
 
@@ -860,7 +875,7 @@ def list_suggestions(
         .order_by("-created_at")
     )
     if pipeline_id:
-        qs = qs.filter(pipeline_id=str(pipeline_id))
+        qs = qs.filter(pipeline_id=_as_uuid(pipeline_id))
     count = qs.count()
     return [_suggestion_to_contract(row) for row in qs[offset : offset + limit]], count
 
