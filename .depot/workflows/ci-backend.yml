@@ -175,6 +175,7 @@ env:
     SANDBOX_JWT_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
 permissions:
     contents: read
+    actions: read
     pull-requests: read
 jobs:
     # Manual dispatch bypasses sampling so an explicit full run cannot silently no-op.
@@ -616,7 +617,7 @@ jobs:
                   GH_TOKEN: ${{ github.token }}
               run: |
                   run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci-backend-update-test-timing.yml \
-                      --branch master --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+                      --branch master --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
                   if [ -z "$run_id" ]; then
                       echo "::warning::No successful timing run to fall back to, sharding without durations"
                       exit 0
@@ -763,6 +764,37 @@ jobs:
               uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
               with:
                   version: '0.11.28'
+
+            - name: Download the run's sharding plan snapshot
+              # The selector sizes a narrowed selection from .test_durations, which is
+              # not in the repo. turbo-discover snapshots the union it used for this run.
+              if: steps.fallback.outputs.skip == 'false'
+              continue-on-error: true
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: test-durations-plan
+                  path: .
+
+            - name: Fall back to the last published durations
+              # .test_durations is not in the repo. The timing workflow refreshes the
+              # cache several times a day and publishes the same files as an artifact
+              # of its own runs. On a cache miss (retention lapsed, timing workflow
+              # down for two weeks) take the newest artifact; if that is gone too,
+              # pytest-split splits by count and turbo-discover sizes from file counts
+              # until the next timing run.
+              if: ${{ steps.fallback.outputs.skip == 'false' && hashFiles('.test_durations') == '' }}
+              continue-on-error: true
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci-backend-update-test-timing.yml \
+                      --branch master --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
+                  if [ -z "$run_id" ]; then
+                      echo "::warning::No successful timing run to fall back to, sharding without durations"
+                      exit 0
+                  fi
+                  gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name test-durations --dir . \
+                      || echo "::warning::Timing artifact of run $run_id unavailable, sharding without durations"
 
             - name: Run shadow selector
               id: select
@@ -1126,7 +1158,7 @@ jobs:
                   GH_TOKEN: ${{ github.token }}
               run: |
                   run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci-backend-update-test-timing.yml \
-                      --branch master --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+                      --branch master --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
                   if [ -z "$run_id" ]; then
                       echo "::warning::No successful timing run to fall back to, sharding without durations"
                       exit 0
@@ -2191,7 +2223,7 @@ jobs:
                   GH_TOKEN: ${{ github.token }}
               run: |
                   run_id=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci-backend-update-test-timing.yml \
-                      --branch master --status success --limit 1 --json databaseId --jq '.[0].databaseId')
+                      --branch master --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')
                   if [ -z "$run_id" ]; then
                       echo "::warning::No successful timing run to fall back to, sharding without durations"
                       exit 0
