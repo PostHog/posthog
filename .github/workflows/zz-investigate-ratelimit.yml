@@ -31,6 +31,15 @@ name: ZZ Investigate GitHub API cost
 # across a week of half-hourly samples. Per-invocation cost does not depend on
 # which App pays for it, so measuring on the quiet bucket measures the same
 # thing as measuring on the busy one, with a readable signal.
+#
+# The jobs then run one at a time, chained on `needs`. Run in parallel they drew
+# from that one bucket at once and each read the others' requests as its own: two
+# jobs calibrating together saw 5 and 6 where they had spent 3. `!cancelled()`
+# keeps the chain moving when a link fails, so one bad measurement does not hide
+# the rest.
+#
+# Contamination can only inflate a delta, never shrink one, so a measured 0 holds
+# even when the bucket is not exclusive.
 
 on:
     pull_request:
@@ -115,6 +124,20 @@ jobs:
                   PROBE_TOKEN: ${{ steps.token.outputs.token }}
               run: .github/scripts/gh-api-cost-probe.sh sample after_second
 
+            - uses: ./.github/actions/paths-filter
+              id: third
+              with:
+                  token: ${{ steps.token.outputs.token }}
+                  list-files: json
+                  filters: |
+                      everything:
+                          - '**'
+
+            - name: Sample after third invocation
+              env:
+                  PROBE_TOKEN: ${{ steps.token.outputs.token }}
+              run: .github/scripts/gh-api-cost-probe.sh sample after_third
+
             - name: Report
               env:
                   PROBE_TOKEN: ${{ steps.token.outputs.token }}
@@ -124,11 +147,13 @@ jobs:
                   probe=.github/scripts/gh-api-cost-probe.sh
                   "$probe" delta paths_filter_invocation_1 before_first between "first invocation, ${FILE_COUNT:-?} changed files"
                   "$probe" delta paths_filter_invocation_2 between after_second "second invocation, same token, same job"
+                  "$probe" delta paths_filter_invocation_3 after_second after_third "third invocation, same token, same job"
                   "$probe" note "PR files reported by the action: \`${FILE_COUNT:-unknown}\`. The action paginates \`GET /repos/{o}/{r}/pulls/{n}/files\` at 100 per page, so cost scales with PR size."
 
     filter-git-cost:
         name: paths-filter via git diff
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        needs: filter-api-cost
+        if: ${{ !cancelled() && (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository) }}
         runs-on: ubuntu-latest
         timeout-minutes: 10
         env:
@@ -233,7 +258,8 @@ jobs:
     # appear in both and cancel.
     revoke-1-skip:
         name: Revoke chain 1 (skip-token-revoke)
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        needs: filter-git-cost
+        if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         runs-on: ubuntu-latest
         timeout-minutes: 10
         env:
@@ -268,7 +294,7 @@ jobs:
     revoke-2-control:
         name: Revoke chain 2 (skip-token-revoke)
         needs: revoke-1-skip
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         runs-on: ubuntu-latest
         timeout-minutes: 10
         env:
@@ -310,7 +336,7 @@ jobs:
     revoke-3-norevoke:
         name: Revoke chain 3 (revoke enabled)
         needs: revoke-2-control
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         runs-on: ubuntu-latest
         timeout-minutes: 10
         env:
@@ -353,7 +379,7 @@ jobs:
     revoke-4-observe:
         name: Revoke chain 4 (observe the revoke)
         needs: revoke-3-norevoke
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         runs-on: ubuntu-latest
         timeout-minutes: 10
         env:
@@ -390,7 +416,7 @@ jobs:
     revoke-report:
         name: Revoke chain report
         needs: [revoke-1-skip, revoke-2-control, revoke-3-norevoke, revoke-4-observe]
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         runs-on: ubuntu-latest
         timeout-minutes: 10
         env:
@@ -425,13 +451,20 @@ jobs:
     # ---------------------------------------------------------------- Fix 2 --
     toolcache-probe:
         name: setup-* against a cold tool cache
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        needs: revoke-report
+        if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 15
         env:
             RUNNER_LABEL: depot-ubuntu-24.04
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Resolve the pinned versions
+              id: versions
+              run: |
+                  echo "node=$(tr -d 'v \n' <.nvmrc)" >>"$GITHUB_OUTPUT"
+                  echo "python=3.13.13" >>"$GITHUB_OUTPUT"
 
             - name: Show the tool cache before any setup step
               run: |
@@ -513,20 +546,26 @@ jobs:
               continue-on-error: true
               with:
                   path: |
-                      /opt/hostedtoolcache/node
-                      /opt/hostedtoolcache/Python
+                      /opt/hostedtoolcache/node/${{ steps.versions.outputs.node }}
+                      /opt/hostedtoolcache/Python/${{ steps.versions.outputs.python }}
                   key: zz-investigate-toolcache-${{ github.run_id }}-${{ github.run_attempt }}
 
     toolcache-cached:
         name: setup-* against a restored tool cache
         needs: toolcache-probe
-        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         runs-on: depot-ubuntu-24.04
         timeout-minutes: 15
         env:
             RUNNER_LABEL: depot-ubuntu-24.04
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Resolve the pinned versions
+              id: versions
+              run: |
+                  echo "node=$(tr -d 'v \n' <.nvmrc)" >>"$GITHUB_OUTPUT"
+                  echo "python=3.13.13" >>"$GITHUB_OUTPUT"
 
             # Depot backs the Actions cache API with Depot Cache, so this restore
             # does not touch GitHub's 10 GB pool.
@@ -535,8 +574,8 @@ jobs:
               continue-on-error: true
               with:
                   path: |
-                      /opt/hostedtoolcache/node
-                      /opt/hostedtoolcache/Python
+                      /opt/hostedtoolcache/node/${{ steps.versions.outputs.node }}
+                      /opt/hostedtoolcache/Python/${{ steps.versions.outputs.python }}
                   key: zz-investigate-toolcache-${{ github.run_id }}-${{ github.run_attempt }}
 
             - name: Show the restored tool cache

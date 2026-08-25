@@ -117,6 +117,14 @@ summary_header() {
 record() {
     local measurement="$1" before="$2" after="$3" reset_before="$4" reset_after="$5" note="${6:-}"
     local bucket="${PROBE_BUCKET:-unknown}"
+
+    # A job that failed before it sampled hands its reader an empty output, and
+    # bash would read that as zero and publish a confident wrong number.
+    local field
+    for field in "$before" "$after" "$reset_before" "$reset_after"; do
+        [[ "$field" =~ ^[0-9]+$ ]] || die "[$measurement] missing or non-numeric sample; an upstream job did not report one"
+    done
+
     local delta=$((after - before))
     local rolled=false
 
