@@ -1,0 +1,7 @@
+[
+  "_H",
+  1,
+  32,
+  "user.contact.$email,user.contact.$phone,$set.profile.ssn",
+  38
+]

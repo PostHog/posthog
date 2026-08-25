@@ -503,6 +503,8 @@ jobs:
                   # describe block, so make it the file path instead.
                   JEST_JUNIT_SUITE_NAME: '{filepath}'
                   JEST_JUNIT_ADD_FILE_ATTRIBUTE: 'true'
+                  # New compileHog callers must generate and commit their source-addressed fixture.
+                  HOG_BYTECODE_CACHE_REQUIRED: 'true'
               run: |
                   if [ -f nodejs/jest.serial.config.js ]; then
                     cd nodejs && pnpm run test:${{ matrix.lane }}
