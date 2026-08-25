@@ -20,7 +20,7 @@ from posthog.schema import (
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.posthog_ai.backend.models.assistant import Conversation
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.django_checkpoint.checkpointer import DjangoCheckpointer

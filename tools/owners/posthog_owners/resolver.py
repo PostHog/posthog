@@ -9,15 +9,69 @@ from __future__ import annotations
 
 import sys
 import subprocess
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 from .matcher import compile_pattern, normalize_path
-from .schema import UNSET, OwnersFile, _Unset, parse_owners_file, parse_product_yaml_as_owners
+from .schema import UNSET, OwnersFile, TeamEntry, _Unset, parse_owners_file, parse_product_yaml_as_owners
 
 OWNERS_FILENAME = "owners.yaml"
 PRODUCT_FILENAME = "product.yaml"
+
+
+@dataclass(frozen=True)
+class TeamChannel:
+    """Where a team's Slack messages go, and how that was decided.
+
+    ``declared`` separates an explicit ``teams:`` entry from the derived ``#<slug>``: a caller
+    routing real messages usually treats a declaration as a decision to honor and a derivation as
+    a guess to verify, and cannot tell them apart from ``channel`` alone.
+    """
+
+    channel: str | None
+    declared: bool
+
+
+# What a caller wants a channel for. Spelled out as a type rather than taken as a bare string, so
+# a purpose this package has never heard of is a type error at the call site instead of silently
+# resolving to the channel where people are.
+Purpose = Literal["slack", "notifications"]
+DEFAULT_PURPOSE: Purpose = "slack"
+
+
+def team_channel(slug: str, teams: Mapping[str, TeamEntry], purpose: Purpose = DEFAULT_PURPOSE) -> TeamChannel:
+    """The Slack channel for a team slug and a purpose, else the derived ``#<slug>``.
+
+    ``purpose`` is "slack" (where people are) or "notifications" (where automation posts).
+    "notifications" falls back to "slack", so a team that never separates automation from people
+    keeps one channel and one entry. A per-producer form, so a team can silence one bot without
+    silencing all of them, is an additive change here later: it widens what a key may hold, and
+    callers keep the call they already make.
+
+    A declared ``false`` means the team has no channel for that purpose, which is different from
+    having no entry. The first is an answer and stops the lookup; the second falls through.
+    """
+    entry = teams.get(slug)
+    if entry is not None:
+        candidates = (entry.notifications, entry.slack) if purpose == "notifications" else (entry.slack,)
+        for value in candidates:
+            if value is not None:
+                # Schema only admits `false`; any bool means "no channel".
+                return TeamChannel(channel=value if isinstance(value, str) else None, declared=True)
+    return TeamChannel(channel=f"#{slug}", declared=False)
+
+
+def teams_registry(text: str) -> dict[str, TeamEntry]:
+    """The root ``owners.yaml``'s ``teams:`` registry, from the file's raw contents.
+
+    For callers holding the bytes rather than a checkout; ``OwnersResolver`` reads it off disk
+    itself. An unusable document yields an empty registry rather than raising, so a malformed root
+    file degrades to derived channels instead of declaring that no team has one.
+    """
+    parsed, _errors = parse_owners_file(text, path=Path(OWNERS_FILENAME), directory="")
+    return dict(parsed.teams) if parsed is not None else {}
 
 
 @dataclass
@@ -102,7 +156,7 @@ class OwnersResolver:
         # The worktree is treated as immutable for the resolver's lifetime.
         self._tracked_cache: dict[str | None, list[str]] = {}
         self._parsed_ownership: list[ParsedOwnershipFile] | None = None
-        self._teams_cache: dict[str, str | bool] | None = None
+        self._teams_cache: dict[str, TeamEntry] | None = None
 
     def _load_dir_file(self, directory: str) -> OwnersFile | None:
         """Ownership file for a repo-relative directory ("" = root), or None."""
@@ -206,8 +260,8 @@ class OwnersResolver:
 
         return self._build_resolution(norm, merged)
 
-    def _teams_registry(self) -> dict[str, str | bool]:
-        """The root file's ``teams:`` Slack registry (team slug -> channel or False),
+    def _teams_registry(self) -> dict[str, TeamEntry]:
+        """The root file's ``teams:`` Slack registry (team slug -> its declared channels),
         loaded once. Empty when there is no root file or it declares none."""
         if self._teams_cache is None:
             root = self._load_dir_file("")
@@ -219,13 +273,7 @@ class OwnersResolver:
         (team slugs only), then the derived ``#<slug>``, else None. Only a team slug
         (not an ``@handle``) carries a channel."""
         if owners and not owners[0].startswith("@"):
-            primary = owners[0]
-            registry = self._teams_registry()
-            if primary in registry:
-                entry = registry[primary]
-                # Schema only admits `slack: false`; any bool means "no channel".
-                return entry if isinstance(entry, str) else None
-            return f"#{primary}"
+            return team_channel(owners[0], self._teams_registry()).channel
         return None
 
     def _build_resolution(self, path: str, merged: _Merged) -> Resolution:

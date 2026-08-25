@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { PersonMessage } from '~/common/persons/person-message'
+import { LifecycleMarkPerson } from '~/common/persons/repositories/person-repository'
 import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PersonUpdateFields, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
@@ -29,6 +30,15 @@ export interface PersonRepositoryTransaction {
 
     /** Batched deletePerson for folded merges; all persons must belong to one team. */
     deletePersons(persons: InternalPerson[]): Promise<PersonMessage[]>
+
+    /** See PersonRepository.claimLifecycleMarks; the marks are held until this transaction commits. */
+    claimLifecycleMarks(opId: string, teamId: number, persons: LifecycleMarkPerson[]): Promise<void>
+
+    /** See PersonRepository.releaseLifecycleMarks. */
+    releaseLifecycleMarks(opId: string, teamId: number): Promise<void>
+
+    /** See PersonRepository.isPersonLive; only meaningful while holding the person's mark. */
+    isPersonLive(person: InternalPerson): Promise<boolean>
 
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]>
 

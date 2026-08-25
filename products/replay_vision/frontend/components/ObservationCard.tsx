@@ -1,3 +1,5 @@
+import { useState } from 'react'
+
 import { IconCopy, IconRewindPlay, IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
@@ -17,6 +19,7 @@ import {
     scannerTypeLabel,
 } from '../replay_scanners/types'
 import { citedTextToPlainText, parseCitedSegments } from '../utils/citations'
+import { readReasoning } from '../utils/observation'
 import { ObservationProgressBar } from './ObservationProgressBar'
 import { ObservationRetryButton } from './ObservationRetryButton'
 
@@ -247,7 +250,7 @@ export function ObservationPrimaryOutput({
                 <div className="flex flex-col gap-1">
                     <div className="flex flex-wrap gap-1">
                         {empty ? (
-                            <span className="text-muted text-sm">No tags</span>
+                            <span className="text-muted text-sm">No categories</span>
                         ) : (
                             <>
                                 {fixedTags.map((tag, index) => (
@@ -266,7 +269,7 @@ export function ObservationPrimaryOutput({
         if (configuredTags.length === 0 && empty) {
             return (
                 <div className="flex flex-col gap-1">
-                    <span className="text-muted text-sm">No tags</span>
+                    <span className="text-muted text-sm">No categories</span>
                     {prompt && <span className={promptClass}>{prompt}</span>}
                 </div>
             )
@@ -410,6 +413,10 @@ export function ObservationDockCard({
     const snapshot = observation.scanner_snapshot
     const scannerType = snapshot?.scanner_type
     const result = readResult(observation)
+    const [reasoningExpanded, setReasoningExpanded] = useState(false)
+    // Summarizers excluded: their primary output already is the full text
+    const reasoning =
+        observation.status === 'succeeded' && scannerType !== 'summarizer' ? readReasoning(observation) : null
 
     return (
         <div className="border rounded p-3 bg-surface-primary space-y-2">
@@ -419,9 +426,12 @@ export function ObservationDockCard({
                     <span className="font-semibold text-sm truncate">{snapshot?.name || 'Scanner'}</span>
                     {scannerType && <span className="text-muted text-xs">{scannerTypeLabel(scannerType)}</span>}
                 </div>
-                <Link to={urls.replayVisionObservation(observation.id)} className="text-xs whitespace-nowrap">
-                    View details
-                </Link>
+                <div className="flex items-center gap-2 shrink-0">
+                    {observation.status === 'succeeded' && result && <ObservationConfidence result={result} />}
+                    <Link to={urls.replayVisionObservation(observation.id)} className="text-xs whitespace-nowrap">
+                        View details
+                    </Link>
+                </div>
             </div>
 
             {observation.status === 'failed' && observation.error_reason && (
@@ -455,7 +465,30 @@ export function ObservationDockCard({
             )}
 
             {observation.status === 'succeeded' && snapshot && result && (
-                <ObservationPrimaryOutput observation={observation} compact onSeek={onSeek} expandSummary copyable />
+                <>
+                    <ObservationPrimaryOutput
+                        observation={observation}
+                        compact
+                        onSeek={onSeek}
+                        expandSummary
+                        copyable
+                    />
+                    {reasoning && (
+                        <div className="flex flex-col gap-1.5 items-start">
+                            <p className={`text-sm whitespace-pre-wrap m-0 ${reasoningExpanded ? '' : 'line-clamp-2'}`}>
+                                <CitedText text={reasoning} segments={result.reasoning_segments} onSeek={onSeek} />
+                            </p>
+                            <LemonButton
+                                size="xsmall"
+                                type="tertiary"
+                                onClick={() => setReasoningExpanded(!reasoningExpanded)}
+                                data-attr="vision-observation-reasoning-toggle"
+                            >
+                                {reasoningExpanded ? 'Show less' : 'Show more'}
+                            </LemonButton>
+                        </div>
+                    )}
+                </>
             )}
 
             {(observation.status === 'pending' || observation.status === 'running') && (

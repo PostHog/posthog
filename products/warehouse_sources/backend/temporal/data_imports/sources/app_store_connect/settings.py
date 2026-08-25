@@ -239,12 +239,12 @@ APP_STORE_CONNECT_ENDPOINTS: dict[str, AppStoreConnectEndpointConfig] = {
     ),
     "analytics_app_store_downloads": _analytics_endpoint(
         "analytics_app_store_downloads",
-        ("App Store Downloads Standard", "App Store Downloads"),
+        ("App Downloads Standard", "App Downloads"),
         "COMMERCE",
     ),
     "analytics_installations_deletions": _analytics_endpoint(
         "analytics_installations_deletions",
-        ("App Store Installations and Deletions Standard", "App Store Installations and Deletions"),
+        ("App Store Installation and Deletion Standard", "App Store Installation and Deletion"),
         "APP_USAGE",
     ),
     "analytics_discovery_engagement": _analytics_endpoint(
@@ -259,13 +259,39 @@ APP_STORE_CONNECT_ENDPOINTS: dict[str, AppStoreConnectEndpointConfig] = {
     ),
     "analytics_app_store_preorders": _analytics_endpoint(
         "analytics_app_store_preorders",
-        ("App Store Pre-orders Standard", "App Store Pre-orders"),
+        ("App Store Pre-Orders Standard", "App Store Pre-Orders"),
         "COMMERCE",
     ),
     "analytics_app_clip_usage": _analytics_endpoint(
         "analytics_app_clip_usage",
         ("App Clip Usage", "App Clip Usage Standard"),
         "APP_USAGE",
+    ),
+    # Detailed siblings of the analytics streams that carry acquisition attribution. Apple
+    # publishes each as a separate "<name> Detailed" report — the Standard columns plus the
+    # attribution fields (campaign, page_title, source_info) that exist in no Standard
+    # report, covering only users who opted in to sharing data. No suffix-less fallback
+    # here: the plain name resolves the Standard variant, which would silently fill the
+    # table with rows missing the attribution columns.
+    "analytics_app_sessions_detailed": _analytics_endpoint(
+        "analytics_app_sessions_detailed",
+        ("App Sessions Detailed",),
+        "APP_USAGE",
+    ),
+    "analytics_app_store_downloads_detailed": _analytics_endpoint(
+        "analytics_app_store_downloads_detailed",
+        ("App Downloads Detailed",),
+        "COMMERCE",
+    ),
+    "analytics_installations_deletions_detailed": _analytics_endpoint(
+        "analytics_installations_deletions_detailed",
+        ("App Store Installation and Deletion Detailed",),
+        "APP_USAGE",
+    ),
+    "analytics_discovery_engagement_detailed": _analytics_endpoint(
+        "analytics_discovery_engagement_detailed",
+        ("App Store Discovery and Engagement Detailed",),
+        "APP_STORE_ENGAGEMENT",
     ),
 }
 

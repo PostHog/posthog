@@ -9,11 +9,19 @@ export interface LegendItem {
     secondaryLabel?: string
 }
 
+/** Which gesture a legend row click was: a plain click means "isolate this series", a modified one
+ *  means "add/remove this series from the visible set". The legend only reports the intent — what
+ *  each one does is the click handler's business. */
+export interface LegendItemClickModifiers {
+    /** The user held ⌘/Ctrl (or Shift) while clicking. */
+    additive: boolean
+}
+
 export interface LegendProps {
     items: LegendItem[]
     orientation?: 'horizontal' | 'vertical'
     align?: 'start' | 'center' | 'end'
-    onItemClick?: (key: string) => void
+    onItemClick?: (key: string, modifiers: LegendItemClickModifiers) => void
     hiddenKeys?: string[]
     className?: string
     dataAttr?: string
@@ -90,8 +98,13 @@ export function Legend({
                 const node = onItemClick ? (
                     <button
                         type="button"
-                        className={`${rowClass} cursor-pointer bg-transparent border-0 p-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent`}
-                        onClick={() => onItemClick(item.key)}
+                        // select-none: clicking rows in quick succession would otherwise select their labels.
+                        className={`${rowClass} cursor-pointer select-none bg-transparent border-0 p-0 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent`}
+                        onClick={(event) =>
+                            onItemClick(item.key, {
+                                additive: event.metaKey || event.ctrlKey || event.shiftKey,
+                            })
+                        }
                     >
                         {inner}
                     </button>

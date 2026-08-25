@@ -12,6 +12,7 @@ import {
     ChangeRequestsRejectCreateBody,
     ChangeRequestsRejectCreateParams,
     ChangeRequestsRetrieveParams,
+    CommentsCreateBody,
     CommentsListQueryParams,
     CommentsRetrieveParams,
     CommentsThreadRetrieveParams,
@@ -472,6 +473,53 @@ const commentThread = (): ToolBase<typeof CommentThreadSchema, unknown> => ({
     },
 })
 
+const CommentsCreateSchema = CommentsCreateBody
+
+const commentsCreate = (): ToolBase<typeof CommentsCreateSchema, Schemas.Comment> => ({
+    name: 'comments-create',
+    schema: CommentsCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof CommentsCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.scope !== undefined) {
+            body['scope'] = params.scope
+        }
+        if (params.item_context !== undefined) {
+            body['item_context'] = params.item_context
+        }
+        if (params.deleted !== undefined) {
+            body['deleted'] = params.deleted
+        }
+        if (params.mentions !== undefined) {
+            body['mentions'] = params.mentions
+        }
+        if (params.slug !== undefined) {
+            body['slug'] = params.slug
+        }
+        if (params.is_task !== undefined) {
+            body['is_task'] = params.is_task
+        }
+        if (params.content !== undefined) {
+            body['content'] = params.content
+        }
+        if (params.rich_content !== undefined) {
+            body['rich_content'] = params.rich_content
+        }
+        if (params.item_id !== undefined) {
+            body['item_id'] = params.item_id
+        }
+        if (params.source_comment !== undefined) {
+            body['source_comment'] = params.source_comment
+        }
+        const result = await context.api.request<Schemas.Comment>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/comments/`,
+            body,
+        })
+        return result
+    },
+})
+
 const CommentsListSchema = CommentsListQueryParams
 
 const commentsList = (): ToolBase<typeof CommentsListSchema, Schemas.PaginatedCommentList> => ({
@@ -530,9 +578,12 @@ const orgMembersList = (): ToolBase<typeof OrgMembersListSchema, Schemas.Paginat
             method: 'GET',
             path: `/api/organizations/${encodeURIComponent(String(orgId))}/members/`,
             query: {
+                email_domain: params.email_domain,
+                levels: params.levels,
                 limit: params.limit,
                 offset: params.offset,
                 order: params.order,
+                outside_verified_domains: params.outside_verified_domains,
                 search: params.search,
             },
         })
@@ -811,6 +862,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'comment-count': commentCount,
     'comment-get': commentGet,
     'comment-thread': commentThread,
+    'comments-create': commentsCreate,
     'comments-list': commentsList,
     'org-member-get-github-login': orgMemberGetGithubLogin,
     'org-members-list': orgMembersList,

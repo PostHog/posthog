@@ -11,7 +11,7 @@ Unset bucket → the sweep is disabled."""
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from posthog.temporal.session_replay.surfacing_score_export_sweep.constants import (
@@ -35,7 +35,7 @@ class ScoreExportDestination:
     # None → default AWS endpoint; keys None → ambient credential chain (IRSA/instance profile).
     endpoint: str | None
     access_key_id: str | None
-    secret_access_key: str | None
+    secret_access_key: str | None = field(repr=False)
 
 
 def score_export_destination() -> ScoreExportDestination | None:

@@ -8,9 +8,8 @@ import { FREEFORM_TEMPLATE_ID } from "@posthog/core/canvas/freeformSchemas";
 import type { ReactNode } from "react";
 
 // A canvas's leading icon, chosen from its template so the tree and header read
-// at a glance: bar chart for json-render dashboards, line chart for web
-// analytics, shapes for the generic freeform canvas (until it's classified as
-// something more specific), plain file for blank canvases.
+// at a glance: shapes for a freeform canvas, plain file for a blank one, and
+// line/bar charts for the legacy template ids older records still carry.
 export function iconForTemplate(
   templateId: string,
   opts?: { size?: number; className?: string },

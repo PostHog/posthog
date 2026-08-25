@@ -3,12 +3,16 @@ from unittest.mock import MagicMock, patch
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import DEFAULT_RETRY
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
-from products.warehouse_sources.backend.temporal.data_imports.sources.doit.doit import DOIT_RETRY, DoItReport
+from products.warehouse_sources.backend.temporal.data_imports.sources.doit.doit import (
+    DOIT_RETRY,
+    DoItReport,
+    doit_list_reports,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.doit.source import DoItSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.doit import DoItSourceConfig
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.doit.source"
+_DOIT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.doit.doit"
 
 CONFIG = DoItSourceConfig(api_key="key")
 
@@ -16,9 +20,6 @@ CONFIG = DoItSourceConfig(api_key="key")
 class TestDoItSource:
     def setup_method(self):
         self.source = DoItSource()
-
-    def test_source_type(self):
-        assert self.source.source_type == ExternalDataSourceType.DOIT
 
     @pytest.mark.parametrize("pattern", ["Report no longer exists", "Request to get report failed with status: 404"])
     def test_non_retryable_errors_includes_pattern(self, pattern):
@@ -58,3 +59,42 @@ class TestDoItSource:
 
     def test_doit_retry_preserves_default_statuses(self):
         assert set(DEFAULT_RETRY.status_forcelist or ()).issubset(set(DOIT_RETRY.status_forcelist or ()))
+
+
+def _reports_response(reports: list[dict], page_token: str | None = None) -> MagicMock:
+    res = MagicMock()
+    res.status_code = 200
+    body: dict = {"reports": reports}
+    if page_token is not None:
+        body["pageToken"] = page_token
+    res.json.return_value = body
+    return res
+
+
+class TestDoItListReportsPagination:
+    def test_follows_page_tokens_until_exhausted(self):
+        session = MagicMock()
+        session.get.side_effect = [
+            _reports_response([{"id": "r1", "reportName": "First"}], page_token="tok-2"),
+            _reports_response([{"id": "r2", "reportName": "Second"}]),
+        ]
+
+        with patch(f"{_DOIT_MODULE}.make_tracked_session", return_value=session):
+            reports = doit_list_reports(CONFIG)
+
+        assert [r.id for r in reports] == ["r1", "r2"]
+        assert session.get.call_count == 2
+        assert "pageToken=tok-2" in session.get.call_args_list[1].args[0]
+
+    def test_stops_when_the_server_echoes_the_same_page_token(self):
+        session = MagicMock()
+        session.get.side_effect = [
+            _reports_response([{"id": "r1", "reportName": "First"}], page_token="tok"),
+            _reports_response([{"id": "r2", "reportName": "Second"}], page_token="tok"),
+        ]
+
+        with patch(f"{_DOIT_MODULE}.make_tracked_session", return_value=session):
+            reports = doit_list_reports(CONFIG)
+
+        assert [r.id for r in reports] == ["r1", "r2"]
+        assert session.get.call_count == 2

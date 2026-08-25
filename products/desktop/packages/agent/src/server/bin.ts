@@ -148,7 +148,7 @@ program
   )
   .option(
     "--relayMcpServers <json>",
-    "Desktop-relayed MCP server names as JSON array (docs/cloud-mcp-relay.md)",
+    "Desktop-relayed MCP server names as JSON array (docs/CLOUD-MCP-RELAY.md)",
   )
   .option(
     "--posthogExecPermissionRegex <regex>",

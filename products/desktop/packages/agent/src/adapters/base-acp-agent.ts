@@ -34,10 +34,9 @@ import {
 } from "../gateway-models";
 import { Logger } from "../utils/logger";
 /**
- * Shared settings manager interface that both Claude's SettingsManager
- * and Codex's CodexSettingsManager implement. BaseAcpAgent only calls
- * dispose() on this; each adapter's Session type narrows it to the
- * concrete implementation.
+ * Shared settings manager interface that Claude's SettingsManager
+ * implements. BaseAcpAgent only calls dispose() on this; each adapter's
+ * Session type narrows it to the concrete implementation.
  */
 export interface BaseSettingsManager {
   dispose(): void;
@@ -76,7 +75,7 @@ export abstract class BaseAcpAgent implements Agent {
   protected abstract interrupt(): Promise<void>;
 
   async cancel(params: CancelNotification): Promise<void> {
-    if (this.sessionId !== params.sessionId) {
+    if (!this.hasSession(params.sessionId)) {
       throw new Error("Session ID mismatch");
     }
     this.session.cancelled = true;
@@ -104,6 +103,8 @@ export abstract class BaseAcpAgent implements Agent {
     }
   }
 
+  /** Adapters may widen this to accept alternate ids for the live session
+   *  (e.g. the Claude adapter's post-/clear SDK session id). */
   hasSession(sessionId: string): boolean {
     return this.sessionId === sessionId;
   }
@@ -112,7 +113,7 @@ export abstract class BaseAcpAgent implements Agent {
     sessionId: string,
     notification: SessionNotification,
   ): void {
-    if (this.sessionId === sessionId) {
+    if (this.hasSession(sessionId)) {
       this.session.notificationHistory.push(notification);
     }
   }

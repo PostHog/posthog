@@ -1,10 +1,14 @@
+from io import BytesIO
+
 import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from PIL import Image
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
@@ -13,16 +17,12 @@ from posthog.kafka_client.topics import KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS
 from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.rbac.user_access_control import ACCESS_CONTROL_RESOURCES, model_to_resource
 
+from products.access_control.backend.facade.user_access_control import ACCESS_CONTROL_RESOURCES, model_to_resource
+from products.access_control.backend.models.access_control import AccessControl
 from products.web_analytics.backend.heatmap_preflight import PreflightResult
 from products.web_analytics.backend.models import SavedHeatmap
 from products.web_analytics.backend.test.test_heatmaps_api import INSERT_SINGLE_HEATMAP_EVENT
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
 
 
 class TestHeatmapResourceRegistration(SimpleTestCase):
@@ -172,6 +172,39 @@ class TestHeatmapAccessControl(ClickhouseTestMixin, APIBaseTest):
             mock_task.assert_not_called()
         else:
             mock_task.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("object_editor", True, status.HTTP_403_FORBIDDEN),
+            ("resource_editor", False, status.HTTP_201_CREATED),
+        ]
+    )
+    def test_capture_requires_resource_editor_access(
+        self, _name: str, object_grant: bool, expected_status: int
+    ) -> None:
+        self._create_project_default(access_level="none")
+        self._create_access_control(
+            self.editor_user,
+            resource_id=str(self.heatmap.id) if object_grant else None,
+            access_level="editor",
+        )
+        self.client.force_login(self.editor_user)
+        image = BytesIO()
+        Image.new("RGB", (12, 12), (200, 30, 30)).save(image, format="JPEG")
+        url = f"https://example.com/capture-{_name}"
+
+        response = self.client.post(
+            self._list_url() + "capture/",
+            data={
+                "image": SimpleUploadedFile("heatmap.jpg", image.getvalue(), content_type="image/jpeg"),
+                "url": url,
+                "width": 1440,
+            },
+            format="multipart",
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+        self.assertEqual(SavedHeatmap.objects.filter(team=self.team, url=url).exists(), not object_grant)
 
     @parameterized.expand(
         [

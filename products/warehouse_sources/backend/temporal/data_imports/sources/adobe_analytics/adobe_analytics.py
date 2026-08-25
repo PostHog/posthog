@@ -21,6 +21,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sync_window import SyncWindow
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceResponse
 
+# Rows created before this source declared versions carry the framework default "v1", which
+# maps to Adobe's legacy 1.4 API (vendor end-of-life 2026-08-12). This client has only ever
+# spoken the 2.0 REST API, so both pins hit the same wire — the version is metadata for the
+# deprecation warning and the repin migration, not a request input.
+ADOBE_ANALYTICS_API_VERSION_V1 = "v1"
+ADOBE_ANALYTICS_API_VERSION_2_0 = "2.0"
+
 # Adobe IMS issues the access token for OAuth Server-to-Server credentials. JWT ("Service
 # Account") credentials were retired on 2025-06-30, so this is the only server-side grant left.
 IMS_TOKEN_URL = "https://ims-na1.adobelogin.com/ims/token/v3"

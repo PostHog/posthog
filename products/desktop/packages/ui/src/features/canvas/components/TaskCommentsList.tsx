@@ -697,7 +697,7 @@ export function TaskCommentsList({
             <Spinner />
           </div>
         ) : visibleThreads.length === 0 ? (
-          <Empty className="py-8">
+          <Empty className="h-full border-0">
             <EmptyHeader>
               <EmptyMedia variant="icon">
                 <ChatCircleIcon />

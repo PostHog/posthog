@@ -23,8 +23,21 @@ class LegalDocumentDTO:
     company_name: str
     representative_email: str
     status: str
+    # True once the signed PDF is in object storage. A signed row can still have
+    # this False for a short window while the archive job runs, so the UI knows
+    # to hold the download link back until the file lands.
+    signed_pdf_stored: bool
     created_by: LegalDocumentCreator | None
     created_at: datetime
+
+
+@dataclass(frozen=True)
+class LegalDocumentReconcileResult:
+    """Outcome of one reconciliation sweep, for logging and tests."""
+
+    newly_signed: int
+    archives_requeued: int
+    errors: int
 
 
 @dataclass(frozen=True)

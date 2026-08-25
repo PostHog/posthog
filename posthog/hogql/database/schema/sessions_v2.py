@@ -136,7 +136,7 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "duration": IntegerDatabaseField(
         name="duration"
     ),  # alias of $session_duration, deprecated but included for backwards compatibility
-    "$is_bounce": BooleanDatabaseField(name="$is_bounce"),
+    "$is_bounce": BooleanDatabaseField(name="$is_bounce", nullable=True),
     "$last_external_click_url": StringDatabaseField(name="$last_external_click_url"),
     "$page_screen_autocapture_count_up_to": DatabaseField(name="$$page_screen_autocapture_count_up_to"),
     # some aliases for people upgrading from v1 to v2

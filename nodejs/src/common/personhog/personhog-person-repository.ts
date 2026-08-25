@@ -2,7 +2,11 @@ import { DateTime } from 'luxon'
 
 import { PersonMessage } from '~/common/persons/person-message'
 import { PersonUpdate } from '~/common/persons/person-update-batch'
-import { InternalPersonWithDistinctId, PersonRepository } from '~/common/persons/repositories/person-repository'
+import {
+    InternalPersonWithDistinctId,
+    LifecycleMarkPerson,
+    PersonRepository,
+} from '~/common/persons/repositories/person-repository'
 import { PersonRepositoryTransaction } from '~/common/persons/repositories/person-repository-transaction'
 import { CreatePersonResult } from '~/common/utils/db/db'
 import { logger } from '~/common/utils/logger'
@@ -214,6 +218,18 @@ export class PersonHogPersonRepository implements PersonRepository {
 
     deletePersons(persons: InternalPerson[]): Promise<PersonMessage[]> {
         return this.postgres.deletePersons(persons)
+    }
+
+    claimLifecycleMarks(opId: string, teamId: number, persons: LifecycleMarkPerson[]): Promise<void> {
+        return this.postgres.claimLifecycleMarks(opId, teamId, persons)
+    }
+
+    releaseLifecycleMarks(opId: string, teamId: number): Promise<void> {
+        return this.postgres.releaseLifecycleMarks(opId, teamId)
+    }
+
+    isPersonLive(person: InternalPerson): Promise<boolean> {
+        return this.postgres.isPersonLive(person)
     }
 
     addDistinctId(person: InternalPerson, distinctId: string, version: number): Promise<PersonMessage[]> {

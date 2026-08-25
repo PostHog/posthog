@@ -41,7 +41,9 @@ from posthog.exceptions_capture import capture_exception  # noqa: F401
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     DEFAULT_NUMERIC_PRECISION,
     DEFAULT_NUMERIC_SCALE,
+    BinaryColumnReporter,
     build_pyarrow_decimal_type,
+    restrict_schema_to_columns,
     table_from_iterator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
@@ -103,6 +105,14 @@ _LOST_CONNECTION_DURING_QUERY_CODE = 2013
 # index order and skip the filesort entirely, so the same FORCE INDEX fallback
 # resolves it.
 _OUT_OF_SORT_MEMORY_CODE = 1038
+
+# pymysql error code for "Query execution was interrupted, maximum statement
+# execution time exceeded" — the same bad plan (full scan + filesort over the
+# incremental field) seen from a third side: the server's own `max_execution_time`
+# cap kills the query outright before the filesort can finish. Forcing the
+# incremental-field index lets MySQL read rows in index order and skip the
+# filesort entirely, so the same FORCE INDEX fallback resolves it.
+_QUERY_EXECUTION_TIME_EXCEEDED_CODE = 3024
 
 # Raised in place of the raw pymysql 2013 when a lost-connection bad plan can't be dodged by the
 # FORCE INDEX fallback because the incremental field has no usable index. The un-indexed full-table
@@ -297,20 +307,22 @@ def _is_bad_plan_error(e: pymysql.err.OperationalError) -> bool:
     """Return True if the error is a symptom of MySQL filesorting the incremental
     `ORDER BY` instead of using an index — recoverable via the FORCE INDEX fallback.
 
-    Matches two codes, both signalling the optimizer picked a full scan + filesort
+    Matches three codes, all signalling the optimizer picked a full scan + filesort
     over the incremental field:
 
     - `2013` (lost connection during query): the filesort preparation outran a
       middlebox / server-side query timeout before any rows streamed back.
     - `1038` (out of sort memory): the filesort itself overran the server's
       `sort_buffer_size`.
+    - `3024` (query execution was interrupted): the server's own `max_execution_time`
+      cap killed the query before the filesort could finish.
 
     Forcing the incremental-field index makes MySQL read rows in index order and
-    skip the filesort, resolving both. Other `OperationalError`s (access denied,
+    skip the filesort, resolving all three. Other `OperationalError`s (access denied,
     table missing, etc.) should propagate untouched.
     """
     code = e.args[0] if e.args else None
-    return code in (_LOST_CONNECTION_DURING_QUERY_CODE, _OUT_OF_SORT_MEMORY_CODE)
+    return code in (_LOST_CONNECTION_DURING_QUERY_CODE, _OUT_OF_SORT_MEMORY_CODE, _QUERY_EXECUTION_TIME_EXCEEDED_CODE)
 
 
 # Number of times `connect` will open a fresh pymysql connection before giving up. Matches the
@@ -1435,6 +1447,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         primary_keys, arrow_schema, chunk_size, partition_settings, rows_to_sync = (
             _retry_on_transient_tablet_unavailable(_discover_metadata, logger)
         )
+        binary_reporter = BinaryColumnReporter(logger)
 
         def _stream_with_optional_force_index(force_index_name: str | None) -> Iterator[Any]:
             """Open a fresh connection and stream rows.
@@ -1502,13 +1515,24 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
 
                     column_names = [column[0] for column in ss_cursor.description or []]
 
+                    # The streaming read can return a strict subset of the columns discovered
+                    # during setup (a column dropped at the source, or the table recreated
+                    # narrower, between discovery and the read), so restrict the schema to what
+                    # the query actually returned instead of failing the batch build.
+                    read_schema = restrict_schema_to_columns(arrow_schema, column_names)
+
                     while True:
                         # use chunk_size to fetch rows instead of DEFAULT_CHUNK_SIZE
                         batch = ss_cursor.fetchmany(chunk_size)
                         if not batch:
                             break
 
-                        yield table_from_iterator((dict(zip(column_names, row)) for row in batch), arrow_schema)
+                        yield table_from_iterator(
+                            (dict(zip(column_names, row)) for row in batch),
+                            read_schema,
+                            primary_keys=primary_keys,
+                            binary_reporter=binary_reporter,
+                        )
                 finally:
                     # Tear the streaming cursor down without draining the rest of
                     # the unbuffered result set — see `_release_streaming_cursor`.
@@ -1566,8 +1590,9 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                     )
                     # A lost connection here recurs every run: with no usable index the incremental
                     # sort is unavoidable and re-times-out. Re-raise it as a deterministic error so
-                    # the schema is paused with guidance instead of looping. Out-of-sort-memory
-                    # (1038) is already classified by its own code, so leave it raw.
+                    # the schema is paused with guidance instead of looping. Out-of-sort-memory (1038)
+                    # and query-execution-time-exceeded (3024) already carry their own stable, locale-
+                    # independent codes, so leave those raw.
                     if e.args and e.args[0] == _LOST_CONNECTION_DURING_QUERY_CODE:
                         raise MySQLUnavoidableFilesortError() from e
                     raise

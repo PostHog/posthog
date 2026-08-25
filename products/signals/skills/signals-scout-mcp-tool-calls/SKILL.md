@@ -81,6 +81,7 @@ If `$mcp_tool_call` is absent from the profile's `top_events` (or a 7-day `count
 
 ## Orient
 
+- Governed baseline first: when your run prompt's catalog listing shows an approved `mcp_tool_call_fail_pct` metric, run it via `data-catalog-metric-run` as the canonical project-wide failure-rate baseline and refresh `pattern:mcp_analytics:baseline` from its output. Per-tool, per-category, struggle, and latency numbers stay cookbook SQL — label them noncanonical whenever the governed baseline exists.
 - `scout-scratchpad-search` (`text=mcp`) — durable steering from past runs. `pattern:` entries hold the baseline rates and the captured **regime** (hono vs external-SDK) so you don't re-probe it cold; `noise:` / `addressed:` / `dedupe:` say what's benign, fixed, or already filed; `report:` / `reviewer:` entries point at the open report for a category and who owns it.
 - `scout-runs-list` (last 7d) — what prior MCP runs found and ruled out.
 - `scout-project-profile-get` — confirm `$mcp_tool_call` reach off `top_events`.

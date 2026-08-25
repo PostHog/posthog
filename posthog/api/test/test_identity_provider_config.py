@@ -1,9 +1,17 @@
 from posthog.test.base import APIBaseTest
 
+from django.utils import timezone
+
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import IdentityProviderConfig, Organization, OrganizationMembership
+from posthog.models import (
+    IdentityProviderConfig,
+    LinkedIdentityProviderConfig,
+    Organization,
+    OrganizationDomain,
+    OrganizationMembership,
+)
 
 
 class TestIdentityProviderConfigAPI(APIBaseTest):
@@ -33,16 +41,67 @@ class TestIdentityProviderConfigAPI(APIBaseTest):
 
     # Create & permissions
 
-    def test_admin_can_create_config(self):
+    def test_admin_can_create_config_with_selected_domains(self):
         self._make_admin()
+        domain = OrganizationDomain.objects.create(organization=self.organization, domain="example.com")
         response = self.client.post(
             "/api/organizations/@current/identity_provider_configs/",
-            {"name": "Okta production", "saml_entity_id": "entity", "saml_acs_url": "https://idp.example.com/acs"},
+            {
+                "name": "Okta production",
+                "domain_scope": "selected",
+                "organization_domain_ids": [str(domain.id)],
+                "saml_entity_id": "entity",
+                "saml_acs_url": "https://idp.example.com/acs",
+            },
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         config = IdentityProviderConfig.objects.get(id=response.json()["id"])
         self.assertEqual(config.organization, self.organization)
         self.assertEqual(config.saml_entity_id, "entity")
+        self.assertEqual(response.json()["domain_scope"], "selected")
+        self.assertEqual(response.json()["organization_domain_ids"], [str(domain.id)])
+        self.assertEqual(response.json()["saml_relay_state"], str(config.saml_relay_state))
+        self.assertTrue(
+            LinkedIdentityProviderConfig.objects.filter(
+                identity_provider_config=config, organization_domain=domain
+            ).exists()
+        )
+
+    def test_updating_selected_domains_replaces_links(self):
+        self._make_admin()
+        first_domain = OrganizationDomain.objects.create(organization=self.organization, domain="first.example.com")
+        second_domain = OrganizationDomain.objects.create(organization=self.organization, domain="second.example.com")
+        config = IdentityProviderConfig.objects.create(organization=self.organization)
+        LinkedIdentityProviderConfig.objects.create(identity_provider_config=config, organization_domain=first_domain)
+
+        response = self.client.patch(
+            f"/api/organizations/@current/identity_provider_configs/{config.id}/",
+            {"organization_domain_ids": [str(second_domain.id)]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["organization_domain_ids"], [str(second_domain.id)])
+        self.assertEqual(
+            list(
+                LinkedIdentityProviderConfig.objects.filter(identity_provider_config=config).values_list(
+                    "organization_domain_id", flat=True
+                )
+            ),
+            [second_domain.id],
+        )
+
+    def test_cannot_map_config_to_another_organizations_domain(self):
+        self._make_admin()
+        other_organization = Organization.objects.create(name="Other")
+        other_domain = OrganizationDomain.objects.create(organization=other_organization, domain="other.example.com")
+
+        response = self.client.post(
+            "/api/organizations/@current/identity_provider_configs/",
+            {"organization_domain_ids": [str(other_domain.id)]},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["attr"], "organization_domain_ids")
 
     def test_member_cannot_create_config(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -163,3 +222,39 @@ class TestIdentityProviderConfigAPI(APIBaseTest):
             {"id_jag_issuer_url": "http://169.254.169.254/latest/meta-data"},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    # Deletion
+
+    def test_cannot_delete_a_config_a_domain_still_uses(self):
+        # Deleting a config drops every SCIM provisioning record hanging off it, and with them the
+        # IdP's immutable-id mapping. That has to take an explicit unlink first.
+        self._make_admin()
+        config = IdentityProviderConfig.objects.create(organization=self.organization)
+        domain = OrganizationDomain.objects.create(
+            organization=self.organization,
+            domain="linked.example.com",
+            verified_at=timezone.now(),
+        )
+        LinkedIdentityProviderConfig.objects.create(identity_provider_config=config, organization_domain=domain)
+
+        response = self.client.delete(f"/api/organizations/@current/identity_provider_configs/{config.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["code"], "linked_to_domain")
+        self.assertTrue(IdentityProviderConfig.objects.filter(id=config.id).exists())
+
+    def test_can_delete_a_config_once_no_domain_uses_it(self):
+        self._make_admin()
+        config = IdentityProviderConfig.objects.create(organization=self.organization)
+        domain = OrganizationDomain.objects.create(
+            organization=self.organization,
+            domain="unlinked.example.com",
+            verified_at=timezone.now(),
+        )
+        link = LinkedIdentityProviderConfig.objects.create(identity_provider_config=config, organization_domain=domain)
+        link.delete()
+
+        response = self.client.delete(f"/api/organizations/@current/identity_provider_configs/{config.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(IdentityProviderConfig.objects.filter(id=config.id).exists())

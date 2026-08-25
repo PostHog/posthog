@@ -150,6 +150,24 @@ class TestUserExistsWithStrippedAlias(TestCase):
         finally:
             user.delete()
 
+    @parameterized.expand(
+        [
+            # Guards the SQL side: the stored column is lowercased before stripping, so a legacy
+            # mixed-case row still matches.
+            ("stored_mixed_case", "Based+Old@Example.COM", "based@example.com"),
+            # Guards the Python side: the compared value is lowercased too. An equality match
+            # against the lowercased expression silently returns False without it.
+            ("looked_up_mixed_case", "based+old@example.com", "Based@Example.COM"),
+        ]
+    )
+    def test_matches_regardless_of_case(self, _name, stored_email, looked_up_email):
+        # create() rather than create_user() so the stored value keeps its original casing.
+        user = User.objects.create(email=stored_email, first_name="Base")
+        try:
+            self.assertTrue(EmailValidationHelper.user_exists_with_stripped_alias(looked_up_email))
+        finally:
+            user.delete()
+
 
 class TestESPSuppressionCheck(SimpleTestCase):
     def test_returns_not_suppressed_for_empty_email(self):

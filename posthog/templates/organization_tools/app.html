@@ -1,0 +1,29 @@
+{% if perms.posthog.view_organization %}
+<div id="organization-tools" class="module">
+  <table summary="Organization admin tools">
+    <caption>
+      <a href="{% url 'admin:posthog_organization_changelist' %}" class="section" title="Organization Tools">Organization tools</a>
+    </caption>
+    <tr class="model-sendusagereport">
+      <th scope="row">
+        <a href="{% url 'admin:send-usage-report' %}">Send usage report</a>
+      </th>
+      <td>Queue a usage report for a selected report date</td>
+    </tr>
+    <tr class="model-sendaioobservabilityusagereport">
+      <th scope="row">
+        <a href="{% url 'admin:send-ai-observability-usage-report' %}">Send AI observability usage report</a>
+      </th>
+      <td>Queue an AI observability usage report for a selected report date</td>
+    </tr>
+    {% if perms.posthog.change_organization %}
+    <tr class="model-bulkdeactivateorganizations">
+      <th scope="row">
+        <a href="{% url 'admin:organization_bulk_deactivate' %}">Bulk deactivate organizations</a>
+      </th>
+      <td>Deactivate organizations from pasted IDs after a preview step</td>
+    </tr>
+    {% endif %}
+  </table>
+</div>
+{% endif %}

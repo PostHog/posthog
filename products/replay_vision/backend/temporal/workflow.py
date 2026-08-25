@@ -8,13 +8,21 @@ from temporalio import common
 from temporalio.common import SearchAttributePair, TypedSearchAttributes, WorkflowIDReusePolicy
 from temporalio.exceptions import (
     ActivityError,
+    ChildWorkflowError,
     TimeoutError as TemporalTimeoutError,
 )
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.errors import MAX_ERROR_MESSAGE_CHARS, truncate_for_temporal_payload, unwrap_temporal_cause
 from posthog.temporal.common.search_attributes import POSTHOG_SESSION_RECORDING_ID_KEY, POSTHOG_TEAM_ID_KEY
-from posthog.temporal.session_replay.rasterize_recording.types import RasterizeRecordingInputs
+from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import (
+    BumpStuckCounterInput,
+    bump_stuck_counter_activity,
+)
+from posthog.temporal.session_replay.rasterize_recording.types import (
+    RASTERIZE_WORKFLOW_SINGLE_ATTEMPT_TIMEOUT,
+    RasterizeRecordingInputs,
+)
 
 with wf.unsafe.imports_passed_through():
     from django.conf import settings
@@ -396,11 +404,9 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 task_queue=settings.SESSION_REPLAY_TASK_QUEUE,
                 retry_policy=common.RetryPolicy(maximum_attempts=int(settings.TEMPORAL_WORKFLOW_MAX_ATTEMPTS)),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                # Temporal counts the whole retry chain against this, and the child's own render activity is allowed
-                # 30 minutes. Must exceed that 30m start-to-close, or a first render that fails fast leaves no room to
-                # schedule a retry at all. Held below a second full 30m render on purpose, to stay within the parent's
-                # phase budget.
-                execution_timeout=dt.timedelta(minutes=40),
+                # Temporal counts the whole retry chain against this. Held below the full two-attempt
+                # envelope on purpose, to stay within the parent's phase budget.
+                execution_timeout=RASTERIZE_WORKFLOW_SINGLE_ATTEMPT_TIMEOUT,
                 search_attributes=TypedSearchAttributes(
                     search_attributes=[
                         SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=inputs.team_id),
@@ -414,6 +420,26 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 # "nothing to analyze" as a session with no events, which we already gate as ineligible, so calling
                 # it a failure would point the user at support over a recording that can never produce a video.
                 raise IneligibleSessionError(_root_cause_message(e), kind=IneligibleSessionKind.NO_SNAPSHOTS) from e
+            # Direct cause only: a nested activity timeout inside the child already bumped the
+            # counter there, and matching it here would double-count one run.
+            if (
+                isinstance(e, ChildWorkflowError)
+                and isinstance(e.cause, TemporalTimeoutError)
+                and wf.patched("bump-stuck-on-rasterize-timeout-2026-08")
+            ):
+                # The single-attempt execution_timeout terminates the child before its own final-attempt
+                # bump can run, so a render that rode out the whole budget would never reach the
+                # quarantine threshold. Bump from here instead; the child's own bump covers every
+                # failure that surfaces as an exception.
+                try:
+                    await wf.execute_activity(
+                        bump_stuck_counter_activity,
+                        BumpStuckCounterInput(team_id=inputs.team_id, session_id=inputs.session_id),
+                        start_to_close_timeout=dt.timedelta(seconds=10),
+                        retry_policy=common.RetryPolicy(maximum_attempts=2),
+                    )
+                except Exception as exc:
+                    wf.logger.warning("replay_vision.stuck_counter_bump_failed", extra={"error": str(exc)})
             # Re-classify the rasterizer's failure so the user sees a rasterizer label, not a generic "internal error".
             raise ScannerFailureError(_root_cause_message(e), kind=FailureKind.RASTERIZATION_FAILED) from e
 

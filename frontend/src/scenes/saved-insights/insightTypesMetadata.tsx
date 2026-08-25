@@ -363,6 +363,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
         icon: IconWarning,
         inMenu: false,
     },
+    [NodeKind.ErrorTrackingFingerprintProjectionQuery]: {
+        name: 'Error tracking fingerprint projection',
+        description: 'Plot issue fingerprints by embedding similarity.',
+        icon: IconWarning,
+        inMenu: false,
+    },
     [NodeKind.ErrorTrackingBreakdownsQuery]: {
         name: 'Error Tracking Breakdowns',
         description: 'Break down error tracking issues by properties.',
@@ -673,6 +679,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.MCPToolCategoriesQuery]: {
         name: 'MCP tool categories',
         description: 'Distinct tool categories for the Tool quality scope selector.',
+        icon: IconPieChart,
+        inMenu: false,
+    },
+    [NodeKind.MCPToolCategoryMapQuery]: {
+        name: 'MCP tool categories by tool',
+        description: 'Which categories each tool belongs to, for the intent clustering scope selector.',
         icon: IconPieChart,
         inMenu: false,
     },

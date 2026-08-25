@@ -73,6 +73,8 @@ export interface SignalReport {
     is_suggested_reviewer: boolean
     /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
     charts?: ReportChartApi[]
+    /** Questions the report's author suggests asking about it, offered above the "Ask AI" box. */
+    suggested_prompts?: string[]
     /** Count of signals at the time the latest research run kicked off. */
     signals_at_run?: number
     /** P0–P4 from the priority judgment when the report is researched. */
@@ -159,15 +161,32 @@ export enum SignalSourceConfigStatus {
     FAILED = 'failed',
 }
 
+// `SignalSourceConfig.config` keys the emission actionability gate reads. Mirrors
+// STEERING_KEY / DEFAULT_NOT_ACTIONABLE_KEY / STEERING_MAX_LENGTH in
+// products/signals/backend/contracts.py; the generated config type is an open object,
+// so the key names and cap only exist here and there.
+export const SOURCE_STEERING_KEY = 'steering'
+export const SOURCE_DEFAULT_NOT_ACTIONABLE_KEY = 'default_not_actionable'
+export const SOURCE_STEERING_MAX_LENGTH = 2000
+
 // ── Inbox 2.0 IA: tabs + scope ──────────────────────────────────────────────
 
-export type InboxTabKey = 'pulls' | 'reports' | 'not-actionable' | 'runs' | 'archived' | 'config'
+export type InboxTabKey = 'pulls' | 'reports' | 'scouts' | 'not-actionable' | 'runs' | 'archived' | 'config'
 
-export const INBOX_TAB_KEYS: InboxTabKey[] = ['pulls', 'reports', 'not-actionable', 'runs', 'archived', 'config']
+export const INBOX_TAB_KEYS: InboxTabKey[] = [
+    'pulls',
+    'reports',
+    'scouts',
+    'not-actionable',
+    'runs',
+    'archived',
+    'config',
+]
 
 export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
     pulls: 'Pull requests',
     reports: 'Reports',
+    scouts: 'Scouts',
     'not-actionable': 'Not actionable',
     runs: 'Runs',
     archived: 'Archive',
@@ -178,6 +197,7 @@ export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
 export const INBOX_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
     pulls: 'Pull requests agents opened to resolve reports. Review and merge them on GitHub.',
     reports: 'Issues and opportunities agents found in your product data, researched and prioritized for your review.',
+    scouts: 'Scheduled agents that sweep this project and file what they find.',
     'not-actionable':
         'Reports judged not actionable because they are too vague, lack supporting evidence, or describe expected behavior.',
     runs: 'Project-wide list of agent runs, for debugging.',
@@ -265,6 +285,12 @@ export interface SignalTeamConfig {
     default_slack_notification_channel?: string | null
     /** Per-repo base-branch overrides for auto-started PRs, keyed by 'org/repo'. */
     autostart_base_branches?: Record<string, string>
+    /** Daily cap on new reports surfacing to the inbox (project-timezone day). Null means unlimited. */
+    max_reports_per_day?: number | null
+    /** Read-only: reports that first became visible today (project timezone). Never send in a patch. */
+    reports_generated_today?: number
+    /** Read-only: whether the daily report limit is reached, pausing new report generation until local midnight. Never send in a patch. */
+    daily_report_limit_reached?: boolean
     created_at?: string
     updated_at?: string
 }

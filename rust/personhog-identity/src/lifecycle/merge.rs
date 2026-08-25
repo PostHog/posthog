@@ -15,9 +15,9 @@
 //!   CAS, so every leader call is convergent under repetition: a re-run
 //!   step re-issues the call and lands in the same state.
 //!
-//! The driver receives the classified case-3 set of a MergePersons call:
-//! source distinct ids that resolved to persons distinct from the
-//! target. That classification is advisory. The claim step re-resolves
+//! The driver receives a MergePersons call's classified two-person set:
+//! source distinct ids that resolved to a live person distinct from the
+//! target's. That classification is advisory. The claim step re-resolves
 //! everything authoritatively inside its own transaction, because the
 //! world can change between the handler and the saga.
 //!
@@ -47,9 +47,10 @@ use personhog_proto::personhog::types::v1::{
     ReleaseOutcome, SealedSourceSnapshot,
 };
 
+use crate::config::IdentityTables;
 use crate::leader::LifecycleLeader;
 use crate::lifecycle::engine::{
-    advance_step_in_tx, complete_op_in_tx, OpDriver, OpRow, SagaError, Tx, STEP_ABORTED,
+    advance_step_in_tx, complete_op_in_tx, Engine, OpDriver, OpRow, SagaError, Tx, STEP_ABORTED,
     STEP_COMPLETED,
 };
 
@@ -90,8 +91,9 @@ impl MergeStep {
     }
 }
 
-/// The frozen `lifecycle_op.request` payload for a merge op: the case-3
-/// set the handler classified, plus the merge event's property payloads.
+/// The frozen `lifecycle_op.request` payload for a merge op: the
+/// two-person set the handler classified, plus the merge event's
+/// property payloads.
 /// `sources` order is property precedence (earlier beats later).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MergeRequest {
@@ -178,6 +180,17 @@ fn record_transition(from: &str, to: &str) {
     );
 }
 
+/// Count settled per-source outcomes. Shared by the saga's terminal record
+/// and the entrance's inline settlement, so the counter covers every
+/// requested source — not just the ones that entered the saga.
+pub(crate) fn record_outcome_count(outcome: &str, count: u64) {
+    common_metrics::inc(
+        OUTCOMES_TOTAL,
+        &[("outcome".to_string(), outcome.to_string())],
+        count,
+    );
+}
+
 fn record_outcomes(outcome: &Value) {
     let Ok(parsed) = serde_json::from_value::<MergeOutcome>(outcome.clone()) else {
         return;
@@ -192,11 +205,7 @@ fn record_outcomes(outcome: &Value) {
     ] {
         let count = parsed.results.iter().filter(|r| r.outcome == label).count();
         if count > 0 {
-            common_metrics::inc(
-                OUTCOMES_TOTAL,
-                &[("outcome".to_string(), label.to_string())],
-                count as u64,
-            );
+            record_outcome_count(label, count as u64);
         }
     }
 }
@@ -223,7 +232,7 @@ struct ClaimRecord {
 
 /// The fence snapshot persisted per source row (`sealed`), and the exact
 /// inputs the fold and the committed release replay from. `created_at` is
-/// in the unit `Person.created_at` carries (epoch seconds today).
+/// in the unit `Person.created_at` carries (epoch milliseconds).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SealedSnapshot {
     version: i64,
@@ -237,11 +246,86 @@ struct SealedSnapshot {
 
 pub struct MergeDriver {
     leader: Arc<dyn LifecycleLeader>,
+    tables: IdentityTables,
 }
 
 impl MergeDriver {
-    pub fn new(leader: Arc<dyn LifecycleLeader>) -> Self {
-        Self { leader }
+    pub fn new(leader: Arc<dyn LifecycleLeader>, tables: IdentityTables) -> Self {
+        tables.validate().expect("invalid identity table set");
+        Self { leader, tables }
+    }
+}
+
+/// Everything the merge entrance may do with merge op rows: probe for an
+/// existing op (the attach-first path) and drive a frozen request to its
+/// terminal row. Identity work — resolution, classification, inline
+/// settlement — lives in [`crate::service::merge`]; this seam keeps the
+/// lifecycle side blind to it, and is where a future service split would
+/// put the wire.
+pub struct MergeOpExecutor {
+    engine: Arc<Engine>,
+    driver: MergeDriver,
+}
+
+impl MergeOpExecutor {
+    pub fn new(engine: Arc<Engine>, driver: MergeDriver) -> Self {
+        Self { engine, driver }
+    }
+
+    /// The op row for this id, if one exists.
+    // tonic Status is a large Err variant; boxing would diverge from the
+    // handler signatures this feeds into.
+    #[allow(clippy::result_large_err)]
+    pub async fn find(&self, op_id: Uuid) -> Result<Option<OpRow>, Status> {
+        sqlx::query_as!(
+            OpRow,
+            r#"
+            SELECT op_id, op_type, team_id::bigint as "team_id!", step, attempt,
+                   request as "request: Value", outcome as "outcome: Value",
+                   created_at, completed_at,
+                   (lease_expires_at IS NOT NULL AND lease_expires_at >= now())
+                       as "lease_live!"
+            FROM lifecycle_op
+            WHERE op_id = $1
+            "#,
+            op_id
+        )
+        .fetch_optional(self.engine.pool())
+        .await
+        .map_err(|e| Status::internal(format!("database error: {e}")))
+    }
+
+    /// Drive the op to terminal with the given frozen request (a resumed
+    /// row's own request, or a freshly frozen one) and return the row.
+    // See `find` for why result_large_err is allowed.
+    #[allow(clippy::result_large_err)]
+    pub async fn execute(
+        &self,
+        op_id: Uuid,
+        team_id: i64,
+        frozen: &Value,
+    ) -> Result<OpRow, Status> {
+        self.engine
+            .execute(&self.driver, op_id, team_id, frozen)
+            .await
+            .map_err(|err| {
+                // The entrance only reaches this create path after finding
+                // no op row, so an engine-level mismatch means the row
+                // appeared in the race window since — a transient loss,
+                // not op_id misuse (which the entrance's attach-first
+                // comparison answers). Both client stacks treat
+                // FAILED_PRECONDITION as terminal, so surfacing the race
+                // as one would fail a request whose retry attaches fine.
+                if matches!(err, SagaError::RequestMismatch(_)) {
+                    return Status::unavailable(format!(
+                        "another call is initializing op {op_id}; retry with the same op_id"
+                    ));
+                }
+                if matches!(err, SagaError::Db(_) | SagaError::CorruptState(_)) {
+                    tracing::error!(op_id = %op_id, error = %err, "MergePersons failed");
+                }
+                Status::from(err)
+            })
     }
 }
 
@@ -266,7 +350,7 @@ impl OpDriver for MergeDriver {
             MergeStep::Started => self.claim(pool, op).await,
             MergeStep::Claimed => self.seal(pool, op).await,
             MergeStep::SourcesSealed => self.fold(pool, op).await,
-            MergeStep::DocumentFolded => flip(pool, op).await,
+            MergeStep::DocumentFolded => flip(pool, &self.tables, op).await,
             MergeStep::Flipped => self.complete(pool, op).await,
         }
     }
@@ -340,32 +424,35 @@ fn reconcile_pending_claims(
 
 async fn resolve_dids(
     tx: &mut Tx<'_>,
+    tables: &IdentityTables,
     team_id: i32,
     dids: &[String],
 ) -> Result<HashMap<String, Resolution>, SagaError> {
-    let rows = sqlx::query!(
+    let resolve_sql = format!(
         r#"
-        SELECT d.distinct_id, d.person_id as "person_id!", p.uuid as "person_uuid!",
-               p.is_identified as "is_identified!"
-        FROM posthog_persondistinctid d
-        JOIN posthog_person p ON p.team_id = d.team_id AND p.id = d.person_id
+        SELECT d.distinct_id, d.person_id, p.uuid, p.is_identified
+        FROM {pdi_table} d
+        JOIN {person_table} p ON p.team_id = d.team_id AND p.id = d.person_id
         WHERE d.team_id = $1 AND d.distinct_id = ANY($2)
           AND d.is_deleted = false AND p.is_deleted = false
         "#,
-        team_id,
-        dids,
-    )
-    .fetch_all(&mut **tx)
-    .await?;
+        pdi_table = tables.person_distinct_id,
+        person_table = tables.person,
+    );
+    let rows: Vec<(String, i64, Uuid, bool)> = sqlx::query_as(&resolve_sql)
+        .bind(team_id)
+        .bind(dids)
+        .fetch_all(&mut **tx)
+        .await?;
     Ok(rows
         .into_iter()
-        .map(|r| {
+        .map(|(distinct_id, person_id, person_uuid, is_identified)| {
             (
-                r.distinct_id,
+                distinct_id,
                 Resolution {
-                    person_id: r.person_id,
-                    person_uuid: r.person_uuid,
-                    is_identified: r.is_identified,
+                    person_id,
+                    person_uuid,
+                    is_identified,
                 },
             )
         })
@@ -390,7 +477,7 @@ impl MergeDriver {
         all_dids.extend(request.sources.iter().map(|s| s.distinct_id.clone()));
         all_dids.sort_unstable();
         all_dids.dedup();
-        let resolved = resolve_dids(&mut tx, team_id, &all_dids).await?;
+        let resolved = resolve_dids(&mut tx, &self.tables, team_id, &all_dids).await?;
 
         let Some(target) = resolved.get(&request.target_distinct_id) else {
             // The target person vanished between classification and now. The
@@ -464,15 +551,15 @@ impl MergeDriver {
         // candidate's scan at limit+1 rows, so an oversized person cannot
         // blow the statement timeout.
         let candidate_ids: Vec<i64> = claim_persons.iter().map(|(id, _, _)| *id).collect();
-        let over: Vec<i64> = sqlx::query_scalar!(
+        let over_sql = format!(
             r#"
-            SELECT c.person_id AS "person_id!"
+            SELECT c.person_id
             FROM unnest($2::bigint[]) AS c(person_id)
             WHERE (
                 SELECT count(*)
                 FROM (
                     SELECT 1
-                    FROM posthog_persondistinctid d
+                    FROM {pdi_table} d
                     WHERE d.team_id = $1
                       AND d.person_id = c.person_id
                       AND d.is_deleted = false
@@ -480,12 +567,14 @@ impl MergeDriver {
                 ) capped
             ) > $3::bigint
             "#,
-            team_id,
-            &candidate_ids,
-            request.move_limit,
-        )
-        .fetch_all(&mut *tx)
-        .await?;
+            pdi_table = self.tables.person_distinct_id,
+        );
+        let over: Vec<i64> = sqlx::query_scalar(&over_sql)
+            .bind(team_id)
+            .bind(&candidate_ids)
+            .bind(request.move_limit)
+            .fetch_all(&mut *tx)
+            .await?;
         if !over.is_empty() {
             claim_persons.retain(|(id, _, _)| !over.contains(id));
             for d in dispositions.iter_mut() {
@@ -596,7 +685,7 @@ impl MergeDriver {
         // mapping stability; after it, mark + liveness hold in one snapshot
         // and nothing can destroy or re-map a claimed person (the mark
         // blocks every lifecycle op and identity mutation).
-        let fresh = resolve_dids(&mut tx, team_id, &all_dids).await?;
+        let fresh = resolve_dids(&mut tx, &self.tables, team_id, &all_dids).await?;
         let target_still_live = fresh
             .get(&request.target_distinct_id)
             .is_some_and(|r| r.person_id == target_person_id);
@@ -1233,7 +1322,7 @@ fn encode_json_map(value: &Value) -> Result<Vec<u8>, SagaError> {
 /// hash-key overrides target-wins, scrub and tombstone the source person
 /// rows at their exact death versions, and clear the target's mark. The
 /// source marks stay: they are the fences' durable record until release.
-async fn flip(pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
+async fn flip(pool: &PgPool, tables: &IdentityTables, op: &OpRow) -> Result<(), SagaError> {
     let team_id = op.team_id as i32;
     let mut tx = pool.begin().await?;
 
@@ -1260,11 +1349,11 @@ async fn flip(pool: &PgPool, op: &OpRow) -> Result<(), SagaError> {
     .await?;
     sources.sort_unstable();
 
-    let repointed = repoint_distinct_ids(&mut tx, team_id, &sources, target).await?;
+    let repointed = repoint_distinct_ids(&mut tx, tables, team_id, &sources, target).await?;
     record_moved_mappings(&mut tx, op, &sources, &repointed).await?;
-    move_cohort_membership(&mut tx, &sources, target).await?;
-    move_hash_key_overrides(&mut tx, team_id, &sources, target).await?;
-    tombstone_sealed_sources(&mut tx, op, team_id).await?;
+    move_cohort_membership(&mut tx, tables, &sources, target).await?;
+    move_hash_key_overrides(&mut tx, tables, team_id, &sources, target).await?;
+    tombstone_sealed_sources(&mut tx, tables, op, team_id).await?;
     clear_target_mark(&mut tx, op).await?;
 
     if !advance_step_in_tx(
@@ -1298,6 +1387,7 @@ struct RepointedDid {
 /// each row's version.
 async fn repoint_distinct_ids(
     tx: &mut Tx<'_>,
+    tables: &IdentityTables,
     team_id: i32,
     sources: &[i64],
     target: i64,
@@ -1305,27 +1395,29 @@ async fn repoint_distinct_ids(
     // RETURNING sees the post-update row, so the pre-update owner has to
     // come from a self-join snapshot — without it every returned
     // person_id would be the target.
-    let rows = sqlx::query!(
+    let repoint_sql = format!(
         r#"
-        UPDATE posthog_persondistinctid pdi
+        UPDATE {pdi_table} pdi
         SET person_id = $3, version = COALESCE(pdi.version, 0) + 1
-        FROM posthog_persondistinctid old
+        FROM {pdi_table} old
         WHERE old.id = pdi.id
           AND pdi.team_id = $1 AND pdi.person_id = ANY($2) AND pdi.is_deleted = false
-        RETURNING old.person_id as "old_person_id!", pdi.distinct_id, pdi.version as "version!"
+        RETURNING old.person_id, pdi.distinct_id, pdi.version
         "#,
-        team_id,
-        sources,
-        target,
-    )
-    .fetch_all(&mut **tx)
-    .await?;
+        pdi_table = tables.person_distinct_id,
+    );
+    let rows: Vec<(i64, String, i64)> = sqlx::query_as(&repoint_sql)
+        .bind(team_id)
+        .bind(sources)
+        .bind(target)
+        .fetch_all(&mut **tx)
+        .await?;
     Ok(rows
         .into_iter()
-        .map(|r| RepointedDid {
-            old_person_id: r.old_person_id,
-            distinct_id: r.distinct_id,
-            version: r.version,
+        .map(|(old_person_id, distinct_id, version)| RepointedDid {
+            old_person_id,
+            distinct_id,
+            version,
         })
         .collect())
 }
@@ -1376,9 +1468,17 @@ async fn record_moved_mappings(
 /// recalculation heals the rare duplicate.
 async fn move_cohort_membership(
     tx: &mut Tx<'_>,
+    tables: &IdentityTables,
     sources: &[i64],
     target: i64,
 ) -> Result<(), SagaError> {
+    // posthog_cohortpeople has no shadow mirror and no team_id column, so it
+    // is only addressable by real posthog_person ids. On any other person
+    // table the source ids come from that table's own sequence and would
+    // collide with unrelated persons' cohort rows — skip the move entirely.
+    if tables.person != "posthog_person" {
+        return Ok(());
+    }
     sqlx::query!(
         "UPDATE posthog_cohortpeople SET person_id = $2 WHERE person_id = ANY($1)",
         sources,
@@ -1393,27 +1493,30 @@ async fn move_cohort_membership(
 /// for a flag beats any source's.
 async fn move_hash_key_overrides(
     tx: &mut Tx<'_>,
+    tables: &IdentityTables,
     team_id: i32,
     sources: &[i64],
     target: i64,
 ) -> Result<(), SagaError> {
-    sqlx::query!(
+    let move_sql = format!(
         r#"
         WITH removed AS (
-            DELETE FROM posthog_featureflaghashkeyoverride
+            DELETE FROM {override_table}
             WHERE team_id = $1 AND person_id = ANY($2)
             RETURNING feature_flag_key, hash_key
         )
-        INSERT INTO posthog_featureflaghashkeyoverride (team_id, person_id, feature_flag_key, hash_key)
+        INSERT INTO {override_table} (team_id, person_id, feature_flag_key, hash_key)
         SELECT $1, $3, feature_flag_key, hash_key FROM removed
         ON CONFLICT (team_id, person_id, feature_flag_key) DO NOTHING
         "#,
-        team_id,
-        sources,
-        target,
-    )
-    .execute(&mut **tx)
-    .await?;
+        override_table = tables.ff_hash_key_override,
+    );
+    sqlx::query(&move_sql)
+        .bind(team_id)
+        .bind(sources)
+        .bind(target)
+        .execute(&mut **tx)
+        .await?;
     Ok(())
 }
 
@@ -1425,28 +1528,31 @@ async fn move_hash_key_overrides(
 /// does not consult the leader's emitted-version floor today.
 async fn tombstone_sealed_sources(
     tx: &mut Tx<'_>,
+    tables: &IdentityTables,
     op: &OpRow,
     team_id: i32,
 ) -> Result<(), SagaError> {
-    sqlx::query!(
+    let tombstone_sql = format!(
         r#"
-        UPDATE posthog_person p
+        UPDATE {person_table} p
         SET is_deleted = true,
-            properties = '{}'::jsonb,
-            properties_last_updated_at = '{}'::jsonb,
-            properties_last_operation = '{}'::jsonb,
+            properties = '{{}}'::jsonb,
+            properties_last_updated_at = '{{}}'::jsonb,
+            properties_last_operation = '{{}}'::jsonb,
             version = (lop.sealed->>'version')::bigint + 1
         FROM lifecycle_op_person lop
         WHERE lop.op_id = $1 AND lop.role = $3 AND lop.status = $4
           AND p.team_id = $2 AND p.id = lop.person_id
         "#,
-        op.op_id,
-        team_id,
-        ROLE_SOURCE,
-        STATUS_SEALED,
-    )
-    .execute(&mut **tx)
-    .await?;
+        person_table = tables.person,
+    );
+    sqlx::query(&tombstone_sql)
+        .bind(op.op_id)
+        .bind(team_id)
+        .bind(ROLE_SOURCE)
+        .bind(STATUS_SEALED)
+        .execute(&mut **tx)
+        .await?;
     Ok(())
 }
 

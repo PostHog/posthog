@@ -72,6 +72,8 @@ from products.logs.backend.facade.temporal import (
     LOGS_ALERTING_COUNT_HISTOGRAM_METRICS,
     LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS,
     LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS,
+    LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_BUCKETS,
+    LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_METRICS,
     LogsAlertingMetricsInterceptor,
 )
 from products.tasks.backend.facade.temporal import (
@@ -312,6 +314,11 @@ async def create_worker(
         )
         | dict(zip(LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS, itertools.repeat(LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS)))
         | dict(zip(LOGS_ALERTING_COUNT_HISTOGRAM_METRICS, itertools.repeat(LOGS_ALERTING_COUNT_HISTOGRAM_BUCKETS)))
+        | dict(
+            zip(
+                LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_METRICS, itertools.repeat(LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_BUCKETS)
+            )
+        )
         | dict(zip(USAGE_REPORTS_LATENCY_HISTOGRAM_METRICS, itertools.repeat(USAGE_REPORTS_LATENCY_HISTOGRAM_BUCKETS)))
         | dict(
             zip(

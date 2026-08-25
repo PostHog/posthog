@@ -3,9 +3,9 @@ import {
   ANY_SOURCE,
   type AttentionFilter,
   type ChannelItemFilters,
+  type ChannelItemGrouping,
   type ChannelItemSort,
   type CreatedByFilter,
-  DEFAULT_CHANNEL_ITEM_FILTERS,
   type EnvironmentFilter,
   type PinnedFilter,
 } from "@posthog/core/canvas/channelItems";
@@ -61,6 +61,11 @@ const ENVIRONMENT_OPTIONS: readonly Option<EnvironmentFilter>[] = [
   { value: "any", label: "Anywhere" },
   { value: "local", label: "Local" },
   { value: "cloud", label: "Cloud" },
+];
+
+const GROUPING_OPTIONS: readonly Option<ChannelItemGrouping>[] = [
+  { value: "date", label: "Date" },
+  { value: "repository", label: "Repository" },
 ];
 
 const SORT_OPTIONS: readonly Option<ChannelItemSort>[] = [
@@ -149,21 +154,45 @@ function FilterSubmenu<T extends string>({
  */
 export function ChannelFilterMenu({
   filters,
-  onFiltersChange,
+  onFilterChange,
+  onClearFilters,
   sort,
   onSortChange,
+  grouping,
+  onGroupingChange,
+  onEditAppearance,
   sources,
   showCreatedBy,
+  showRunFilters,
   active,
 }: {
+  /**
+   * What the menu shows as chosen. It can be narrower than what is stored: a
+   * filter the current list cannot answer reads as "any" here.
+   */
   filters: ChannelItemFilters;
-  onFiltersChange: (filters: ChannelItemFilters) => void;
+  /**
+   * One field at a time. Writing the whole object back would carry the
+   * narrowed values with it and drop a choice made under another tab.
+   */
+  onFilterChange: <K extends keyof ChannelItemFilters>(
+    key: K,
+    value: ChannelItemFilters[K],
+  ) => void;
+  onClearFilters: () => void;
   sort: ChannelItemSort;
   onSortChange: (sort: ChannelItemSort) => void;
+  /** What the list's section headers stand for. */
+  grouping: ChannelItemGrouping;
+  onGroupingChange: (grouping: ChannelItemGrouping) => void;
+  /** Opens the list's appearance dialog, which the list itself renders. */
+  onEditAppearance: () => void;
   /** `origin_product` keys present in the list. */
   sources: readonly string[];
   /** False in #me, where every session is yours and the filter says nothing. */
   showCreatedBy: boolean;
+  /** False on the canvases tab: a canvas has no run to ask these about. */
+  showRunFilters: boolean;
   /** A filter is narrowing the list, so the button says so. */
   active: boolean;
 }) {
@@ -176,11 +205,6 @@ export function ChannelFilterMenu({
       label: getOriginProductMeta(source)?.label ?? source,
     })),
   ];
-
-  const set = <K extends keyof ChannelItemFilters>(
-    key: K,
-    value: ChannelItemFilters[K],
-  ) => onFiltersChange({ ...filters, [key]: value });
 
   return (
     <DropdownMenu>
@@ -208,12 +232,14 @@ export function ChannelFilterMenu({
         sideOffset={6}
         className="min-w-fit"
       >
-        <FilterSubmenu
-          label="Status"
-          options={ATTENTION_OPTIONS}
-          value={filters.attention}
-          onChange={(value) => set("attention", value)}
-        />
+        {showRunFilters && (
+          <FilterSubmenu
+            label="Status"
+            options={ATTENTION_OPTIONS}
+            value={filters.attention}
+            onChange={(value) => onFilterChange("attention", value)}
+          />
+        )}
         {/* #me holds only your own sessions, so "created by" can only ever
             answer "you" — the whole group is dropped rather than shown with two
             options that empty the list. */}
@@ -222,27 +248,31 @@ export function ChannelFilterMenu({
             label="Created by"
             options={CREATED_BY_OPTIONS}
             value={filters.createdBy}
-            onChange={(value) => set("createdBy", value)}
+            onChange={(value) => onFilterChange("createdBy", value)}
           />
         )}
         <FilterSubmenu
           label="Pinned"
           options={PINNED_OPTIONS}
           value={filters.pinned}
-          onChange={(value) => set("pinned", value)}
+          onChange={(value) => onFilterChange("pinned", value)}
         />
-        <FilterSubmenu
-          label="Environment"
-          options={ENVIRONMENT_OPTIONS}
-          value={filters.environment}
-          onChange={(value) => set("environment", value)}
-        />
-        <FilterSubmenu
-          label="Source"
-          options={sourceOptions}
-          value={filters.source}
-          onChange={(value) => set("source", value)}
-        />
+        {showRunFilters && (
+          <>
+            <FilterSubmenu
+              label="Environment"
+              options={ENVIRONMENT_OPTIONS}
+              value={filters.environment}
+              onChange={(value) => onFilterChange("environment", value)}
+            />
+            <FilterSubmenu
+              label="Source"
+              options={sourceOptions}
+              value={filters.source}
+              onChange={(value) => onFilterChange("source", value)}
+            />
+          </>
+        )}
         <DropdownMenuSeparator />
         <FilterSubmenu
           label="Sort by"
@@ -250,15 +280,31 @@ export function ChannelFilterMenu({
           value={sort}
           onChange={onSortChange}
         />
+        {/* A canvas has no repository, and no second row to configure, so the
+            tab that lists them is offered neither. */}
+        {showRunFilters && (
+          <>
+            <FilterSubmenu
+              label="Group by"
+              options={GROUPING_OPTIONS}
+              value={grouping}
+              onChange={onGroupingChange}
+            />
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              data-attr="edit-list-item-appearance"
+              onClick={onEditAppearance}
+            >
+              Edit list item appearance…
+            </DropdownMenuItem>
+          </>
+        )}
         {active && (
           <>
             <DropdownMenuSeparator />
             {/* The empty state tells you to clear the filters; with five of them
                 behind submenus, this is where that instruction is carried out. */}
-            <DropdownMenuItem
-              onClick={() => onFiltersChange(DEFAULT_CHANNEL_ITEM_FILTERS)}
-              variant="destructive"
-            >
+            <DropdownMenuItem onClick={onClearFilters} variant="destructive">
               Clear filters
             </DropdownMenuItem>
           </>

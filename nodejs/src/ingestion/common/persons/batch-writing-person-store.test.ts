@@ -15,6 +15,7 @@ import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outpu
 import { InternalPerson, TeamId } from '~/types'
 
 import { BatchWritingPersonsStore } from './batch-writing-person-store'
+import { EventOps } from './person-update'
 import { BatchBoundPersonsStore } from './persons-store-for-batch'
 
 // Mock the ingestion warnings module
@@ -37,6 +38,8 @@ jest.mock('~/common/persons/metrics', () => ({
     personMethodCallsPerBatchHistogram: { observe: jest.fn() },
     personOptimisticUpdateConflictsPerBatchCounter: { inc: jest.fn() },
     personProfileBatchIgnoredPropertiesCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
+    personProfileIgnoredPropertiesCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
+    personProfileUpdateOutcomeCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
     personProfileBatchUpdateOutcomeCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
     personPropertyKeyUpdateCounter: { labels: jest.fn().mockReturnValue({ inc: jest.fn() }) },
     personRetryAttemptsHistogram: { observe: jest.fn() },
@@ -128,6 +131,9 @@ describe('BatchWritingPersonStore', () => {
             fetchPersonsForUpdateByDistinctIds: jest.fn().mockResolvedValue([]),
             fetchDistinctIdsForPersons: jest.fn().mockResolvedValue({}),
             deletePersons: jest.fn().mockResolvedValue([]),
+            claimLifecycleMarks: jest.fn().mockResolvedValue(undefined),
+            releaseLifecycleMarks: jest.fn().mockResolvedValue(undefined),
+            isPersonLive: jest.fn().mockResolvedValue(true),
             updateCohortsAndFeatureFlagsForMergeBatch: jest.fn().mockResolvedValue(undefined),
             createPerson: jest.fn().mockResolvedValue([person, []]),
             updatePerson: jest.fn().mockResolvedValue([person, [], false]),
@@ -163,6 +169,9 @@ describe('BatchWritingPersonStore', () => {
             updatePerson: jest.fn().mockResolvedValue([person, [], false]),
             deletePerson: jest.fn().mockResolvedValue([]),
             deletePersons: jest.fn().mockResolvedValue([]),
+            claimLifecycleMarks: jest.fn().mockResolvedValue(undefined),
+            releaseLifecycleMarks: jest.fn().mockResolvedValue(undefined),
+            isPersonLive: jest.fn().mockResolvedValue(true),
             addDistinctId: jest.fn().mockResolvedValue([]),
             moveDistinctIds: jest.fn().mockResolvedValue({ success: true, messages: [], distinctIdsMoved: [] }),
             moveDistinctIdsFromPersons: jest
@@ -1254,6 +1263,73 @@ describe('BatchWritingPersonStore', () => {
                     properties_to_unset: ['conflicting_prop'],
                 }),
             ])
+        )
+    })
+
+    describe('applyEventOps', () => {
+        const ops = (overrides: Partial<EventOps>): EventOps => ({
+            set: {},
+            setOnce: {},
+            unset: [],
+            denied: false,
+            shouldForceUpdate: false,
+            eventName: '$set',
+            ...overrides,
+        })
+
+        it('short-circuits with no write when nothing changes', async () => {
+            const [updated, messages] = await personStore.applyEventOps(
+                person,
+                ops({ set: { test: 'test' } }),
+                'test-distinct',
+                0
+            )
+            expect(updated.properties).toEqual({ test: 'test' })
+            expect(messages).toEqual([])
+            await personStore.flush()
+            expect(mockRepo.updatePersonsBatch).not.toHaveBeenCalled()
+            expect(mockRepo.updatePersonAssertVersion).not.toHaveBeenCalled()
+        })
+
+        it('a scalar-only change still writes', async () => {
+            const [updated] = await personStore.applyEventOps(person, ops({ isIdentified: true }), 'test-distinct', 0)
+            expect(updated.is_identified).toBe(true)
+            await personStore.flush()
+            expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(1)
+        })
+
+        it('last-seen only advances', async () => {
+            person.last_seen_at = DateTime.fromMillis(7_200_000, { zone: 'utc' })
+            const [updated, messages] = await personStore.applyEventOps(
+                person,
+                ops({ lastSeenAtMs: 3_600_000 }),
+                'test-distinct',
+                0
+            )
+            expect(updated.last_seen_at?.toMillis()).toBe(7_200_000)
+            expect(messages).toEqual([])
+            await personStore.flush()
+            expect(mockRepo.updatePersonsBatch).not.toHaveBeenCalled()
+        })
+
+        it.each([
+            [false, 0],
+            [true, 1],
+        ])(
+            'a filtered-only change writes exactly when the ops carry force (force=%s)',
+            async (force, expectedWrites) => {
+                // The suppression applies only to changes of existing
+                // filtered keys — a new key always writes — so the person
+                // must already carry the property.
+                person.properties.$browser = 'Firefox'
+                const filtered = ops({
+                    set: { $browser: 'Chrome' },
+                    shouldForceUpdate: force,
+                })
+                await personStore.applyEventOps(person, filtered, 'test-distinct', 0)
+                await personStore.flush()
+                expect(mockRepo.updatePersonsBatch).toHaveBeenCalledTimes(expectedWrites)
+            }
         )
     })
 

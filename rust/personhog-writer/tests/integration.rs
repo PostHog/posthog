@@ -34,6 +34,7 @@ async fn writer_upserts_person_to_pg() {
     let writer = PersonWriteStore::new(
         PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
         common::test_store_config(),
+        common::test_permits(),
     );
     let person = make_person(team_id as i64, 1, 1);
 
@@ -66,6 +67,7 @@ async fn writer_projects_death_documents_as_tombstones() {
     let writer = PersonWriteStore::new(
         PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
         common::test_store_config(),
+        common::test_permits(),
     );
 
     let fetch_row = |pool: sqlx::PgPool| async move {
@@ -127,6 +129,7 @@ async fn writer_version_guard_skips_stale_updates() {
     let writer = PersonWriteStore::new(
         PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
         common::test_store_config(),
+        common::test_permits(),
     );
 
     // Write version 5
@@ -167,6 +170,7 @@ async fn writer_merges_meta_and_last_seen_instead_of_assigning() {
     let writer = PersonWriteStore::new(
         PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
         common::test_store_config(),
+        common::test_permits(),
     );
 
     let fetch = |pool: sqlx::PgPool| async move {
@@ -257,6 +261,7 @@ async fn writer_upsert_batch_multiple_persons() {
     let writer = PersonWriteStore::new(
         PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
         common::test_store_config(),
+        common::test_permits(),
     );
     let persons: Vec<Person> = (1..=10)
         .map(|i| make_person(team_id as i64, i, 1))
@@ -287,6 +292,7 @@ async fn writer_surfaces_invalid_uuids_as_violations_never_silent_skips() {
     let writer = PersonWriteStore::new(
         PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
         common::test_store_config(),
+        common::test_permits(),
     );
 
     let valid_person = make_person(team_id as i64, 1, 1);
@@ -301,12 +307,14 @@ async fn writer_surfaces_invalid_uuids_as_violations_never_silent_skips() {
         .await;
     let BatchOutcome::Partial {
         transient,
+        saturated,
         data_failed,
     } = outcome
     else {
         panic!("a chunk with an unbindable row must be data-failed");
     };
     assert!(transient.is_empty());
+    assert!(saturated.is_empty());
     assert_eq!(data_failed.len(), 3);
 
     // The per-row pass isolates the poison row as a violation; the valid
@@ -368,6 +376,7 @@ async fn consumer_flushes_on_buffer_size_threshold() {
     let writer = PersonWriteStore::new(
         PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
         common::test_store_config(),
+        common::test_permits(),
     );
     let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), writer, flush_rx, writer_handle);
     tokio::spawn(async move { writer_task.run().await });
@@ -462,6 +471,7 @@ async fn consumer_flushes_on_timer() {
     let writer = PersonWriteStore::new(
         PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
         common::test_store_config(),
+        common::test_permits(),
     );
     let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), writer, flush_rx, writer_handle);
     tokio::spawn(async move { writer_task.run().await });
@@ -556,6 +566,7 @@ async fn consumer_deduplicates_multiple_updates_for_same_person() {
     let writer = PersonWriteStore::new(
         PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
         common::test_store_config(),
+        common::test_permits(),
     );
     let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), writer, flush_rx, writer_handle);
     tokio::spawn(async move { writer_task.run().await });
@@ -748,6 +759,100 @@ async fn multi_lane_consumer_routes_partitions_and_flushes_independently() {
     assert_eq!(ids1, vec![4, 5, 6]);
 }
 
+/// Flushes drain whole partitions up to the flush size, so a batch's
+/// committed offsets must cover exactly the partitions of the persons it
+/// carries — never a partition whose persons are still buffered. Asserted
+/// on the lane channel directly across however many capped batches the
+/// consumer emits; arrival interleaving decides the exact split.
+#[tokio::test]
+async fn capped_drains_commit_only_the_partitions_they_carry() {
+    let (mock_cluster, producer) = common::create_mock_kafka_with_partitions(2).await;
+    let team_id: i64 = 99_061;
+
+    let (tx, mut rx) = mpsc::channel::<FlushBatch>(2);
+
+    let client_config = ClientConfig::new()
+        .set("bootstrap.servers", mock_cluster.bootstrap_servers())
+        .set("group.id", "test-capped-drain")
+        .set("auto.offset.reset", "earliest")
+        .set("enable.auto.commit", "false")
+        .set("enable.auto.offset.store", "false")
+        .clone();
+    let kafka_consumer = Arc::new(PersonConsumer::new(&client_config, TOPIC.to_string()).unwrap());
+
+    let mut manager = lifecycle::Manager::builder("test")
+        .with_trap_signals(false)
+        .build();
+    let consumer_handle = manager.register(
+        "consumer",
+        lifecycle::ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
+    );
+    let _monitor = manager.monitor_background();
+
+    // Person ids encode their partition: 1..=3 on partition 0, 4..=6 on
+    // partition 1, so each flushed person maps back to a partition.
+    for (partition, id) in [(0, 1), (0, 2), (0, 3), (1, 4), (1, 5), (1, 6)] {
+        let person = make_person(team_id, id, 1);
+        let payload = person.encode_to_vec();
+        let key = format!("{team_id}:{id}");
+        let record = FutureRecord::to(TOPIC)
+            .partition(partition)
+            .key(&key)
+            .payload(&payload);
+        producer
+            .send_result(record)
+            .unwrap()
+            .await
+            .unwrap()
+            .unwrap();
+    }
+
+    // Flush size 3 caps each drain below the 6 buffered persons; the short
+    // timer sweeps up any tail the size trigger leaves behind.
+    let consumer_task = ConsumerTask::new(
+        kafka_consumer,
+        vec![tx],
+        100,
+        Duration::from_secs(2),
+        3,
+        consumer_handle,
+    );
+    tokio::spawn(async move { consumer_task.run().await });
+
+    let mut seen_persons = 0;
+    let mut batches = 0;
+    let mut max_offset_seen: HashMap<i32, i64> = HashMap::new();
+    while seen_persons < 6 {
+        let batch = tokio::time::timeout(Duration::from_secs(15), rx.recv())
+            .await
+            .expect("expected another capped batch")
+            .expect("consumer channel should be open");
+
+        let partitions_in_batch: std::collections::HashSet<i32> = batch
+            .persons
+            .iter()
+            .map(|p| if p.id <= 3 { 0 } else { 1 })
+            .collect();
+        let committed: std::collections::HashSet<i32> = batch.offsets.keys().copied().collect();
+        assert_eq!(
+            committed, partitions_in_batch,
+            "a batch's offsets must cover exactly the partitions it drained"
+        );
+
+        for (partition, offset) in &batch.offsets {
+            let entry = max_offset_seen.entry(*partition).or_insert(-1);
+            *entry = (*entry).max(*offset);
+        }
+        seen_persons += batch.persons.len();
+        batches += 1;
+    }
+
+    assert!(batches >= 2, "a capped drain must split 6 rows at cap 3");
+    // Three messages per partition, offsets 0..=2, all eventually committed.
+    assert_eq!(max_offset_seen[&0], 2);
+    assert_eq!(max_offset_seen[&1], 2);
+}
+
 // ============================================================
 // Writer task: signals completion through channel
 // ============================================================
@@ -777,6 +882,7 @@ async fn writer_processes_batch_from_channel() {
     let writer = PersonWriteStore::new(
         PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
         common::test_store_config(),
+        common::test_permits(),
     );
     let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), writer, flush_rx, writer_handle);
     tokio::spawn(async move { writer_task.run().await });
@@ -889,6 +995,7 @@ async fn writer_crashes_after_exhausting_transient_retries() {
             chunk_size: 10,
             row_fallback_concurrency: 4,
         },
+        common::test_permits(),
     );
 
     let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), store, flush_rx, writer_handle);
@@ -941,6 +1048,7 @@ async fn writer_recovers_on_transient_retry() {
             chunk_size: 10,
             row_fallback_concurrency: 4,
         },
+        common::test_permits(),
     );
 
     let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), store, flush_rx, writer_handle);
@@ -997,6 +1105,7 @@ async fn writer_falls_back_to_per_row_on_data_error() {
             chunk_size: 10,
             row_fallback_concurrency: 4,
         },
+        common::test_permits(),
     );
 
     let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), store, flush_rx, writer_handle);
@@ -1061,6 +1170,7 @@ async fn unapplyable_batch_halts_the_writer_before_any_later_batch() {
             chunk_size: 10,
             row_fallback_concurrency: 4,
         },
+        common::test_permits(),
     );
 
     let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), store, flush_rx, writer_handle);
@@ -1110,6 +1220,7 @@ async fn properties_size_violation_errors_and_writes_nothing() {
     let store = PersonWriteStore::new(
         PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
         common::test_store_config(),
+        common::test_permits(),
     );
 
     // Would have been trimmable under the old semantics: protected email
@@ -1197,6 +1308,7 @@ async fn e2e_produce_to_kafka_and_verify_pg_write() {
     let writer = PersonWriteStore::new(
         PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
         common::test_store_config(),
+        common::test_permits(),
     );
     let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), writer, flush_rx, writer_handle);
     tokio::spawn(async move { writer_task.run().await });

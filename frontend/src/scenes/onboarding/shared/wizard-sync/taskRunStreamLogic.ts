@@ -503,8 +503,9 @@ export const taskRunStreamLogic = kea<taskRunStreamLogicType>([
                     cache.disposables.dispose('task-run-sync')
                 })
                 const scheduleReconnect = (reason: string): void => {
-                    // The run-detail fallback can resolve after an unmount, which tears the manager down.
-                    if (!cache.disposables) {
+                    // The run-detail fallback can resolve after an unmount, and there is no stream
+                    // left to reconnect once the logic is gone.
+                    if (cache.disposables.isDisposed) {
                         return
                     }
                     const attempt = ((cache.sseReconnectAttempt as number | undefined) ?? 0) + 1

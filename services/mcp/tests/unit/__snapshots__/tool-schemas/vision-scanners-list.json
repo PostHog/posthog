@@ -36,6 +36,10 @@
         "search": {
             "description": "Case-insensitive substring match across name, description, and the prompt in scanner_config.",
             "type": "string"
+        },
+        "tags": {
+            "description": "Filter to scanners carrying at least one of the given tags (comma-separated).",
+            "type": "string"
         }
     },
     "type": "object"

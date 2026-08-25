@@ -234,7 +234,10 @@ describe("McpAppsService lazy discovery", () => {
   });
 
   it("does not emit DiscoveryComplete when lazy discovery fails", async () => {
-    service.setConfigResolver(vi.fn(async () => {}));
+    service.setServerConfigs([config("posthog")]);
+    vi.spyOn(internals(service), "createConnection").mockRejectedValue(
+      new Error("server offline"),
+    );
     const onComplete = vi.fn();
     service.on(McpAppsServiceEvent.DiscoveryComplete, onComplete);
 
@@ -278,33 +281,50 @@ describe("McpAppsService lazy discovery", () => {
     expect(client.listTools).toHaveBeenCalledTimes(1);
   });
 
-  it("rethrows discovery failures and backs off retries", async () => {
+  it("treats an unavailable server as having no custom UI", async () => {
     const resolver = vi.fn(async () => {});
     service.setConfigResolver(resolver);
 
     await expect(
       service.hasUiForTool("mcp__posthog__loops-review"),
-    ).rejects.toThrow("No server config for: posthog");
+    ).resolves.toBe(false);
     await expect(
       service.hasUiForTool("mcp__posthog__loops-review"),
-    ).rejects.toThrow("UI tool discovery recently failed for: posthog");
+    ).resolves.toBe(false);
     expect(resolver).toHaveBeenCalledTimes(1);
   });
 
-  it("retries discovery after the failure backoff expires", async () => {
+  it("discovers an unavailable server after its config is added", async () => {
+    const resolver = vi.fn(async () => {});
+    service.setConfigResolver(resolver);
+
+    await expect(
+      service.hasUiForTool("mcp__posthog__loops-review"),
+    ).resolves.toBe(false);
+
+    service.addServerConfigs([config("posthog")]);
+    connectClient(service);
+    await expect(
+      service.hasUiForTool("mcp__posthog__loops-review"),
+    ).resolves.toBe(true);
+  });
+
+  it("retries connection failures after the failure backoff expires", async () => {
     vi.useFakeTimers();
     try {
-      const resolver = vi.fn(async () => {});
-      service.setConfigResolver(resolver);
+      service.setServerConfigs([config("posthog")]);
+      const createConnection = vi
+        .spyOn(internals(service), "createConnection")
+        .mockRejectedValue(new Error("server offline"));
 
       await expect(
         service.hasUiForTool("mcp__posthog__loops-review"),
-      ).rejects.toThrow("No server config for: posthog");
+      ).rejects.toThrow("server offline");
       vi.advanceTimersByTime(61_000);
       await expect(
         service.hasUiForTool("mcp__posthog__loops-review"),
-      ).rejects.toThrow("No server config for: posthog");
-      expect(resolver).toHaveBeenCalledTimes(2);
+      ).rejects.toThrow("server offline");
+      expect(createConnection).toHaveBeenCalledTimes(2);
     } finally {
       vi.useRealTimers();
     }
@@ -402,6 +422,28 @@ describe("McpAppsService lazy discovery", () => {
 
     const second = await service.getUiResourceByUri("posthog", REVIEW_URI);
     expect(second?.html).toBe("<html></html>");
+    expect(client.readResource).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not cache a CSP-less resource when config appears after warm-up", async () => {
+    let resolverCalls = 0;
+    service.setConfigResolver(async (name) => {
+      resolverCalls += 1;
+      if (resolverCalls === 2) {
+        service.addServerConfigs([config(name)]);
+      }
+    });
+    const client = makeClient("list");
+    connectClient(service, client);
+
+    const first = await service.getUiResourceByUri("posthog", REVIEW_URI);
+    expect(first?.csp).toBeUndefined();
+
+    const second = await service.getUiResourceByUri("posthog", REVIEW_URI);
+    expect(second?.csp).toEqual(REVIEW_CSP);
+    expect(client.readResource).toHaveBeenCalledTimes(2);
+
+    await service.getUiResourceByUri("posthog", REVIEW_URI);
     expect(client.readResource).toHaveBeenCalledTimes(2);
   });
 

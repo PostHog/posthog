@@ -1,13 +1,14 @@
 import { useActions, useValues } from 'kea'
 
 import { IconExternal, IconPencil, IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
-import { LemonButton, LemonTable, LemonTableColumns, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTableColumns, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TZLabel } from 'lib/components/TZLabel'
 import { TeamMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
+import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
 import type {
@@ -50,12 +51,36 @@ const LABELS_BY_TARGET: Record<'person' | 'group', ProfileLabels> = {
 }
 
 function RunCount({ value }: { value: number }): JSX.Element {
-    return <span className={value ? 'font-medium' : 'text-secondary'}>{value}</span>
+    return <span className={value ? 'font-medium' : 'text-secondary'}>{humanFriendlyNumber(value)}</span>
 }
 
-// The bound table's sync history in the data warehouse. Null when the source has no warehouse
-// binding, or when the caller can't view the warehouse source that owns it.
-function schemaSyncsUrl(source: CustomPropertySourceApi): string | null {
+// The updated share, as a whole percent. 100% has to mean every changed row landed, so a near-miss
+// stays at 99% instead of rounding up, and a tiny share reads as <1% instead of collapsing to 0%.
+function updatedShare(existing: number, changed: number): string | null {
+    if (changed <= 0) {
+        return null
+    }
+    if (existing >= changed) {
+        return '100%'
+    }
+    const share = existing / changed
+    if (share < 0.01) {
+        return '<1%'
+    }
+    return percentage(Math.min(share, 0.99), 0)
+}
+
+// Whether the source reads a materialized view rather than a synced table.
+function bindsAView(source: CustomPropertySourceApi): boolean {
+    return !!source.saved_query && !source.external_data_schema
+}
+
+// Where the bound table or view's own run history lives. Null when the source has no warehouse
+// binding, or when the caller can't view what it reads.
+function sourceRunsUrl(source: CustomPropertySourceApi): string | null {
+    if (bindsAView(source)) {
+        return source.saved_query ? urls.sqlEditor({ view_id: source.saved_query }) : null
+    }
     if (!source.external_data_source || !source.external_data_schema) {
         return null
     }
@@ -121,18 +146,26 @@ function ProfilePropertyRuns({
             title: 'Updated',
             tooltip: `How many ${labels.entityPlural} this run updated, out of the rows whose mapped values changed. Rows that already hold the values last sent are skipped, even on a full refresh.`,
             align: 'right',
-            render: (_, run) => (
-                <span className="whitespace-nowrap">
-                    <RunCount value={run.existing} />
-                    <span className="text-secondary"> of {run.changed} changed</span>
-                </span>
-            ),
+            render: (_, run) => {
+                const share = updatedShare(run.existing, run.changed)
+                return (
+                    <span className="whitespace-nowrap">
+                        <RunCount value={run.existing} />
+                        <span className="text-secondary">
+                            {' '}
+                            of {humanFriendlyNumber(run.changed)} changed{share ? ` (${share})` : ''}
+                        </span>
+                    </span>
+                )
+            },
         },
         {
             title: `Skipped (no ${labels.entity})`,
             tooltip: `Changed rows dropped because their key column value matched no existing ${labels.entity}. The most common reason a property never shows up.`,
             align: 'right',
-            render: (_, run) => <span className="text-secondary">{run.skipped_missing_person}</span>,
+            render: (_, run) => (
+                <span className="text-secondary">{humanFriendlyNumber(run.skipped_missing_person)}</span>
+            ),
         },
         {
             title: 'Started',
@@ -210,6 +243,24 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
             render: (_, definition) => <span className="font-semibold">{definition.name}</span>,
         },
         {
+            title: 'Reads',
+            tooltip: 'The warehouse table or materialized view this property reads its values from.',
+            render: (_, definition) => {
+                const source = definition.source
+                const name = source?.saved_query_name ?? source?.table_name
+                if (!source || !name) {
+                    return <span className="text-secondary">—</span>
+                }
+                const url = sourceRunsUrl(source)
+                return (
+                    <span className="flex items-center gap-2">
+                        {url ? <Link to={url}>{name}</Link> : <span>{name}</span>}
+                        <LemonTag type="muted">{bindsAView(source) ? 'View' : 'Table'}</LemonTag>
+                    </span>
+                )
+            },
+        },
+        {
             title: labels.keyColumn,
             tooltip: `The warehouse column holding each row's ${targetType === 'person' ? 'distinct ID' : 'group key'}. It's how a row is matched to ${labels.entityPlural} — rows with no match are skipped.`,
             render: (_, definition) =>
@@ -264,7 +315,9 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                 const tooltipTitle =
                     [
                         status.tooltip,
-                        affected != null ? `${affected} ${labels.entityPlural} affected on the last run` : null,
+                        affected != null
+                            ? `${humanFriendlyNumber(affected)} ${labels.entityPlural} affected on the last run`
+                            : null,
                     ]
                         .filter(Boolean)
                         .join(' — ') || undefined
@@ -369,7 +422,7 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                             <ProfilePropertyRuns
                                 sourceId={definition.source.id}
                                 labels={labels}
-                                syncsUrl={schemaSyncsUrl(definition.source)}
+                                syncsUrl={sourceRunsUrl(definition.source)}
                             />
                         ) : null,
                 }}

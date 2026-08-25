@@ -7,7 +7,7 @@ from unittest.mock import Mock, patch
 
 from parameterized import parameterized
 
-from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, RateLimit
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, RateLimit
 from posthog.clickhouse.query_tagging import Product, QueryTags, query_tags, reset_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 
@@ -24,11 +24,12 @@ class TestRateLimit(BaseTest):
             get_task_id=lambda *args, **kwargs: f"{kwargs.get('task_id') or args[2]}",
             ttl=10,
         )
-        self.cancels: list[tuple[str | None, str | None]] = []
+        self.cancels: list[ConcurrencySlot | None] = []
 
     def tearDown(self) -> None:
-        for a, b in self.cancels:
-            self.limit.release(a, b)
+        for slot in self.cancels:
+            if slot is not None:
+                self.limit.release(slot)
 
     def test_rate_limit(self):
         args, kwargs = (), {"is_api": True, "team_id": 7, "task_id": 17}
@@ -210,11 +211,12 @@ class TestRateLimit(BaseTest):
             retry_timeout=0.5,  # 500ms total timeout
         )
 
-        running_task_key, task_id = retry_limit.use(task_id=1)  # consumes the slot
+        slot = retry_limit.use(task_id=1)  # consumes the slot
+        assert slot is not None
 
         def on_sleep(duration):
             if duration > 0.1:  # after second sleep, the slot is released
-                retry_limit.release(running_task_key, task_id)
+                retry_limit.release(slot)
 
         time_helper = TimeHelper(on_sleep)
 
@@ -417,7 +419,7 @@ class TestMaterializedEndpointsRateLimiter(BaseTest):
         from posthog.clickhouse.client.limit import get_materialized_endpoints_rate_limiter
 
         rate_limiter = get_materialized_endpoints_rate_limiter()
-        acquired_slots: list[tuple[str | None, str | None]] = []
+        acquired_slots: list[ConcurrencySlot | None] = []
 
         try:
             # Acquire all 10 slots
@@ -432,9 +434,9 @@ class TestMaterializedEndpointsRateLimiter(BaseTest):
                 rate_limiter.use(team_id=self.team.id, task_id="test-slot-overflow", is_materialized_endpoint=True)
         finally:
             # Clean up all acquired slots
-            for key, task_id in acquired_slots:
-                if key and task_id:
-                    rate_limiter.release(key, task_id)
+            for slot in acquired_slots:
+                if slot is not None:
+                    rate_limiter.release(slot)
 
     @patch("posthog.clickhouse.client.limit.TEST", False)
     def test_rate_limiter_allows_after_release(self):
@@ -442,7 +444,7 @@ class TestMaterializedEndpointsRateLimiter(BaseTest):
         from posthog.clickhouse.client.limit import get_materialized_endpoints_rate_limiter
 
         rate_limiter = get_materialized_endpoints_rate_limiter()
-        acquired_slots: list[tuple[str | None, str | None]] = []
+        acquired_slots: list[ConcurrencySlot | None] = []
 
         try:
             # Fill all 10 slots
@@ -453,18 +455,48 @@ class TestMaterializedEndpointsRateLimiter(BaseTest):
                 acquired_slots.append(slot)
 
             # Release one slot
-            key, task_id = acquired_slots.pop()
-            if key and task_id:
-                rate_limiter.release(key, task_id)
+            released = acquired_slots.pop()
+            if released is not None:
+                rate_limiter.release(released)
 
             # Now a new request should succeed
             new_slot = rate_limiter.use(team_id=self.team.id, task_id="test-release-new", is_materialized_endpoint=True)
             acquired_slots.append(new_slot)
         finally:
             # Clean up
-            for key, task_id in acquired_slots:
-                if key and task_id:
-                    rate_limiter.release(key, task_id)
+            for slot in acquired_slots:
+                if slot is not None:
+                    rate_limiter.release(slot)
+
+
+class TestAppOrgRateLimiter(BaseTest):
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_rate_limiter_skips_for_temporal_activity(self):
+        """Experiment metric recalcs run their app queries inside Temporal activities,
+        which have their own concurrency controls — the per-org app limiter must not apply."""
+        from temporalio.testing import ActivityEnvironment
+
+        from posthog.clickhouse.client.limit import get_app_org_rate_limiter
+
+        async def check_rate_limiter_in_activity():
+            rate_limiter = get_app_org_rate_limiter()
+            return rate_limiter.applicable(org_id=str(self.organization.id), team_id=self.team.id)
+
+        env = ActivityEnvironment()
+        result = asyncio.run(env.run(check_rate_limiter_in_activity))
+
+        self.assertFalse(result, "Rate limiter should not apply in Temporal activity context")
+
+    @patch("posthog.clickhouse.client.limit.TEST", False)
+    def test_rate_limiter_applies_for_regular_requests(self):
+        from posthog.clickhouse.client.limit import get_app_org_rate_limiter
+
+        rate_limiter = get_app_org_rate_limiter()
+
+        with patch("posthog.clickhouse.client.limit.current_task", None):
+            with patch("temporalio.workflow.in_workflow", return_value=False):
+                is_applicable = rate_limiter.applicable(org_id=str(self.organization.id), team_id=self.team.id)
+                self.assertTrue(is_applicable)
 
 
 class TestDashboardQueriesRateLimiter(BaseTest):

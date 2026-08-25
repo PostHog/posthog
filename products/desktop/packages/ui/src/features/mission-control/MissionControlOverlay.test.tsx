@@ -11,6 +11,7 @@ describe("MissionControlOverlay", () => {
 
   afterEach(() => {
     vi.useRealTimers();
+    vi.unstubAllEnvs();
     document.getElementById("portal-container")?.remove();
   });
 
@@ -27,6 +28,20 @@ describe("MissionControlOverlay", () => {
     expect(screen.getByText("PostHog Desktop")).toBeTruthy();
     expect(screen.getByLabelText("PostHog logo")).toBeTruthy();
   });
+
+  it.each([
+    { dev: true, expected: true },
+    { dev: false, expected: false },
+  ])(
+    "shows the development badge only in a dev build (DEV=$dev)",
+    ({ dev, expected }) => {
+      vi.stubEnv("DEV", dev);
+      useMissionControlStore.setState({ active: true });
+      render(<MissionControlOverlay />);
+
+      expect(screen.queryByText("Development") !== null).toBe(expected);
+    },
+  );
 
   it("never intercepts clicks", () => {
     useMissionControlStore.setState({ active: true });

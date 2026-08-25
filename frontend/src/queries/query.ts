@@ -1,4 +1,4 @@
-import api, { ApiMethodOptions } from 'lib/api'
+import api, { ApiMethodOptions, isAbortError } from 'lib/api'
 import posthog from 'lib/posthog-typed'
 import { delay } from 'lib/utils/async'
 
@@ -139,11 +139,11 @@ export async function pollForResults(
             }
         } catch (e: any) {
             // Parse error message to extract clean message and code if present
-            const parsed = parseErrorMessage(e.data?.query_status?.error_message)
+            const parsed = parseErrorMessage(e.data?.query_status?.error_message ?? e.data?.detail ?? e.detail)
             e.detail = parsed.message
 
             // Prefer the structured code from QueryStatus over one parsed out of the message
-            e.code = e.data?.query_status?.error_code ?? parsed.code ?? e.code
+            e.code = e.data?.query_status?.error_code ?? e.data?.code ?? parsed.code ?? e.code
 
             // Attach queryId to error for downstream error handling
             e.queryId = queryId
@@ -284,17 +284,21 @@ export async function performQuery<N extends DataNode>(
         })
         return response
     } catch (e) {
-        // Raw error detail/message can echo query fragments, so telemetry only gets status and code
-        const error = e as (Error & { status?: number; code?: string | null }) | null
-        posthog.capture('query failed', {
-            query: queryNode,
-            queryId,
-            duration: performance.now() - startTime,
-            error_status: error?.status ?? null,
-            error_code: error?.code ?? null,
-            uses_data_warehouse_source: queryUsesDataWarehouse(queryNode),
-            ...logParams,
-        })
+        // A superseded query or navigating away mid-request aborts, not fails — skip so the
+        // 'query failed' metric isn't drowned in cancellation noise.
+        if (!isAbortError(e)) {
+            // Raw error detail/message can echo query fragments, so telemetry only gets status and code
+            const error = e as (Error & { status?: number; code?: string | null }) | null
+            posthog.capture('query failed', {
+                query: queryNode,
+                queryId,
+                duration: performance.now() - startTime,
+                error_status: error?.status ?? null,
+                error_code: error?.code ?? null,
+                uses_data_warehouse_source: queryUsesDataWarehouse(queryNode),
+                ...logParams,
+            })
+        }
         throw e
     }
 }

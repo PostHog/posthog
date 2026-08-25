@@ -4,6 +4,8 @@ import type { LoopSchemas } from "@posthog/api-client/loops";
 import {
   flattenSelectOptions,
   isDefaultSelectOption,
+  isGlm53ModelId,
+  isGlmModelId,
   isRestrictedModelOption,
   selectOptionDocsUrl,
 } from "@posthog/shared";
@@ -25,10 +27,6 @@ export const LOOP_DEFAULT_MODELS: Record<
   codex: { id: "gpt-5", label: "GPT-5" },
 };
 
-function isGlmModelId(modelId: string): boolean {
-  return modelId.toLowerCase().includes("glm");
-}
-
 function isKimiModelId(modelId: string): boolean {
   return modelId === "moonshotai/kimi-k3";
 }
@@ -49,6 +47,7 @@ const FALLBACK_MODEL_OPTIONS: Record<
     { value: "claude-sonnet-5", label: "Claude Sonnet 5" },
     { value: "claude-fable-5", label: "Claude Fable 5" },
     { value: "@cf/zai-org/glm-5.2", label: "GLM-5.2" },
+    { value: "zai-org/glm-5.3", label: "GLM-5.3" },
     { value: "moonshotai/kimi-k3", label: "Kimi K3" },
   ],
   codex: [
@@ -82,9 +81,15 @@ export function loopModelOptions(
   configOptions: SessionConfigOption[],
   {
     glmEnabled,
+    glm53Enabled,
     kimiEnabled,
     pinnedModel,
-  }: { glmEnabled: boolean; kimiEnabled?: boolean; pinnedModel: string },
+  }: {
+    glmEnabled: boolean;
+    glm53Enabled?: boolean;
+    kimiEnabled?: boolean;
+    pinnedModel: string;
+  },
 ): LoopModelOption[] {
   const modelOption = configOptions.find(
     (option) => option.category === "model" || option.id === "model",
@@ -101,7 +106,7 @@ export function loopModelOptions(
   const options = (served.length > 0 ? served : FALLBACK_MODEL_OPTIONS[adapter])
     .filter(
       (option) =>
-        glmEnabled ||
+        (isGlm53ModelId(option.value) ? glm53Enabled : glmEnabled) ||
         option.value === pinnedModel ||
         !isGlmModelId(option.value),
     )

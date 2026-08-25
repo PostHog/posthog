@@ -35,7 +35,7 @@ _TERMINAL_STATE_MARKERS = (
 _TERMINAL_STATUSES = (TaskRun.Status.COMPLETED, TaskRun.Status.FAILED, TaskRun.Status.CANCELLED)
 
 
-@dataclass
+@dataclass(frozen=False)
 class UpdateTaskRunStatusInput:
     run_id: str
     status: str
@@ -47,6 +47,10 @@ class UpdateTaskRunStatusInput:
     # One of _TERMINAL_STATE_MARKERS, recorded as a True key in TaskRun.state.
     # Optional with a default for the same in-flight payload reason as error_type.
     timeout_marker: Optional[str] = None
+    agent_active_at_termination: Optional[bool] = None
+    end_of_turn_received: Optional[bool] = None
+    last_agent_heartbeat_at: Optional[str] = None
+    seconds_since_last_agent_heartbeat: Optional[float] = None
 
 
 @activity.defn
@@ -120,18 +124,13 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
     if input.timed_out_inactivity and old_status != input.status:
         task_run.task.soft_delete_if_unclaimed_prewarm(task_run)
 
-    # This activity is how workflow-driven runs (finish tool, failures, timeouts, cancellations)
-    # reach a terminal status, so loop bookkeeping must hook in here, not only in the HTTP PATCH
-    # path (facade.api.update_task_run). Guarded on the actual transition so repeats and the
-    # PATCH-then-activity dual write don't double-count consecutive_failures; swallowed so a
-    # bookkeeping failure never fails (and re-runs) the status write itself.
-    if old_status != input.status:
+    if input.status in _TERMINAL_STATUSES:
         from products.tasks.backend.logic.services.loop_runs import (  # noqa: PLC0415 — breaks the loop_runs -> process_task -> activities import cycle
             handle_loop_run_terminal,
         )
 
         try:
-            handle_loop_run_terminal(task_run)
+            handle_loop_run_terminal(task_run, error_type=input.error_type)
         except Exception:
             activity.logger.warning(f"Failed loop terminal bookkeeping for run {task_run.id}", exc_info=True)
 
@@ -139,6 +138,7 @@ def update_task_run_status(input: UpdateTaskRunStatusInput) -> None:
         "Task run status updated",
         run_id=input.run_id,
         status=input.status,
+        termination_reason=marker if marker in _TERMINAL_STATE_MARKERS else None,
     )
 
 
@@ -151,8 +151,23 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
     transition so activity retries and repeat updates don't double-count.
     """
     try:
+        marker = TIMED_OUT_INACTIVITY_STATE_KEY if input.timed_out_inactivity else input.timeout_marker
+        termination_reason = marker if marker in _TERMINAL_STATE_MARKERS else None
+        relay_state = {
+            "agent_active_at_termination": input.agent_active_at_termination,
+            "end_of_turn_received": input.end_of_turn_received,
+            "last_agent_heartbeat_at": input.last_agent_heartbeat_at,
+            "seconds_since_last_agent_heartbeat": input.seconds_since_last_agent_heartbeat,
+        }
         if input.status == TaskRun.Status.COMPLETED:
-            task_run.capture_event("task_run_completed", {"duration_seconds": task_run._duration_seconds()})
+            task_run.capture_event(
+                "task_run_completed",
+                {
+                    "duration_seconds": task_run._duration_seconds(),
+                    "termination_reason": termination_reason,
+                    **relay_state,
+                },
+            )
         else:
             task_run.capture_event(
                 "task_run_failed",
@@ -160,6 +175,8 @@ def _capture_terminal_analytics(task_run: TaskRun, input: UpdateTaskRunStatusInp
                     "error_message": truncate_error_message(input.error_message or task_run.error_message),
                     "error_type": input.error_type or "unspecified",
                     "duration_seconds": task_run._duration_seconds(),
+                    "termination_reason": termination_reason,
+                    **relay_state,
                 },
             )
 

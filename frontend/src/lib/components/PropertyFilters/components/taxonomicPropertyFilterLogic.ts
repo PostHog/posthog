@@ -239,6 +239,11 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
                     eventMetadataFilter.label = item.name
                 }
 
+                if (propertyType === PropertyFilterType.Account && item?.name) {
+                    const accountPropertyFilter = filter as { label?: string }
+                    accountPropertyFilter.label = item.name
+                }
+
                 // The key is the definition id (a UUID), so keep the human-readable name for display
                 if (propertyType === PropertyFilterType.AccountCustomProperty && item?.name) {
                     const accountCustomPropertyFilter = filter as AccountCustomPropertyFilter

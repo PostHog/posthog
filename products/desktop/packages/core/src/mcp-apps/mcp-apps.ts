@@ -60,6 +60,8 @@ interface ServerConnection {
   transport: StreamableHTTPClientTransport;
 }
 
+class MissingMcpServerConfigError extends Error {}
+
 @injectable()
 export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
   private connections = new Map<string, ServerConnection>();
@@ -72,6 +74,7 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
   private pendingFetches = new Map<string, Promise<McpUiResource | null>>();
   private resourceMetaCache = new Map<string, McpResourceUiMeta>();
   private discoveredServers = new Set<string>();
+  private unavailableServers = new Set<string>();
   private pendingDiscoveries = new Map<string, Promise<void>>();
   private discoveryFailedAt = new Map<string, number>();
   private readonly log: ScopedLogger;
@@ -108,6 +111,7 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
    */
   setServerConfigs(configs: McpServerConnectionConfig[]): void {
     this.serverConfigs.clear();
+    this.unavailableServers.clear();
     for (const config of configs) {
       this.serverConfigs.set(config.name, config);
     }
@@ -123,6 +127,7 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
   addServerConfigs(configs: McpServerConnectionConfig[]): void {
     for (const config of configs) {
       this.serverConfigs.set(config.name, config);
+      this.unavailableServers.delete(config.name);
     }
   }
 
@@ -269,8 +274,9 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
    * resolver) so callers' queries surface an error and retry instead of
    * caching a permanent miss.
    */
-  private async ensureServerDiscovered(serverName: string): Promise<void> {
-    if (this.discoveredServers.has(serverName)) return;
+  private async ensureServerDiscovered(serverName: string): Promise<boolean> {
+    if (this.discoveredServers.has(serverName)) return true;
+    if (this.unavailableServers.has(serverName)) return false;
 
     // Only the caller that starts the discovery emits DiscoveryComplete —
     // joiners would otherwise re-emit once per caller and stampede the
@@ -283,12 +289,26 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
       }
     }
 
-    await this.discoverServer(serverName);
+    try {
+      await this.discoverServer(serverName);
+    } catch (error) {
+      if (!(error instanceof MissingMcpServerConfigError)) throw error;
+      // Historical cloud runs can contain tools from servers that are not
+      // configured in this Desktop process. They simply have no local custom
+      // UI; remember that until the server configuration changes.
+      this.unavailableServers.add(serverName);
+      this.discoveryFailedAt.delete(serverName);
+      this.log.debug("Skipping UI discovery for unavailable MCP server", {
+        serverName,
+      });
+      return false;
+    }
     if (startedHere) {
       this.emit(McpAppsServiceEvent.DiscoveryComplete, {
         toolKeys: [...this.toolAssociations.keys()],
       } satisfies McpAppsDiscoveryCompleteEvent);
     }
+    return true;
   }
 
   /**
@@ -348,7 +368,9 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
       config = this.serverConfigs.get(serverName);
     }
     if (!config) {
-      throw new Error(`No server config for: ${serverName}`);
+      throw new MissingMcpServerConfigError(
+        `No server config for: ${serverName}`,
+      );
     }
     return this.createConnection(config);
   }
@@ -470,7 +492,7 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     // where handleDiscovery never ran (cloud runs fetching by result URI). The
     // read below decides success on its own.
     const warmed = await this.ensureServerDiscovered(serverName).then(
-      () => true,
+      (discovered) => discovered,
       (err) => {
         this.log.warn("UI resource metadata warm-up failed", {
           serverName,
@@ -677,6 +699,7 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     this.pendingConnections.clear();
     this.pendingFetches.clear();
     this.discoveredServers.clear();
+    this.unavailableServers.clear();
     this.pendingDiscoveries.clear();
     this.discoveryFailedAt.clear();
 
@@ -700,6 +723,7 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     }
 
     this.discoveredServers.delete(serverName);
+    this.unavailableServers.delete(serverName);
     this.discoveryFailedAt.delete(serverName);
 
     const conn = this.connections.get(serverName);
@@ -743,6 +767,7 @@ export class McpAppsService extends TypedEventEmitter<McpAppsServiceEvents> {
     this.pendingConnections.clear();
     this.pendingFetches.clear();
     this.discoveredServers.clear();
+    this.unavailableServers.clear();
     this.pendingDiscoveries.clear();
     this.discoveryFailedAt.clear();
   }

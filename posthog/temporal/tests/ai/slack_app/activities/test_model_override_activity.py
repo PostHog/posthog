@@ -45,21 +45,24 @@ def _input(integration: Integration, text: str) -> SlackAppModelOverrideInput:
 
 class TestClassifySlackAppModelOverrideActivity:
     @pytest.mark.parametrize(
-        "flag_on,catalogue",
+        "text,flag_on,catalogue",
         [
-            (False, CATALOGUE),
+            ("use fable for this one", False, CATALOGUE),
             # The gateway is the source of truth for what can run; with no catalogue
             # there is nothing to validate a request against.
-            (True, ()),
+            ("use fable for this one", True, ()),
+            # A follow-up that is only an attachment carries no sentence to read.
+            ("   ", True, CATALOGUE),
         ],
+        ids=["flag_off", "empty_catalogue", "blank_text"],
     )
-    def test_gates_return_no_override_without_calling_the_llm(self, integration, flag_on, catalogue):
+    def test_gates_return_no_override_without_calling_the_llm(self, integration, text, flag_on, catalogue):
         with (
             patch(f"{ACTIVITY_MODULE}.is_slack_app_model_classifier_enabled", return_value=flag_on),
             patch(f"{ACTIVITY_MODULE}.available_model_choices", return_value=catalogue),
             patch(f"{ACTIVITY_MODULE}.classify_slack_app_model_override") as classify,
         ):
-            result = classify_slack_app_model_override_activity(_input(integration, "use fable for this one"))
+            result = classify_slack_app_model_override_activity(_input(integration, text))
         assert result is None
         classify.assert_not_called()
 

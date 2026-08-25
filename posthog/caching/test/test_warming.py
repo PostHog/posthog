@@ -8,7 +8,7 @@ from posthog.exceptions import ClickHouseAtCapacity
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.product_analytics.backend.models.insight import Insight, InsightViewed
+from products.product_analytics.backend.facade.models import Insight, InsightViewed
 
 
 class TestWarming(APIBaseTest):

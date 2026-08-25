@@ -186,6 +186,29 @@ case "$RS_SVC" in
     export POSTHOG_API_KEY="${CYMBAL_NOTIFICATIONS_POSTHOG_API_KEY:-phc_localposthogprojecttoken}"
     export POSTHOG_ENDPOINT="${CYMBAL_NOTIFICATIONS_POSTHOG_ENDPOINT:-http://localhost:3307}"
     export TEMPORAL_HOST="${TEMPORAL_HOST:-temporal}"
+    export TEMPORAL_PORT="${TEMPORAL_PORT:-7233}"
+    export TEMPORAL_NAMESPACE="${TEMPORAL_NAMESPACE:-default}"
+    # posthog/settings/temporal.py collapses every queue onto this one name when
+    # DEBUG is set, and the local worker polls only it. Without this the started
+    # workflows sit Running with no poller, which Temporal accepts silently.
+    export ERROR_TRACKING_LIFECYCLE_TASK_QUEUE="${ERROR_TRACKING_LIFECYCLE_TASK_QUEUE:-development-task-queue}"
+    # The local Temporal serves plaintext gRPC. Without this flag an unset
+    # TEMPORAL_CLIENT_CERT is a boot failure, which is what production wants.
+    export TEMPORAL_INSECURE="${TEMPORAL_INSECURE:-true}"
+    # Match Django's Fernet key derivation (posthog/temporal/common/codec.py,
+    # _resize_key): left-pad a short SECRET_KEY with NUL bytes to 32, so the
+    # Python workers can decrypt the payloads this service writes.
+    if [ -z "${TEMPORAL_SECRET_KEY:-}" ]; then
+      TEMPORAL_SECRET_KEY="base64:$(
+        POSTHOG_SECRET_KEY="${SECRET_KEY:-<randomly generated secret key>}" python3 -c \
+          'import base64, os; k = os.environ["POSTHOG_SECRET_KEY"].encode(); print(base64.b64encode((b"\0" * max(32 - len(k), 0) + k)[:32]).decode())'
+      )"
+    fi
+    export TEMPORAL_SECRET_KEY
+    # Setting the Redis URL is what turns the limiter on. The cap matches the
+    # production default; lower it to exercise the limit itself.
+    export ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_REDIS_URL="${ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_REDIS_URL:-$DEFAULT_REDIS}"
+    export ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_PER_HOUR="${ERROR_TRACKING_NOTIFICATIONS_RATE_LIMIT_PER_HOUR:-1000}"
     ;;
 
   embedding-worker)
@@ -196,18 +219,6 @@ case "$RS_SVC" in
     export FRAME_CACHE_TTL_SECONDS=1
     export BIND_PORT=3305 # HACK! avoid local-dev clash with property-defs-rs port
     export ALLOW_INTERNAL_IPS="true"
-    ;;
-
-  cyclotron-janitor)
-    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
-    export RUST_LOG=debug,sqlx::query=$SQLX_QUERY_LEVEL
-    export RUST_BACKTRACE=1
-    export KAFKA_HOSTS="$DEFAULT_KAFKA"
-    export KAFKA_TOPIC=clickhouse_app_metrics2
-    export DATABASE_URL="${CYCLOTRON_DATABASE_URL:-postgres://posthog:posthog@${PGHOST:-db}:${PGPORT:-5432}/cyclotron}"
-    export BIND_PORT=3310 # default 3303 collides with property-vals-rs in local dev
-    export DEBUG=1
-    export ALLOW_INTERNAL_IPS=${ALLOW_INTERNAL_IPS:-true}
     ;;
 
   feature-flags)
@@ -232,6 +243,14 @@ case "$RS_SVC" in
     export RUST_BACKTRACE=1
     export REDIS_URL="$DEFAULT_REDIS"
     export ADDRESS=0.0.0.0:3002
+    export DEBUG=1
+    ;;
+
+  usage-ingestion)
+    export RUST_LOG=debug,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export USAGE_INGESTION_DATABASE_URL="${USAGE_INGESTION_DATABASE_URL:-$DEFAULT_PG}"
+    export KAFKA_HOSTS="$DEFAULT_KAFKA"
     export DEBUG=1
     ;;
 

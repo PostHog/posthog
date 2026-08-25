@@ -693,11 +693,12 @@ async fn rapid_scale_up_debounce() {
                     .map(|a| (a.partition, a.owner.clone()))
                     .collect();
                 let strategy = kafka_assigner::strategy::StickyBalancedStrategy;
+                let members = kafka_assigner::strategy::Member::active_all(&names);
                 let desired =
                     assignment_coordination::strategy::AssignmentStrategy::compute_assignments(
                         &strategy,
                         &current,
-                        &names,
+                        &members,
                         NUM_PARTITIONS,
                     );
                 let moves =

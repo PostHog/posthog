@@ -513,6 +513,25 @@ class TestConversationMinimalSerializerTaskField(APIBaseTest):
         data = ConversationMinimalSerializer(conversation, context={"team": self.team, "user": self.user}).data
         self.assertIsNone(data["task"])
 
+    def test_minimal_serializer_does_not_refetch_task_missing_from_context_map(self):
+        task = self._task()
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            type=Conversation.Type.ASSISTANT,
+            agent_runtime=Conversation.AgentRuntime.SANDBOX,
+            task=task,
+        )
+
+        with patch("ee.hogai.api.serializers.tasks_facade.get_conversation_task_dtos") as get_task_dtos:
+            data = ConversationMinimalSerializer(
+                conversation,
+                context={"team": self.team, "user": self.user, "conversation_task_dtos_by_id": {}},
+            ).data
+
+        self.assertIsNone(data["task"])
+        get_task_dtos.assert_not_called()
+
 
 class TestConversationSerializerArtifactEnrichment(APIBaseTest):
     """Test artifact enrichment functionality in the serializer."""

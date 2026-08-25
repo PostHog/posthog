@@ -7,7 +7,6 @@ from pydantic import BaseModel
 
 from llm_gateway.auth.models import AuthenticatedUser
 from llm_gateway.auth.service import InvalidProjectScopeError, UnauthorizedProjectScopeError, get_auth_service
-from llm_gateway.config import get_settings
 from llm_gateway.products.config import (
     FREE_TIER_RESTRICTION_REASON,
     CreditBucket,
@@ -167,7 +166,7 @@ async def list_models_for_product(product: str, request: Request) -> ModelsRespo
 
     user = await _authenticated_caller(request)
 
-    if resolved != "posthog_code" or not get_settings().posthog_code_model_gate_enabled:
+    if resolved != "posthog_code":
         return response
     if not await _caller_confirmed_free_tier(request, user):
         return response

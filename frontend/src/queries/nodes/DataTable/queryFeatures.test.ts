@@ -33,11 +33,11 @@ describe('getQueryFeatures', () => {
     })
 
     describe('resultIsArrayOfArrays', () => {
-        it('uses positional rendering for translated Accounts table rows', () => {
+        it('uses keyed rendering for Accounts table rows', () => {
             const query: AccountsTableQuery = { kind: NodeKind.AccountsTableQuery, columns: [], filters: [] }
             const features = getQueryFeatures(query)
 
-            expect(features.has(QueryFeature.resultIsArrayOfArrays)).toBe(true)
+            expect(features.has(QueryFeature.resultIsArrayOfArrays)).toBe(false)
         })
     })
 

@@ -93,4 +93,56 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             ),
         },
     },
+    "admin_logs": {
+        "description": (
+            "An entry in Decagon's admin log: a configuration change with who made it, when, "
+            "and the before and after state. An immutable audit trail."
+        ),
+        "docs_url": "https://docs.decagon.ai/api-reference/getting-started",
+        "columns": {
+            "id": "Unique identifier for the log entry.",
+            "created_at": "Timestamp at which the change was made.",
+            "resource_type": "Type of the resource that was changed.",
+            "resource_id": "Identifier of the resource that was changed.",
+            "action": "Action performed on the resource.",
+            "user_id": "Identifier of the user who made the change.",
+            "team_id": "Identifier of the team the change belongs to.",
+            "status": "Status of the change.",
+            "details_before": "State of the resource before the change, as free-form JSON.",
+            "details_after": "State of the resource after the change, as free-form JSON.",
+        },
+    },
+    "team_members": {
+        "description": (
+            "A member of the Decagon team, one row per user including pending invites. "
+            "Resolves the user ids referenced by other Decagon tables to a person."
+        ),
+        "docs_url": "https://docs.decagon.ai/api-reference/getting-started",
+        "columns": {
+            "id": "Unique identifier for the team member.",
+            "email": "Email address of the team member.",
+            "access": "Access level of the team member: viewer, QA, or admin.",
+        },
+    },
+    "watchtower_jobs": {
+        "description": (
+            "A Watchtower QA/evaluation job, including the rubric and configuration needed to "
+            "interpret its quality scoring."
+        ),
+        "docs_url": "https://docs.decagon.ai/api-reference/getting-started",
+        "columns": {
+            "id": "Unique identifier for the job.",
+            "name": "Name of the job.",
+            "description": "Description of the job.",
+            "rubric": "Rubric the job evaluates against, as free-form JSON.",
+            "rubric_type": "Type of the rubric.",
+            "prompt": "Prompt the job runs, as free-form JSON.",
+            "outputs": "Outputs the job produces, as free-form JSON.",
+            "config": "Configuration of the job, as free-form JSON.",
+            "created_at": "Timestamp at which the job was created.",
+            "updated_at": "Timestamp at which the job was last updated.",
+            "last_run_at": "Timestamp at which the job last ran.",
+            "status": "Status of the job.",
+        },
+    },
 }

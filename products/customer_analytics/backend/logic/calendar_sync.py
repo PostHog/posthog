@@ -11,11 +11,9 @@ import structlog
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, OauthIntegration
-from posthog.models.person.person import Person
-from posthog.models.person.util import get_persons_by_uuids
 from posthog.models.team import Team
-from posthog.personhog_client.caller_tag import personhog_caller_tag
 
+from products.customer_analytics.backend.logic.email_account_matching import match_accounts_for_emails
 from products.customer_analytics.backend.models import Account, Meeting, MeetingParticipant, MeetingStatus
 
 logger = structlog.get_logger(__name__)
@@ -34,13 +32,6 @@ SELECT id, properties.email
 FROM persons
 WHERE lower(properties.email) IN {emails}
 ORDER BY is_identified DESC, created_at ASC, id ASC
-"""
-
-GROUP_KEY_BY_DISTINCT_ID_QUERY = """
-SELECT distinct_id, argMaxIf({group_col}, timestamp, {group_col} != '') AS group_key
-FROM events
-WHERE distinct_id IN {{distinct_ids}} AND timestamp > now() - INTERVAL 90 DAY
-GROUP BY distinct_id
 """
 
 
@@ -320,48 +311,7 @@ def rematch_account_meetings(team_id: int, account_id: str) -> int:
 
 
 def _match_accounts_for_emails(team: Team, emails: list[str]) -> dict[str, Account]:
-    """Resolve attendee emails to accounts: pinned known_emails first, then person
-    group links, then the email_domains fallback."""
-    if not emails:
-        return {}
-
-    matched: dict[str, Account] = {}
-
-    for email in emails:
-        candidates = list(Account.objects.for_team(team.id).filter(_properties__known_emails__contains=[email])[:2])
-        if len(candidates) == 1:
-            matched[email] = candidates[0]
-        elif len(candidates) > 1:
-            logger.warning("calendar_sync_ambiguous_known_email", team_id=team.id, email=email)
-
-    group_type_index = team.customer_analytics_config.account_group_type_index
-    if group_type_index is not None:
-        unresolved = [email for email in emails if email not in matched]
-        email_to_group_key = _group_keys_via_persons(team, unresolved, group_type_index) if unresolved else {}
-        if email_to_group_key:
-            accounts = {
-                account.external_id: account
-                for account in Account.objects.for_team(team.id).filter(
-                    external_id__in=set(email_to_group_key.values())
-                )
-            }
-            for email, group_key in email_to_group_key.items():
-                if group_key in accounts:
-                    matched[email] = accounts[group_key]
-
-    for email in emails:
-        if email in matched:
-            continue
-        domain = _domain_of(email)
-        if not domain:
-            continue
-        candidates = list(Account.objects.for_team(team.id).filter(_properties__email_domains__contains=[domain])[:2])
-        if len(candidates) == 1:
-            matched[email] = candidates[0]
-        elif len(candidates) > 1:
-            logger.warning("calendar_sync_ambiguous_email_domain", team_id=team.id, domain=domain)
-
-    return matched
+    return {email: match.account for email, match in match_accounts_for_emails(team, emails).items()}
 
 
 def _person_uuids_by_email(team: Team, emails: list[str]) -> dict[str, str]:
@@ -384,44 +334,6 @@ def _person_uuids_by_email(team: Team, emails: list[str]) -> dict[str, str]:
         if lower and lower not in email_to_uuid:
             email_to_uuid[lower] = str(person_uuid)
     return email_to_uuid
-
-
-def _group_keys_via_persons(team: Team, emails: list[str], group_type_index: int) -> dict[str, str]:
-    # Deferred: hogql.query pulls the whole query-runner layer into module import.
-    from posthog.hogql import ast  # noqa: PLC0415
-    from posthog.hogql.query import execute_hogql_query  # noqa: PLC0415
-
-    email_to_uuid = _person_uuids_by_email(team, emails)
-    if not email_to_uuid:
-        return {}
-
-    with personhog_caller_tag("customer_analytics/calendar-person-lookup"):
-        persons = get_persons_by_uuids(team.pk, list(email_to_uuid.values()))
-    persons_by_uuid: dict[str, Person] = {str(p.uuid): p for p in persons}
-
-    distinct_id_to_email: dict[str, str] = {}
-    for email, person_uuid in email_to_uuid.items():
-        person = persons_by_uuid.get(person_uuid)
-        for distinct_id in (person.distinct_ids or []) if person else []:
-            distinct_id_to_email[distinct_id] = email
-    if not distinct_id_to_email:
-        return {}
-
-    query = GROUP_KEY_BY_DISTINCT_ID_QUERY.format(group_col=f"`$group_{group_type_index}`")
-    with tags_context(product=Product.CUSTOMER_ANALYTICS, feature=Feature.QUERY):
-        response = execute_hogql_query(
-            query,
-            placeholders={"distinct_ids": ast.Constant(value=sorted(distinct_id_to_email))},
-            team=team,
-            query_type="customer_analytics_calendar_group_lookup",
-        )
-
-    email_to_group_key: dict[str, str] = {}
-    for distinct_id, group_key in response.results or []:
-        matched_email = distinct_id_to_email.get(distinct_id)
-        if matched_email and group_key and matched_email not in email_to_group_key:
-            email_to_group_key[matched_email] = group_key
-    return email_to_group_key
 
 
 def _get_fresh_access_token(integration: Integration) -> str:

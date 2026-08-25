@@ -19,10 +19,13 @@ from parameterized import parameterized
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Organization, Team
 from posthog.models.event.util import create_event
+from posthog.ph_client import PH_US_API_KEY
 from posthog.tasks.ai_observability_usage_report import (
     AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS,
+    AI_OBSERVABILITY_USAGE_EVENT,
     _get_all_ai_observability_reports,
     capture_ai_observability_report,
+    get_ai_trace_counts,
     get_all_ai_dimension_breakdowns,
     get_all_ai_metrics,
     get_llm_feedback_survey_metrics,
@@ -140,7 +143,7 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         assert metrics.ai_generation_count == 8  # 5 + 3
         assert metrics.ai_embedding_count == 3
         assert metrics.ai_span_count == 10
-        assert metrics.ai_trace_count == 2
+        assert metrics.ai_trace_event_count == 2
         assert metrics.ai_metric_count == 1
         assert metrics.ai_feedback_count == 4
         assert metrics.ai_evaluation_count == 6
@@ -166,6 +169,30 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         assert metrics.reasoning_tokens == 75  # 3 * 25
         assert metrics.cache_read_tokens == 1500  # 3 * 500
         assert metrics.cache_creation_tokens == 600  # 3 * 200
+
+    def test_get_ai_trace_counts_counts_distinct_trace_ids(self) -> None:
+        distinct_id = str(uuid4())
+        _create_person(distinct_ids=[distinct_id], team=self.team)
+
+        period = get_previous_day()
+
+        traced_id = str(uuid4())
+        self._create_ai_events(self.team, distinct_id, "$ai_generation", 3, properties={"$ai_trace_id": traced_id})
+        self._create_ai_events(self.team, distinct_id, "$ai_span", 2, properties={"$ai_trace_id": traced_id})
+        self._create_ai_events(self.team, distinct_id, "$ai_trace", 1, properties={"$ai_trace_id": traced_id})
+
+        # A trace whose SDK integration never emits the root $ai_trace event still counts.
+        rootless_id = str(uuid4())
+        self._create_ai_events(self.team, distinct_id, "$ai_generation", 2, properties={"$ai_trace_id": rootless_id})
+
+        self._create_ai_events(self.team, distinct_id, "$ai_generation", 1)
+
+        team_ids = get_teams_with_ai_events(period.start, period.end, AI_OBSERVABILITY_REPORT_TRIGGER_EVENTS)
+
+        assert get_ai_trace_counts(period.start, period.end, team_ids)[self.team.id] == 2
+
+        # The root-event count stays available as its own signal, so the two can be compared.
+        assert get_all_ai_metrics(period.start, period.end, team_ids)[self.team.id].ai_trace_event_count == 1
 
     def test_get_all_ai_metrics_cost_anomaly_counts(self) -> None:
         """Test that cost anomaly counts (total, negative, zero) are correctly calculated."""
@@ -1100,6 +1127,57 @@ class TestAIObservabilityUsageReport(APIBaseTest, ClickhouseTestMixin, Clickhous
         assert report_dict["ai_generation_count"] == 5
         assert report_dict["ai_embedding_count"] == 0  # Jan 9th events not included
 
+    @parameterized.expand(
+        [
+            ("covering_the_same_period", "2022-01-05T00:00:00+00:00", 0),
+            ("covering_a_different_period", "2021-12-20T00:00:00+00:00", 1),
+        ]
+    )
+    @patch("posthog.tasks.ai_observability_usage_report.capture_ai_observability_report")
+    @patch("posthog.tasks.ai_observability_usage_report.get_ph_client")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_manual_run_skips_organizations_with_an_existing_report(
+        self,
+        _name: str,
+        existing_period_start: str,
+        expected_emissions: int,
+        mock_feature_enabled: MagicMock,
+        mock_get_ph_client: MagicMock,
+        mock_capture_report: MagicMock,
+    ) -> None:
+        self.team.api_token = PH_US_API_KEY
+        self.team.save()
+
+        distinct_id = str(uuid4())
+        _create_person(distinct_ids=[distinct_id], team=self.team)
+        self._create_ai_events(
+            self.team,
+            distinct_id,
+            "$ai_generation",
+            5,
+            timestamp=datetime(2022, 1, 5, 12, 0, 0, tzinfo=UTC),
+        )
+
+        # Both cases stamp the existing report inside the lookup's scan window, so only the
+        # period_start property differs. A lookup that derived the period from the timestamp, or read
+        # either property out of the `ai` property group, would treat the two cases identically.
+        create_event(
+            event_uuid=uuid4(),
+            distinct_id=distinct_id,
+            event=AI_OBSERVABILITY_USAGE_EVENT,
+            properties={
+                "organization_id": str(self.organization.id),
+                "period_start": existing_period_start,
+            },
+            timestamp=datetime(2022, 1, 6, 4, 15, 0, tzinfo=UTC),
+            team=self.team,
+        )
+        flush_persons_and_events()
+
+        send_ai_observability_usage_reports(at="2022-01-06")
+
+        assert mock_capture_report.delay.call_count == expected_emissions
+
 
 @freeze_time("2022-01-10T00:01:00Z")
 class TestAIObservabilityUsageReportTaskWiring(SimpleTestCase):
@@ -1110,6 +1188,7 @@ class TestAIObservabilityUsageReportTaskWiring(SimpleTestCase):
             ("manual_by_org_filter", None, True, "2022-01-10T00:00:00+00:00", "manual"),
         ]
     )
+    @patch("posthog.tasks.ai_observability_usage_report.internal_reporting_team_id", return_value=None)
     @patch("posthog.tasks.ai_observability_usage_report.capture_ai_observability_report")
     @patch("posthog.tasks.ai_observability_usage_report._get_all_ai_observability_reports")
     @patch("posthoganalytics.feature_enabled", return_value=False)
@@ -1123,6 +1202,7 @@ class TestAIObservabilityUsageReportTaskWiring(SimpleTestCase):
         mock_feature_enabled: MagicMock,
         mock_get_reports: MagicMock,
         mock_capture_report: MagicMock,
+        mock_internal_team_id: MagicMock,
     ) -> None:
         org_id = str(uuid4())
         mock_get_reports.return_value = {
@@ -1140,6 +1220,77 @@ class TestAIObservabilityUsageReportTaskWiring(SimpleTestCase):
         call_kwargs = mock_capture_report.delay.call_args.kwargs
         assert call_kwargs["at_date"] == expected_at_date
         assert call_kwargs["report_dict"]["triggered_by"] == expected_trigger
+
+    @patch(
+        "posthog.tasks.ai_observability_usage_report.get_organizations_already_reported",
+        side_effect=Exception("CH down"),
+    )
+    @patch("posthog.tasks.ai_observability_usage_report.internal_reporting_team_id", return_value=2)
+    @patch("posthog.tasks.ai_observability_usage_report.capture_ai_observability_report")
+    @patch("posthog.tasks.ai_observability_usage_report._get_all_ai_observability_reports")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_run_emits_nothing_when_the_already_reported_lookup_fails(
+        self,
+        mock_feature_enabled: MagicMock,
+        mock_get_reports: MagicMock,
+        mock_capture_report: MagicMock,
+        mock_internal_team_id: MagicMock,
+        mock_already_reported: MagicMock,
+    ) -> None:
+        org_id = str(uuid4())
+        mock_get_reports.return_value = {org_id: {"organization_id": org_id}}
+
+        with pytest.raises(Exception, match="CH down"):
+            send_ai_observability_usage_reports(at="2022-01-06")
+
+        assert mock_capture_report.delay.call_count == 0
+        mock_get_reports.assert_not_called()
+
+    @parameterized.expand([("scheduled", None), ("manual", "2022-01-06")])
+    @patch("posthog.tasks.ai_observability_usage_report.get_organizations_already_reported")
+    @patch("posthog.tasks.ai_observability_usage_report.internal_reporting_team_id", return_value=2)
+    @patch("posthog.tasks.ai_observability_usage_report.capture_ai_observability_report")
+    @patch("posthog.tasks.ai_observability_usage_report._get_all_ai_observability_reports")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_already_reported_organizations_are_skipped_on_every_run_type(
+        self,
+        _name: str,
+        at: str | None,
+        mock_feature_enabled: MagicMock,
+        mock_get_reports: MagicMock,
+        mock_capture_report: MagicMock,
+        mock_internal_team_id: MagicMock,
+        mock_already_reported: MagicMock,
+    ) -> None:
+        reported_org, fresh_org = str(uuid4()), str(uuid4())
+        mock_get_reports.return_value = {
+            reported_org: {"organization_id": reported_org},
+            fresh_org: {"organization_id": fresh_org},
+        }
+        mock_already_reported.return_value = {reported_org}
+
+        send_ai_observability_usage_reports(at=at)
+
+        emitted = [call.kwargs["organization_id"] for call in mock_capture_report.delay.call_args_list]
+        assert emitted == [fresh_org]
+
+    @patch("posthog.tasks.ai_observability_usage_report.internal_reporting_team_id", return_value=None)
+    @patch("posthog.tasks.ai_observability_usage_report.capture_ai_observability_report")
+    @patch("posthog.tasks.ai_observability_usage_report._get_all_ai_observability_reports")
+    @patch("posthoganalytics.feature_enabled", return_value=False)
+    def test_run_still_emits_where_previous_reports_cannot_be_read(
+        self,
+        mock_feature_enabled: MagicMock,
+        mock_get_reports: MagicMock,
+        mock_capture_report: MagicMock,
+        mock_internal_team_id: MagicMock,
+    ) -> None:
+        org_id = str(uuid4())
+        mock_get_reports.return_value = {org_id: {"organization_id": org_id}}
+
+        send_ai_observability_usage_reports(at="2022-01-06")
+
+        assert mock_capture_report.delay.call_count == 1
 
     @parameterized.expand(
         [
@@ -1162,6 +1313,7 @@ class TestAIObservabilityUsageReportTaskWiring(SimpleTestCase):
             ),
         ]
     )
+    @patch("posthog.tasks.ai_observability_usage_report._get_organizations_to_skip", return_value=set())
     @patch("posthog.tasks.ai_observability_usage_report.logger")
     @patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events", side_effect=Exception("CH down"))
     @patch("posthoganalytics.feature_enabled", return_value=False)
@@ -1176,6 +1328,7 @@ class TestAIObservabilityUsageReportTaskWiring(SimpleTestCase):
         mock_feature_enabled: MagicMock,
         mock_get_teams: MagicMock,
         mock_logger: MagicMock,
+        mock_organizations_to_skip: MagicMock,
     ) -> None:
         task = send_ai_observability_usage_reports
         task.push_request(retries=retries, called_directly=called_directly, is_eager=True)

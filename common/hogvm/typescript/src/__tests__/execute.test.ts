@@ -111,6 +111,39 @@ describe('hogvm execute', () => {
         expect(execSync(['_h', op.NULL, op.INTEGER, 1, op.NOT_EQ], options)).toBe(true)
     })
 
+    test('sortable semver arrays use numeric component ordering', () => {
+        const sortableSemver = (version: string): any[] => [op.STRING, version, op.CALL_GLOBAL, 'sortableSemver', 1]
+        const options = {
+            external: {
+                regex: {
+                    extract: (regex: string, value: string): string => {
+                        const match = new RegExp(regex).exec(value)
+                        return match?.[1] ?? match?.[0] ?? ''
+                    },
+                },
+            },
+        }
+        const compareSemver = (left: string, right: string, operation: op): boolean =>
+            execSync(['_H', 1, ...sortableSemver(right), ...sortableSemver(left), operation], options)
+
+        for (const [operation, left, right, expected] of [
+            [op.EQ, '1.2.3', '1.2.3', true],
+            [op.EQ, '1.2.3', '1.2.4', false],
+            [op.NOT_EQ, '1.2.3', '1.2.4', true],
+            [op.NOT_EQ, '1.2.3', '1.2.3', false],
+            [op.GT, '2.0.0', '1.9.9', true],
+            [op.GT, '1.9.9', '2.0.0', false],
+            [op.GT_EQ, '2.0.0', '2.0.0', true],
+            [op.GT_EQ, '1.9.9', '2.0.0', false],
+            [op.LT, '2.9.0', '2.10.0', true],
+            [op.LT, '2.10.0', '2.10.0', false],
+            [op.LT_EQ, '2.10.0', '2.10.0', true],
+            [op.LT_EQ, '2.10.1', '2.10.0', false],
+        ] as const) {
+            expect(compareSemver(left, right, operation)).toBe(expected)
+        }
+    })
+
     test('error handling', async () => {
         const globals = { properties: { foo: 'bar' } }
         const options = { globals }

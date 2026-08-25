@@ -24,6 +24,12 @@
     .PlayerFrame__content {
         position: absolute;
 
+        // Center the frame so a letterboxed or not-yet-scaled recording sits in the
+        // middle of the player rather than pinned to the top-left corner.
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+
         iframe {
             background-color: white;
             border: 0;

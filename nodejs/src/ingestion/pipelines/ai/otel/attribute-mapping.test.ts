@@ -1,4 +1,5 @@
 import { parseJSON } from '~/common/utils/json-parse'
+import { aiOtelUnknownPartTypeCounter } from '~/ingestion/pipelines/ai/metrics'
 import { extractToolCallNames } from '~/ingestion/pipelines/ai/tools/extract-tool-calls'
 import { PluginEvent } from '~/plugin-scaffold'
 
@@ -54,6 +55,55 @@ describe('mapOtelAttributes', () => {
         })
         mapOtelAttributes(event)
         expect(event.properties!.$ai_input).toBe('not valid json')
+    })
+
+    it('JSON-parses gen_ai.tool.definitions into $ai_tools', () => {
+        const tools = [{ type: 'function', name: 'get_weather', parameters: { type: 'object' } }]
+        const event = createEvent('$ai_generation', {
+            'gen_ai.tool.definitions': JSON.stringify(tools),
+        })
+        mapOtelAttributes(event)
+        expect(event.properties!.$ai_tools).toEqual(tools)
+        expect(event.properties!['gen_ai.tool.definitions']).toBeUndefined()
+    })
+
+    describe('unknown message part types', () => {
+        beforeEach(() => {
+            aiOtelUnknownPartTypeCounter.reset()
+        })
+
+        const partCount = async (partType: string): Promise<number> => {
+            const data = await aiOtelUnknownPartTypeCounter.get()
+            return data.values.find((v) => v.labels.part_type === partType)?.value ?? 0
+        }
+
+        it('counts parts no renderer handles, bucketing producer-controlled labels into a fixed set', async () => {
+            const event = createEvent('$ai_generation', {
+                'gen_ai.input.messages': JSON.stringify([
+                    {
+                        role: 'user',
+                        parts: [
+                            { type: 'text', content: 'hi' },
+                            { type: 'tool_approval_response', approved: true },
+                            { type: 'made-up-type-1', x: 1 },
+                            { type: 'made-up-type-2', x: 2 },
+                            { content: 'no type at all' },
+                        ],
+                    },
+                ]),
+                'gen_ai.output.messages': JSON.stringify([
+                    { role: 'assistant', parts: [{ type: 'reasoning', content: 'hmm' }] },
+                ]),
+            })
+            mapOtelAttributes(event)
+
+            expect(await partCount('tool_approval_response')).toBe(1)
+            expect(await partCount('other')).toBe(2)
+            expect(await partCount('invalid')).toBe(1)
+            expect(await partCount('made-up-type-1')).toBe(0)
+            expect(await partCount('text')).toBe(0)
+            expect(await partCount('reasoning')).toBe(0)
+        })
     })
 
     it('does not JSON-parse already-parsed objects', () => {

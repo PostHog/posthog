@@ -154,10 +154,16 @@ export class RequestInterceptor {
     private async proxyStylesheet(request: HTTPRequest): Promise<void> {
         const url = request.url()
         try {
-            const headers = request.headers()
-            delete headers['host']
-            delete headers['connection']
-            delete headers['content-length']
+            // Forward an allowlist rather than the browser's full header set: the URL is
+            // attacker-controlled (a <link href> in a recorded sub-frame), and the browser's
+            // Referer would disclose the internal player URL to arbitrary third-party hosts.
+            const browserHeaders = request.headers()
+            const headers: Record<string, string> = {}
+            for (const name of ['accept', 'accept-language', 'user-agent']) {
+                if (browserHeaders[name]) {
+                    headers[name] = browserHeaders[name]
+                }
+            }
             const resp = await fetch(url, { headers, timeoutMs: PROXY_TIMEOUT_MS })
             const body = await resp.text()
             await request.respond({

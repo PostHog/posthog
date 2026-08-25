@@ -11,6 +11,7 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.permissions import AccessControlPermission
+from posthog.scopes import APIScopeObjectOrNotSupported
 
 from ..models.evaluation_config import EvaluationConfig
 from ..models.provider_keys import LLMProviderKey
@@ -53,17 +54,29 @@ class EvaluationConfigSetActiveKeyRequestSerializer(serializers.Serializer):
     )
 
 
+class EvaluationConfigAccessControlPermission(AccessControlPermission):
+    def _get_scope_object(self, request: Request, view: viewsets.ViewSet) -> APIScopeObjectOrNotSupported:
+        return "evaluation" if view.action == "set_active_key" else "llm_analytics"
+
+
 class EvaluationConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Team-level evaluation configuration"""
 
-    scope_object = "evaluation"
+    # Reads are shared by evaluations, taggers, and the playground model picker.
+    scope_object = "llm_analytics"
+    requires_resource_level_access = True
     # `set_active_key` is a custom @action and `list` lives on a plain ViewSet, so neither maps to
     # ScopeBasePermission's default action lists. Spell them out explicitly — without this, every
     # personal-API-key request 403s with "This action does not support Personal API Key access".
     scope_object_read_actions = ["list"]
     scope_object_write_actions = ["set_active_key"]
     serializer_class = _FallbackSerializer
-    permission_classes = [IsAuthenticated, AccessControlPermission]
+    permission_classes = [IsAuthenticated, EvaluationConfigAccessControlPermission]
+
+    def dangerously_get_required_scopes(self, request: Request, view: viewsets.ViewSet) -> list[str] | None:
+        if self.action == "set_active_key":
+            return ["evaluation:write"]
+        return None
 
     @extend_schema(
         operation_id="llm_analytics_evaluation_config_retrieve",

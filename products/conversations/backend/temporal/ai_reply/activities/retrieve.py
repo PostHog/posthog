@@ -28,19 +28,15 @@ logger = structlog.get_logger(__name__)
 async def support_retrieve_activity(input: RetrieveInput) -> RetrieveOutput:
     """Search BK + rerank. On widen attempts, also fetch document windows around prior citations."""
     async with Heartbeater():
-        return await database_sync_to_async(_retrieve_sync, thread_sensitive=False)(
-            input.team_id, input.queries, input.prior_citation_chunk_ids, input.widen
-        )
+        return await database_sync_to_async(_retrieve_sync, thread_sensitive=False)(input)
 
 
-def _retrieve_sync(
-    team_id: int, queries: list[str], prior_citation_chunk_ids: list[str], widen: bool
-) -> RetrieveOutput:
-    team = Team.objects.select_related("organization").get(id=team_id)
+def _retrieve_sync(input: RetrieveInput) -> RetrieveOutput:
+    team = Team.objects.select_related("organization").get(id=input.team_id)
     all_results = []
     seen_chunk_ids: set[str] = set()
 
-    for query in queries:
+    for query in input.queries:
         results = search_knowledge_for_team(team, query, limit=RETRIEVE_LIMIT)
         reranked = rerank_chunks(team, query, results, top_k=RERANK_TOP_K)
         for r in reranked:
@@ -49,8 +45,8 @@ def _retrieve_sync(
                 seen_chunk_ids.add(cid)
                 all_results.append(r)
 
-    if widen and prior_citation_chunk_ids:
-        for cid_str in prior_citation_chunk_ids[:5]:
+    if input.widen and input.prior_citation_chunk_ids:
+        for cid_str in input.prior_citation_chunk_ids[:5]:
             # Citations can be doc URLs (from the docs-search MCP tool) rather than BK
             # chunk UUIDs — only BK chunks can be widened via get_document_window, so
             # skip anything that isn't a UUID instead of treating it as an error.
@@ -61,9 +57,9 @@ def _retrieve_sync(
             try:
                 # KnowledgeChunk is fail-closed (TeamScopedManager) — scope explicitly
                 # since we're outside any request context (Temporal activity).
-                chunk = KnowledgeChunk.objects.for_team(team_id).get(id=chunk_uuid)
+                chunk = KnowledgeChunk.objects.for_team(input.team_id).get(id=chunk_uuid)
                 window = get_document_window(
-                    team_id=team_id,
+                    team_id=input.team_id,
                     document_id=chunk.document_id,
                     center_ordinal=chunk.ordinal,
                     radius=WIDEN_RADIUS,

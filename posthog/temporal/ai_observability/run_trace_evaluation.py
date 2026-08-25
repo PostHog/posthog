@@ -29,7 +29,7 @@ from posthog.schema import DateRange, LLMTrace, QueryLogTags, TraceQuery
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
-from posthog.api.capture import CaptureInternalError, capture_internal
+from posthog.api.capture import CaptureInternalError
 from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.hogql_queries.ai.trace_query_runner import TraceQueryRunner
 from posthog.models.team import Team
@@ -67,6 +67,7 @@ from posthog.temporal.ai_observability.run_evaluation import (
     handle_llm_judge_activity_error,
     handle_terminal_user_error_result,
 )
+from posthog.temporal.ai_observability.team_capture import capture_internal_for_team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
 
@@ -615,12 +616,6 @@ async def emit_trace_evaluation_event_activity(inputs: EmitTraceEvaluationEventI
     """Emit the $ai_evaluation event for a trace-level run, targeting the trace id."""
 
     def _emit():
-        try:
-            team = Team.objects.get(id=inputs.team_id)
-        except Team.DoesNotExist:
-            logger.exception("Team not found", team_id=inputs.team_id)
-            raise ValueError(f"Team {inputs.team_id} not found")
-
         # No single source event to inherit from, so SOURCE_AI_PROPERTIES_TO_COPY (span/parent
         # linkage copied in the generation path) intentionally does not apply here.
         properties = build_evaluation_event_properties(inputs.evaluation, inputs.result, inputs.start_time)
@@ -647,16 +642,14 @@ async def emit_trace_evaluation_event_activity(inputs: EmitTraceEvaluationEventI
                 }
             )
 
-        capture_result = capture_internal(
-            token=team.api_token,
+        capture_internal_for_team(
+            team_id=inputs.team_id,
             event_name="$ai_evaluation",
             event_source="llm_analytics_evaluation",
             distinct_id=inputs.distinct_id,
             timestamp=datetime.now(UTC),
             properties=properties,
-            process_person_profile=True,
         )
-        capture_result.raise_for_status()
 
     try:
         await database_sync_to_async(_emit, thread_sensitive=False)()

@@ -31,10 +31,11 @@ use tonic::Status;
 use uuid::Uuid;
 
 use personhog_common::grpc::semantic_refusal;
-use personhog_identity::leader::LifecycleLeader;
+use personhog_identity::leader::{LifecycleLeader, PropertyWriter};
 use personhog_proto::personhog::types::v1::{
     FencePersonRequest, FencePersonResponse, FoldPersonDocumentRequest, FoldPersonDocumentResponse,
     LifecycleOpType, Person, ReleaseFenceRequest, ReleaseFenceResponse, ReleaseOutcome,
+    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
 
 /// Which RPC a scripted failure applies to.
@@ -43,6 +44,7 @@ pub enum Rpc {
     Fence,
     Fold,
     Release,
+    PropertyPush,
 }
 
 /// A person's live fence in the simulated leader.
@@ -84,6 +86,10 @@ pub enum LeaderCall {
     ReleaseAborted {
         person_id: i64,
     },
+    PropertyPush {
+        person_id: i64,
+        is_identified: Option<bool>,
+    },
 }
 
 /// Metadata keys carried on fenced-write rejections; must stay in sync
@@ -114,6 +120,7 @@ fn fenced_status(fence: &Fence) -> Status {
 
 pub struct SimLeader {
     pool: PgPool,
+    person_table: String,
     calls: Mutex<Vec<LeaderCall>>,
     fences: Mutex<HashMap<i64, Fence>>,
     deaths: Mutex<HashMap<i64, DeathDocument>>,
@@ -128,9 +135,10 @@ pub struct SimLeader {
 }
 
 impl SimLeader {
-    pub fn new(pool: PgPool) -> Self {
+    pub fn new(pool: PgPool, person_table: String) -> Self {
         Self {
             pool,
+            person_table,
             calls: Mutex::new(Vec::new()),
             fences: Mutex::new(HashMap::new()),
             deaths: Mutex::new(HashMap::new()),
@@ -205,26 +213,28 @@ impl SimLeader {
     }
 
     async fn live_person(&self, team_id: i64, person_id: i64) -> Option<Person> {
+        let live_sql = format!(
+            r#"
+            SELECT uuid, COALESCE(version, 0), created_at, is_identified, properties
+            FROM {person_table}
+            WHERE team_id = $1 AND id = $2 AND is_deleted = false
+            "#,
+            person_table = self.person_table,
+        );
         let row: Option<(Uuid, i64, chrono::DateTime<Utc>, bool, serde_json::Value)> =
-            sqlx::query_as(
-                r#"
-                SELECT uuid, COALESCE(version, 0), created_at, is_identified, properties
-                FROM posthog_person
-                WHERE team_id = $1 AND id = $2 AND is_deleted = false
-                "#,
-            )
-            .bind(team_id as i32)
-            .bind(person_id)
-            .fetch_optional(&self.pool)
-            .await
-            .expect("person lookup");
+            sqlx::query_as(&live_sql)
+                .bind(team_id as i32)
+                .bind(person_id)
+                .fetch_optional(&self.pool)
+                .await
+                .expect("person lookup");
         row.map(
             |(uuid, version, created_at, is_identified, properties)| Person {
                 id: person_id,
                 uuid: uuid.to_string(),
                 team_id,
                 properties: serde_json::to_vec(&properties).unwrap(),
-                created_at: created_at.timestamp(),
+                created_at: created_at.timestamp_millis(),
                 version,
                 is_identified,
                 last_seen_at: self.last_seen.lock().unwrap().get(&person_id).copied(),
@@ -512,6 +522,43 @@ impl LifecycleLeader for SimLeader {
                 last_seen_at,
                 ..target
             }),
+        })
+    }
+}
+
+/// The RPC's inline path pushes the merge event's properties through the
+/// ordinary write surface; the sim applies the same admission rules as
+/// any other write, so a push to a fenced or destroyed person fails the
+/// test.
+#[async_trait]
+impl PropertyWriter for SimLeader {
+    async fn update_person_properties(
+        &self,
+        request: UpdatePersonPropertiesRequest,
+    ) -> Result<UpdatePersonPropertiesResponse, Status> {
+        if let Some(status) = self.take_scripted(Rpc::PropertyPush, request.person_id) {
+            return Err(status);
+        }
+        if let Some(fence) = self.fence_for(request.person_id) {
+            return Err(fenced_status(&fence));
+        }
+        if self.deaths.lock().unwrap().contains_key(&request.person_id) {
+            return Err(Status::not_found("person is destroyed"));
+        }
+        let mut person = self
+            .live_person(request.team_id, request.person_id)
+            .await
+            .ok_or_else(|| Status::not_found("person is destroyed"))?;
+        // The real leader OR-merges the flip and answers with the updated
+        // person; the flip reaches Postgres through the changelog, not here.
+        person.is_identified = person.is_identified || request.is_identified == Some(true);
+        self.record(LeaderCall::PropertyPush {
+            person_id: request.person_id,
+            is_identified: request.is_identified,
+        });
+        Ok(UpdatePersonPropertiesResponse {
+            person: Some(person),
+            updated: true,
         })
     }
 }

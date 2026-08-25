@@ -10,6 +10,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { StamphogTabs } from '../../components/StamphogTabs'
 import { ReviewModeEnumApi, type StamphogRepoConfigApi } from '../../generated/api.schemas'
 import { stamphogSceneLogic } from './stamphogSceneLogic'
 
@@ -235,11 +236,9 @@ export function StamphogScene(): JSX.Element {
                 resourceType={{ type: 'stamphog' }}
                 actions={<ConnectRepositoryButton />}
             />
+            <StamphogTabs activeKey="repositories" />
             <SyncedBanner />
-            <div>
-                <h3>Repositories</h3>
-                <RepoConfigsTable />
-            </div>
+            <RepoConfigsTable />
         </SceneContent>
     )
 }

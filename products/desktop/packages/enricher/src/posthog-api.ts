@@ -7,6 +7,9 @@ import type {
   FlagEvaluationStats,
 } from "./types.js";
 
+const EVENT_DEFINITION_FALLBACK_BATCH_SIZE = 8;
+const MAX_EVENT_DEFINITION_FALLBACKS = 64;
+
 export class PostHogApi {
   private config: EnricherApiConfig;
 
@@ -108,12 +111,55 @@ export class PostHogApi {
   }
 
   async getEventDefinitions(names?: string[]): Promise<EventDefinition[]> {
-    let path = "/event_definitions/?limit=500";
-    if (names && names.length > 0) {
-      path += `&search=${encodeURIComponent(names.join(","))}`;
+    const basePath = "/event_definitions/?limit=500";
+    if (!names || names.length === 0) {
+      const data = await this.get<{ results: EventDefinition[] }>(basePath);
+      return data.results;
     }
+
+    const uniqueNames = [...new Set(names)];
+    const requestedNames = new Set(uniqueNames);
+    const path = `${basePath}&names=${encodeURIComponent(uniqueNames.join(","))}`;
     const data = await this.get<{ results: EventDefinition[] }>(path);
-    return data.results;
+    const definitionsByName = new Map(
+      data.results
+        .filter((definition) => requestedNames.has(definition.name))
+        .map((definition) => [definition.name, definition]),
+    );
+    const missingNames = uniqueNames
+      .filter((name) => !definitionsByName.has(name))
+      .slice(0, MAX_EVENT_DEFINITION_FALLBACKS);
+
+    for (
+      let index = 0;
+      index < missingNames.length;
+      index += EVENT_DEFINITION_FALLBACK_BATCH_SIZE
+    ) {
+      const batch = missingNames.slice(
+        index,
+        index + EVENT_DEFINITION_FALLBACK_BATCH_SIZE,
+      );
+      const fallbackResults = await Promise.allSettled(
+        batch.map((name) =>
+          this.get<{ results: EventDefinition[] }>(
+            `${basePath}&search=${encodeURIComponent(name)}`,
+          ),
+        ),
+      );
+
+      for (const fallback of fallbackResults) {
+        if (fallback.status !== "fulfilled") {
+          continue;
+        }
+        for (const definition of fallback.value.results) {
+          if (requestedNames.has(definition.name)) {
+            definitionsByName.set(definition.name, definition);
+          }
+        }
+      }
+    }
+
+    return [...definitionsByName.values()];
   }
 
   async getEventStats(

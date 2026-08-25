@@ -11,6 +11,7 @@ from posthog.temporal.common.utils import close_db_connections
 from products.tasks.backend.logic.services.living_artifacts import (
     deliver_pending_slack_file_artifacts,
     has_pending_slack_file_artifacts,
+    has_pending_slack_image_artifacts,
 )
 
 logger = get_logger(__name__)
@@ -239,6 +240,10 @@ def _strip_inline_markdown(cell: str) -> str:
 # splitting at 3500 leaves comfortable headroom for the mention prefix and code-fence overhead.
 SLACK_MESSAGE_TEXT_LIMIT = 3500
 
+# Section blocks in a composed answer+charts message cap at 3000 characters — tighter
+# than plain message text; headroom for the mention prefix.
+SLACK_SECTION_TEXT_LIMIT = 2900
+
 _FENCED_CODE_RE = re.compile(r"```([^\n]*)\n([\s\S]*?)\n```")
 
 
@@ -403,11 +408,17 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
             origin_product=mapping.task.origin_product,
         )
 
+    # Pending chart images compose into a single Slack message together with the answer
+    # text (section blocks cap at 3000 chars, tighter than plain messages), so pick the
+    # chunk limit before splitting.
+    compose_with_charts = has_pending_slack_files and has_pending_slack_image_artifacts(task_run)
+    chunk_limit = SLACK_SECTION_TEXT_LIMIT if compose_with_charts else SLACK_MESSAGE_TEXT_LIMIT
+
     # Split the raw markdown first, then convert each chunk independently. Converting
     # per-chunk means an inline span broken by a hard char split (e.g. ``**bold**``
     # halved) stays literal in the output instead of leaving dangling Slack-mrkdwn
     # markers that would garble the rendering of surrounding text.
-    chunks = [_markdown_to_slack_mrkdwn(chunk) for chunk in _split_markdown_for_slack(text)]
+    chunks = [_markdown_to_slack_mrkdwn(chunk) for chunk in _split_markdown_for_slack(text, limit=chunk_limit)]
 
     context = SlackThreadContext(
         integration_id=mapping.integration_id,
@@ -431,30 +442,6 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     if handler.footer_enabled():
         handler.run_footer = load_run_footer(task_run.id)
     mention_prefix = f"<@{target}> " if target else ""
-    if input.delete_progress:
-        handler.delete_progress()
-
-    delivered_file_count = 0
-    chunks_to_post = chunks
-    if has_pending_slack_files and chunks:
-        delivered_file_count = deliver_pending_slack_file_artifacts(
-            task_run,
-            initial_comment=f"{mention_prefix}{chunks[0]}",
-        )
-        if delivered_file_count:
-            chunks_to_post = chunks[1:]
-
-    for index, chunk in enumerate(chunks_to_post):
-        prefix = mention_prefix if delivered_file_count == 0 and index == 0 else ""
-        # This relay carries one agent answer, split only to fit Slack's length cap, so
-        # the last chunk is where the turn ends and the footer belongs.
-        handler.post_thread_message(f"{prefix}{chunk}", with_footer=index == len(chunks_to_post) - 1)
-    if delivered_file_count and not chunks_to_post:
-        # A short answer went out whole as the file's initial comment, which takes no
-        # blocks, so the footer follows it rather than being dropped.
-        handler.post_footer()
-    if input.reaction_emoji is not None:
-        handler.update_reaction(input.reaction_emoji)
 
     def _record_sent_relay(state: dict[str, Any]) -> None:
         sent_relay_ids = state.get("slack_sent_relay_ids") or []
@@ -465,7 +452,38 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
         # Keep a rolling window to bound state size while preserving idempotency for recent relays.
         state["slack_sent_relay_ids"] = sent_relay_ids[-30:]
 
+    # Claim the relay before the first Slack call. The Slack posts below swallow their own
+    # errors, so this write is the only step that can fail after a message is already in the
+    # thread, and a retry would then post it again. Claiming first means a failed write retries
+    # before anything is sent, and a retry after the claim skips instead of duplicating.
     try:
         TaskRun.mutate_state_atomic(input.run_id, _record_sent_relay)
     except _RelayAlreadyRecorded:
         logger.info("slack_relay_duplicate_skipped", run_id=input.run_id, relay_id=input.relay_id)
+        return
+
+    if input.delete_progress:
+        handler.delete_progress()
+
+    answer_posted = False
+    if compose_with_charts:
+        sections = list(chunks)
+        if sections:
+            sections[0] = f"{mention_prefix}{sections[0]}"
+        answer_posted = deliver_pending_slack_file_artifacts(task_run, answer_sections=sections).answer_posted
+        if answer_posted:
+            # The answer went out inside the composed message, whose blocks are the text
+            # sections and the chart cards, so the footer follows it as its own message.
+            handler.post_footer()
+
+    if not answer_posted:
+        for index, chunk in enumerate(chunks):
+            prefix = mention_prefix if index == 0 else ""
+            # This relay carries one agent answer, split only to fit Slack's length cap, so
+            # the last chunk is where the turn ends and the footer belongs.
+            handler.post_thread_message(f"{prefix}{chunk}", with_footer=index == len(chunks) - 1)
+        if has_pending_slack_files and not compose_with_charts:
+            deliver_pending_slack_file_artifacts(task_run)
+
+    if input.reaction_emoji is not None:
+        handler.update_reaction(input.reaction_emoji)
