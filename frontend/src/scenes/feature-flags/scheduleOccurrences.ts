@@ -79,7 +79,9 @@ export function expandScheduleOccurrences(
     now: Dayjs
 ): ScheduleOccurrence[] {
     const horizon = now.add(OCCURRENCE_HORIZON_DAYS, 'day')
-    const raw: { at: Dayjs; schedule: ScheduledChangeType }[] = []
+    // isFirst distinguishes the occurrence the schedule's current change request covers from the
+    // later ones the backend will re-gate. See needsApproval below.
+    const raw: { at: Dayjs; schedule: ScheduledChangeType; isFirst: boolean }[] = []
 
     for (const schedule of schedules) {
         if (schedule.executed_at || isSchedulePaused(schedule)) {
@@ -99,7 +101,7 @@ export function expandScheduleOccurrences(
         // the recurrence expansion below still projects. A denied recurring cron schedule
         // contributes nothing, because its next run is not computed client-side.
         if (!denied) {
-            raw.push({ at: first, schedule })
+            raw.push({ at: first, schedule, isFirst: true })
         }
 
         if (schedule.is_recurring && schedule.recurrence_interval && !schedule.cron_expression) {
@@ -115,7 +117,7 @@ export function expandScheduleOccurrences(
                 if (next.isAfter(horizon) || (end && next.isAfter(end))) {
                     break
                 }
-                raw.push({ at: next, schedule })
+                raw.push({ at: next, schedule, isFirst: false })
             }
         }
     }
@@ -126,7 +128,7 @@ export function expandScheduleOccurrences(
     let rolloutPercentage = maxRolloutPercentage(flag.filters.groups)
     let variantCount = flag.filters.multivariate?.variants.length ?? null
 
-    return raw.slice(0, OCCURRENCE_CAP).map(({ at, schedule }) => {
+    return raw.slice(0, OCCURRENCE_CAP).map(({ at, schedule, isFirst }) => {
         const { payload } = schedule
         let addedRolloutPercentage: number | null = null
         if (payload.operation === ScheduledChangeOperationType.UpdateStatus) {
@@ -148,7 +150,14 @@ export function expandScheduleOccurrences(
             schedule,
             projected: { active, rolloutPercentage, variantCount },
             addedRolloutPercentage,
-            needsApproval: schedule.change_request?.state === ScheduledChangeRequestState.Pending,
+            // A bound change request covers one occurrence only. The first occurrence needs approval
+            // when its own request is still pending. Every later occurrence of a gated schedule
+            // needs one too: regate_recurring_scheduled_change binds a fresh pending request after
+            // each fire, and apply_gated_scheduled_change skips an occurrence whose request is still
+            // pending when the fire window closes.
+            needsApproval: isFirst
+                ? schedule.change_request?.state === ScheduledChangeRequestState.Pending
+                : !!schedule.change_request,
         }
     })
 }

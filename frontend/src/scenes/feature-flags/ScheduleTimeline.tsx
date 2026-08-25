@@ -1,5 +1,3 @@
-import { memo } from 'react'
-
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils/strings'
 
@@ -76,7 +74,10 @@ interface OccurrenceLayout {
  * Compact projection of upcoming scheduled changes: rollout percentage as a step line over time,
  * with status flips and variant updates as labeled markers on the same time axis.
  */
-export const ScheduleTimeline = memo(function ScheduleTimeline({
+// Deliberately not memoized: the body reads the wall clock (`now` below) to place marks and write
+// the relative time labels, so a shallow prop compare would freeze both until the occurrence list
+// changes identity. Memoize once `now` arrives as a prop.
+export function ScheduleTimeline({
     occurrences,
     currentRolloutPercentage,
     timezone,
@@ -156,12 +157,13 @@ export const ScheduleTimeline = memo(function ScheduleTimeline({
     }
 
     return (
-        // The chart keeps a minimum width and scrolls horizontally instead of scaling its
-        // 9-unit labels below legibility on narrow viewports.
+        // The chart scrolls horizontally rather than scale its 9-unit labels below legibility. The
+        // minimum width matches WIDTH, so at the floor one viewBox unit is one pixel and the labels
+        // hold at 9px. A smaller floor would scale them down by the same ratio.
         <div className="flex flex-col gap-1 overflow-x-auto" data-attr="feature-flag-schedule-timeline">
             <svg
                 viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
-                className="w-full max-w-3xl min-w-120"
+                className="w-full max-w-3xl min-w-150"
                 role="img"
                 aria-label="Timeline of upcoming scheduled changes"
             >
@@ -172,7 +174,7 @@ export const ScheduleTimeline = memo(function ScheduleTimeline({
                             x2={MARGIN.left + PLOT_WIDTH}
                             y1={yForRollout(rollout)}
                             y2={yForRollout(rollout)}
-                            stroke="var(--color-border)"
+                            stroke="var(--color-border-primary)"
                             strokeWidth={rollout === 0 ? 1 : 0.5}
                         />
                         <text
@@ -274,4 +276,4 @@ export const ScheduleTimeline = memo(function ScheduleTimeline({
             </svg>
         </div>
     )
-})
+}

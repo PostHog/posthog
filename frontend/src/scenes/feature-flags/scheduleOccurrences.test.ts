@@ -205,6 +205,46 @@ describe('expandScheduleOccurrences', () => {
         expect(expandScheduleOccurrences(schedules, flag(), NOW)[0].needsApproval).toBe(expected)
     })
 
+    it.each([
+        { state: ScheduledChangeRequestState.Approved, firstNeedsApproval: false },
+        { state: ScheduledChangeRequestState.Pending, firstNeedsApproval: true },
+    ])(
+        're-gates every occurrence after the first of a $state gated recurring schedule',
+        ({ state, firstNeedsApproval }) => {
+            // The bound request covers one fire. The backend binds a fresh pending request to each
+            // later occurrence, so an approved request must not project the whole ramp as certain.
+            const schedules = [
+                change({
+                    payload: STATUS_ON,
+                    is_recurring: true,
+                    recurrence_interval: RecurrenceInterval.Daily,
+                    scheduled_at: NOW.add(1, 'day').toISOString(),
+                    change_request: { id: 'cr-1', state },
+                }),
+            ]
+
+            const occurrences = expandScheduleOccurrences(schedules, flag(), NOW)
+
+            expect(occurrences[0].needsApproval).toBe(firstNeedsApproval)
+            expect(occurrences.slice(1).map((o) => o.needsApproval)).toEqual(occurrences.slice(1).map(() => true))
+        }
+    )
+
+    it('leaves an ungated recurring schedule unmarked throughout', () => {
+        const schedules = [
+            change({
+                payload: STATUS_ON,
+                is_recurring: true,
+                recurrence_interval: RecurrenceInterval.Daily,
+                scheduled_at: NOW.add(1, 'day').toISOString(),
+            }),
+        ]
+
+        const occurrences = expandScheduleOccurrences(schedules, flag(), NOW)
+
+        expect(occurrences.every((o) => !o.needsApproval)).toBe(true)
+    })
+
     it.each([{ state: ScheduledChangeRequestState.Rejected }, { state: ScheduledChangeRequestState.Expired }])(
         'drops a $state recurring occurrence but keeps expanding the rest',
         ({ state }) => {
