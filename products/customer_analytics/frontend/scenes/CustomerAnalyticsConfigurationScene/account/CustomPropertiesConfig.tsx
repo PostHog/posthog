@@ -46,11 +46,21 @@ export function CustomPropertiesConfig(): JSX.Element {
         searchTerm,
         targetTypeFilter,
         runsBySourceId,
+        runsCountBySourceId,
+        runsOffsetBySourceId,
+        runsSearchBySourceId,
         runsLoadingBySourceId,
         runsLoadFailedBySourceId,
     } = useValues(customPropertyDefinitionsLogic)
-    const { openCreateModal, openEditModal, deleteDefinition, setSearchTerm, setTargetTypeFilter, loadRuns } =
-        useActions(customPropertyDefinitionsLogic)
+    const {
+        openCreateModal,
+        openEditModal,
+        deleteDefinition,
+        setSearchTerm,
+        setTargetTypeFilter,
+        setRunsSearch,
+        loadRuns,
+    } = useActions(customPropertyDefinitionsLogic)
     const restrictionReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -238,6 +248,7 @@ export function CustomPropertiesConfig(): JSX.Element {
                         definition.target_type === 'account' &&
                         !!definition.source?.saved_query,
                     onRowExpand: (definition) => definition.source && loadRuns({ sourceId: definition.source.id }),
+                    noIndent: true,
                     expandedRowRender: (definition) =>
                         definition.source ? (
                             <CustomPropertySyncRuns
@@ -245,12 +256,42 @@ export function CustomPropertiesConfig(): JSX.Element {
                                 loading={runsLoadingBySourceId[definition.source.id] ?? false}
                                 loadFailed={runsLoadFailedBySourceId[definition.source.id] ?? false}
                                 targetType="account"
+                                searchTerm={runsSearchBySourceId[definition.source.id] ?? ''}
+                                entryCount={runsCountBySourceId[definition.source.id] ?? 0}
+                                currentPage={Math.floor((runsOffsetBySourceId[definition.source.id] ?? 0) / 20) + 1}
+                                onSearch={(searchTerm) => {
+                                    if (definition.source) {
+                                        setRunsSearch({ sourceId: definition.source.id, searchTerm })
+                                    }
+                                }}
+                                onForward={() => {
+                                    if (definition.source) {
+                                        loadRuns({
+                                            sourceId: definition.source.id,
+                                            offset: (runsOffsetBySourceId[definition.source.id] ?? 0) + 20,
+                                        })
+                                    }
+                                }}
+                                onBackward={() => {
+                                    if (definition.source) {
+                                        loadRuns({
+                                            sourceId: definition.source.id,
+                                            offset: Math.max((runsOffsetBySourceId[definition.source.id] ?? 0) - 20, 0),
+                                        })
+                                    }
+                                }}
                                 syncsUrl={
                                     definition.source.saved_query
                                         ? urls.sqlEditor({ view_id: definition.source.saved_query })
                                         : null
                                 }
-                                onReload={() => definition.source && loadRuns({ sourceId: definition.source.id })}
+                                onReload={() =>
+                                    definition.source &&
+                                    loadRuns({
+                                        sourceId: definition.source.id,
+                                        offset: runsOffsetBySourceId[definition.source.id] ?? 0,
+                                    })
+                                }
                             />
                         ) : null,
                 }}

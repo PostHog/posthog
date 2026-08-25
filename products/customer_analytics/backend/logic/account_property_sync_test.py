@@ -81,7 +81,8 @@ class AccountPropertySegmentTest(TeamScopedTestMixin, BaseTest):
                 saved_query_id=str(source.saved_query_id),
                 job_id="job-1",
             ),
-            "stage-workflow-job-1",
+            workflow_id="stage-workflow-job-1",
+            workflow_run_id="00000000-0000-4000-8000-000000000001",
         )
 
         async def batches(*args):
@@ -119,7 +120,8 @@ class AccountPropertySegmentTest(TeamScopedTestMixin, BaseTest):
                 saved_query_id=str(source.saved_query_id),
                 job_id="job-1",
             ),
-            "stage-workflow-job-1",
+            workflow_id="stage-workflow-job-1",
+            workflow_run_id="00000000-0000-4000-8000-000000000001",
         )
 
         with (

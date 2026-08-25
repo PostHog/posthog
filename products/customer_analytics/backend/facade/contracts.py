@@ -947,6 +947,8 @@ class CustomPropertySyncRunView:
     sync_phase: str | None = None
     attempt: int | None = None
     workflow_id: str | None = None
+    workflow_run_id: UUID | None = None
+    temporal_url: str | None = None
     trigger: str = ""
     status: str = ""
     started_at: datetime | None = None

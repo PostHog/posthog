@@ -61,10 +61,13 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
         definitionsInitialLoading,
         triggeringSourceIds,
         runsBySourceId,
+        runsCountBySourceId,
+        runsOffsetBySourceId,
+        runsSearchBySourceId,
         runsLoadingBySourceId,
         runsLoadFailedBySourceId,
     } = useValues(customPropertyDefinitionsLogic)
-    const { openCreateModal, openEditModal, deleteDefinition, triggerSync, triggerBackfill, loadRuns } =
+    const { openCreateModal, openEditModal, deleteDefinition, triggerSync, triggerBackfill, setRunsSearch, loadRuns } =
         useActions(customPropertyDefinitionsLogic)
     const restrictionReason = useRestrictedArea({
         scope: RestrictionScope.Project,
@@ -268,6 +271,7 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                 expandable={{
                     rowExpandable: (definition) => !!definition.source,
                     onRowExpand: (definition) => definition.source && loadRuns({ sourceId: definition.source.id }),
+                    noIndent: true,
                     expandedRowRender: (definition) =>
                         definition.source ? (
                             <CustomPropertySyncRuns
@@ -275,8 +279,38 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                                 loading={runsLoadingBySourceId[definition.source.id] ?? false}
                                 loadFailed={runsLoadFailedBySourceId[definition.source.id] ?? false}
                                 targetType={targetType}
+                                searchTerm={runsSearchBySourceId[definition.source.id] ?? ''}
+                                entryCount={runsCountBySourceId[definition.source.id] ?? 0}
+                                currentPage={Math.floor((runsOffsetBySourceId[definition.source.id] ?? 0) / 20) + 1}
+                                onSearch={(searchTerm) => {
+                                    if (definition.source) {
+                                        setRunsSearch({ sourceId: definition.source.id, searchTerm })
+                                    }
+                                }}
+                                onForward={() => {
+                                    if (definition.source) {
+                                        loadRuns({
+                                            sourceId: definition.source.id,
+                                            offset: (runsOffsetBySourceId[definition.source.id] ?? 0) + 20,
+                                        })
+                                    }
+                                }}
+                                onBackward={() => {
+                                    if (definition.source) {
+                                        loadRuns({
+                                            sourceId: definition.source.id,
+                                            offset: Math.max((runsOffsetBySourceId[definition.source.id] ?? 0) - 20, 0),
+                                        })
+                                    }
+                                }}
                                 syncsUrl={sourceRunsUrl(definition.source)}
-                                onReload={() => definition.source && loadRuns({ sourceId: definition.source.id })}
+                                onReload={() =>
+                                    definition.source &&
+                                    loadRuns({
+                                        sourceId: definition.source.id,
+                                        offset: runsOffsetBySourceId[definition.source.id] ?? 0,
+                                    })
+                                }
                             />
                         ) : null,
                 }}

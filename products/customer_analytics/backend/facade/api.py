@@ -1381,7 +1381,19 @@ class CustomPropertySourceValidationError(Exception):
     already source-backed (→ 400)."""
 
 
-def _to_sync_run_view(run: "CustomPropertySyncRun") -> contracts.CustomPropertySyncRunView:
+def _temporal_run_url(run: "CustomPropertySyncRun") -> str | None:
+    if not run.workflow_id or not run.workflow_run_id:
+        return None
+    base = settings.TEMPORAL_UI_HOST
+    namespace = settings.TEMPORAL_NAMESPACE
+    if not base or not namespace:
+        return None
+    return f"{base.rstrip('/')}/namespaces/{namespace}/workflows/{run.workflow_id}/{run.workflow_run_id}"
+
+
+def _to_sync_run_view(
+    run: "CustomPropertySyncRun", *, include_temporal_url: bool = False
+) -> contracts.CustomPropertySyncRunView:
     return contracts.CustomPropertySyncRunView(
         id=run.id,
         job_id=run.job_id,
@@ -1389,6 +1401,8 @@ def _to_sync_run_view(run: "CustomPropertySyncRun") -> contracts.CustomPropertyS
         sync_phase=run.phase,
         attempt=run.attempt,
         workflow_id=run.workflow_id,
+        workflow_run_id=run.workflow_run_id,
+        temporal_url=_temporal_run_url(run) if include_temporal_url else None,
         trigger=run.trigger,
         status=run.status,
         started_at=run.started_at,
@@ -2209,7 +2223,12 @@ def delete_custom_property_source(
 
 
 def list_custom_property_sync_runs(
-    team_id: int, source_id: str, offset: int, limit: int, user_access_control: "UserAccessControl | None" = None
+    team_id: int,
+    source_id: str,
+    offset: int,
+    limit: int,
+    user_access_control: "UserAccessControl | None" = None,
+    include_temporal_urls: bool = False,
 ) -> tuple[list[contracts.CustomPropertySyncRunView], int]:
     """Warehouse-backed custom property sync runs for a source, newest first. Returns ``(page, total_count)``.
     Scoped by team and source, so another team's or source's runs are never returned. Profile-source
@@ -2222,7 +2241,7 @@ def list_custom_property_sync_runs(
     total_count = queryset.count()
     page = list(queryset[offset : offset + limit])
     _expire_stale_running_runs(team_id, page)
-    return [_to_sync_run_view(run) for run in page], total_count
+    return [_to_sync_run_view(run, include_temporal_url=include_temporal_urls) for run in page], total_count
 
 
 FeatureRequestValidationError = _feature_requests_logic.FeatureRequestValidationError

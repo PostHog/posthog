@@ -1360,6 +1360,7 @@ class CustomPropertySourceViewSet(
                     offset=offset,
                     limit=limit,
                     user_access_control=_warehouse_scoped_uac(self),
+                    include_temporal_urls=bool(request.user.is_staff or is_impersonated(request)),
                 ),
                 CustomPropertySyncRunSerializer,
             )

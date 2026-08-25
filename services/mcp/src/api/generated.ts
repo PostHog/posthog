@@ -19901,6 +19901,16 @@ export namespace Schemas {
          * @nullable
          */
       readonly workflow_id: string | null;
+      /**
+         * Temporal run identifier associated with the current account sync phase.
+         * @nullable
+         */
+      readonly workflow_run_id: string | null;
+      /**
+         * Staff-only link to this run in Temporal. Null for non-staff users and runs without a Temporal ID.
+         * @nullable
+         */
+      readonly temporal_url: string | null;
       /** What started the run: 'scheduled' (rode a warehouse sync), 'sync' (a warehouse sync started from the UI), 'manual' (a backfill started from the UI), or 'backfill' (the automatic backfill run when a mapping is created or re-enabled). */
       readonly trigger: string;
       /** Run status: 'running', 'completed', or 'failed'. */

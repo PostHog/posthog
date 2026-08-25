@@ -1473,6 +1473,16 @@ class CustomPropertySyncRunSerializer(DataclassSerializer):
         allow_null=True,
         help_text="Temporal workflow identifier associated with the current account sync phase.",
     )
+    workflow_run_id = serializers.UUIDField(
+        read_only=True,
+        allow_null=True,
+        help_text="Temporal run identifier associated with the current account sync phase.",
+    )
+    temporal_url = serializers.URLField(
+        read_only=True,
+        allow_null=True,
+        help_text="Staff-only link to this run in Temporal. Null for non-staff users and runs without a Temporal ID.",
+    )
     trigger = serializers.CharField(
         read_only=True,
         help_text=(
@@ -1514,6 +1524,8 @@ class CustomPropertySyncRunSerializer(DataclassSerializer):
             "sync_phase",
             "attempt",
             "workflow_id",
+            "workflow_run_id",
+            "temporal_url",
             "trigger",
             "status",
             "started_at",

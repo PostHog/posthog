@@ -74,13 +74,15 @@ ACCOUNT_PROPERTY_SYNC_DURATION_SECONDS = Histogram(
 
 @activity.defn(name="start-warehouse-account-property-runs")
 async def start_warehouse_account_property_runs_activity(input: DispatchAccountPropertySyncInput) -> None:
+    activity_info = activity.info()
     await database_sync_to_async(start_account_property_sync_runs)(
         AccountPropertySyncRunContext(
             team_id=input.team_id,
             saved_query_id=input.saved_query_id,
             job_id=input.job_id,
         ),
-        activity.info().workflow_id,
+        workflow_id=activity_info.workflow_id,
+        workflow_run_id=activity_info.workflow_run_id,
     )
 
 
@@ -109,6 +111,7 @@ async def stage_warehouse_account_property_files_activity(input: StageAccountPro
         ),
         phase=SyncPhase.STAGING,
         workflow_id=activity_info.workflow_id,
+        workflow_run_id=activity_info.workflow_run_id,
         attempt=activity_info.attempt,
     )
     log = logger.bind(
@@ -148,6 +151,7 @@ async def dispatch_warehouse_account_property_sync_activity(input: DispatchAccou
         ),
         phase=SyncPhase.DISPATCHING,
         workflow_id=activity_info.workflow_id,
+        workflow_run_id=activity_info.workflow_run_id,
         attempt=activity_info.attempt,
     )
     client = await async_connect()
@@ -188,6 +192,7 @@ async def sync_warehouse_account_properties_activity(input: AccountPropertySyncI
         ),
         phase=SyncPhase.SYNCING,
         workflow_id=activity_info.workflow_id,
+        workflow_run_id=activity_info.workflow_run_id,
         attempt=activity_info.attempt,
         segment=segment,
     )

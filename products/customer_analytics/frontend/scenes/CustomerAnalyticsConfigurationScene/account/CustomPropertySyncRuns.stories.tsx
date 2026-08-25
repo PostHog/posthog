@@ -12,6 +12,9 @@ const accountRuns: CustomPropertySyncRunApi[] = [
         sync_phase: 'completed',
         attempt: 1,
         workflow_id: 'sync-warehouse-account-properties-job-1-tracked',
+        workflow_run_id: '01890000-0000-4000-8000-0000000000d1',
+        temporal_url:
+            'https://temporal.example.com/namespaces/default/workflows/sync-warehouse-account-properties-job-1-tracked/01890000-0000-4000-8000-0000000000d1',
         trigger: 'scheduled',
         status: 'completed',
         started_at: '2026-08-21T14:29:00Z',
@@ -31,6 +34,8 @@ const accountRuns: CustomPropertySyncRunApi[] = [
         sync_phase: 'staging',
         attempt: 3,
         workflow_id: 'stage-warehouse-account-properties-job-1',
+        workflow_run_id: '01890000-0000-4000-8000-0000000000d2',
+        temporal_url: null,
         trigger: 'scheduled',
         status: 'failed',
         started_at: '2026-08-21T14:29:00Z',
@@ -54,6 +59,12 @@ const meta: Meta<typeof CustomPropertySyncRuns> = {
         loadFailed: false,
         targetType: 'account',
         syncsUrl: null,
+        searchTerm: '',
+        entryCount: accountRuns.length,
+        currentPage: 1,
+        onSearch: () => undefined,
+        onForward: () => undefined,
+        onBackward: () => undefined,
         onReload: () => undefined,
     },
     parameters: {
@@ -70,6 +81,7 @@ export const AccountLifecycle: Story = {}
 
 export const Loading: Story = {
     args: { runs: [], loading: true },
+    parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 
 export const LoadFailed: Story = {

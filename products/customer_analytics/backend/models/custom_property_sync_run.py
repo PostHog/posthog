@@ -58,6 +58,7 @@ class CustomPropertySyncRun(TeamScopedRootMixin, UUIDModel, CreatedMetaFields):
     phase = models.CharField(max_length=20, choices=SyncPhase.choices, null=True, blank=True)
     attempt = models.PositiveSmallIntegerField(null=True, blank=True)
     workflow_id = models.CharField(max_length=400, null=True, blank=True)
+    workflow_run_id = models.UUIDField(null=True, blank=True)
 
     trigger = models.CharField(max_length=20, choices=SyncTrigger.choices)
     status = models.CharField(max_length=20, choices=SyncStatus.choices, default=SyncStatus.RUNNING)

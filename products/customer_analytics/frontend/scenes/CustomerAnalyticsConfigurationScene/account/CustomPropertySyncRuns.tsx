@@ -1,8 +1,18 @@
 import { IconExternal, IconRefresh } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonTable, LemonTableColumns, Spinner, Tooltip } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonInput,
+    LemonTable,
+    LemonTableColumns,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
+import { Link } from 'lib/lemon-ui/Link'
+import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 
 import type { CustomPropertySyncRunApi } from 'products/customer_analytics/frontend/generated/api.schemas'
@@ -33,13 +43,6 @@ const ACCOUNT_SEGMENT_LABELS: Record<string, string> = {
     ignored: 'Ignored',
 }
 
-const SYNC_PHASE_LABELS: Record<string, string> = {
-    staging: 'Preparing rows',
-    dispatching: 'Starting updates',
-    syncing: 'Updating accounts',
-    completed: 'Completed',
-}
-
 type TargetType = 'account' | 'person' | 'group'
 
 type TargetLabels = {
@@ -55,6 +58,30 @@ const TARGET_LABELS: Record<TargetType, TargetLabels> = {
 
 function RunCount({ value }: { value: number }): JSX.Element {
     return <span className={value ? 'font-medium' : 'text-secondary'}>{humanFriendlyNumber(value)}</span>
+}
+
+function runDuration(run: CustomPropertySyncRunApi): string {
+    if (!run.started_at || !run.finished_at) {
+        return '-'
+    }
+    const seconds = Math.max((new Date(run.finished_at).getTime() - new Date(run.started_at).getTime()) / 1000, 0)
+    return humanFriendlyDuration(seconds, { maxUnits: 2 })
+}
+
+function runMatchesSearch(run: CustomPropertySyncRunApi, searchTerm: string): boolean {
+    const normalizedSearch = searchTerm.trim().toLowerCase()
+    if (!normalizedSearch) {
+        return true
+    }
+    return [
+        run.workflow_run_id,
+        run.workflow_id,
+        run.job_id,
+        run.status,
+        run.account_segment,
+        run.trigger,
+        run.error,
+    ].some((value) => value?.toLowerCase().includes(normalizedSearch))
 }
 
 function updatedShare(existing: number, changed: number): string | null {
@@ -77,6 +104,12 @@ export interface CustomPropertySyncRunsProps {
     loadFailed: boolean
     targetType: TargetType
     syncsUrl?: string | null
+    searchTerm: string
+    entryCount: number
+    currentPage: number
+    onSearch: (searchTerm: string) => void
+    onForward: () => void
+    onBackward: () => void
     onReload: () => void
 }
 
@@ -86,10 +119,17 @@ export function CustomPropertySyncRuns({
     loadFailed,
     targetType,
     syncsUrl,
+    searchTerm,
+    entryCount,
+    currentPage,
+    onSearch,
+    onForward,
+    onBackward,
     onReload,
 }: CustomPropertySyncRunsProps): JSX.Element {
     const labels = TARGET_LABELS[targetType]
     const accountRuns = targetType === 'account'
+    const filteredRuns = runs.filter((run) => runMatchesSearch(run, searchTerm))
 
     if (loadFailed) {
         return (
@@ -129,31 +169,19 @@ export function CustomPropertySyncRuns({
     ]
 
     if (accountRuns) {
-        columns.push(
-            {
-                title: 'Segment',
-                tooltip:
-                    'Tracked and ignored accounts run separately. Ignored accounts stay in sync because a property change can make them tracked later.',
-                render: (_, run) =>
-                    run.account_segment ? (
-                        <LemonTag type="muted">
-                            {ACCOUNT_SEGMENT_LABELS[run.account_segment] ?? run.account_segment}
-                        </LemonTag>
-                    ) : (
-                        <span className="text-secondary">-</span>
-                    ),
-            },
-            {
-                title: 'Phase',
-                tooltip: 'Where this account update is in the staging and sync process.',
-                render: (_, run) => (
-                    <span className="flex items-center gap-2 whitespace-nowrap">
-                        <span>{run.sync_phase ? (SYNC_PHASE_LABELS[run.sync_phase] ?? run.sync_phase) : '-'}</span>
-                        {(run.attempt ?? 0) > 1 && <LemonTag type="warning">Attempt {run.attempt}</LemonTag>}
-                    </span>
+        columns.push({
+            title: 'Segment',
+            tooltip:
+                'Tracked and ignored accounts run separately. Ignored accounts stay in sync because a property change can make them tracked later.',
+            render: (_, run) =>
+                run.account_segment ? (
+                    <LemonTag type="muted">
+                        {ACCOUNT_SEGMENT_LABELS[run.account_segment] ?? run.account_segment}
+                    </LemonTag>
+                ) : (
+                    <span className="text-secondary">-</span>
                 ),
-            }
-        )
+        })
     } else {
         columns.push({
             title: 'Trigger',
@@ -190,14 +218,6 @@ export function CustomPropertySyncRuns({
                     </span>
                 )
             },
-        },
-        {
-            title: `Skipped (no ${labels.entity})`,
-            tooltip: `Changed rows skipped because their key column matched no existing ${labels.entity}.`,
-            align: 'right',
-            render: (_, run) => (
-                <span className="text-secondary">{humanFriendlyNumber(run.skipped_missing_person)}</span>
-            ),
         }
     )
 
@@ -205,29 +225,39 @@ export function CustomPropertySyncRuns({
         columns.push({
             title: 'Run',
             tooltip: 'The materialization job for this update. Share this identifier when asking support for help.',
-            render: (_, run) =>
-                run.job_id ? (
+            render: (_, run) => {
+                if (!run.workflow_run_id) {
+                    return <span className="text-secondary">-</span>
+                }
+                const runId = <code>{run.workflow_run_id.slice(0, 8)}</code>
+                return (
                     <Tooltip
                         title={
                             <div className="flex flex-col gap-1">
-                                <span>Job: {run.job_id}</span>
+                                <span>Temporal run: {run.workflow_run_id}</span>
                                 {run.workflow_id && <span>Workflow: {run.workflow_id}</span>}
+                                {run.job_id && <span>Job: {run.job_id}</span>}
+                                {(run.attempt ?? 0) > 1 && <span>Attempt: {run.attempt}</span>}
                             </div>
                         }
                     >
-                        <code>{run.job_id.slice(0, 8)}</code>
+                        {run.temporal_url ? (
+                            <Link to={run.temporal_url} target="_blank">
+                                {runId}
+                            </Link>
+                        ) : (
+                            runId
+                        )}
                     </Tooltip>
-                ) : (
-                    <span className="text-secondary">-</span>
-                ),
+                )
+            },
         })
     }
 
     columns.push(
         {
-            title: 'Started',
-            render: (_, run) =>
-                run.started_at ? <TZLabel time={run.started_at} /> : <span className="text-secondary">-</span>,
+            title: 'Duration',
+            render: (_, run) => runDuration(run),
         },
         {
             title: 'Finished',
@@ -253,30 +283,49 @@ export function CustomPropertySyncRuns({
     }
 
     return (
-        <div className="flex flex-col gap-2">
-            <div className="flex justify-end">
+        <div className="flex w-full flex-col gap-2 p-4">
+            <div className="flex items-center gap-2">
                 <LemonButton
+                    type="secondary"
                     size="small"
                     icon={<IconRefresh />}
+                    tooltip="Refresh runs"
                     onClick={onReload}
                     loading={loading}
                     // Pinned because autocapture dashboards and browser tests use this interaction name.
                     data-attr="custom-property-sync-runs-refresh"
-                >
-                    Refresh
-                </LemonButton>
+                />
+                <LemonInput
+                    type="search"
+                    size="small"
+                    placeholder="Search runs"
+                    value={searchTerm}
+                    onChange={onSearch}
+                    className="w-full max-w-sm"
+                />
             </div>
             <LemonTable
                 columns={columns}
-                dataSource={runs}
+                dataSource={filteredRuns}
                 loading={loading}
                 rowKey="id"
                 size="small"
                 nouns={['run', 'runs']}
+                pagination={{
+                    controlled: true,
+                    pageSize: 20,
+                    currentPage,
+                    entryCount,
+                    onForward,
+                    onBackward,
+                    hideOnSinglePage: true,
+                }}
                 emptyState={
-                    accountRuns
-                        ? 'No runs yet. Run the source view to start a sync.'
-                        : 'No runs yet. Sync or backfill the source to start a run.'
+                    searchTerm
+                        ? 'No runs match your search.'
+                        : accountRuns
+                          ? 'No runs yet. Run the source view to start a sync.'
+                          : 'No runs yet. Sync or backfill the source to start a run.'
                 }
             />
         </div>

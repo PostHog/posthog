@@ -4,9 +4,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("customer_analytics", "0042_backfill_account_track_rules_enabled_at")
-    ]
+    dependencies = [("customer_analytics", "0042_backfill_account_track_rules_enabled_at")]
 
     operations = [
         migrations.AddField(
