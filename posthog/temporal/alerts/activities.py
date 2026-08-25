@@ -110,6 +110,17 @@ async def retrieve_due_alerts() -> list[AlertInfo]:
         return await get_alerts()
 
 
+def _has_active_destinations(alert: AlertConfiguration) -> bool:
+    return (
+        count_active_alert_destinations(
+            team_id=alert.team_id,
+            alert_id=str(alert.id),
+            allowed_event_ids={"$insight_alert_firing"},
+        )
+        > 0
+    )
+
+
 @temporalio.activity.defn
 async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResult:
     """Load the alert, validate its config, and decide whether to evaluate."""
@@ -136,22 +147,8 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
             )
             return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.INSIGHT_DELETED)
 
-        # Email-backed alerts cannot deliver anything on instances without an email transport.
-        # Disable them before evaluation so the scheduler does not repeatedly retry delivery.
-        # Do not send the usual disabled-alert email: that would fail for the same reason.
-        email_delivery_unavailable = bool(alert.get_subscribed_users_emails()) and not is_email_available()
-        if email_delivery_unavailable:
-            has_active_destinations = (
-                count_active_alert_destinations(
-                    team_id=alert.team_id,
-                    alert_id=str(alert.id),
-                    allowed_event_ids={"$insight_alert_firing"},
-                )
-                > 0
-            )
-        else:
-            has_active_destinations = False
-        if email_delivery_unavailable and not has_active_destinations:
+        wants_email = bool(alert.get_subscribed_users_emails())
+        if wants_email and not is_email_available() and not _has_active_destinations(alert):
             reason = "Email delivery is unavailable on this instance. Configure email before re-enabling this alert."
             disable_invalid_alert(alert, reason, notify_subscribers=False, error_code="email_unavailable")
             return PrepareAlertResult(action=PrepareAction.AUTO_DISABLE, reason=reason)

@@ -59,9 +59,9 @@ export function AlertErrorBanner({ alert }: { alert: AlertType }): JSX.Element |
 
     return (
         <LemonBanner type="error" data-attr="alert-error-banner">
-            <strong>Alert disabled.</strong> {error.message}{' '}
+            <strong>Alert disabled.</strong> {error.message} To resume it,{' '}
             <Link to="https://posthog.com/docs/self-host/configure/email" target="_blank" targetBlankIcon>
-                Fix email settings
+                configure email settings
             </Link>
         </LemonBanner>
     )
