@@ -1,0 +1,189 @@
+#!/usr/bin/env bash
+# Render a Jest test-speed report from a timings JSON file.
+#
+# The heavy lifting (JUnit parsing, in-band window reconstruction, shard metrics)
+# lives in .github/scripts/report_test_timings.py; this script turns that JSON into
+# a readable report: per-shard rollups, slowdown distribution, slowest tests, the
+# serial suite's per-file launch+teardown table, and a scaling model that shows
+# what adding more shards actually buys once the fixed per-shard setup cost is
+# paid again.
+#
+# Inputs (pick one):
+#   --timings PATH   timings JSON emitted by `report_test_timings.py --timings PATH`
+#   --artifacts DIR  downloaded JUnit artifacts dir (junit-results-* subdirs, or flat);
+#                    invokes the python script for you
+#   --stdin          read timings JSON from stdin
+#
+# Options: --runner jest|pytest (default jest), --top N (default 12), --suite NAME
+# (filter to one suite), --markdown (GitHub-friendly output, no ANSI), --uv PATH.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+TIMINGS_PY="$REPO_ROOT/.github/scripts/report_test_timings.py"
+
+MODE=""
+SOURCE=""
+RUNNER="jest"
+TOP=12
+SUITE=""
+MARKDOWN=0
+UV="${UV:-uv}"
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --timings) MODE="timings"; SOURCE="$2"; shift 2 ;;
+        --artifacts) MODE="artifacts"; SOURCE="$2"; shift 2 ;;
+        --stdin) MODE="stdin"; shift ;;
+        --runner) RUNNER="$2"; shift 2 ;;
+        --top) TOP="$2"; shift 2 ;;
+        --suite) SUITE="$2"; shift 2 ;;
+        --markdown) MARKDOWN=1; shift ;;
+        --uv) UV="$2"; shift 2 ;;
+        -h|--help) sed -n '2,22p' "$0"; exit 0 ;;
+        *) echo "unknown argument: $1" >&2; exit 2 ;;
+    esac
+done
+
+if [[ -z "$MODE" ]]; then
+    echo "usage: report-jest-timings --timings PATH | --artifacts DIR | --stdin [--top N] [--suite NAME] [--markdown]" >&2
+    exit 2
+fi
+
+TMP_JSON=""
+cleanup() { [[ -n "$TMP_JSON" ]] && rm -f "$TMP_JSON"; }
+trap cleanup EXIT
+
+if [[ "$MODE" == "timings" ]]; then
+    JSON_FILE="$SOURCE"
+    [[ -f "$JSON_FILE" ]] || { echo "timings file not found: $JSON_FILE" >&2; exit 1; }
+elif [[ "$MODE" == "artifacts" ]]; then
+    TMP_JSON="$(mktemp -t jest-timings.XXXXXX.json)"
+    "$UV" run --script "$TIMINGS_PY" --runner="$RUNNER" --timings "$TMP_JSON" "$SOURCE" 1>&2
+    JSON_FILE="$TMP_JSON"
+else
+    TMP_JSON="$(mktemp -t jest-timings.XXXXXX.json)"
+    cat > "$TMP_JSON"
+    JSON_FILE="$TMP_JSON"
+fi
+
+export RT_JSON="$JSON_FILE" RT_TOP="$TOP" RT_SUITE="$SUITE" RT_MARKDOWN="$MARKDOWN"
+
+python3 - <<'PY'
+import json
+import os
+import sys
+
+TOP = int(os.environ["RT_TOP"])
+SUITE = os.environ["RT_SUITE"]
+MARKDOWN = os.environ["RT_MARKDOWN"] == "1"
+BOLD = "" if MARKDOWN else "\033[1m"
+DIM = "" if MARKDOWN else "\033[2m"
+RST = "" if MARKDOWN else "\033[0m"
+
+with open(os.environ["RT_JSON"]) as fh:
+    report = json.load(fh)
+
+shards = [s for s in report.get("shards", []) if not SUITE or s.get("suite") == SUITE]
+if not shards:
+    print("No shard data in report.", file=sys.stderr)
+    sys.exit(0)
+
+
+def fmt(seconds: float) -> str:
+    seconds = round(seconds)
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds < 3600:
+        return f"{seconds // 60}m{seconds % 60:02d}s"
+    return f"{seconds // 3600}h{seconds % 3600 // 60:02d}m"
+
+
+def name_width(entries, key, cap=68):
+    return min(cap, max((len(str(e[key])) for e in entries), default=8))
+
+
+print(f"{BOLD}Jest test-speed report{RST}  runner={report.get('runner')}  suites={','.join(report.get('suites', []))}")
+print()
+
+print(f"{BOLD}Shards{RST}")
+total_wall = sum(s["wall_seconds"] for s in shards)
+total_test = sum(s["testcase_seconds"] for s in shards)
+total_launch = sum(s.get("launch_seconds", 0.0) for s in shards)
+summary = f"  {len(shards)} shard(s) | wall {fmt(total_wall)} | test bodies {fmt(total_test)}"
+if total_launch:
+    summary += f" | launch+teardown {fmt(total_launch)} ({total_launch / total_wall * 100:.0f}% of wall)"
+print(summary)
+width = name_width(shards, "junit_filename")
+for s in sorted(shards, key=lambda x: x["wall_seconds"], reverse=True):
+    extras = []
+    if s.get("launch_seconds"):
+        extras.append(f"launch+teardown {fmt(s['launch_seconds'])}")
+    extra = ("  " + ", ".join(extras)) if extras else ""
+    print(
+        f"  {DIM}{s['junit_filename']:<{width}}{RST}  wall {fmt(s['wall_seconds']):>7}  "
+        f"tests {s['test_count']:>4}  bodies {fmt(s['testcase_seconds']):>7}{extra}"
+    )
+print()
+
+# ---- aggregate slowdown distribution ----------------------------------------
+print(f"{BOLD}Suite-wide test-time distribution{RST}")
+all_counts = sum(s["test_count"] for s in shards)
+sum_median = sorted(s["median_test_seconds"] for s in shards)
+sum_p90 = sorted(s["p90_test_seconds"] for s in shards)
+sum_max = sorted(s["max_test_seconds"] for s in shards)
+print(f"  tests {all_counts} | shard medians {fmt(sum_median[0])}–{fmt(sum_median[-1])}"
+      f" | shard p90 {fmt(sum_p90[0])}–{fmt(sum_p90[-1])}"
+      f" | slowest test {fmt(sum_max[-1])}")
+print()
+
+# ---- slowest individual tests ----------------------------------------------
+print(f"{BOLD}Slowest individual tests (top {TOP} per shard){RST}")
+rows = []
+for s in shards:
+    for t in s.get("slowest_tests", []):
+        rows.append({"shard": s["junit_filename"], "name": t["name"], "file": t["file"],
+                     "d": t["duration_seconds"], "offset": t.get("start_offset_seconds")})
+rows.sort(key=lambda r: r["d"], reverse=True)
+width = name_width(rows, "name", cap=56)
+for row in rows[:TOP]:
+    offset = f"  @{fmt(row['offset'])}" if row["offset"] is not None else ""
+    print(f"  {row['d']:>7.2f}s{offset}  {DIM}{row['name'][:width]:<{width}}{RST}  {DIM}{row['file']}{RST}")
+print()
+
+# ---- per-file launch+teardown ----------------------------------------------
+launch_rows = []
+for s in shards:
+    for file, launch in (s.get("per_file_launch_overhead_seconds") or {}).items():
+        launch_rows.append({"file": file, "launch": launch, "shard": s["junit_filename"]})
+if launch_rows:
+    print(f"{BOLD}Slowest per-file launch + teardown{RST}")
+    width = name_width(launch_rows, "file")
+    for row in sorted(launch_rows, key=lambda r: r["launch"], reverse=True)[:TOP]:
+        print(f"  {row['launch']:>6.2f}s  {DIM}{row['file'][:width]:<{width}}{RST}")
+    print("  " + DIM + "module import + setupFilesAfterEnv + worker boot + teardown per "
+          "file; time no test in the file is billed for." + RST)
+    print()
+
+# ---- sharding analysis ------------------------------------------------------
+print(f"{BOLD}Sharding analysis{RST}")
+walls = [s["wall_seconds"] for s in shards]
+total_wall = sum(walls)
+mean_wall = total_wall / len(walls)
+print(f"  {len(shards)} shard(s): total {fmt(total_wall)} | mean {fmt(mean_wall)} | "
+      f"min {fmt(min(walls))} | max {fmt(max(walls))} | spread {fmt(max(walls)-min(walls))}")
+fixed = 240  # CI-observed per-shard fixed cost: services boot + schema restore + addon build.
+variable = total_wall
+print(f"  adding shards splits the {fmt(variable)} runtime but re-pays the ~{fmt(fixed)} "
+      "per-shard setup (services + schema restore + addon build):")
+for n in range(len(shards), 11):
+    marker = "  <- current" if n == len(shards) else ""
+    print(f"    {n:>2} shards -> ~{fmt(fixed + variable / n)}{marker}")
+print()
+
+print(
+    DIM + "Full per-test history lives in the OTLP traces this same pipeline emits "
+    "(service.name=ci-nodejs / ci-frontend) and in the weekly-slow-tests workflow." + RST
+)
+PY

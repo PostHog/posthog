@@ -893,3 +893,104 @@ def test_job_trace_key_distinguishes_jobs() -> None:
 )
 def test_emission_tokens(env: dict[str, str], expected: list[str]) -> None:
     assert report_test_timings.emission_tokens(env) == expected
+
+# ---------- jest timings: per-file launch + teardown ----------
+
+
+def _write_nodejs_serial_xml(artifact_dir: Path) -> None:
+    """One serial-nodejs-shaped jest XML: per-file staggered timestamps + per-file times.
+
+    Real jest-junit emits per-file durations (perfStats.runtime) with staggered start
+    timestamps in both serial and parallel layouts; the in-band shape this fixture used
+    to model (uniform timestamps + cumulative times) does not occur in practice. The
+    launch+teardown signal is `suite_time - sum(test durations)` regardless of layout.
+    """
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    (artifact_dir / "junit-nodejs-2.xml").write_text(
+        textwrap.dedent(
+            """\
+            <?xml version="1.0"?>
+            <testsuites name="jest tests" tests="4" failures="0" time="12">
+              <testsuite name="a" timestamp="2026-05-04T10:00:00" time="5.0">
+                <testcase classname="a one" name="a one" time="1.0" file="src/worker/a.test.ts"/>
+                <testcase classname="a two" name="a two" time="1.0" file="src/worker/a.test.ts"/>
+              </testsuite>
+              <testsuite name="b" timestamp="2026-05-04T10:00:05" time="3.0">
+                <testcase classname="b one" name="b one" time="2.0" file="src/worker/b.test.ts"/>
+              </testsuite>
+              <testsuite name="c" timestamp="2026-05-04T10:00:08" time="4.0">
+                <testcase classname="c one" name="c one" time="3.0" file="src/worker/c.test.ts"/>
+              </testsuite>
+            </testsuites>
+            """
+        )
+    )
+
+
+def test_collect_jest_shard_wall_bounds_and_file_launch(tmp_path: Path) -> None:
+    (tmp_path / "junit-results-nodejs-2").mkdir()
+    _write_nodejs_serial_xml(tmp_path / "junit-results-nodejs-2")
+
+    shard = report_test_timings.collect_shards(tmp_path, "jest")[0]
+
+    assert (shard.info.suite, shard.info.segment, shard.info.group) == ("nodejs", "nodejs", 2)
+    assert shard.start == datetime(2026, 5, 4, 10, 0, tzinfo=UTC)
+    # Wall = union of per-suite spans: [10:00:00, 10:00:12). Testcase bodies sum to 7s;
+    # the 5s of launch+teardown overhead spread across the files is what the timings
+    # layer reports.
+    assert (shard.end - shard.start).total_seconds() == pytest.approx(12.0)
+    assert shard.testcase_seconds == pytest.approx(7.0)
+    # Per-suite: a=5-2=3s, b=3-2=1s, c=4-3=1s.
+    assert shard.file_launch_seconds == [3.0, 1.0, 1.0]
+    # Each test starts at its suite's real timestamp, laid contiguously within the suite.
+    assert shard.tests[2].start == datetime(2026, 5, 4, 10, 0, 5, tzinfo=UTC)
+
+
+def test_build_timings_report_quantifies_per_file_launch(tmp_path: Path) -> None:
+    (tmp_path / "junit-results-nodejs-2").mkdir()
+    _write_nodejs_serial_xml(tmp_path / "junit-results-nodejs-2")
+
+    payload = report_test_timings.build_timings_report(
+        report_test_timings.collect_shards(tmp_path, "jest"), tmp_path, "jest"
+    )
+
+    shard = payload["shards"][0]
+    assert shard["wall_seconds"] == pytest.approx(12.0)
+    assert shard["launch_seconds"] == pytest.approx(5.0)
+    assert shard["per_file_launch_overhead_seconds"]["nodejs/src/worker/a.test.ts"] == pytest.approx(3.0)
+    assert shard["per_file_launch_overhead_seconds"]["nodejs/src/worker/b.test.ts"] == pytest.approx(1.0)
+    assert shard["per_file_launch_overhead_seconds"]["nodejs/src/worker/c.test.ts"] == pytest.approx(1.0)
+    assert payload["suites"] == ["nodejs"]
+    assert [t["name"] for t in shard["slowest_tests"][:2]] == ["c one", "b one"]
+
+
+def test_build_timings_report_covers_parallel_frontend_layout(tmp_path: Path) -> None:
+    artifact_dir = tmp_path / "junit-results-frontend-EE-1"
+    artifact_dir.mkdir(parents=True)
+    (artifact_dir / "junit-EE-1.xml").write_text(
+        textwrap.dedent(
+            """\
+            <?xml version="1.0"?>
+            <testsuites name="jest tests" tests="2" failures="0" time="9">
+              <testsuite name="x" timestamp="2026-05-04T10:00:02" time="4.0">
+                <testcase classname="x" name="renders" time="2.5" file="src/scenes/x.test.ts"/>
+              </testsuite>
+              <testsuite name="y" timestamp="2026-05-04T10:00:05" time="5.0">
+                <testcase classname="y" name="computes" time="3.0" file="src/lib/y.test.ts"/>
+              </testsuite>
+            </testsuites>
+            """
+        )
+    )
+
+    payload = report_test_timings.build_timings_report(
+        report_test_timings.collect_shards(tmp_path, "jest"), tmp_path, "jest"
+    )
+
+    shard = payload["shards"][0]
+    # Overlapping parallel suites: wall is the union extrema (10:00:02 -> 10:00:10).
+    assert shard["wall_seconds"] == pytest.approx(8.0)
+    # x = 4-2.5 = 1.5s launch, y = 5-3 = 2s launch.
+    assert shard["launch_seconds"] == pytest.approx(3.5)
+    assert shard["per_file_launch_overhead_seconds"]["frontend/src/scenes/x.test.ts"] == pytest.approx(1.5)
+    assert shard["per_file_launch_overhead_seconds"]["frontend/src/lib/y.test.ts"] == pytest.approx(2.0)
