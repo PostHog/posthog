@@ -300,7 +300,9 @@ class TableNode(BaseModel):
 
     def _case_insensitive_index(self) -> dict[str, "TableNode"]:
         # Stored as a plain __dict__ entry, not a pydantic PrivateAttr: any private state would
-        # knock every node off the _slim_pickle_getstate fast path, and the slim setstate drops it.
+        # knock every node off the _slim_pickle_getstate fast path. The entry survives that pickle
+        # path (getstate returns the live __dict__, setstate restores it verbatim) and comes back
+        # valid, because the pickle memo preserves `children`'s identity for the check below.
         # Validity is self-checking — reassigning `children` changes its identity and del/pop/adds
         # change its length; a same-key replacement goes through add_child, which pops the cache.
         # Concurrent readers may race to build the index; the build is idempotent and the
