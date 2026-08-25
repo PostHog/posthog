@@ -21,7 +21,11 @@ const auxTagGuidanceComment = `# Auxiliary service image tags.
 #   POSTHOG_LIVESTREAM_TAG  full commit sha  (livestream)
 #   POSTHOG_RUST_TAG        sha-<short sha>  (capture, feature-flags, personhog, cymbal, ...)
 # The build publishes a tag for a commit only when that commit changes the service.
-# Not every app commit has a matching tag, so pick a tag that exists in the registry.`
+# Not every app commit has a matching tag, so pick a tag that exists in the registry.
+# POSTHOG_RUST_TAG covers several images that build independently, so a usable
+# value must exist for all of them. A commit publishes a sha-<short> tag only for
+# the Rust images it changed; pin it only to a tag present for every Rust image,
+# or leave it on master.`
 
 type EnvConfig struct {
 	PosthogSecret        string
