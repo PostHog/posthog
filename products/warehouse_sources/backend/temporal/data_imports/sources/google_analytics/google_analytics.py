@@ -30,6 +30,10 @@ logger = structlog.get_logger(__name__)
 
 GA4_API_BASE = "https://analyticsdata.googleapis.com/v1beta"
 
+# Bound the credential-check metadata call so a slow Google response cannot hang the
+# setup request past the gateway limit. (connect, read) seconds — well under 120s.
+PROPERTY_METADATA_TIMEOUT_SECONDS = (10.0, 30.0)
+
 # GA4 standard properties retain aggregate report data well beyond event-level
 # retention, so a 2-year initial backfill is safe and matches what other GA4
 # connectors default to.
@@ -138,7 +142,7 @@ def normalize_property_id(property_id: str) -> str:
 def get_property_metadata(session: AuthorizedSession, property_id: str) -> dict[str, Any]:
     """Fetch the property's dimension/metric metadata — the cheapest call that proves read access."""
     pid = normalize_property_id(property_id)
-    response = session.get(f"{GA4_API_BASE}/properties/{pid}/metadata")
+    response = session.get(f"{GA4_API_BASE}/properties/{pid}/metadata", timeout=PROPERTY_METADATA_TIMEOUT_SECONDS)
     response.raise_for_status()
     return response.json()
 

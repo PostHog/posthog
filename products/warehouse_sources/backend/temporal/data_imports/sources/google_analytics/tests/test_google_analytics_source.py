@@ -199,6 +199,28 @@ def test_validate_credentials_maps_http_errors(status_code, expected_substring):
     assert expected_substring in (message or "")
 
 
+def test_validate_credentials_maps_timeout_and_reports_it():
+    # A slow property lookup used to hang past the gateway limit and show a bare server error.
+    # It must now return an actionable retry message and reach error tracking.
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.google_analytics_session"
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.get_property_metadata",
+            side_effect=requests.Timeout("read timed out"),
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_analytics.source.capture_exception"
+        ) as capture,
+    ):
+        ok, message = GoogleAnalyticsSource().validate_credentials(_config(), team_id=1)
+
+    assert ok is False
+    assert "did not respond in time" in (message or "")
+    assert capture.call_count == 1
+
+
 def test_validate_credentials_maps_token_refresh_error():
     # google-auth raises RefreshError with (message, response_dict); its default repr is the tuple,
     # which used to leak verbatim to users. Guard the mapping to a clean reconnect prompt.

@@ -13,6 +13,7 @@ from posthog.schema import (
     SourceFieldOauthConfig,
 )
 
+from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import Integration
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, ResumableSource
@@ -184,6 +185,15 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
 
         try:
             get_property_metadata(session, property_id)
+        except requests.Timeout as e:
+            # Without the bound this hung past the gateway limit, so the user saw a bare server error
+            # and the failure never reached error tracking. Capture it and return a retryable message.
+            capture_exception(e, {"team_id": team_id, "property_id": property_id})
+            return (
+                False,
+                f"Google Analytics did not respond in time while checking property '{property_id}'. "
+                "This is usually temporary — please try again in a moment.",
+            )
         except requests.HTTPError as e:
             status = e.response.status_code if e.response is not None else None
             if status in (401, 403):
