@@ -8,6 +8,7 @@ import { LemonTabs, Spinner } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { appLogic } from 'scenes/appLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -39,6 +40,7 @@ const allTabs: { key: BillingSectionId; label: string }[] = [
 export function BillingSection(): JSX.Element {
     const { location, searchParams } = useValues(router)
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
+    const { featureFlagsTimedOut } = useValues(appLogic)
     const { canAccessBilling, canViewUsageAndSpend, canOnlyViewUsageAndSpend } = useValues(billingLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const billingAlertsEnabled = !!featureFlags[FEATURE_FLAGS.BILLING_ALERTS]
@@ -77,7 +79,9 @@ export function BillingSection(): JSX.Element {
 
     // Hold the overview behind a spinner until membership and flags load, then while the redirect to
     // Usage runs. Without this a view-only member sees the admin-only error before the redirect fires.
-    const accessResolved = receivedFeatureFlags && !!currentOrganization
+    // Treat the app-level flag timeout as resolved too, so the overview never spins forever when the
+    // flag callback never fires — this mirrors how appLogic renders the app on flag timeout.
+    const accessResolved = (receivedFeatureFlags || featureFlagsTimedOut) && !!currentOrganization
     const overviewRedirectPending = section === 'overview' && (!accessResolved || canOnlyViewUsageAndSpend)
 
     const handleTabChange = (key: BillingSectionId): void => {
