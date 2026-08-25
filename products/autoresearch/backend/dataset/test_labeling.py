@@ -357,6 +357,7 @@ class TestAnchoredPopulationsAgainstClickhouse(ClickhouseTestMixin, APIBaseTest)
     def test_anchored_population_executes_with_expected_membership(
         self, _name: str, training_population: dict[str, Any], users: dict[str, list[tuple[str, int]]], expected: int
     ) -> None:
+        now = timezone.now()  # nosemgrep: test-datetime-now-without-freeze (must match ClickHouse server-side now())
         for distinct_id, events in users.items():
             _create_person(team_id=self.team.pk, distinct_ids=[distinct_id], is_identified=True)
             for event, days_ago in events:
@@ -364,7 +365,7 @@ class TestAnchoredPopulationsAgainstClickhouse(ClickhouseTestMixin, APIBaseTest)
                     team=self.team,
                     event=event,
                     distinct_id=distinct_id,
-                    timestamp=timezone.now() - timedelta(days=days_ago),
+                    timestamp=now - timedelta(days=days_ago),
                     properties={"plan": "pro"},
                 )
         flush_persons_and_events()
