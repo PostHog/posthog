@@ -2,7 +2,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { env } from '@/lib/env'
 import { extractBearerToken, formatPrompt, redactToken, sanitizeHeaderValue } from '@/lib/utils'
-import { omitResponseFields, pickResponseFields, withInformationalResponse, withPostHogUrl } from '@/tools/tool-utils'
+import {
+    omitResponseFields,
+    pickResponseFields,
+    stripNullFields,
+    withInformationalResponse,
+    withPostHogUrl,
+} from '@/tools/tool-utils'
 import { POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY, type Context } from '@/tools/types'
 
 // Mock the env proxy that the production code reads through, rather than poking
@@ -423,6 +429,35 @@ describe('utils', () => {
                     },
                 },
             })
+        })
+    })
+
+    describe('stripNullFields', () => {
+        it('removes null-valued keys but keeps falsy non-null values', () => {
+            const obj = { id: 1, breakdown: null, count: 0, name: '', active: false }
+            expect(stripNullFields(obj)).toEqual({ id: 1, count: 0, name: '', active: false })
+        })
+
+        it('recurses into nested objects and objects inside arrays', () => {
+            const obj = {
+                query: { kind: 'TrendsQuery', breakdownFilter: { breakdown: null, breakdown_limit: null } },
+                tiles: [{ id: 1, color: null }],
+            }
+            expect(stripNullFields(obj)).toEqual({
+                query: { kind: 'TrendsQuery', breakdownFilter: {} },
+                tiles: [{ id: 1 }],
+            })
+        })
+
+        it('keeps null array elements — only object properties are dropped', () => {
+            const obj = { values: [1, null, 2] }
+            expect(stripNullFields(obj)).toEqual({ values: [1, null, 2] })
+        })
+
+        it('does not mutate the original object', () => {
+            const obj = { id: 1, breakdown: null }
+            stripNullFields(obj)
+            expect(obj).toEqual({ id: 1, breakdown: null })
         })
     })
 

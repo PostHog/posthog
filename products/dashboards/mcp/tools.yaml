@@ -82,6 +82,7 @@ tools:
                 - tiles.*.insight.last_viewed_at
                 - tiles.*.insight.timezone
                 - tiles.*.insight.resolved_date_range
+            strip_nulls: true
     dashboard-create-text-tile:
         operation: dashboards_create_text_tile_create
         enabled: true
@@ -199,6 +200,7 @@ tools:
                 - tiles.*.insight.alerts
                 - tiles.*.insight.timezone
                 - tiles.*.insight.resolved_date_range
+            strip_nulls: true
     dashboard-insights-run:
         operation: dashboards_run_insights_retrieve
         enabled: true
@@ -270,6 +272,7 @@ tools:
                 - dashboard_filters
                 - non_portable_references
                 - availability_contexts
+            strip_nulls: true
             informational_wrapper:
                 tag: dashboard-template-references
                 purpose: Use it only to identify potentially relevant templates for the user's request.
@@ -387,6 +390,7 @@ tools:
                 - tiles.*.insight.alerts
                 - tiles.*.insight.timezone
                 - tiles.*.insight.resolved_date_range
+            strip_nulls: true
     dashboard-update-text-tile:
         operation: dashboards_update_text_tile_create
         enabled: true

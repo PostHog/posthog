@@ -873,10 +873,16 @@ function buildPathExpr(
 // Response filtering templates
 // ------------------------------------------------------------------
 
+type ResponseFilterHelper = 'pickResponseFields' | 'omitResponseFields' | 'stripNullFields'
+
 function buildResponseFilter(config: ToolConfig): {
     code: string
-    helperImport: 'pickResponseFields' | 'omitResponseFields' | null
+    helperImports: ResponseFilterHelper[]
 } {
+    const helperImports: ResponseFilterHelper[] = []
+    // Expression producing the filtered result from `result` — null until a pick/omit sets it.
+    let expr: string | null = null
+
     if (config.response?.include?.length) {
         const paths = config.response?.include.map((f) => `'${f}'`).join(', ')
         // `selectable` lets the agent pass `fields` to narrow the allowlist per call; the Zod
@@ -886,31 +892,27 @@ function buildResponseFilter(config: ToolConfig): {
         const pathsExpr = config.response?.selectable
             ? `params.fields?.length ? params.fields : [${paths}]`
             : `[${paths}]`
-        if (config.list) {
-            return {
-                code: `        const filtered = { ...result, results: (result.results ?? []).map((item: any) => pickResponseFields(item, ${pathsExpr})) } as typeof result\n`,
-                helperImport: 'pickResponseFields',
-            }
-        }
-        return {
-            code: `        const filtered = pickResponseFields(result, ${pathsExpr}) as typeof result\n`,
-            helperImport: 'pickResponseFields',
-        }
-    }
-    if (config.response?.exclude?.length) {
+        helperImports.push('pickResponseFields')
+        expr = config.list
+            ? `{ ...result, results: (result.results ?? []).map((item: any) => pickResponseFields(item, ${pathsExpr})) }`
+            : `pickResponseFields(result, ${pathsExpr})`
+    } else if (config.response?.exclude?.length) {
         const paths = config.response?.exclude.map((f) => `'${f}'`).join(', ')
-        if (config.list) {
-            return {
-                code: `        const filtered = { ...result, results: (result.results ?? []).map((item: any) => omitResponseFields(item, [${paths}])) } as typeof result\n`,
-                helperImport: 'omitResponseFields',
-            }
-        }
-        return {
-            code: `        const filtered = omitResponseFields(result, [${paths}]) as typeof result\n`,
-            helperImport: 'omitResponseFields',
-        }
+        helperImports.push('omitResponseFields')
+        expr = config.list
+            ? `{ ...result, results: (result.results ?? []).map((item: any) => omitResponseFields(item, [${paths}])) }`
+            : `omitResponseFields(result, [${paths}])`
     }
-    return { code: '', helperImport: null }
+
+    if (config.response?.strip_nulls) {
+        helperImports.push('stripNullFields')
+        expr = `stripNullFields(${expr ?? 'result'})`
+    }
+
+    if (!expr) {
+        return { code: '', helperImports: [] }
+    }
+    return { code: `        const filtered = ${expr} as typeof result\n`, helperImports }
 }
 
 /**
@@ -1259,7 +1261,7 @@ function generateToolCode(
             needsWithInformationalResponse,
             toolUtilsValueImports: new Set(
                 [
-                    responseFilter.helperImport,
+                    ...responseFilter.helperImports,
                     config.response?.informational_wrapper && 'withInformationalResponse',
                 ].filter((value): value is string => !!value)
             ),
@@ -1294,9 +1296,10 @@ const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${resultType}> => ${fa
         hasAgentNote,
         needsWithInformationalResponse,
         toolUtilsValueImports: new Set(
-            [responseFilter.helperImport, config.response?.informational_wrapper && 'withInformationalResponse'].filter(
-                (value): value is string => !!value
-            )
+            [
+                ...responseFilter.helperImports,
+                config.response?.informational_wrapper && 'withInformationalResponse',
+            ].filter((value): value is string => !!value)
         ),
     }
 }
@@ -1599,9 +1602,10 @@ ${handlerBody}    },
         hasAgentNote,
         needsWithInformationalResponse,
         toolUtilsValueImports: new Set(
-            [responseFilter.helperImport, config.response?.informational_wrapper && 'withInformationalResponse'].filter(
-                (value): value is string => !!value
-            )
+            [
+                ...responseFilter.helperImports,
+                config.response?.informational_wrapper && 'withInformationalResponse',
+            ].filter((value): value is string => !!value)
         ),
     }
 }

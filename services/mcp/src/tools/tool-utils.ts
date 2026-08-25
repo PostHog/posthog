@@ -181,3 +181,34 @@ function removeAtPath(obj: unknown, segments: string[]): void {
         removeAtPath(record[head], rest)
     }
 }
+
+/**
+ * Recursively remove keys whose value is `null` from an object (and every nested object,
+ * including objects inside arrays). Arrays keep their length — a `null` array element stays,
+ * only `null` object properties are dropped. Lossless for an agent: an absent key reads the
+ * same as an explicit `null` one, so this trims serializer null-padding without hiding data.
+ */
+export function stripNullFields<T>(obj: T): T {
+    return stripNulls(structuredClone(obj)) as T
+}
+
+function stripNulls(value: unknown): unknown {
+    if (Array.isArray(value)) {
+        for (const item of value) {
+            stripNulls(item)
+        }
+        return value
+    }
+    if (value === null || typeof value !== 'object') {
+        return value
+    }
+    const record = value as Record<string, unknown>
+    for (const key of Object.keys(record)) {
+        if (record[key] === null) {
+            delete record[key]
+        } else {
+            stripNulls(record[key])
+        }
+    }
+    return value
+}
