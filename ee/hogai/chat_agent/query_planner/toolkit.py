@@ -216,15 +216,12 @@ class TaxonomyAgentToolkit:
         if entity not in ("person", "session", *[g["group_type"] for g in self._groups]):
             return f"Entity {entity} does not exist in the taxonomy."
 
+        truncated = False
         if entity == "person":
             restricted = self._restricted_property_names(PropertyDefinition.Type.PERSON)
-            stored_props = [
-                p
-                for p in PropertyDefinition.objects.filter(
-                    team=self._team, type=PropertyDefinition.Type.PERSON
-                ).values_list("name", "property_type")
-                if p[0] not in restricted
-            ]
+            stored_props, truncated = self._stored_property_page(
+                PropertyDefinition.Type.PERSON, restricted, max_properties
+            )
             stored_props += list_virtual_properties(
                 "person_properties", exclude={name for name, _ in stored_props} | restricted
             )
@@ -248,13 +245,9 @@ class TaxonomyAgentToolkit:
             if group_type_index is None:
                 return f"Group {entity} does not exist in the taxonomy."
             restricted = self._restricted_property_names(PropertyDefinition.Type.GROUP)
-            stored_props = [
-                p
-                for p in PropertyDefinition.objects.filter(
-                    team=self._team, type=PropertyDefinition.Type.GROUP, group_type_index=group_type_index
-                ).values_list("name", "property_type")[:max_properties]
-                if p[0] not in restricted
-            ]
+            stored_props, truncated = self._stored_property_page(
+                PropertyDefinition.Type.GROUP, restricted, max_properties, group_type_index=group_type_index
+            )
             stored_props += list_virtual_properties("groups", exclude={name for name, _ in stored_props} | restricted)
             stored_descriptions = self._get_stored_property_descriptions(
                 PropertyDefinition.Type.GROUP,
@@ -266,7 +259,33 @@ class TaxonomyAgentToolkit:
         if not props:
             return f"Properties do not exist in the taxonomy for the entity {entity}."
 
-        return format_prompt_string(PROPERTIES_EXAMPLE_PROMPT, result=self._generate_properties_output(props))
+        result = format_prompt_string(PROPERTIES_EXAMPLE_PROMPT, result=self._generate_properties_output(props))
+        if truncated:
+            result += (
+                f"\n\nThis list stops at {max_properties} properties and {entity} has more. "
+                "Ask for a property by name before you treat it as missing."
+            )
+        return result
+
+    def _stored_property_page(
+        self,
+        property_type: PropertyDefinition.Type,
+        restricted: set[str],
+        max_properties: int,
+        group_type_index: int | None = None,
+    ) -> tuple[list[tuple[str, str | None]], bool]:
+        """
+        Read one page of stored definitions, and report whether more were left behind.
+
+        Reads one row past the page to detect the overflow. A COUNT would answer the same
+        question by walking the team's whole definition range, which is the cost the page
+        limit is here to avoid.
+        """
+        qs = PropertyDefinition.objects.filter(team=self._team, type=property_type)
+        if group_type_index is not None:
+            qs = qs.filter(group_type_index=group_type_index)
+        rows = list(qs.values_list("name", "property_type")[: max_properties + 1])
+        return [row for row in rows[:max_properties] if row[0] not in restricted], len(rows) > max_properties
 
     def _retrieve_event_or_action_taxonomy(self, event_name_or_action_id: str | int):
         is_event = isinstance(event_name_or_action_id, str)
@@ -300,8 +319,11 @@ class TaxonomyAgentToolkit:
         property definitions. The coalesce expression matches the posthog_propdef_proj_uniq
         index (COALESCE(project_id, team_id), name, type, ...), turning the lookup into one
         index seek per name. It is also the same project-level scoping the taxonomy REST API
-        applies to this table, and that unique index guarantees at most one definition per
-        name within a project scope.
+        applies to this table.
+
+        That index also keys on COALESCE(group_type_index, -1), which this filter leaves open.
+        Event definitions never carry a group type index, so each (project, name) resolves to
+        one row and the dict build below cannot drop a value.
         """
         return dict(
             PropertyDefinition.objects.alias(

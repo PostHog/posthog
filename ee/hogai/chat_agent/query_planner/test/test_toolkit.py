@@ -5,6 +5,8 @@ from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event, _create_person
 from unittest.mock import patch
 
+from parameterized import parameterized
+
 from posthog.schema import CachedActorsPropertyTaxonomyQueryResponse, CachedEventTaxonomyQueryResponse
 
 from posthog.models import Team
@@ -111,6 +113,73 @@ class TestTaxonomyAgentToolkit(ClickhouseTestMixin, APIBaseTest):
             "$session_duration",
             result,
         )
+
+    def test_retrieve_entity_properties_pages_person_definitions(self):
+        # The person branch used to read every stored definition, so a team with millions of them
+        # walked its whole index range. The group branch already paged.
+        for i in range(4):
+            PropertyDefinition.objects.create(
+                team=self.team,
+                type=PropertyDefinition.Type.PERSON,
+                name=f"person_prop_{i}",
+                property_type=PropertyType.String,
+            )
+        toolkit = DummyToolkit(self.team, self.user)
+
+        result = toolkit.retrieve_entity_properties("person", max_properties=2)
+
+        listed = [name for name in (f"person_prop_{i}" for i in range(4)) if f"- {name}" in result]
+        self.assertEqual(len(listed), 2)
+        self.assertIn("This list stops at 2 properties and person has more.", result)
+
+    @parameterized.expand(
+        [
+            ["person", "person"],
+            ["group", "group"],
+        ]
+    )
+    def test_retrieve_entity_properties_omits_truncation_note_when_under_limit(self, _name: str, entity: str):
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="group"
+        )
+        invalidate_group_types_cache(self.team.project_id)
+        PropertyDefinition.objects.create(
+            team=self.team,
+            type=PropertyDefinition.Type.PERSON,
+            name="only_person_prop",
+            property_type=PropertyType.String,
+        )
+        PropertyDefinition.objects.create(
+            team=self.team,
+            type=PropertyDefinition.Type.GROUP,
+            group_type_index=0,
+            name="only_group_prop",
+            property_type=PropertyType.String,
+        )
+        toolkit = DummyToolkit(self.team, self.user)
+
+        result = toolkit.retrieve_entity_properties(entity, max_properties=500)
+
+        self.assertNotIn("This list stops at", result)
+
+    def test_retrieve_entity_properties_notes_truncation_for_groups(self):
+        create_group_type_mapping_without_created_at(
+            team=self.team, project_id=self.team.project_id, group_type_index=0, group_type="group"
+        )
+        invalidate_group_types_cache(self.team.project_id)
+        for i in range(3):
+            PropertyDefinition.objects.create(
+                team=self.team,
+                type=PropertyDefinition.Type.GROUP,
+                group_type_index=0,
+                name=f"group_prop_{i}",
+                property_type=PropertyType.String,
+            )
+        toolkit = DummyToolkit(self.team, self.user)
+
+        result = toolkit.retrieve_entity_properties("group", max_properties=1)
+
+        self.assertIn("This list stops at 1 properties and group has more.", result)
 
     def test_retrieve_entity_properties_lists_virtual_properties_without_stored_definitions(self):
         toolkit = DummyToolkit(self.team, self.user)
