@@ -21,6 +21,7 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel/LemonLabel'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
+import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { cn } from 'lib/utils/css-classes'
@@ -744,7 +745,11 @@ function SubscriptionReviewStep({
                 <div>
                     <LemonLabel className="mb-2">Preview</LemonLabel>
                     <div className="border rounded p-2">
-                        {previewLoading ? <div className="text-sm text-secondary">Generating preview…</div> : null}
+                        {previewLoading ? (
+                            <div className="overflow-hidden rounded border">
+                                <LemonSkeleton className="aspect-video w-full" />
+                            </div>
+                        ) : null}
                         {previewError ? (
                             <div className="flex flex-col items-start gap-2">
                                 <LemonBanner type="error">{previewError}</LemonBanner>
