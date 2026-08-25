@@ -13,6 +13,8 @@ import { SignalReport, SignalReportActionability, SignalReportPriority, SignalRu
  */
 export const INBOX_CLIENT = 'cloud' as const
 
+// pinned: analytics event names - dashboards, funnels, and alerts read these strings, and the
+// desktop app sends the same ones, so renaming one splits its series in two.
 export const INBOX_EVENTS = {
     VIEWED: 'Inbox viewed',
     WELCOME_VIEWED: 'Inbox welcome viewed',

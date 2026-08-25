@@ -25,6 +25,7 @@ export function ManualSetupAction({
         <div className={`flex flex-col gap-2 ${className ?? ''}`}>
             <LemonButton
                 type="secondary"
+                // pinned: autocapture data-attr - dashboards and test selectors match on this string
                 data-attr="inbox-welcome-set-up-manually"
                 className="w-fit"
                 onClick={() => requestManualSetup(variant)}

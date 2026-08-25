@@ -44,9 +44,13 @@ export type InboxOnboardingMode = 'takeover' | 'banner' | 'none' | 'pending'
 export type InboxSettledUiState = 'takeover' | 'inbox'
 
 /** localStorage key for the per-team last-settled UI state (see `lastSettledUiStateByTeam`). */
+// pinned: browser storage key - a rename orphans what every user already stored, so the inbox
+// forgets which UI it painted last visit and falls back to the skeleton on their next one.
 export const INBOX_LAST_UI_STATE_STORAGE_KEY = 'inbox-onboarding-last-ui-state'
 
 /** sessionStorage key for the per-team "Set up manually" choice (see `manualSetupRequestedByTeam`). */
+// pinned: browser storage key - a rename drops the choice mid-session, so the takeover returns
+// for someone who already pressed "Set up manually".
 export const INBOX_MANUAL_SETUP_STORAGE_KEY = 'inbox-onboarding-manual-setup'
 
 /**
