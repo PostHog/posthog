@@ -281,11 +281,17 @@ export const errorTrackingInsightsLogic = kea<errorTrackingInsightsLogicType>([
                         // error, so surface it on the card instead of letting it escape to the
                         // global loader handler, which would toast and file an error tracking issue.
                         if (error instanceof ApiError && error.status === 400) {
+                            // A superseded request must not paint a stale error over the card a
+                            // newer filter already loaded. A slow 400 can arrive after a faster
+                            // query has succeeded, so drop it if a later load has started.
+                            breakpoint()
                             actions.setSummaryStatsError(error.detail ?? 'Could not load summary stats')
                             return null
                         }
                         throw error
                     }
+                    // Same guard for a superseded success: a late result must not replace a newer one.
+                    breakpoint()
                     const row = response?.results?.[0]
                     if (!row) {
                         return null
