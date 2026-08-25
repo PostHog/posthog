@@ -162,7 +162,6 @@ if (!gotTheLock) {
 
 const RECOVERABLE_RENDER_REASONS = new Set([
   "abnormal-exit",
-  "killed",
   "crashed",
   "oom",
   "integrity-failure",
