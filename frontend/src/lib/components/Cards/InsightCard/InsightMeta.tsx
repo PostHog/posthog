@@ -246,6 +246,7 @@ export function InsightMeta({
         query,
         insightData,
         variablesOverride,
+        loading: loading || loadingQueued,
         persistDisplayOptions,
     })
     const displayMenuItems = [...visualizationItems, ...displayOptionItems]

@@ -1,3 +1,5 @@
+import { ChartSettingsDisplay, ChartSettingsFormatting } from '~/queries/schema/schema-general'
+
 export type ColumnScalar =
     | 'INTEGER'
     | 'FLOAT'
@@ -9,6 +11,14 @@ export type ColumnScalar =
     | 'TUPLE'
     | 'ARRAY'
     | 'UNKNOWN'
+
+export interface AxisSeriesSettings {
+    formatting?: ChartSettingsFormatting
+    display?: ChartSettingsDisplay
+}
+
+/** What the editor attaches to a series it creates. */
+export const defaultAxisSettings = (): AxisSeriesSettings => ({ formatting: { prefix: '', suffix: '' } })
 
 export interface ColumnType {
     name: ColumnScalar

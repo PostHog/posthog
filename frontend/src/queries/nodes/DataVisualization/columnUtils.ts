@@ -105,20 +105,23 @@ const resolveNonTimeSeriesVisualizationType = (columns: Column[]): ChartDisplayT
     return ChartDisplayType.ActionsTable
 }
 
-const hasTimeSeriesData = (columns: Column[], response: AnyResponseType | null): boolean => {
-    const hasDateColumn = columns.some((column) => ['DATE', 'DATETIME'].includes(column.type.name))
-    const hasNumericColumn = columns.some((column) => column.type.isNumerical)
+/** insightDataLogic always sets a `result` key, even when empty, so its presence proves nothing. */
+export const rowCountFromResponse = (response: AnyResponseType | null): number => {
     const rawResults =
         response && 'results' in response ? response.results : response && 'result' in response ? response.result : []
-    // insightDataLogic always sets a `result` key, even when the response is empty, so the key being
-    // present does not mean it holds an array.
-    const results = Array.isArray(rawResults) ? rawResults : []
-
-    return hasDateColumn && hasNumericColumn && results.length > 1
+    return Array.isArray(rawResults) ? rawResults.length : 0
 }
 
-export const getAutoVisualizationType = (columns: Column[], response: AnyResponseType | null): ChartDisplayType => {
-    if (hasTimeSeriesData(columns, response)) {
+const hasTimeSeriesData = (columns: Column[], rowCount: number): boolean => {
+    const hasDateColumn = columns.some((column) => ['DATE', 'DATETIME'].includes(column.type.name))
+    const hasNumericColumn = columns.some((column) => column.type.isNumerical)
+
+    return hasDateColumn && hasNumericColumn && rowCount > 1
+}
+
+/** Takes a row count rather than the rows: it only ever asks whether there is more than one. */
+export const getAutoVisualizationType = (columns: Column[], rowCount: number): ChartDisplayType => {
+    if (hasTimeSeriesData(columns, rowCount)) {
         return ChartDisplayType.ActionsLineGraph
     }
 

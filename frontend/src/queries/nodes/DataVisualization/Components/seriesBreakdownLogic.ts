@@ -19,7 +19,8 @@ import type {
     TraceSpansAttributeBreakdownQueryResponse,
     TraceSpansQueryResponse,
 } from '../../../schema/schema-general'
-import { AxisSeries, AxisSeriesSettings, SelectedYAxis, dataVisualizationLogic } from '../dataVisualizationLogic'
+import { AxisSeries, SelectedYAxis, dataVisualizationLogic } from '../dataVisualizationLogic'
+import { AxisSeriesSettings } from '../types'
 import type { Column } from '../types'
 
 /**

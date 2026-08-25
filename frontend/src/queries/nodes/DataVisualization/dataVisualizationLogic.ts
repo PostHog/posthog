@@ -31,8 +31,6 @@ import {
     AnyResponseType,
     ChartAxis,
     ChartSettings,
-    ChartSettingsDisplay,
-    ChartSettingsFormatting,
     ConditionalFormattingRule,
     DataVisualizationNode,
     HeatmapSettings,
@@ -59,8 +57,8 @@ import type {
 } from '../../schema/schema-general'
 import { dataNodeLogic } from '../DataNode/dataNodeLogic'
 import { QueryFeature, getQueryFeatures } from '../DataTable/queryFeatures'
-import { columnsFromResponse, deriveDefaultAxes, getAutoVisualizationType } from './columnUtils'
-import { Column, ColumnScalar, FORMATTING_TEMPLATES } from './types'
+import { columnsFromResponse, deriveDefaultAxes, getAutoVisualizationType, rowCountFromResponse } from './columnUtils'
+import { AxisSeriesSettings, Column, ColumnScalar, FORMATTING_TEMPLATES, defaultAxisSettings } from './types'
 import {
     getHeatmapAutoSettings,
     resolveScatterXAxisColumn,
@@ -79,11 +77,6 @@ export interface TableDataCell<T extends string | number | boolean | Date | null
     type: ColumnScalar
     sourceColumnName?: string
     isTransposedHeader?: boolean
-}
-
-export interface AxisSeriesSettings {
-    formatting?: ChartSettingsFormatting
-    display?: ChartSettingsDisplay
 }
 
 export interface AxisSeries<T> {
@@ -126,12 +119,7 @@ export const EmptyYAxisSeries: AxisSeries<number> = {
     data: [],
 }
 
-const DefaultAxisSettings = (): AxisSeriesSettings => ({
-    formatting: {
-        prefix: '',
-        suffix: '',
-    },
-})
+const DefaultAxisSettings = defaultAxisSettings
 
 /** Deep clone settings to prevent shared references between Y-axis entries */
 const cloneSettings = (settings: AxisSeriesSettings): AxisSeriesSettings =>
@@ -1570,7 +1558,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     | import('~/queries/schema/schema-general').TraceSpansAggregationQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansAttributeBreakdownQueryResponse
                     | import('~/queries/schema/schema-general').TraceSpansQueryResponse
-            ): ChartDisplayType => getAutoVisualizationType(columns, response),
+            ): ChartDisplayType => getAutoVisualizationType(columns, rowCountFromResponse(response)),
         ],
         isTableVisualization: [
             (s) => [s.effectiveVisualizationType],
@@ -1697,7 +1685,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
 
             const isAutoHeatmap =
                 visualizationType === ChartDisplayType.Auto &&
-                getAutoVisualizationType(values.columns, values.response) === ChartDisplayType.TwoDimensionalHeatmap
+                getAutoVisualizationType(values.columns, rowCountFromResponse(values.response)) ===
+                    ChartDisplayType.TwoDimensionalHeatmap
 
             if (visualizationType === ChartDisplayType.TwoDimensionalHeatmap || isAutoHeatmap) {
                 applyAutoHeatmapSettings(actions, values.columns, values.chartSettings.heatmap ?? {})

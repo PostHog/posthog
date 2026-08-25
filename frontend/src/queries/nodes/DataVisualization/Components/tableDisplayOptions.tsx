@@ -52,7 +52,7 @@ export function getTableDisplayOptions(
     // Both scatter axes are numeric measures, so one numeric column can't fill both.
     const canDisplayScatterPlot = numericalColumns.length > 1
 
-    return [
+    const groups: LemonSelectOptions<ChartDisplayType> = [
         {
             title: 'Auto',
             options: [
@@ -60,7 +60,6 @@ export function getTableDisplayOptions(
                     value: ChartDisplayType.Auto,
                     icon: <IconTrends />,
                     label: renderDisplayTypeLabel(ChartDisplayType.Auto, autoVisualizationType),
-                    disabledReason: disabledReasonFor?.(ChartDisplayType.Auto),
                 },
             ],
         },
@@ -71,13 +70,11 @@ export function getTableDisplayOptions(
                     value: ChartDisplayType.ActionsTable,
                     icon: <IconTableChart />,
                     label: 'Table',
-                    disabledReason: disabledReasonFor?.(ChartDisplayType.ActionsTable),
                 },
                 {
                     value: ChartDisplayType.BoldNumber,
                     icon: <Icon123 />,
                     label: 'Big number',
-                    disabledReason: disabledReasonFor?.(ChartDisplayType.BoldNumber),
                 },
             ],
         },
@@ -88,57 +85,62 @@ export function getTableDisplayOptions(
                     value: ChartDisplayType.ActionsLineGraph,
                     icon: <IconTrends />,
                     label: 'Line chart',
-                    disabledReason:
-                        disabledReasonFor?.(ChartDisplayType.ActionsLineGraph) ??
-                        (!canDisplayContinuousChart
-                            ? 'Requires at least two columns, including one numeric column'
-                            : undefined),
+                    disabledReason: !canDisplayContinuousChart
+                        ? 'Requires at least two columns, including one numeric column'
+                        : undefined,
                 },
                 {
                     value: ChartDisplayType.ActionsBar,
                     icon: <IconGraph />,
                     label: 'Bar chart',
-                    disabledReason: disabledReasonFor?.(ChartDisplayType.ActionsBar),
                 },
                 {
                     value: ChartDisplayType.ActionsStackedBar,
                     icon: <IconLifecycle />,
                     label: 'Stacked bar chart',
-                    disabledReason: disabledReasonFor?.(ChartDisplayType.ActionsStackedBar),
                 },
                 {
                     value: ChartDisplayType.ActionsAreaGraph,
                     icon: <IconAreaChart />,
                     label: 'Area chart',
-                    disabledReason:
-                        disabledReasonFor?.(ChartDisplayType.ActionsAreaGraph) ??
-                        (!canDisplayContinuousChart
-                            ? 'Requires at least two columns, including one numeric column'
-                            : undefined),
+                    disabledReason: !canDisplayContinuousChart
+                        ? 'Requires at least two columns, including one numeric column'
+                        : undefined,
                 },
                 {
                     value: ChartDisplayType.ActionsPie,
                     icon: <IconPieChart />,
                     label: 'Pie chart',
-                    disabledReason: disabledReasonFor?.(ChartDisplayType.ActionsPie),
                 },
                 {
                     value: ChartDisplayType.ScatterPlot,
                     icon: <IconScatter />,
                     label: 'Scatter plot',
-                    // The column requirement comes first: sending someone to the insight to pick axes
-                    // does not help when the query has too few numeric columns to plot there either.
                     disabledReason: !canDisplayScatterPlot
                         ? 'Requires at least two numeric columns, one for each axis'
-                        : disabledReasonFor?.(ChartDisplayType.ScatterPlot),
+                        : undefined,
                 },
                 {
                     value: ChartDisplayType.TwoDimensionalHeatmap,
                     icon: <IconHeatmap />,
                     label: '2d heatmap',
-                    disabledReason: disabledReasonFor?.(ChartDisplayType.TwoDimensionalHeatmap),
                 },
             ],
         },
     ]
+
+    if (!disabledReasonFor) {
+        return groups
+    }
+
+    // Applied over every option rather than named per entry, so a type added above cannot skip the
+    // check a surface needs. An option's own reason wins, since it names the tighter requirement.
+    return groups.map((group) => ({
+        ...group,
+        options: group.options.map((option) =>
+            'value' in option
+                ? { ...option, disabledReason: option.disabledReason ?? disabledReasonFor(option.value) }
+                : option
+        ),
+    }))
 }

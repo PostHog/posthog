@@ -112,12 +112,59 @@ describe('applyVisualizationType matches what the editor produces', () => {
         const fromEditor = logic.values.query
 
         // What a card would save for the same pick, starting from the same query.
-        const fromCard = applyVisualizationType(before, type, columnsFromResponse(response), response)
+        const fromCard = applyVisualizationType(before, type, columnsFromResponse(response), response.results.length)
 
         expect(fromCard.display).toEqual(fromEditor.display)
         expect(fromCard.chartSettings?.xAxis).toEqual(fromEditor.chartSettings?.xAxis)
         expect(fromCard.chartSettings?.yAxis).toEqual(fromEditor.chartSettings?.yAxis)
         expect(fromCard.chartSettings?.pie?.sliceContent).toEqual(fromEditor.chartSettings?.pie?.sliceContent)
         expect(fromCard.chartSettings?.heatmap).toEqual(fromEditor.chartSettings?.heatmap)
+    })
+
+    // The cases above all start from a query with no chartSettings, which is the one shape that
+    // cannot diverge. These start from a query that already carries axes, including the emptied
+    // yAxis the editor writes when a user deletes every series.
+    it.each([
+        {
+            label: 'a query whose y series were all deleted',
+            chartSettings: { yAxis: [] },
+            response: 'date and numeric',
+            type: ChartDisplayType.ActionsBar,
+        },
+        {
+            label: 'a query with axes already chosen',
+            chartSettings: { xAxis: { column: 'total' }, yAxis: [{ column: 'day' }] },
+            response: 'date and numeric',
+            type: ChartDisplayType.ActionsLineGraph,
+        },
+        {
+            label: 'a query with only an x axis set',
+            chartSettings: { xAxis: { column: 'day' } },
+            response: 'date and numeric',
+            type: ChartDisplayType.ActionsBar,
+        },
+    ])('$label', async ({ chartSettings, response: responseKey, type }) => {
+        const response = responses[responseKey as keyof typeof responses]
+        const seeded = { ...baseQuery, chartSettings } as DataVisualizationNode
+
+        logic = dataVisualizationLogic({
+            key: testKey,
+            query: seeded,
+            dataNodeCollectionId,
+        } as DataVisualizationLogicProps)
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        dataNodeLogic({ key: testKey, query: baseQuery.source, dataNodeCollectionId }).actions.setResponse(response)
+        await expectLogic(logic).toFinishAllListeners()
+
+        const before = logic.values.query
+        logic.actions.setVisualizationType(type)
+        await expectLogic(logic).toFinishAllListeners()
+        const fromEditor = logic.values.query
+
+        const fromCard = applyVisualizationType(before, type, columnsFromResponse(response), response.results.length)
+
+        expect(fromCard.chartSettings?.xAxis).toEqual(fromEditor.chartSettings?.xAxis)
+        expect(fromCard.chartSettings?.yAxis).toEqual(fromEditor.chartSettings?.yAxis)
     })
 })

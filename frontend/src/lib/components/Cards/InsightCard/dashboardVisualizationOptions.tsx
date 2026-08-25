@@ -21,19 +21,24 @@ export function useDashboardVisualizationOptions({
     query,
     insightData,
     variablesOverride,
+    loading,
     persistDisplayOptions,
 }: {
     query: Node | null
     insightData: Record<string, any>
     variablesOverride?: Record<string, HogQLVariable> | null
+    /** So a tile that has not produced results yet is not reported as having none. */
+    loading?: boolean
     persistDisplayOptions?: (node: Node) => void
 }): LemonMenuItems {
     const show = shouldShowSqlVisualizationPicker(query, !!persistDisplayOptions)
 
     // Dashboard date and property filters reach a HogQL query only through a {filters} placeholder,
     // which substitutes into a WHERE clause, so they change rows and never the columns the axes name.
-    // A variable can appear in the SELECT list, so an overridden one can.
-    const hasVariableOverride = !!variablesOverride && Object.keys(variablesOverride).length > 0
+    // A variable can appear in the SELECT list, so an overridden one can. The override map is
+    // dashboard-wide, so only a variable this insight actually uses counts.
+    const insightVariables = query && isDataVisualizationNode(query) ? query.source.variables : undefined
+    const overriddenVariable = Object.keys(insightVariables ?? {}).find((key) => variablesOverride?.[key])
 
     // Keyed on the response arrays rather than insightData itself: that object is rebuilt on every
     // refresh tick, and a new label identity would remount the picker and close its open dropdown.
@@ -56,9 +61,10 @@ export function useDashboardVisualizationOptions({
                                 columns={columns}
                                 types={types}
                                 rowCount={rowCount}
+                                loading={loading}
                                 disabledReason={
-                                    hasVariableOverride
-                                        ? 'Open the insight to change its chart type while a variable is overridden'
+                                    overriddenVariable
+                                        ? 'This dashboard overrides a variable this insight uses. Open the insight to change its chart type.'
                                         : undefined
                                 }
                                 persistDisplayOptions={persistDisplayOptions}
@@ -68,5 +74,5 @@ export function useDashboardVisualizationOptions({
                 ],
             },
         ]
-    }, [show, query, columns, types, rowCount, hasVariableOverride, persistDisplayOptions])
+    }, [show, query, columns, types, rowCount, loading, overriddenVariable, persistDisplayOptions])
 }

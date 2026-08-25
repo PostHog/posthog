@@ -2,7 +2,8 @@ import { type ScatterChartConfig, type ScatterSeries } from '@posthog/quill-char
 
 import { ChartSettings } from '~/queries/schema/schema-general'
 
-import { AxisSeries, AxisSeriesSettings } from '../../dataVisualizationLogic'
+import { AxisSeries } from '../../dataVisualizationLogic'
+import { AxisSeriesSettings } from '../../types'
 import { formatSqlSeriesValue, hasAxisTickFormatting } from './sqlLineGraphAdapter'
 
 /** Per-point display settings carried into quill's `meta` so the tooltip formats each point with its

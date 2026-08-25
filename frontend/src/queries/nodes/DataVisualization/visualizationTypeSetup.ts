@@ -2,8 +2,7 @@ import { ChartSettings, DataVisualizationNode, HeatmapSettings } from '~/queries
 import { ChartDisplayType } from '~/types'
 
 import { deriveDefaultAxes, getAutoVisualizationType } from './columnUtils'
-import { AxisSeriesSettings } from './dataVisualizationLogic'
-import { Column } from './types'
+import { Column, defaultAxisSettings } from './types'
 
 /**
  * The setup a chart type needs beyond its `display`, as a change to the query.
@@ -78,26 +77,25 @@ export function getHeatmapAutoSettings(columns: Column[], heatmapSettings: Heatm
     return next
 }
 
-/** What the editor's addYSeries attaches to a series it creates. */
-const defaultAxisSettings = (): AxisSeriesSettings => ({ formatting: { prefix: '', suffix: '' } })
-
 /**
  * The query a pick produces: the display, plus whatever else that type needs to draw.
  *
  * Seeds the axes first, which the editor gets from the subscription that runs when its columns
  * arrive, then applies the per-type setup. A card has neither, so it needs both to land on the same
- * query. `response` is only read for its row count, to resolve what Auto means here.
+ * query. `rowCount` resolves what Auto means here, which is all Auto reads of the result.
  */
 export function applyVisualizationType(
     query: DataVisualizationNode,
     visualizationType: ChartDisplayType,
     columns: Column[],
-    response: Record<string, any> | null
+    rowCount: number
 ): DataVisualizationNode {
     const numericalColumns = columns.filter((column) => column.type.isNumerical)
     const chartSettings: ChartSettings = { ...query.chartSettings }
 
-    if (!chartSettings.xAxis && !chartSettings.yAxis?.length) {
+    // Matches the editor, which seeds only when neither axis has been set. An empty yAxis is a user
+    // who deleted every series, not an unset one, so it is left alone.
+    if (chartSettings.xAxis === undefined && chartSettings.yAxis === undefined) {
         const seeded = deriveDefaultAxes(columns)
         chartSettings.yAxis = seeded.yAxis.map((column) => ({ column, settings: defaultAxisSettings() }))
         if (seeded.xAxis) {
@@ -134,7 +132,7 @@ export function applyVisualizationType(
 
     const isAutoHeatmap =
         visualizationType === ChartDisplayType.Auto &&
-        getAutoVisualizationType(columns, response) === ChartDisplayType.TwoDimensionalHeatmap
+        getAutoVisualizationType(columns, rowCount) === ChartDisplayType.TwoDimensionalHeatmap
 
     if (visualizationType === ChartDisplayType.TwoDimensionalHeatmap || isAutoHeatmap) {
         const heatmap = chartSettings.heatmap ?? {}

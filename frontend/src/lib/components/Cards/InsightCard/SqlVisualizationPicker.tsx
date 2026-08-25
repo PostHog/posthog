@@ -2,11 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { LemonSelect } from '@posthog/lemon-ui'
 
-import {
-    columnsFromResponse,
-    deriveDefaultAxes,
-    getAutoVisualizationType,
-} from '~/queries/nodes/DataVisualization/columnUtils'
+import { columnsFromResponse, getAutoVisualizationType } from '~/queries/nodes/DataVisualization/columnUtils'
 import {
     getTableDisplayOptions,
     renderDisplayTypeLabel,
@@ -24,6 +20,8 @@ export interface SqlVisualizationPickerProps {
     types?: string[][] | null
     /** Row count, not the rows. Auto picks a time series only when there is more than one. */
     rowCount?: number
+    /** Distinguishes a tile still computing from one that genuinely returned nothing. */
+    loading?: boolean
     disabledReason?: string | null
     persistDisplayOptions: (node: Node) => void
 }
@@ -66,7 +64,7 @@ export function cardVisualizationDisabledReason(
     displayType: ChartDisplayType,
     query: DataVisualizationNode,
     columns: Column[],
-    response: Record<string, any> | null,
+    rowCount: number,
     autoVisualizationType: ChartDisplayType
 ): string | undefined {
     const drawnAs = displayType === ChartDisplayType.Auto ? autoVisualizationType : displayType
@@ -81,12 +79,14 @@ export function cardVisualizationDisabledReason(
         return undefined
     }
 
-    const saved = applyVisualizationType(query, displayType, columns, response)
+    // Ask what the save would produce, then name whichever axis it could not fill, rather than
+    // guessing from the columns alone.
+    const saved = applyVisualizationType(query, displayType, columns, rowCount)
     if (saved.chartSettings?.xAxis && saved.chartSettings.yAxis?.length) {
         return undefined
     }
 
-    return deriveDefaultAxes(columns).yAxis.length === 0 ? NO_NUMERIC_COLUMN_REASON : NO_X_AXIS_COLUMN_REASON
+    return saved.chartSettings?.yAxis?.length ? NO_X_AXIS_COLUMN_REASON : NO_NUMERIC_COLUMN_REASON
 }
 
 // A dashboard card renders its query read-only, which drops the setQuery that dataVisualizationLogic
@@ -96,26 +96,22 @@ export function SqlVisualizationPicker({
     columns: responseColumns,
     types,
     rowCount,
+    loading,
     disabledReason,
     persistDisplayOptions,
 }: SqlVisualizationPickerProps): JSX.Element {
-    const response = useMemo(
-        () => ({
-            columns: responseColumns ?? [],
-            types: types ?? [],
-            // getAutoVisualizationType only reads the row count, so a stand-in of that length is enough.
-            result: new Array(rowCount ?? 0),
-        }),
-        [responseColumns, types, rowCount]
+    const columns = useMemo(
+        () => columnsFromResponse({ columns: responseColumns ?? [], types: types ?? [] }),
+        [responseColumns, types]
     )
-    const columns = useMemo(() => columnsFromResponse(response), [response])
     const numericalColumns = useMemo(() => columns.filter((column) => column.type.isNumerical), [columns])
-    const autoVisualizationType = useMemo(() => getAutoVisualizationType(columns, response), [columns, response])
+    const rows = rowCount ?? 0
+    const autoVisualizationType = useMemo(() => getAutoVisualizationType(columns, rows), [columns, rows])
 
     const disabledReasonFor = useCallback(
         (displayType: ChartDisplayType) =>
-            cardVisualizationDisabledReason(displayType, query, columns, response, autoVisualizationType),
-        [query, columns, response, autoVisualizationType]
+            cardVisualizationDisabledReason(displayType, query, columns, rows, autoVisualizationType),
+        [query, columns, rows, autoVisualizationType]
     )
     const options = useMemo(
         () => getTableDisplayOptions(columns, numericalColumns, autoVisualizationType, disabledReasonFor),
@@ -136,12 +132,19 @@ export function SqlVisualizationPicker({
             className="pb-2 px-2"
             fullWidth
             size="small"
-            disabledReason={disabledReason ?? (columns.length ? undefined : 'This insight has no results to visualize')}
+            disabledReason={
+                disabledReason ??
+                (columns.length
+                    ? undefined
+                    : loading
+                      ? 'Waiting for this insight to load'
+                      : 'This insight returned no columns to visualize')
+            }
             value={visualizationType}
             renderButtonContent={() => renderDisplayTypeLabel(visualizationType, autoVisualizationType)}
             onChange={(value) => {
                 setPending(value)
-                persistDisplayOptions(applyVisualizationType(query, value, columns, response))
+                persistDisplayOptions(applyVisualizationType(query, value, columns, rows))
             }}
             options={options}
             dropdownMatchSelectWidth={false}
