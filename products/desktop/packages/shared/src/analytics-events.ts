@@ -1075,6 +1075,7 @@ export type DashboardActionType =
   | "date_range_apply"
   | "link_copied"
   | "delete_undo"
+  | "file"
   | "pin"
   | "unpin";
 
@@ -1083,6 +1084,8 @@ export interface DashboardActionProperties {
   surface: ChannelsSurface;
   channel_id?: string;
   dashboard_id?: string;
+  /** For file: the space the canvas moved to, when different from `channel_id`. */
+  target_channel_id?: string;
   /** Template chosen on create. */
   template_id?: string;
   /** edit_toggle: the state being entered. */

@@ -24,6 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { CanvasFileToSubmenu } from "@posthog/ui/features/canvas/components/CanvasFileToSubmenu";
 import { ChannelBreadcrumb } from "@posthog/ui/features/canvas/components/ChannelBreadcrumb";
 import { iconForTemplate } from "@posthog/ui/features/canvas/components/canvasTemplateIcon";
 import { NewCanvasMenu } from "@posthog/ui/features/canvas/components/NewCanvasMenu";
@@ -215,6 +216,11 @@ function FreeformEditControls({
               ? `Unpin from ${containerNoun}`
               : `Pin to ${containerNoun}`}
           </DropdownMenuItem>
+          <CanvasFileToSubmenu
+            dashboardId={dashboardId}
+            currentChannelId={channelId}
+            surface="canvas"
+          />
           <DropdownMenuItem
             variant="destructive"
             onClick={() => setConfirmDeleteOpen(true)}

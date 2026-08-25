@@ -19,6 +19,7 @@ import {
   useDashboardMutations,
   useDashboards,
 } from "@posthog/ui/features/canvas/hooks/useDashboards";
+import { useFileCanvas } from "@posthog/ui/features/canvas/hooks/useFileCanvas";
 import { usePinnedTasks } from "@posthog/ui/features/sidebar/usePinnedTasks";
 import { useSidebarSessionMap } from "@posthog/ui/features/sidebar/useSidebarSessionMap";
 import { useTaskViewed } from "@posthog/ui/features/sidebar/useTaskViewed";
@@ -95,11 +96,9 @@ export function useChannelItems(channelId: string): {
   const archivedTaskIds = useArchivedTaskIds();
   const { pinnedTaskIds, togglePin, setPinnedMany } = usePinnedTasks();
   const { archiveTask } = useArchiveTask({ navigateUnscoped: true });
-  const {
-    setPinned: setCanvasPinned,
-    fileDashboard,
-    invalidateDashboards,
-  } = useDashboardMutations();
+  const { setPinned: setCanvasPinned, invalidateDashboards } =
+    useDashboardMutations();
+  const fileCanvas = useFileCanvas();
   const client = useOptionalAuthenticatedClient();
   const { data: currentUser, isLoading: viewerLoading } = useCurrentUser({
     client,
@@ -217,19 +216,16 @@ export function useChannelItems(channelId: string): {
       archive: (item) => {
         void archiveTask({ taskId: item.id });
       },
-      fileCanvas: async (item, targetChannelId) => {
-        try {
-          await fileDashboard(item.id, targetChannelId);
-          const targetName = channels.find(
+      fileCanvas: (item, targetChannelId) =>
+        void fileCanvas({
+          dashboardId: item.id,
+          sourceChannelId: channelId,
+          targetChannelId,
+          targetName: channels.find(
             (candidate) => candidate.id === targetChannelId,
-          )?.name;
-          toast.success(targetName ? `Filed to ${targetName}` : "Canvas filed");
-        } catch (error) {
-          toast.error("Couldn't file canvas", {
-            description: error instanceof Error ? error.message : String(error),
-          });
-        }
-      },
+          )?.name,
+          surface: "sidebar",
+        }),
       // Canvases only, and through the shared undo window: the row disappears at
       // once and the host isn't told until the toast expires, so an accidental
       // delete costs nothing.
@@ -251,7 +247,7 @@ export function useChannelItems(channelId: string): {
       togglePin,
       setPinnedMany,
       archiveTask,
-      fileDashboard,
+      fileCanvas,
       channels,
       invalidateDashboards,
     ],

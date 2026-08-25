@@ -14,6 +14,7 @@ import {
 } from "@posthog/quill";
 import { formatRelativeTimeShort } from "@posthog/shared";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
+import { CanvasFileToSubmenu } from "@posthog/ui/features/canvas/components/CanvasFileToSubmenu";
 import { NewCanvasMenu } from "@posthog/ui/features/canvas/components/NewCanvasMenu";
 import { deleteCanvasWithUndo } from "@posthog/ui/features/canvas/deleteCanvasWithUndo";
 import { useCanvasTemplates } from "@posthog/ui/features/canvas/hooks/useCanvasTemplates";
@@ -206,6 +207,11 @@ function DashboardCardMenu({
             <LinkIcon size={14} />
             Copy link
           </DropdownMenuItem>
+          <CanvasFileToSubmenu
+            dashboardId={id}
+            currentChannelId={channelId}
+            surface="dashboards_grid"
+          />
           <DropdownMenuItem variant="destructive" onClick={onDelete}>
             <TrashIcon size={14} />
             Delete
