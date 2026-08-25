@@ -10,8 +10,14 @@ import { Hub, Team } from '~/types'
 
 import { defaultConfig } from '../config/config'
 import { closeHub, createHub } from './db/hub'
-import { PostgresRouter } from './db/postgres'
+import { PostgresRouter, PostgresUse } from './db/postgres'
+import { captureTeamEvent } from './posthog'
 import { TeamManager } from './team-manager'
+
+jest.mock('./posthog', () => ({
+    ...jest.requireActual('./posthog'),
+    captureTeamEvent: jest.fn(),
+}))
 
 describe('TeamManager()', () => {
     let hub: Hub
@@ -23,6 +29,7 @@ describe('TeamManager()', () => {
     let fetchTeamsSpy: jest.SpyInstance
 
     beforeEach(async () => {
+        jest.clearAllMocks()
         const now = Date.now()
         jest.spyOn(Date, 'now').mockImplementation(() => now)
 
@@ -236,6 +243,51 @@ describe('TeamManager()', () => {
 
             expect((await teamManager.getTeam(teamA))!.minimal_flag_called_events).toBe(true)
             expect((await teamManager.getTeam(teamB))!.minimal_flag_called_events).toBe(false)
+        })
+    })
+
+    describe('setTeamIngestedEvent()', () => {
+        it('updates and notifies once across managers, then latches the team', async () => {
+            await postgres.query(
+                PostgresUse.COMMON_WRITE,
+                'UPDATE posthog_team SET ingested_event = false WHERE id = $1',
+                [teamId],
+                'test-reset-ingested-event'
+            )
+            const team = await teamManager.getTeam(teamId)
+            expect(team?.ingested_event).toBe(false)
+
+            const secondTeamManager = new TeamManager(postgres)
+            const organizationMembers = await postgres.query<{ distinct_id: string }>(
+                PostgresUse.COMMON_READ,
+                'SELECT distinct_id FROM posthog_user JOIN posthog_organizationmembership ON posthog_user.id = posthog_organizationmembership.user_id WHERE organization_id = $1',
+                [organizationId],
+                'test-get-organization-members'
+            )
+            const querySpy = jest.spyOn(postgres, 'query')
+
+            await Promise.all([
+                teamManager.setTeamIngestedEvent(team!, { $lib: 'posthog-js' }),
+                secondTeamManager.setTeamIngestedEvent(team!, { $lib: 'posthog-js' }),
+            ])
+
+            expect(querySpy.mock.calls.filter((call) => call[3] === 'setTeamIngestedEvent')).toHaveLength(2)
+            expect(querySpy.mock.calls.filter((call) => call[3] === 'posthog_organizationmembership')).toHaveLength(1)
+            expect(captureTeamEvent).toHaveBeenCalledTimes(organizationMembers.rows.length)
+
+            await Promise.all([
+                teamManager.setTeamIngestedEvent(team!, { $lib: 'posthog-js' }),
+                secondTeamManager.setTeamIngestedEvent(team!, { $lib: 'posthog-js' }),
+            ])
+
+            expect(querySpy.mock.calls.filter((call) => call[3] === 'setTeamIngestedEvent')).toHaveLength(2)
+            const updatedTeam = await postgres.query<{ ingested_event: boolean }>(
+                PostgresUse.COMMON_READ,
+                'SELECT ingested_event FROM posthog_team WHERE id = $1',
+                [teamId],
+                'test-get-ingested-event'
+            )
+            expect(updatedTeam.rows[0].ingested_event).toBe(true)
         })
     })
 

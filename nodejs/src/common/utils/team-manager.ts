@@ -21,6 +21,7 @@ export interface TeamManagerOptions {
  */
 export class TeamManager {
     private lazyLoader: LazyLoader<Team>
+    private teamsWithIngestedEvent = new Set<number>()
 
     constructor(
         private postgres: PostgresRouter,
@@ -59,37 +60,43 @@ export class TeamManager {
     }
 
     public async setTeamIngestedEvent(team: Team, properties: Properties): Promise<void> {
-        if (!team.ingested_event) {
-            await this.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                `UPDATE posthog_team SET ingested_event = $1 WHERE id = $2`,
-                [true, team.id],
-                'setTeamIngestedEvent'
+        if (team.ingested_event || this.teamsWithIngestedEvent.has(team.id)) {
+            return
+        }
+
+        const result = await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            `UPDATE posthog_team SET ingested_event = true WHERE id = $1 AND NOT ingested_event`,
+            [team.id],
+            'setTeamIngestedEvent'
+        )
+        this.teamsWithIngestedEvent.add(team.id)
+
+        if (result.rowCount !== 1) {
+            return
+        }
+
+        this.lazyLoader.markForRefresh(String(team.id))
+
+        const organizationMembers = await this.postgres.query(
+            PostgresUse.COMMON_WRITE,
+            'SELECT distinct_id FROM posthog_user JOIN posthog_organizationmembership ON posthog_user.id = posthog_organizationmembership.user_id WHERE organization_id = $1',
+            [team.organization_id],
+            'posthog_organizationmembership'
+        )
+
+        const distinctIds: { distinct_id: string }[] = organizationMembers.rows
+        for (const { distinct_id } of distinctIds) {
+            captureTeamEvent(
+                team,
+                'first team event ingested',
+                {
+                    sdk: properties.$lib,
+                    realm: properties.realm,
+                    host: properties.$host,
+                },
+                distinct_id
             )
-
-            // Invalidate the cache for this team
-            this.lazyLoader.markForRefresh(String(team.id))
-
-            const organizationMembers = await this.postgres.query(
-                PostgresUse.COMMON_WRITE,
-                'SELECT distinct_id FROM posthog_user JOIN posthog_organizationmembership ON posthog_user.id = posthog_organizationmembership.user_id WHERE organization_id = $1',
-                [team.organization_id],
-                'posthog_organizationmembership'
-            )
-
-            const distinctIds: { distinct_id: string }[] = organizationMembers.rows
-            for (const { distinct_id } of distinctIds) {
-                captureTeamEvent(
-                    team,
-                    'first team event ingested',
-                    {
-                        sdk: properties.$lib,
-                        realm: properties.realm,
-                        host: properties.$host,
-                    },
-                    distinct_id
-                )
-            }
         }
     }
 
