@@ -78,6 +78,10 @@ Because this channel can't be enumerated, it is closed by construction rather th
 
 1. Keep the presentation layer thin and reaching internals only through the facade, so every observable behavior lives either in the facade (tested in-product, inside the boundary) or in the serializer shape (the OpenAPI schema, whose changes already force the full suite).
 2. Keep behavior tests in-product.
+3. Keep the model surface — `backend/models/` (or `backend/models.py`) and `backend/migrations/` — in the `backend:contract-check` inputs.
+   A model is reachable with no import: `apps.get_model("label", "Class")`, migrations, admin, fixtures.
+   tach cannot see that, so a model or migration change always re-runs the full suite.
+   `hogli product:lint` blocks a narrowing that leaves the surface out.
 
 A product whose views still hold business logic is not soundly skippable even if nothing imports it.
 This is also why "no in-process callers, so we don't need a facade" is the wrong test: a product whose only consumers are over HTTP (node services, the generated TS/MCP types) is _not_ facade-optional — there the facade's whole job is sealing its own presentation.
@@ -92,7 +96,7 @@ These cross the boundary as classes — allowed only under all three rules:
    The class implements a core-owned base from the approved list — today `QueryRunner` (`posthog/hogql_queries/query_runner.py`), `MaxTool` (`ee/hogai/tool.py`), Temporal's `@workflow.defn`/`@activity.defn`, and Celery's `@shared_task`.
    Core code may rely only on the base's interface, never on product-specific members.
    Extending the list is a core PR: define the base and validate at the registration point.
-   DRF viewsets are not part of this channel: they live in `presentation/`, register through `routes.py`, and never pass through the facade (facades must not import DRF) — their soundness is governed by the presentation rules above.
+   DRF viewsets are not part of this channel: they live in `presentation/`, register through `routes.py`, and never pass through the facade (a facade must not import DRF, and not its own `presentation/`; the `facade must not import presentation or DRF` import-linter contract enforces both, with the existing violations grandfathered in its TODO list) — their soundness is governed by the presentation rules above.
 2. **Designated location.**
    The implementation lives in the product's wiring location — `backend/hogql_queries/`, `backend/max_tools.py`, `backend/temporal/`, `backend/tasks/` (a flat `backend/tasks.py` also qualifies) — and isolated products keep those locations in their `backend:contract-check` inputs, so any change to a wiring implementation still re-runs the full suite.
 3. **Validated registration.**
@@ -113,7 +117,8 @@ Core and seven products (alerts, dashboards, surveys, annotations, exports, cust
 `InsightViewed` crosses for the view-tracking upsert (`update_or_create`) that shared-insight rendering and the demo generator perform.
 The dashboards→product_analytics `DashboardTile.insight` FK and `Dashboard.insights` M2M-through cross into the product against §8's direction rule; that coupling is accepted under this entry until dashboards pursues its own isolation.
 
-An allowance product's facade may hand out model classes defined under `backend/models/`, provided the whole model surface — `backend/models/` and `backend/migrations/` — stays in the `backend:contract-check` inputs, so any model or migration change still re-runs the full suite.
+An allowance product's facade may hand out model classes defined under `backend/models/`.
+The model surface is watched by every narrowed product anyway (see [What makes the skip sound](#what-makes-the-skip-sound)); the allowance adds only the permission to hand out the class.
 That is the same soundness contract wiring locations have; what it does not buy is isolation — the coupling to core remains, `hogli product:lint` keeps a standing warning on it, and the direction of travel is still facade functions returning contracts.
 The list lives in `MODEL_CROSSINGS` (`tools/hogli-commands/hogli_commands/product/isolation.py`) and is keyed `(product, class)`, like the carve-outs above: a class that is not listed is a leak and blocks narrowing, so a product already on the list cannot grow a new crossing without a doctrine change.
 It only shrinks.
