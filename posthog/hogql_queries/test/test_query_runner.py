@@ -203,6 +203,17 @@ class TestQueryRunner(BaseTest):
 
         self.assertEqual(runner.query, TheTestQuery(some_attr="bla"))
 
+    def test_shared_database_is_reused_and_rebuilt_on_user_change(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        first = runner.shared_database
+        assert runner.shared_database is first
+
+        runner.user = self.user
+        runner._on_user_changed()
+        assert runner.shared_database is not first
+
     def test_init_with_query_dict(self):
         TestQueryRunner = self.setup_test_query_runner_class()
 

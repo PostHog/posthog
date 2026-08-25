@@ -45,9 +45,6 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, LimitContext
-from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
-from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.timings import HogQLTimings
 
@@ -379,19 +376,8 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
     def _calculate(self):
         queries = self.to_queries()
 
-        # One schema build serves the response printer and every series execution below. Each
-        # HogQLQueryExecutor otherwise builds its own database, and on teams with many warehouse
-        # tables that build dominates the whole request.
-        with self.timings.measure("build_shared_database"):
-            shared_database = Database.create_for(
-                team=self.team,
-                user=self.user,
-                modifiers=create_default_modifiers_for_team(self.team, self.modifiers),
-                timings=self.timings,
-            )
-
         response_hogql = get_response_hogql(
-            queries, team=self.team, timings=self.timings, modifiers=self.modifiers, database=shared_database
+            queries, team=self.team, timings=self.timings, modifiers=self.modifiers, database=self.shared_database
         )
 
         res_matrix: list[list[Any] | Any | None] = [None] * len(queries)
@@ -420,7 +406,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                     timings=timings,
                     modifiers=self.modifiers,
                     limit_context=self.limit_context,
-                    context=HogQLContext(team_id=self.team.pk, user=self.user, database=shared_database),
+                    context=self.build_hogql_context(),
                 )
 
                 timings_matrix[index + 1] = response.timings
