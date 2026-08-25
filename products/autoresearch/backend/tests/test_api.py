@@ -257,9 +257,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
                 iteration_budget=iteration_budget,
             )
 
-        with patch(
-            "products.autoresearch.backend.facade.api.run_training", side_effect=_fake_run_training
-        ):
+        with patch("products.autoresearch.backend.facade.api.run_training", side_effect=_fake_run_training):
             resp = self.client.post(f"{self.base_url}/{pipeline.id}/train/")
 
         assert resp.status_code == status.HTTP_200_OK
