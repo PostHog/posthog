@@ -66,9 +66,9 @@ class _VisionAPITestCase(APIBaseTest):
         # Scanner saves recompute the volume estimate against ClickHouse; keep CRUD tests off that path.
         self.refresh_estimate_patcher = patch("products.replay_vision.backend.api.scanners.refresh_scanner_estimate")
         self.mock_refresh_estimate = self.refresh_estimate_patcher.start()
-        # Scans now filter out sessions with no replay data before starting. These tests name sessions
-        # that were never ingested, so without this every batch would be ineligible and the behavior each
-        # test is actually about would never run. A test about eligibility overrides this.
+        # Scans filter out sessions with no replay data before starting. These tests name sessions that
+        # were never ingested, so without this every batch is ineligible and the behavior each test is
+        # about never runs. A test about eligibility overrides this.
         self.batch_exists_patcher = patch.object(
             SessionReplayEvents,
             "batch_exists",
@@ -3506,8 +3506,7 @@ class TestInlineScanAction(_VisionAPITestCase):
         expected_outcomes: dict[str, int],
     ) -> None:
         # Without the outcome counts a scan that watched nothing is indistinguishable from one that
-        # watched everything, which is why the ineligible rate could not be read at all. The second case
-        # also guards that the event still fires when no scanner was minted.
+        # watched everything. The second case guards that the event fires when no scanner was minted.
         mock_sync_connect.return_value = MagicMock()
         mock_async_to_sync.return_value = MagicMock()
         self.mock_batch_exists.side_effect = lambda session_ids, team: {s: s in watchable for s in session_ids}

@@ -1,5 +1,4 @@
 import json
-from collections import Counter
 from typing import Any, NoReturn, cast
 from uuid import UUID
 
@@ -108,7 +107,13 @@ from products.replay_vision.backend.scanner_config import (
     scanner_config_error,
 )
 from products.replay_vision.backend.scanner_draft import DraftError, draft_scanner_from_goal
-from products.replay_vision.backend.scanning import MAX_SESSIONS_PER_SCAN, run_inline_scan, scan_existing_scanner
+from products.replay_vision.backend.scanning import (
+    MAX_SESSIONS_PER_SCAN,
+    InlineScanResult,
+    inline_scan_event_properties,
+    run_inline_scan,
+    scan_existing_scanner,
+)
 from products.replay_vision.backend.session_limits import MAX_SESSION_ID_LENGTH
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
 from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
@@ -1718,20 +1723,17 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             scanner_config=scanner_config,
             model=model,
         )
+        # Reported before the branch: a scan that starts nothing is the outcome most worth counting.
+        self._report_inline_scan_requested(
+            user=user,
+            scan=scan,
+            scanner_type=scanner_type,
+            model=model,
+            requested=len(session_ids),
+            request=request,
+        )
         if scan.scanner is None:
             # Nothing started and nothing already existed, so there is no id to read results through.
-            # Still reported: a scan that starts nothing is the outcome worth counting, and leaving it
-            # silent is what made the failure rate unreadable from product analytics.
-            self._report_inline_scan_requested(
-                user=user,
-                scanner=None,
-                scanner_type=scanner_type,
-                model=model,
-                requested=len(session_ids),
-                started=0,
-                results=scan.results,
-                request=request,
-            )
             # Key off the outcomes: the in-flight cap can bind here too, and that is not exhaustion.
             if any(result["scan_outcome"] == "skipped_quota" for result in scan.results):
                 self._report_quota_exhausted(None, "inline")
@@ -1741,16 +1743,6 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             )
         scanner, started, results = scan.scanner, scan.started, scan.results
 
-        self._report_inline_scan_requested(
-            user=user,
-            scanner=scanner,
-            scanner_type=scanner_type,
-            model=model,
-            requested=len(session_ids),
-            started=started,
-            results=results,
-            request=request,
-        )
         if any(result["scan_outcome"] == "skipped_quota" for result in results):
             self._report_quota_exhausted(scanner, "inline")
         return Response(
@@ -1762,32 +1754,19 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         self,
         *,
         user: User,
-        scanner: ReplayScanner | None,
+        scan: InlineScanResult,
         scanner_type: ScannerType,
         model: str,
         requested: int,
-        started: int,
-        results: list[dict[str, str]],
         request: Request,
     ) -> None:
-        """An inline scan was asked for, and what came of each session in it.
-
-        `scanner` is None when nothing could start and none existed, which is exactly the case worth
-        seeing. `scan_outcomes` carries the per-outcome counts so a query can read one outcome out of
-        the batch, e.g. `properties.scan_outcomes.no_replay_data`.
-        """
+        """An inline scan was asked for, and what came of each session in it."""
         report_user_action(
             user,
             "replay_vision_inline_scan_requested",
-            {
-                "scan_id": str(scanner.id) if scanner is not None else None,
-                "scanner_type": scanner.scanner_type if scanner is not None else scanner_type,
-                "model": scanner.model if scanner is not None else model,
-                "requested": requested,
-                "started": started,
-                "skipped_count": len(results) - started,
-                "scan_outcomes": dict(Counter(result["scan_outcome"] for result in results)),
-            },
+            inline_scan_event_properties(
+                scan=scan, scanner_type=scanner_type, model=model, requested=requested, trigger="inline"
+            ),
             team=self.team,
             request=request,
         )

@@ -52,8 +52,6 @@ class TestInlineScanServiceBounds(BaseTest):
 
 
 class TestScanEligibility(BaseTest):
-    """A session with no replay data can only fail, so no scan may start on one."""
-
     def _with_replay_data(self, present: set[str]):
         return patch.object(
             SessionReplayEvents,

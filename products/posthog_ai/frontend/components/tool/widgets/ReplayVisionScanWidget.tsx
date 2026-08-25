@@ -5,7 +5,13 @@ import { LemonBanner, Link, Spinner } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 import type { ReplayObservationApi } from 'products/replay_vision/frontend/generated/api.schemas'
-import { readErrorKind, readReasoning, readSummary, readTitle } from 'products/replay_vision/frontend/utils/observation'
+import {
+    failureKindDescription,
+    ineligibleKindDescription,
+    parseFailureReason,
+    parseIneligibleReason,
+} from 'products/replay_vision/frontend/replay_scanners/types'
+import { readReasoning, readSummary, readTitle } from 'products/replay_vision/frontend/utils/observation'
 
 import { replayVisionScanWidgetLogic } from './replayVisionScanWidgetLogic'
 
@@ -24,21 +30,20 @@ const SKIP_MESSAGES: Record<string, string> = {
     failed: 'the scan could not be started',
 }
 
-// Keyed on the `error_reason` kind, never the message stored beside it: that half is written for us and
-// reads as internal text in a chat bubble. Kinds come from `products/replay_vision/backend/error_kinds.py`.
-const FAILURE_MESSAGES: Record<string, string> = {
-    no_recording: 'No replay data was saved for it.',
-    no_snapshots: 'It has no video to watch yet. Try again in a few minutes.',
-    no_events: 'It has no events recorded against it.',
-    too_short: 'It is too short to watch.',
-    too_long: 'It is too long to watch.',
-    too_inactive: 'It has too little activity to watch.',
-    provider_transient: 'The AI provider was unavailable. Try again.',
-    provider_rejected: 'The AI provider could not process it.',
-    rasterization_failed: 'It could not be rendered for the AI to watch.',
-    validation_failed: 'The scan did not return a usable result.',
-    infra_transient: 'PostHog was at capacity. Try again.',
-    orphaned: 'The scan stopped before it finished. Try again.',
+const GENERIC_FAILURE = 'Could not watch this recording.'
+
+/** Describes the kind, never the message stored beside it: that half is written for us, not for a reader. */
+function failureDescription(observation: ReplayObservationApi): string {
+    const reason = observation.error_reason
+    if (!reason) {
+        return GENERIC_FAILURE
+    }
+    if (observation.status === 'ineligible') {
+        const parsed = parseIneligibleReason(reason)
+        return parsed ? ineligibleKindDescription(parsed.kind) : GENERIC_FAILURE
+    }
+    const parsed = parseFailureReason(reason)
+    return parsed ? failureKindDescription(parsed.kind) : GENERIC_FAILURE
 }
 
 export function ReplayVisionScanWidget({ scanId, sessionIds, skipped }: ReplayVisionScanWidgetProps): JSX.Element {
@@ -103,12 +108,9 @@ function ObservationRow({ observation }: { observation: ReplayObservationApi }):
     }
 
     if (observation.status !== 'succeeded') {
-        const detail = FAILURE_MESSAGES[readErrorKind(observation) ?? '']
         return (
             <div className="px-3 py-2 text-sm">
-                <p className="m-0 text-secondary">
-                    {['Could not watch this recording.', detail].filter(Boolean).join(' ')}
-                </p>
+                <p className="m-0 text-secondary">{failureDescription(observation)}</p>
             </div>
         )
     }

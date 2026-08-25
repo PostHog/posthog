@@ -9,11 +9,14 @@ Nothing here checks consent or access. Callers do that, because the answer diffe
 explains.
 """
 
+from collections import Counter
 from dataclasses import dataclass
 from enum import Enum
 from typing import Any
 
 from django.db import IntegrityError, transaction
+
+import structlog
 
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -35,6 +38,8 @@ from products.replay_vision.backend.temporal.constants import (
     MAX_IN_FLIGHT_APPLIES_PER_TEAM,
     build_apply_scanner_workflow_id,
 )
+
+logger = structlog.get_logger(__name__)
 
 # One page of recordings. Above this the in-flight caps bind long before the batch does.
 MAX_SESSIONS_PER_SCAN = 200
@@ -136,10 +141,17 @@ def sessions_without_replay_data(*, team: Team, session_ids: list[str]) -> froze
     A scan on one of these can only fail: `fetch_session_events` reads the metadata back and raises
     `IneligibleSessionError` the moment it finds none. Answering the question here, in one batched
     lookup, keeps such a session from taking a scan slot and a credit on its way to that failure.
+
+    Fails soft: this is an optimization over a check the activity still makes, so a ClickHouse blip
+    should cost a wasted credit rather than block every scan the project asks for.
     """
     if not session_ids:
         return frozenset()
-    found = SessionReplayEvents().batch_exists(session_ids, team)
+    try:
+        found = SessionReplayEvents().batch_exists(session_ids, team)
+    except Exception:
+        logger.exception("replay_vision_eligibility_lookup_failed", team_id=team.id, sessions=len(session_ids))
+        return frozenset()
     return frozenset(session_id for session_id in session_ids if not found.get(session_id, False))
 
 
@@ -148,14 +160,40 @@ def _merge_ineligible(
 ) -> list[dict[str, str]]:
     """Splice the sessions we never tried back into the caller's order.
 
-    `eligible_results` is in the same relative order as the eligible ids, so walking both together
-    restores the batch the caller passed rather than reordering it around the filter.
+    `start_observations` returns one result per session it was given, in order, so walking both
+    together restores the batch the caller passed rather than reordering it around the filter.
     """
     remaining = iter(eligible_results)
-    return [
-        {"session_id": session_id, "scan_outcome": "no_replay_data"} if session_id in ineligible else next(remaining)
-        for session_id in session_ids
-    ]
+    merged: list[dict[str, str]] = []
+    for session_id in session_ids:
+        if session_id in ineligible:
+            merged.append({"session_id": session_id, "scan_outcome": "no_replay_data"})
+        else:
+            merged.append(next(remaining))
+    return merged
+
+
+def inline_scan_event_properties(
+    *, scan: InlineScanResult, scanner_type: str, model: str, requested: int, trigger: str
+) -> dict[str, Any]:
+    """Properties for `replay_vision_inline_scan_requested`, shared by every surface that starts a scan.
+
+    `scan.scanner` is None when nothing could start and none existed, which is exactly the case worth
+    seeing, so the scanner's identity falls back to what was asked for. `scan_outcomes` carries the
+    per-outcome counts so a query can read one outcome out of the batch, e.g.
+    `properties.scan_outcomes.no_replay_data`.
+    """
+    scanner = scan.scanner
+    return {
+        "scan_id": str(scanner.id) if scanner is not None else None,
+        "scanner_type": scanner.scanner_type if scanner is not None else scanner_type,
+        "model": scanner.model if scanner is not None else model,
+        "trigger": trigger,
+        "requested": requested,
+        "started": scan.started,
+        "skipped_count": len(scan.results) - scan.started,
+        "scan_outcomes": dict(Counter(result["scan_outcome"] for result in scan.results)),
+    }
 
 
 def start_observations(

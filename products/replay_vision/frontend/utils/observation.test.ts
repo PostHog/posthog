@@ -1,5 +1,5 @@
 import type { ReplayObservationApi } from '../generated/api.schemas'
-import { ObservationSeekbarMark, observationClipboardText, observationSeekbarMarks, readErrorKind } from './observation'
+import { ObservationSeekbarMark, observationClipboardText, observationSeekbarMarks } from './observation'
 
 const summarizerEntry = { scannerName: 'Session summarizer', headline: null, snippet: 'Rage clicked pay' }
 const longSentence = 'x'.repeat(200)
@@ -148,22 +148,6 @@ describe('observation utils', () => {
             },
         ])('$name', ({ observations, expected }) => {
             expect(observationSeekbarMarks(observations)).toEqual(expected)
-        })
-    })
-
-    describe('readErrorKind', () => {
-        const withReason = (error_reason: string | null): ReplayObservationApi =>
-            ({ error_reason }) as unknown as ReplayObservationApi
-
-        // Reads back the kind, never the message: surfaces key their own user copy on the kind, so a
-        // revert to returning the message half would leak internal text into a chat bubble again.
-        it.each([
-            ['no_recording:No replay metadata found', 'no_recording'],
-            ['too_short:the recording is under five seconds long', 'too_short'],
-            ['internal_error', 'internal_error'],
-            [null, null],
-        ])('reads the kind from %p', (reason, expected) => {
-            expect(readErrorKind(withReason(reason))).toBe(expected)
         })
     })
 })

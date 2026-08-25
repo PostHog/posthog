@@ -17,6 +17,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.api.embedding_worker import async_generate_embedding
 from posthog.clickhouse.client.connection import ClickHouseUser
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.event_usage import report_user_action
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -59,7 +60,9 @@ from products.replay_vision.backend.scanner_access import (
 from products.replay_vision.backend.scanner_config import scanner_config_error
 from products.replay_vision.backend.scanning import (
     MAX_SESSIONS_PER_SCAN,
+    InlineScanResult,
     RetryOutcome,
+    inline_scan_event_properties,
     retry_observation,
     run_inline_scan,
     scan_existing_scanner,
@@ -909,6 +912,12 @@ class ScanReplayVisionSessionsTool(ReplayVisionGatesMixin, MaxTool):
             if scanner is None:
                 return f"Scanner {scanner_id} not found.", {"error": "not_found"}
             started, results = scan_existing_scanner(scanner=scanner, session_ids=sessions, user=self._user)
+            self._report_scan_requested(
+                InlineScanResult(scanner=scanner, started=started, results=results),
+                scanner_type=scanner.scanner_type,
+                model=scanner.model,
+                requested=len(sessions),
+            )
             if any(result["scan_outcome"] == "skipped_scanner_limit" for result in results):
                 record_scanner_limit_reached("max_tool")
             return _scan_summary(started, results), {"scan_id": str(scanner.id), "results": results}
@@ -933,6 +942,7 @@ class ScanReplayVisionSessionsTool(ReplayVisionGatesMixin, MaxTool):
             scanner_config=config,
             model=DEFAULT_SCAN_MODEL,
         )
+        self._report_scan_requested(scan, scanner_type=resolved_type, model=DEFAULT_SCAN_MODEL, requested=len(sessions))
         if scan.scanner is None:
             # No scanner was minted, so there is no id to read results through. Key off the outcomes
             # rather than naming quota: a batch with no watchable recording in it lands here too, and
@@ -943,6 +953,21 @@ class ScanReplayVisionSessionsTool(ReplayVisionGatesMixin, MaxTool):
                 "results": scan.results,
             }
         return _scan_summary(scan.started, scan.results), {"scan_id": str(scan.scanner.id), "results": scan.results}
+
+    def _report_scan_requested(self, scan: InlineScanResult, *, scanner_type: str, model: str, requested: int) -> None:
+        """The same event the REST endpoint sends, so one query covers scans however they were asked for.
+
+        Without this a scan started from chat records nothing at all, and the chat surface is the one
+        that spends credits on recordings the user never picked by hand.
+        """
+        report_user_action(
+            self._user,
+            "replay_vision_inline_scan_requested",
+            inline_scan_event_properties(
+                scan=scan, scanner_type=scanner_type, model=model, requested=requested, trigger="max_tool"
+            ),
+            team=self._team,
+        )
 
 
 QUOTA_TOOL_DESCRIPTION = """
