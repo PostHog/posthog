@@ -1250,7 +1250,7 @@ function UrgencySection(): JSX.Element {
     return (
         <section className="flex flex-col gap-4 border-t border-primary pt-8">
             <SectionHeader icon={<IconBalance />} title="Urgency threshold">
-                Set how strict PostHog Review is. The further right, the fewer findings reach the pull request — but the
+                Set how strict PostHog Review is. The further right, the fewer findings reach the pull request, but the
                 higher their priority.
             </SectionHeader>
             <LemonCard hoverEffect={false} className="flex flex-col p-5">
@@ -1769,7 +1769,7 @@ export function CodeReviewScene(): JSX.Element {
                     <SingleActiveSection
                         icon={<IconSearch />}
                         title="Blind-spot check"
-                        intro="After the enabled perspectives finish, PostHog Review runs one more sweep over each chunk — it sees what they found and hunts for real issues they all missed. Add as many sweeps as you like, but only one runs."
+                        intro="After the enabled perspectives finish, PostHog Review runs one more sweep over each chunk. It sees what they found and hunts for real issues they all missed. Add as many sweeps as you like, but only one runs."
                         kind="blind_spots"
                         kindLabel="blind-spot check"
                         preamble={<EffectivenessCard kind="blind_spots" />}
