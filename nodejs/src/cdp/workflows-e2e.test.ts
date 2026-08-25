@@ -2517,7 +2517,7 @@ describe('Workflows E2E (postgres-v2)', () => {
 
         beforeEach(async () => {
             // Restart the worker with a short heartbeat interval so the
-            // interval fires several times inside the test's ~1s fetch delay.
+            // interval fires several times inside the test's 600ms fetch delay.
             // Default is 10s — nothing would fire in a test.
             await hogflowWorker.stop()
             hub.CDP_CYCLOTRON_HEARTBEAT_INTERVAL_MS = 100
@@ -2526,7 +2526,7 @@ describe('Workflows E2E (postgres-v2)', () => {
 
             // Aggressive stall/poison thresholds so the test observes the
             // exact regression the heartbeat guards against: without heartbeats
-            // firing, a 1.2s fetch would exceed the 300ms stall window and
+            // firing, a 600ms fetch would exceed the 300ms stall window and
             // the janitor would reset the row on the very first runOnce().
             // cleanupGraceMs is huge so terminal jobs stay queryable after
             // completion — we assert on their final janitor_touch_count.
@@ -2558,7 +2558,7 @@ describe('Workflows E2E (postgres-v2)', () => {
         })
 
         it('heartbeats keep janitor_touch_count at 0 during a slow batch', async () => {
-            // Fetch takes 1.2s — 4x the stallTimeoutMs. The heartbeat
+            // Fetch takes 600ms — 2x the stallTimeoutMs. The heartbeat
             // interval firing every 100ms is the only thing preventing
             // last_heartbeat from going stale.
             mockFetch.mockImplementation(
@@ -2573,17 +2573,20 @@ describe('Workflows E2E (postgres-v2)', () => {
                                     text: () => Promise.resolve(JSON.stringify({ ok: true })),
                                     dump: () => Promise.resolve(),
                                 }),
-                            1200
+                            600
                         )
                     )
             )
 
             await triggerWorkflow(globals)
 
-            // Wait long enough for the worker to dequeue and start the fetch,
-            // then check the janitor mid-flight. Without heartbeats,
-            // last_heartbeat would be ~700ms old (> 300ms cutoff) → stalled.
-            await new Promise((r) => setTimeout(r, 700))
+            // Wait until the fetch is in flight, then pass the stall cutoff. Without heartbeats,
+            // last_heartbeat would be >300ms old and the janitor would mark it stalled.
+            await waitForExpect(async () => {
+                const jobs = await queryCyclotronJobs()
+                expect(jobs.some((j) => j.status === 'running')).toBe(true)
+            }, 5000)
+            await new Promise((r) => setTimeout(r, 350))
             const midResult = await janitor.runOnce()
             expect(midResult.stalled).toBe(0)
             expect(midResult.poisoned).toBe(0)
