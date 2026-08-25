@@ -10,6 +10,7 @@ from django.core.cache import cache
 from django.test import SimpleTestCase
 from django.utils.timezone import now
 
+from django_redis.exceptions import ConnectionInterrupted
 from parameterized import parameterized
 from rest_framework import status
 
@@ -129,6 +130,18 @@ class TestUserAPI(APIBaseTest):
         # Verify nothing was cached
         cache_key = f"team_ratelimit_test_999999"
         self.assertIsNone(cache.get(cache_key))
+
+    def test_load_team_rate_limit_fails_open_on_redis_error(self):
+        throttle = HogQLQueryThrottle()
+
+        # A Redis node returning BusyLoadingError while it restarts surfaces as
+        # ConnectionInterrupted. The read must fail open, not raise and get captured per request.
+        with patch.object(throttle, "cache") as mock_cache:
+            mock_cache.get.side_effect = ConnectionInterrupted(Exception("Redis loading"))
+
+            loaded = throttle.load_team_rate_limit(self.team.pk)
+
+        self.assertFalse(loaded)
 
     @patch("posthog.rate_limit.BurstRateThrottle.rate", new="5/minute")
     @patch("posthog.rate_limit.statsd.incr")
