@@ -340,7 +340,9 @@ def _report_summary_chunks(report: SignalReport) -> list[str]:
 
 @frozen
 class ScoutReportThreadMessages:
-    """A threaded report delivery: the channel lead message plus its ordered thread replies."""
+    """A report delivery's Slack messages: the channel lead plus its ordered thread replies.
+
+    An unthreaded delivery has no replies."""
 
     lead_blocks: list[dict]
     fallback: str
@@ -480,20 +482,19 @@ def post_scout_report_to_slack(
     # than the rebuild getting a fresh one (which would let one delivery spend two budgets).
     render_budget = new_chart_render_budget()
 
-    def _build_report_message() -> tuple[list[dict], str, list[list[dict]]]:
+    def _build_report_message() -> ScoutReportThreadMessages:
         # A note-only edit renders the passed-in note; every other delivery renders live report content.
         if edit_note is not None:
             note_blocks, note_fallback = build_scout_report_note_slack_message(report, run, edit_note)
-            return note_blocks, note_fallback, []
+            return ScoutReportThreadMessages(lead_blocks=note_blocks, fallback=note_fallback, reply_blocks=[])
         if threaded:
-            thread_messages = build_scout_report_thread_slack_messages(
+            return build_scout_report_thread_slack_messages(
                 report, run, delivery_id=delivery_id, render_budget=render_budget
             )
-            return thread_messages.lead_blocks, thread_messages.fallback, thread_messages.reply_blocks
         report_blocks, report_fallback = build_scout_report_slack_message(
             report, run, delivery_id=delivery_id, render_budget=render_budget
         )
-        return report_blocks, report_fallback, []
+        return ScoutReportThreadMessages(lead_blocks=report_blocks, fallback=report_fallback, reply_blocks=[])
 
     # Building the message renders the report's charts, which can hold the worker for the render
     # budget. Re-read the report after every build and before posting, since an edit in that window
@@ -505,12 +506,10 @@ def post_scout_report_to_slack(
     # timing, and unchanged charts are reused from the render cache, so a rebuild only re-renders
     # charts the edit actually changed. A note-only message renders the passed-in note, not live
     # content, so it has no revision to guard and never rebuilds.
-    blocks: list[dict] = []
-    fallback = ""
-    reply_blocks: list[list[dict]] = []
+    messages = ScoutReportThreadMessages(lead_blocks=[], fallback="", reply_blocks=[])
     for _ in range(2):
         content_revision = None if edit_note is not None else report.updated_at
-        blocks, fallback, reply_blocks = _build_report_message()
+        messages = _build_report_message()
         try:
             report.refresh_from_db()
         except SignalReport.DoesNotExist:
@@ -531,8 +530,8 @@ def post_scout_report_to_slack(
     try:
         response = client.chat_postMessage(
             channel=channel_id,
-            blocks=blocks,
-            text=fallback,
+            blocks=messages.lead_blocks,
+            text=messages.fallback,
             client_msg_id=delivery_id,
             unfurl_links=False,
             unfurl_media=False,
@@ -553,8 +552,8 @@ def post_scout_report_to_slack(
             channel_id=channel_id,
             thread_ts=thread_ts,
             delivery_id=delivery_id,
-            reply_blocks=reply_blocks,
-            fallback=fallback,
+            reply_blocks=messages.reply_blocks,
+            fallback=messages.fallback,
         )
 
     _post_scout_slack_reply(
