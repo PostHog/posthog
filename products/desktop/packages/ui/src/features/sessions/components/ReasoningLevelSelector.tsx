@@ -40,6 +40,7 @@ import {
   type AgentHarness,
   HarnessSubmenu,
 } from "@posthog/ui/features/sessions/components/HarnessSubmenu";
+import { ModelCostFooter } from "@posthog/ui/features/sessions/components/ModelCostChip";
 import { ModelRadioItem } from "@posthog/ui/features/sessions/components/ModelRadioItem";
 import type { AgentAdapter } from "@posthog/ui/features/settings/settingsStore";
 import { AnimatedHeight } from "@posthog/ui/primitives/AnimatedHeight";
@@ -489,6 +490,7 @@ export function ReasoningLevelSelector({
                                 />
                               ))}
                       </DropdownMenuRadioGroup>
+                      <ModelCostFooter />
                     </DropdownMenuSubContent>
                   </DropdownMenuSub>
                 )}

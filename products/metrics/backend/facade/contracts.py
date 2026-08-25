@@ -310,6 +310,34 @@ class IncidentContext:
 
 
 @dataclass(frozen=True, slots=True)
+class MetricsServiceOverview:
+    """One service's ingestion rollup inside the overview window."""
+
+    service_name: str
+    metric_names: int
+    series: int
+    last_seen: str  # ISO 8601
+
+
+@dataclass(frozen=True, slots=True)
+class MetricsOverview:
+    """The landing-page answer to "is anything ingesting": how fresh the
+    newest datapoint is, plus window-scoped inventory counts per service.
+
+    `last_seen` deliberately ignores the window — when ingestion stops, the
+    window-scoped numbers go to zero but the status strip still needs to say
+    how long ago the last datapoint arrived. None means never ingested (or
+    everything aged past the series table's retention).
+    """
+
+    last_seen: str | None  # ISO 8601
+    metric_names: int
+    series: int
+    lookback_seconds: int
+    services: tuple[MetricsServiceOverview, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class MetricSampleView:
     """One raw reading, as it sits in storage before any reduction."""
 
