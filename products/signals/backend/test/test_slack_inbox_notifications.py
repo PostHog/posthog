@@ -12,6 +12,7 @@ from posthog.models import Organization, Team, User
 from posthog.models.integration import Integration
 from posthog.models.organization import OrganizationMembership
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import (
     AutonomyPriority,
     SignalReport,
@@ -32,8 +33,6 @@ from products.signals.backend.slack_inbox_notifications import (
     dispatch_reviewer_added_notifications,
 )
 from products.signals.backend.tasks import send_reviewer_added_slack_notifications
-
-from ee.models.rbac.access_control import AccessControl
 
 
 @pytest.mark.parametrize(

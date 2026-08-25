@@ -92,7 +92,7 @@ class TestBackfillErrorTrackingIssueState(ClickhouseTestMixin, BaseTest):
         self.assertEqual(rows[0]["assigned_user_id"], self.user.pk)
 
     def test_backfill_includes_role_assignment(self):
-        from ee.models import Role
+        from products.access_control.backend.models.role import Role
 
         issue = ErrorTrackingIssue.objects.create(team=self.team, name="AssignedError", status="active")
         ErrorTrackingIssueFingerprintV2.objects.create(team=self.team, issue=issue, fingerprint="fp_assigned")
