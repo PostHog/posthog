@@ -5,16 +5,16 @@ export interface UserSpendLimit {
   /** Length of the accounting window in seconds; null with no limit. */
   windowSeconds: number | null;
   /**
-   * The gateway can hold spend on this deployment. False means a limit cannot
-   * be set at all, so anything the app shows informs only.
+   * The deployment can hold a spend cap. False means a stop line cannot be
+   * set at all, so the app offers warning lines only.
    */
-  enforced: boolean;
+  available: boolean;
 }
 
 interface UserSpendLimitPayload {
   limit_usd?: string | null;
   window_seconds?: number | null;
-  enforced?: boolean;
+  available?: boolean;
 }
 
 export function parseUserSpendLimit(payload: unknown): UserSpendLimit {
@@ -32,6 +32,6 @@ export function parseUserSpendLimit(payload: unknown): UserSpendLimit {
   return {
     limitUsd,
     windowSeconds: body.window_seconds ?? null,
-    enforced: body.enforced === true,
+    available: body.available === true,
   };
 }

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   EMPTY_SPEND_LIMITS,
   evaluateSpendLimits,
+  maskStops,
   parseSpendAmount,
   projectedMonthUsd,
   pruneSpendNoticesSeen,
@@ -228,5 +229,16 @@ describe("spendLimits", () => {
         expect(ticks).toBeLessThanOrEqual(12);
       }
     }
+  });
+
+  it("maskStops keeps both warn values and nulls both stop values", () => {
+    const input: SpendLimits = {
+      day: { warnUsd: 20, stopUsd: 50 },
+      month: { warnUsd: 200, stopUsd: 500 },
+    };
+    expect(maskStops(input)).toEqual({
+      day: { warnUsd: 20, stopUsd: null },
+      month: { warnUsd: 200, stopUsd: null },
+    });
   });
 });

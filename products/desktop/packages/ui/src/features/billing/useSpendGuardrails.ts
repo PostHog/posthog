@@ -1,12 +1,14 @@
 import { formatUsd } from "@posthog/core/billing/spendAnalysisFormat";
 import {
   evaluateSpendLimits,
+  maskStops,
   type SpendLimitCrossing,
   spendLimitNoticeKey,
   spendPeriodLabel,
   utcDayIso,
 } from "@posthog/core/billing/spendLimits";
 import { useSpendTotals } from "@posthog/ui/features/billing/useSpendTotals";
+import { useSpendLimitAvailable } from "@posthog/ui/features/billing/useUserSpendLimit";
 import { openSettings } from "@posthog/ui/features/settings/hooks/useOpenSettings";
 import { useSettingsStore } from "@posthog/ui/features/settings/settingsStore";
 import { useEffect } from "react";
@@ -19,11 +21,13 @@ import { toast } from "../../primitives/toast";
 export function useSpendGuardrails(): void {
   const totals = useSpendTotals();
   const spendLimits = useSettingsStore((state) => state.spendLimits);
+  const stopAvailable = useSpendLimitAvailable();
 
   useEffect(() => {
     if (!totals) return;
     const todayIso = utcDayIso();
-    const crossings = evaluateSpendLimits(spendLimits, totals, todayIso);
+    const effective = stopAvailable ? spendLimits : maskStops(spendLimits);
+    const crossings = evaluateSpendLimits(effective, totals, todayIso);
     // Read seen-state imperatively: marking a notice seen must not re-run
     // this effect and re-evaluate the same fetch.
     const { spendNoticesSeen, markSpendNoticeSeen } =
@@ -44,13 +48,13 @@ export function useSpendGuardrails(): void {
         toast.dismiss(`spend-limit-${period}-stop`);
       }
     }
-  }, [totals, spendLimits]);
+  }, [totals, spendLimits, stopAvailable]);
 }
 
 function showSpendNotice(crossing: SpendLimitCrossing): void {
   const periodLabel = spendPeriodLabel(crossing.period);
   const windowLabel = crossing.period === "day" ? "today" : "this month";
-  const description = `${formatUsd(crossing.spentUsd)} spent in this app ${windowLabel}. Nothing is paused.`;
+  const description = `${formatUsd(crossing.spentUsd)} spent ${windowLabel}.`;
   const action = {
     label: "View spend",
     onClick: () => openSettings("plan-usage"),

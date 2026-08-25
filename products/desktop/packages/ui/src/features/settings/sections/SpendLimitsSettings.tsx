@@ -23,7 +23,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
 /**
- * The window the enforced line resets over. The gateway counts a fixed window
+ * The window the stop line resets over. The gateway counts a fixed window
  * that starts at the first spend after a reset, so this is 30 days of spend
  * rather than a calendar month.
  */
@@ -33,11 +33,11 @@ export function SpendLimitsSettings() {
   const spendLimits = useSettingsStore((state) => state.spendLimits);
   const setSpendLimits = useSettingsStore((state) => state.setSpendLimits);
   const totals = useSpendTotals();
-  const enforced = useUserSpendLimit();
+  const spendLimit = useUserSpendLimit();
   const pushLimit = useSetUserSpendLimit();
   const queryClient = useQueryClient();
-  const serverLimitUsd = enforced.data?.enforced
-    ? (enforced.data.limitUsd ?? null)
+  const serverLimitUsd = spendLimit.data?.available
+    ? (spendLimit.data.limitUsd ?? null)
     : undefined;
 
   // The gateway holds the line whether this app is running or not, so its
@@ -54,7 +54,7 @@ export function SpendLimitsSettings() {
     if (
       !limits.month ||
       !("stopUsd" in limits.month) ||
-      !enforced.data?.enforced
+      !spendLimit.data?.available
     ) {
       return;
     }
@@ -85,7 +85,7 @@ export function SpendLimitsSettings() {
     <SpendLimitsSettingsView
       spendLimits={spendLimits}
       totals={totals}
-      enforced={enforced.data?.enforced ?? false}
+      stopAvailable={spendLimit.data?.available ?? false}
       onCommit={commit}
     />
   );
@@ -95,15 +95,15 @@ interface SpendLimitsSettingsViewProps {
   spendLimits: SpendLimits;
   /** Live spend for the sliders; null renders them without fill or marker. */
   totals: SpendSnapshot | null;
-  /** The gateway can hold spend, so the monthly stop line is more than a notice. */
-  enforced: boolean;
+  /** The deployment can hold a stop line; without it only warning lines are offered. */
+  stopAvailable: boolean;
   onCommit: (limits: SpendLimitsPatch) => void;
 }
 
 export function SpendLimitsSettingsView({
   spendLimits,
   totals,
-  enforced,
+  stopAvailable,
   onCommit,
 }: SpendLimitsSettingsViewProps) {
   const todayIso = utcDayIso();
@@ -117,15 +117,15 @@ export function SpendLimitsSettingsView({
     <SettingsSubsection
       title="Spend limits"
       description={
-        enforced
+        stopAvailable
           ? "A warning line notifies you. A stop line pauses new agent messages until you raise or clear it, and a turn already running always plays out. Lines count model spend, not sandbox compute."
-          : "A warning line notifies you. A stop line pauses new agent messages until you raise or clear it, and a turn already running always plays out. Figures are an estimate of your own usage in this app, so they can differ from your PostHog bill."
+          : "A warning line notifies you when spend passes it, and a turn already running always plays out. Lines count model spend, not sandbox compute."
       }
     >
       <SpendLimitCard
         scope="day"
         title="Per day"
-        description="Counts every task you run in a day, and resets at midnight UTC. This one pauses work in this app."
+        description="Counts every task you run in a day, and resets at midnight UTC."
         spentUsd={totals?.todayUsd ?? null}
         soFarLabel="today"
         markerUsd={avgUsd}
@@ -139,13 +139,14 @@ export function SpendLimitsSettingsView({
         limits={spendLimits}
         onCommit={onCommit}
         suggested={suggestion?.day ?? null}
+        stopAvailable={stopAvailable}
       />
       <SpendLimitCard
         scope="month"
         title="Per month"
         description={
-          enforced
-            ? "Counts 30 days of model spend, and restarts once the window runs out. Your stop line holds outside this app too."
+          stopAvailable
+            ? "Counts 30 days of model spend, and restarts once the window runs out."
             : "Counts the whole calendar month, and resets on the first."
         }
         spentUsd={totals?.monthUsd ?? null}
@@ -163,6 +164,7 @@ export function SpendLimitsSettingsView({
         limits={spendLimits}
         onCommit={onCommit}
         suggested={suggestion?.month ?? null}
+        stopAvailable={stopAvailable}
       />
     </SettingsSubsection>
   );

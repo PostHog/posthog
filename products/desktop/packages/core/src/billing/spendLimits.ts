@@ -23,6 +23,17 @@ export const EMPTY_SPEND_LIMITS: SpendLimits = {
   month: { warnUsd: null, stopUsd: null },
 };
 
+/**
+ * The same lines with every stop cleared. Used where the deployment cannot
+ * hold a stop, so a stored stop value stays inert instead of engaging.
+ */
+export function maskStops(limits: SpendLimits): SpendLimits {
+  return {
+    day: { warnUsd: limits.day.warnUsd, stopUsd: null },
+    month: { warnUsd: limits.month.warnUsd, stopUsd: null },
+  };
+}
+
 export interface SpendLimitCrossing {
   period: SpendLimitPeriod;
   level: SpendLimitLevel;
