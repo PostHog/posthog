@@ -1194,6 +1194,7 @@ export interface sourceCatalogLogicMeta {
                       | 'SFTP'
                       | 'SharePoint'
                       | 'Sharetribe'
+                      | 'Shipmail'
                       | 'Shippo'
                       | 'ShipStation'
                       | 'Shopify'
