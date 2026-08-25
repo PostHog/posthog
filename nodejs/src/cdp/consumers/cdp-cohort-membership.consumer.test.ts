@@ -11,8 +11,6 @@ import { Hub } from '../../types'
 import { createCohortMembershipEvent, createCohortMembershipEvents, createKafkaMessage } from '../_tests/fixtures'
 import { CdpCohortMembershipConsumer } from './cdp-cohort-membership.consumer'
 
-jest.setTimeout(20_000)
-
 describe('CdpCohortMembershipConsumer', () => {
     let hub: Hub
     let consumer: CdpCohortMembershipConsumer
