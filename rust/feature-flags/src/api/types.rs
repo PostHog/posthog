@@ -575,6 +575,9 @@ impl FromFeatureAndMatch for FlagDetails {
             FeatureFlagMatchReason::NoConditionMatchGroupsNotEvaluated => {
                 Some("No matching condition set (group conditions were not evaluated because no group type was provided)".to_string())
             }
+            FeatureFlagMatchReason::NoConditionMatchPersonNotFound => {
+                Some("No matching condition set (no person profile was found for this distinct ID, so person properties were empty)".to_string())
+            }
             FeatureFlagMatchReason::OutOfRolloutBound => Some("Out of rollout bound".to_string()),
             FeatureFlagMatchReason::NoGroupType => Some("No group type".to_string()),
             FeatureFlagMatchReason::SuperConditionValue => {

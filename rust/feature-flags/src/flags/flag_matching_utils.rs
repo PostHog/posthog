@@ -525,6 +525,10 @@ fn apply_person_cohort_to_state(state: &mut FlagEvaluationState, result: PersonC
             None => HashMap::new(),
         }
     } else {
+        // No person profile resolved for this distinct ID. Person properties stay empty and
+        // person conditions fail, but record the missing row so the non-match reason can say
+        // so — otherwise the denial is indistinguishable from a real person with no properties.
+        state.set_person_not_found();
         HashMap::new()
     };
 

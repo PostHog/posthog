@@ -157,6 +157,10 @@ pub struct FlagEvaluationState {
     person_uuid: Option<Uuid>,
     /// Person property fetch state: pending, skipped, or fetched (with property data)
     person_property_state: PersonPropertyState,
+    /// True when DB prep ran but no person profile resolved for the distinct ID.
+    /// Person properties are then empty, which is indistinguishable from a real person
+    /// with no properties unless this flag records that the row itself was missing.
+    person_not_found: bool,
     /// Properties for each group type involved in flag evaluation
     group_properties: HashMap<GroupTypeIndex, HashMap<String, Value>>,
     /// Cohorts for the current request, shared via `Arc` either from the
@@ -190,6 +194,13 @@ impl FlagEvaluationState {
         matches!(self.person_property_state, PersonPropertyState::Pending)
     }
 
+    /// True when person-property DB prep ran but found no person profile for the
+    /// distinct ID. Used to enrich the non-match reason so a silent denial becomes
+    /// diagnosable — see `NoConditionMatchPersonNotFound`.
+    pub(crate) fn person_not_found(&self) -> bool {
+        self.person_not_found
+    }
+
     pub fn get_group_properties(&self) -> &HashMap<GroupTypeIndex, HashMap<String, Value>> {
         &self.group_properties
     }
@@ -212,6 +223,11 @@ impl FlagEvaluationState {
 
     pub fn set_person_properties(&mut self, properties: HashMap<String, Value>) {
         self.person_property_state = PersonPropertyState::Fetched(properties);
+    }
+
+    /// Record that DB prep found no person profile for the distinct ID.
+    pub fn set_person_not_found(&mut self) {
+        self.person_not_found = true;
     }
 
     pub fn skip_person_properties(&mut self) {
@@ -1693,6 +1709,25 @@ impl FeatureFlagMatcher {
                         && self.flag_evaluation_state.person_properties_pending();
                     if !match_property(filter, props, partial_props, self.timezone).unwrap_or(false)
                     {
+                        // A person-property filter failed with the key absent and no person
+                        // profile resolved for the distinct ID. The empty person map is why the
+                        // condition failed, so surface the missing profile rather than a plain
+                        // non-match. A key present here (e.g. supplied by an override) means the
+                        // filter compared a real value and failed on its own merits, so it keeps
+                        // the plain reason. See `NoConditionMatchPersonNotFound`.
+                        let is_person_filter = matches!(
+                            filter.prop_type,
+                            PropertyType::Person | PropertyType::PersonMetadata
+                        );
+                        if is_person_filter
+                            && self.flag_evaluation_state.person_not_found()
+                            && !props.contains_key(&filter.key)
+                        {
+                            return Ok((
+                                false,
+                                FeatureFlagMatchReason::NoConditionMatchPersonNotFound,
+                            ));
+                        }
                         return Ok((false, FeatureFlagMatchReason::NoConditionMatch));
                     }
                 }
