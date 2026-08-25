@@ -7,6 +7,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { cn } from 'lib/utils/css-classes'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { SignalScoutConfigApi } from 'products/signals/frontend/generated/api.schemas'
@@ -74,21 +75,25 @@ export function ScannerScoutRow({
     return (
         <div className={cn('flex flex-col rounded border bg-surface-primary', !config.enabled && 'opacity-65')}>
             <div className="flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-2.5">
-                <LemonButton
-                    size="small"
-                    icon={<IconChevronRight className={cn('transition-transform', expanded && 'rotate-90')} />}
+                <button
+                    type="button"
+                    className="-mx-1 flex min-w-0 flex-1 cursor-pointer items-center gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-surface-secondary"
                     onClick={() => toggleScoutExpanded(config.skill_name)}
                     aria-label={`${expanded ? 'Hide' : 'Show'} reports from ${prettifyScoutSkillName(config.skill_name)}`}
                     aria-expanded={expanded}
                     data-attr="vision-scout-row-expand"
-                />
-                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <span className="text-sm font-medium">{prettifyScoutSkillName(config.skill_name)}</span>
-                    <span className="text-[11px] text-muted">
-                        {scoutCadenceLabel(config)}
-                        {nextRunText && ` · next run ${nextRunText}`}
+                >
+                    <IconChevronRight
+                        className={cn('shrink-0 text-base transition-transform', expanded && 'rotate-90')}
+                    />
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                        <span className="text-sm font-medium">{prettifyScoutSkillName(config.skill_name)}</span>
+                        <span className="text-[11px] text-muted">
+                            {capitalizeFirstLetter(scoutCadenceLabel(config))}
+                            {nextRunText && ` · next run ${nextRunText}`}
+                        </span>
                     </span>
-                </div>
+                </button>
                 <div className="flex shrink-0 items-center gap-1">
                     <Tooltip title="Scout settings">
                         <LemonButton
@@ -195,8 +200,11 @@ export function ScannerScoutRow({
                             {
                                 title: '',
                                 key: 'touchedAt',
+                                // Baseline, not centre: `TZLabel` carries a dotted bottom border, so
+                                // centring the two boxes puts its text half a pixel off, and which way
+                                // that rounds shifts with the width of the digits.
                                 render: (_, report) => (
-                                    <span className="text-muted">
+                                    <span className="inline-flex items-baseline gap-1 text-muted">
                                         Filed <TZLabel time={report.filed_at} />
                                     </span>
                                 ),

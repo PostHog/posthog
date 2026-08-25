@@ -1307,7 +1307,9 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def _get_run_or_404(self, pk) -> tasks_contracts.TaskRunDetailDTO:
         task_id = self._ensure_task_accessible()
-        run = tasks_facade.get_task_run_detail(pk, task_id, self.team_id)
+        run = tasks_facade.get_task_run_detail(
+            pk, task_id, self.team_id, include_agent_state=self._is_sandbox_agent_request(task_id)
+        )
         if run is None:
             raise NotFound()
         return run
@@ -2477,6 +2479,10 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 description="PostHog Desktop access is required to message this run's agent",
             ),
             404: OpenApiResponse(description="Task run not found"),
+            409: OpenApiResponse(
+                response=TaskRunErrorResponseSerializer,
+                description="Task run workflow has ended",
+            ),
             429: OpenApiResponse(
                 response=TaskRunErrorResponseSerializer,
                 description="Organization reached its PostHog Desktop usage limit",
@@ -2584,17 +2590,17 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             except ComputeBillingLimitExceeded as error:
                 return compute_quota_limit_response(error.reason)
             except Exception:
-                # A synchronous web request can't retry the way the Temporal
-                # follow-up path does, so a transient signalling failure surfaces
-                # as the same gateway error as a terminal one below.
                 logger.warning("Failed to queue user message for task run %s", pk)
-                signal_result = False
+                return Response(
+                    TaskRunErrorResponseSerializer({"error": "Failed to queue user message for task run"}).data,
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
             if signal_result is None:
                 raise NotFound()
             if signal_result is False:
                 return Response(
-                    TaskRunErrorResponseSerializer({"error": "Failed to queue user message for task run"}).data,
-                    status=status.HTTP_502_BAD_GATEWAY,
+                    TaskRunErrorResponseSerializer({"error": "Task run workflow has ended"}).data,
+                    status=status.HTTP_409_CONFLICT,
                 )
 
             # A warm Run has now received a human message — drop the warm flag so the warm-pool cap

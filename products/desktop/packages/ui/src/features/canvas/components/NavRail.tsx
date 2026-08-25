@@ -53,6 +53,8 @@ const INBOX_REFETCH_INTERVAL_MS = 60_000;
 
 const ICON_BADGE_CLASS =
   "-top-1 -right-1 absolute h-3.5 min-w-3.5 w-auto px-1 font-semibold text-[9px] ring-2 ring-chrome";
+const NOTIFICATION_DOT_CLASS =
+  "top-0 right-0 absolute ring-2 ring-chrome size-2 bg-primary rounded-full";
 
 function NavIcon({
   icon,
@@ -240,13 +242,27 @@ export function NavRail() {
         {destinations.map((destination) => {
           const { pane, label, Icon, count, countTone } = destination;
           const isActive = railPane === pane;
-          const badge = (
-            <CountBadge
-              count={count?.(counts) ?? 0}
-              tone={countTone}
-              className={ICON_BADGE_CLASS}
-            />
-          );
+          const destinationCount = count?.(counts) ?? 0;
+          const usesNotificationDot = pane === "activity" || pane === "inbox";
+          let badge: ReactNode;
+          if (usesNotificationDot) {
+            badge =
+              destinationCount > 0 ? (
+                <span
+                  data-slot="dot"
+                  className={NOTIFICATION_DOT_CLASS}
+                  aria-hidden
+                />
+              ) : null;
+          } else {
+            badge = (
+              <CountBadge
+                count={destinationCount}
+                tone={countTone}
+                className={ICON_BADGE_CLASS}
+              />
+            );
+          }
           const onClick = pick(destination);
 
           if (pane === "activity") {

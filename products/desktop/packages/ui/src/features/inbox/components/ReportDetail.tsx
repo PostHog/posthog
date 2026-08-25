@@ -1,5 +1,7 @@
 import { FileTextIcon, MagnifyingGlassIcon } from "@phosphor-icons/react";
+import { REPORT_CHAT_DEFAULT_OPEN_FLAG } from "@posthog/shared";
 import type { SignalReport } from "@posthog/shared/types";
+import { useFeatureFlagVariant } from "@posthog/ui/features/feature-flags/useFeatureFlagVariant";
 import {
   AskAboutSelection,
   quoteSelection,
@@ -71,11 +73,15 @@ function ReportDetailContent({
   const chatOpen = useReportChatPanelStore((s) => s.open);
   const setChatOpen = useReportChatPanelStore((s) => s.setOpen);
   const setPendingQuote = useReportChatPanelStore((s) => s.setPendingQuote);
+  const defaultOpenVariant = useFeatureFlagVariant(
+    REPORT_CHAT_DEFAULT_OPEN_FLAG,
+  );
   const contentRef = useRef<HTMLDivElement>(null);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: each report should start in its assigned default state rather than inherit the previous report's panel state.
   useEffect(() => {
-    setChatOpen(true);
-  }, [setChatOpen]);
+    setChatOpen(defaultOpenVariant !== "control");
+  }, [defaultOpenVariant, report.id, setChatOpen]);
 
   const handleAsk = useCallback(
     (text: string) => {
