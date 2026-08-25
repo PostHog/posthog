@@ -445,7 +445,12 @@ impl IngestionConsumer {
     /// (nothing routable, or a flapping worker re-deferring every send).
     /// Failing the whole process for a mere slow drain amplified today's
     /// saturation: each restart replayed all its partitions into an already
-    /// overloaded pool.
+    /// overloaded pool. For the same reason the loop heartbeats the liveness
+    /// handle on every iteration: the two mechanisms are meant to answer
+    /// different questions — `deferred_flush_timeout` asks whether the flush is
+    /// making progress, the liveness deadline asks whether this task is alive —
+    /// and a patient flush that never heartbeats gets killed by the latter long
+    /// before the former is reached.
     ///
     /// With eager flushing enabled, some (or all) of the batch's deferred
     /// groups may instead be in flight on the eager path — the loop also waits
@@ -459,6 +464,14 @@ impl IngestionConsumer {
         if self.dispatcher.has_unfinished_flush(batch_id) {
             let mut stall_deadline = Instant::now() + self.deferred_flush_timeout;
             while self.dispatcher.has_unfinished_flush(batch_id) {
+                // This loop is deliberately patient, so it has to keep its own
+                // liveness heartbeat alive: `stall_deadline` is what decides a
+                // wedge here, not the watchdog's wall-clock silence. Without
+                // this, a flush that drains slowly but does make progress trips
+                // the liveness stall threshold and exits the process — the
+                // restart amplification the stall-based deadline above exists to
+                // avoid.
+                self.handle.report_healthy();
                 if Instant::now() >= stall_deadline {
                     anyhow::bail!("deferred messages made no progress within the flush timeout");
                 }
