@@ -10,7 +10,6 @@ from django.db.models import Case, CharField, Exists, F, ForeignKey, Model, Oute
 from django.db.models.functions import Cast
 
 from opentelemetry import trace
-from rest_framework import serializers
 
 from posthog.constants import AvailableFeature
 from posthog.dataclasses import frozen
@@ -22,17 +21,14 @@ if TYPE_CHECKING:
     from posthog.models.file_system.file_system import FileSystem
     from posthog.user_permissions import UserPermissions
 
-    from ee.models import AccessControl
+    from products.access_control.backend.models.access_control import AccessControl
 
     _AccessControl = AccessControl
 else:
     _AccessControl = object
 
 
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
+from products.access_control.backend.models.access_control import AccessControl
 
 
 class AccessSource(Enum):
@@ -1602,102 +1598,6 @@ class UserAccessControl:
             results[object_id] = access.access_level if access else None
 
         return results
-
-
-class UserAccessControlSerializerMixin(serializers.Serializer):
-    """
-    Mixin for serializers to add user access control fields
-    """
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._preloaded_access_controls = False
-
-    user_access_level = serializers.SerializerMethodField(
-        read_only=True,
-        help_text="The effective access level the user has for this object",
-    )
-
-    @property
-    def user_access_control(self) -> Optional[UserAccessControl]:
-        request = self.context.get("request")
-
-        # The user could be anonymous - if so there is no access control to be used
-        if request and request.user.is_anonymous:
-            return None
-
-        # NOTE: The user_access_control is typically on the view but in specific cases,
-        # such as rendering HTML (`render_template()`), it is set at the context level
-        if "user_access_control" in self.context:
-            # Get it directly from the context
-            return self.context["user_access_control"]
-        elif hasattr(self.context.get("view", None), "user_access_control"):
-            # Otherwise from the view (the default case)
-            return self.context["view"].user_access_control
-        elif request:
-            user = cast(User, request.user)
-            return UserAccessControl(user, organization_id=str(user.current_organization_id))
-
-        return None
-
-    def get_user_access_level(self, obj: Model) -> Optional[str]:
-        if not self.user_access_control:
-            return None
-
-        # Check if self.instance is a list - if so we want to preload the user access controls
-        if not self._preloaded_access_controls and isinstance(self.instance, list):
-            self.user_access_control.preload_object_access_controls(self.instance)
-            self._preloaded_access_controls = True
-
-        return self.user_access_control.get_user_access_level(obj)
-
-    def validate(self, attrs):
-        """
-        Validate field-level access control for model updates.
-        Only checks fields that are being modified and have access control requirements.
-        """
-        attrs = super().validate(attrs)
-
-        # Only perform field access control validation for updates (not creates)
-        if not self.instance:
-            return attrs
-
-        # Get field access control mappings for this model
-        model_class = self.instance.__class__
-        field_mappings = get_field_access_control_map(model_class)
-
-        # If no field access controls are defined for this model, continue
-        if not field_mappings:
-            return attrs
-
-        # Check access control for each field being modified
-        user_access_control = self.user_access_control
-        if not user_access_control:
-            return attrs
-
-        for field_name, _new_value in attrs.items():
-            if field_name not in field_mappings:
-                continue
-
-            # Get the required resource and access level for this field
-            resource, required_level = field_mappings[field_name]
-
-            # Check if user has the required access level.
-            # "project" access is object-level (checked against the Team instance), not resource-level.
-            # For models with a team FK (e.g. Team extensions), use the team for the project check.
-            if resource == "project":
-                obj_for_check = getattr(self.instance, "team", self.instance)
-                has_access = user_access_control.check_access_level_for_object(obj_for_check, required_level)
-            else:
-                has_access = user_access_control.check_access_level_for_resource(resource, required_level)
-
-            if not has_access:
-                display_name = resource_to_display_name(resource)
-                raise serializers.ValidationError(
-                    {field_name: f"You need {required_level} access to {display_name} to modify this field."}
-                )
-
-        return attrs
 
 
 def visible_teams_for_user(

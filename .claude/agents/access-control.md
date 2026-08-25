@@ -89,7 +89,7 @@ class YourResourceViewSet(
 
 ```python
 # posthog/api/your_resource.py
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
 
 class YourResourceSerializer(UserAccessControlSerializerMixin, serializers.ModelSerializer):
     class Meta:
@@ -421,7 +421,7 @@ GET    /api/projects/{project_id}/{resource}/{id}/users_with_access/
 ### Checking Access in Code
 
 ```python
-from posthog.rbac.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 
 # In a view or service
 user_access_control = UserAccessControl(user, team)
