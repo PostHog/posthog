@@ -80,8 +80,15 @@ export class UsageRecordBatch {
     }
 
     async flush(): Promise<void> {
-        await Promise.all(this.pendingAcknowledgements)
-        this.pendingAcknowledgements = []
+        // Drain until nothing new arrives: an acknowledgement that lands while this awaits
+        // queues its record here, and no later flush would pick it up, because the batch is
+        // discarded once this returns. Callers stop adding before the flush that ends a
+        // batch, so this settles rather than spinning.
+        while (this.pendingAcknowledgements.length > 0) {
+            const pending = this.pendingAcknowledgements
+            this.pendingAcknowledgements = []
+            await Promise.all(pending)
+        }
         if (!this.client || this.records.size === 0) {
             return
         }
