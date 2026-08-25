@@ -19,12 +19,6 @@
 #   - non-macOS / sandbox-exec missing / profile missing / render fails -> passthrough
 #   - sandbox-exec cannot initialize the profile -> fail OPEN, loud warning
 #     (a working sandbox that merely *denies* a path is left to surface normally)
-#
-# The shebang is a fixed /bin/bash, not `/usr/bin/env bash`: the kernel resolves it
-# before any line of this script runs, by searching the PATH of whoever invokes this
-# file directly — the developer's inherited PATH, which keeps repo-writable dirs (see
-# below). `env bash` would let a bash planted by a prior sandboxed run in one of those
-# dirs execute as the developer, with nothing here yet in a position to stop it.
 
 set -euo pipefail
 
@@ -111,12 +105,6 @@ done
 # then reads that directory's config AND hooks/, so rewriting it reaches the escape
 # the .git/hooks denies close off. It is not worktree-only: git honors a commondir
 # in any git dir, including a plain clone's.
-# Only this checkout's git dirs are covered — the main repo's and, in a worktree,
-# this worktree's own. Sibling worktrees of the same main repo have the same exposure
-# but reaching them means globbing .git/worktrees/, a directory sandboxed code can
-# write to, which is an unbounded input to the profile; and their working trees are
-# writable through $HOME regardless. Both belong to the general fix in #79300, not to
-# a hand-enumerated list here. So this loop stays bounded: at most two git dirs.
 gitcfg_wdeny=()
 for _gd in "$mainrepo/.git" ${gitdir:+"$gitdir"}; do
     [[ -d "$_gd" ]] || continue
