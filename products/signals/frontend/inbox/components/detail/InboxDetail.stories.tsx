@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { HttpResponse } from 'msw'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { mswDecorator } from '~/mocks/browser'
 
 import {
@@ -19,6 +21,7 @@ import {
 import { SignalReportStatus } from '../../types'
 import { AgentRunDetail } from './AgentRunDetail'
 import { ReportDetail } from './ReportDetail'
+import { ReportDetailLegacy } from './ReportDetailLegacy'
 
 const mixedPrChecks = {
     checks: [
@@ -109,7 +112,12 @@ const detailMocks = mswDecorator({
 
 const meta: Meta = {
     title: 'Scenes-App/Inbox/Detail',
-    parameters: { layout: 'fullscreen', viewMode: 'story', mockDate: '2026-06-11' },
+    parameters: {
+        layout: 'fullscreen',
+        viewMode: 'story',
+        mockDate: '2026-06-11',
+        featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: true },
+    },
     decorators: [detailMocks],
 }
 export default meta
@@ -261,6 +269,26 @@ export const PullRequestInlineReview: Story = {
     render: () => (
         <Frame>
             <ReportDetail report={pullRequestReports[0]} />
+        </Frame>
+    ),
+}
+
+// The detail pages with the redesign flag off: summary on the left, evidence on the right, and the
+// "Files changed" tab for a report with a PR.
+export const ReportLegacy: Story = {
+    parameters: { featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: false } },
+    render: () => (
+        <Frame>
+            <ReportDetailLegacy report={reportTabReports[0]} tab="reports" />
+        </Frame>
+    ),
+}
+
+export const PullRequestLegacy: Story = {
+    parameters: { featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: false } },
+    render: () => (
+        <Frame>
+            <ReportDetailLegacy report={pullRequestReports[0]} tab="pulls" />
         </Frame>
     ),
 }

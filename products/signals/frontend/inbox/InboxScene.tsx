@@ -17,10 +17,12 @@ import { ScoutDetailView } from './components/config/scouts/ScoutDetailView'
 import { ScoutsRoster } from './components/config/scouts/ScoutsRoster'
 import { ScoutsRosterActions } from './components/config/scouts/ScoutsRosterActions'
 import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDetail'
+import { ReportDetailLegacy, ReportDetailSkeletonLegacy } from './components/detail/ReportDetailLegacy'
 import { FindingsPanel } from './components/findings/FindingsPanel'
 import { InboxOnboardingBanner, InboxOnboardingTakeover } from './components/onboarding/InboxOnboarding'
 import { InboxWelcomeRedesign } from './components/onboarding/InboxWelcomeRedesign'
 import { ScratchpadPanel } from './components/scratchpad/ScratchpadPanel'
+import { InboxListViewLegacy } from './components/shell/InboxListViewLegacy'
 import { InboxTabBar } from './components/shell/InboxTabBar'
 import { ReportsTab } from './components/tabs/ReportsTab'
 import { RunsTab } from './components/tabs/RunsTab'
@@ -30,7 +32,7 @@ import { captureInboxPanelViewed } from './inboxAnalytics'
 import { inboxSceneLogic } from './inboxSceneLogic'
 import { inboxOnboardingLogic } from './logics/inboxOnboardingLogic'
 import { scoutFleetLogic } from './logics/scoutFleetLogic'
-import { INBOX_TAB_DESCRIPTION, InboxTabKey, SignalReport } from './types'
+import { INBOX_LEGACY_TAB_DESCRIPTION, INBOX_TAB_DESCRIPTION, InboxTabKey, SignalReport } from './types'
 
 export const scene: SceneExport = {
     component: InboxScene,
@@ -65,7 +67,7 @@ function ScoutTemplateDraftModal(): JSX.Element | null {
     )
 }
 
-function ActiveTabBody({ tab }: { tab: InboxTabKey }): JSX.Element {
+function ActiveTabBody({ tab }: { tab: InboxTabKey }): JSX.Element | null {
     switch (tab) {
         case 'reports':
             return <ReportsTab />
@@ -73,6 +75,9 @@ function ActiveTabBody({ tab }: { tab: InboxTabKey }): JSX.Element {
             return <ScoutsRoster />
         case 'settings':
             return <SettingsTab />
+        // Legacy tab segments are redirected before they can become active under the redesign.
+        default:
+            return null
     }
 }
 
@@ -141,6 +146,7 @@ function InboxListView(): JSX.Element {
  * header (back link, actions) and the evidence-first two-column layout.
  */
 function InboxDetailView({ report }: { report: SignalReport }): JSX.Element {
+    const { activeTab, isRedesign } = useValues(inboxSceneLogic)
     const { reportDetailScrolled } = useActions(inboxSceneLogic)
     // Report only the first scroll per report to the logic (which fires `Inbox report scrolled` once),
     // so a fast native scroll doesn't dispatch an action on every frame.
@@ -148,7 +154,11 @@ function InboxDetailView({ report }: { report: SignalReport }): JSX.Element {
 
     return (
         <div
-            className="-mt-2 flex flex-col min-h-0 flex-1 overflow-auto"
+            className={
+                isRedesign
+                    ? '-mt-2 flex flex-col min-h-0 flex-1 overflow-auto'
+                    : 'flex flex-col min-h-0 flex-1 overflow-auto'
+            }
             onScroll={() => {
                 if (scrolledReportRef.current !== report.id) {
                     scrolledReportRef.current = report.id
@@ -157,7 +167,11 @@ function InboxDetailView({ report }: { report: SignalReport }): JSX.Element {
             }}
         >
             {/* Key on the report so per-report detail state (e.g. the active diff tab) resets on navigation. */}
-            <ReportDetail key={report.id} report={report} />
+            {isRedesign ? (
+                <ReportDetail key={report.id} report={report} />
+            ) : (
+                <ReportDetailLegacy key={report.id} report={report} tab={activeTab} />
+            )}
         </div>
     )
 }
@@ -212,6 +226,7 @@ export function InboxScene(): JSX.Element {
         isFindingsOpen,
         isRunsOpen,
         isTriageOpen,
+        isRedesign,
     } = useValues(inboxSceneLogic)
     const { setScratchpadOpen, setFindingsOpen, setRunsOpen } = useActions(inboxSceneLogic)
     const { onboardingMode, isWelcomeRedesign } = useValues(inboxOnboardingLogic)
@@ -235,9 +250,9 @@ export function InboxScene(): JSX.Element {
         isRunsOpen ||
         isTriageOpen
 
-    // `t` opens triage mode from the report list. Not while a surface covers the list, and not
-    // while the inbox is locked behind onboarding.
-    const listInteractive = !showDetail && activeTab === 'reports' && onboardingMode === 'none'
+    // `t` opens triage mode from the report list. Not while a surface covers the list, not while
+    // the inbox is locked behind onboarding, and not with the flag off (there is no triage mode).
+    const listInteractive = isRedesign && !showDetail && activeTab === 'reports' && onboardingMode === 'none'
     useKeyboardHotkeys(
         {
             t: { action: () => router.actions.push(urls.inboxTriage()), disabled: !listInteractive },
@@ -275,7 +290,7 @@ export function InboxScene(): JSX.Element {
                               ? isWelcomeRedesign
                                   ? null
                                   : 'Self-driving for your product. Look through code changes and reports from PostHog agents.'
-                              : INBOX_TAB_DESCRIPTION[activeTab]
+                              : (isRedesign ? INBOX_TAB_DESCRIPTION : INBOX_LEGACY_TAB_DESCRIPTION)[activeTab]
                     }
                     resourceType={{ type: 'inbox' }}
                     // Creating a scout is the Scouts tab's primary action, so it sits in the scene
@@ -294,7 +309,7 @@ export function InboxScene(): JSX.Element {
                         isn't set up, the list view itself swaps in a locked "Welcome" onboarding tab; the
                         banner sits above the otherwise-normal inbox when there's already work to keep. */}
                     {onboardingMode === 'banner' && <InboxOnboardingBanner />}
-                    <InboxListView />
+                    {isRedesign ? <InboxListView /> : <InboxListViewLegacy />}
                 </div>
             </div>
 
@@ -319,9 +334,15 @@ export function InboxScene(): JSX.Element {
                     ) : selectedReport ? (
                         <InboxDetailView report={selectedReport} />
                     ) : selectedReportLoading ? (
-                        <div className="-mt-2 flex flex-col min-h-0 flex-1 overflow-auto">
-                            <ReportDetailSkeleton />
-                        </div>
+                        isRedesign ? (
+                            <div className="-mt-2 flex flex-col min-h-0 flex-1 overflow-auto">
+                                <ReportDetailSkeleton />
+                            </div>
+                        ) : (
+                            <div className="flex flex-col min-h-0 flex-1 overflow-auto">
+                                <ReportDetailSkeletonLegacy />
+                            </div>
+                        )
                     ) : (
                         <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
                             <div>
@@ -330,7 +351,10 @@ export function InboxScene(): JSX.Element {
                                     This report does not exist. It may have been removed.
                                 </p>
                             </div>
-                            <LemonButton type="secondary" to={backOverride ?? urls.inbox('reports')}>
+                            <LemonButton
+                                type="secondary"
+                                to={backOverride ?? urls.inbox(isRedesign ? 'reports' : activeTab)}
+                            >
                                 {backOverride ? 'Back' : 'Back to inbox'}
                             </LemonButton>
                         </div>

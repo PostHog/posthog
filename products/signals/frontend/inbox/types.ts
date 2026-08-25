@@ -171,15 +171,46 @@ export const SOURCE_STEERING_MAX_LENGTH = 2000
 
 // ── Inbox IA: page tabs, report sections, scope ──────────────────────────────
 
-/** The inbox's page-level tabs. Each is a URL segment (`/inbox/<tab>`), so the keys are pinned. */
-export type InboxTabKey = 'reports' | 'scouts' | 'settings'
+/**
+ * The inbox's page-level tabs. Each is a URL segment (`/inbox/<tab>`), so the keys are pinned.
+ * The union covers both inbox layouts: the redesign (`INBOX_TAB_KEYS`, behind
+ * `FEATURE_FLAGS.INBOX_REDESIGN`) and the layout it replaces (`INBOX_LEGACY_TAB_KEYS`). Each
+ * layout redirects the other's segments (see `inboxTabRedirectPath`), so a link made under one
+ * layout still opens under the other.
+ */
+export type InboxTabKey =
+    | 'reports'
+    | 'scouts'
+    | 'settings'
+    | 'pulls'
+    | 'not-actionable'
+    | 'runs'
+    | 'archived'
+    | 'config'
 
+/** The redesign's page tabs. */
 export const INBOX_TAB_KEYS: InboxTabKey[] = ['reports', 'scouts', 'settings']
+
+/** The page tabs with the redesign flag off: one tab per report list, plus Runs and Configuration. */
+export const INBOX_LEGACY_TAB_KEYS: InboxTabKey[] = [
+    'pulls',
+    'reports',
+    'scouts',
+    'not-actionable',
+    'runs',
+    'archived',
+    'config',
+]
 
 export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
     reports: 'Reports',
     scouts: 'Scouts',
     settings: 'Settings',
+    pulls: 'Pull requests',
+    'not-actionable': 'Not actionable',
+    runs: 'Runs',
+    archived: 'Archive',
+    config: 'Configuration',
 }
 
 /** What each tab holds, surfaced as the scene description while that tab is active so new users can orient themselves. */
@@ -187,6 +218,18 @@ export const INBOX_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
     reports: 'Issues and opportunities found in your product, ready to review.',
     scouts: 'Scheduled agents that sweep this project and file what they find.',
     settings: 'Signal sources, PR generation, code access, and notifications.',
+    pulls: 'Pull requests agents opened to resolve reports. Review and merge them on GitHub.',
+    'not-actionable':
+        'Reports judged not actionable because they are too vague, lack supporting evidence, or describe expected behavior.',
+    runs: 'Project-wide list of agent runs, for debugging.',
+    archived: 'Reports you archived. You can restore them to the inbox at any time.',
+    config: 'Set up signal sources, scouts, and how autonomously agents can act.',
+}
+
+/** With the redesign flag off, the Reports tab is only the researched reports, and its description says so. */
+export const INBOX_LEGACY_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
+    ...INBOX_TAB_DESCRIPTION,
+    reports: 'Issues and opportunities agents found in your product data, researched and prioritized for your review.',
 }
 
 /**
@@ -233,6 +276,53 @@ export const INBOX_STAFF_ONLY_REPORT_SECTION_KEYS: InboxReportSectionKey[] = ['n
 export const INBOX_REPORT_SECTION_TAG: Partial<Record<InboxReportSectionKey, 'Staff'>> = {
     'not-actionable': 'Staff',
 }
+
+// ── Legacy inbox IA (redesign flag off): one tab per report list ─────────────
+
+/**
+ * The Configuration tab holds the agent-setup widgets. It only appears when the scene is too
+ * narrow for the right-hand setup rail (see `AgentSetupColumn`); on wide viewports the rail
+ * replaces it. Kept a real routing key so deep links and narrow-mode navigation work.
+ */
+export const INBOX_CONFIG_TAB_KEY: InboxTabKey = 'config'
+
+/** Tabs only visible to staff users (internal), mirroring `INBOX_STAFF_ONLY_REPORT_SECTION_KEYS`. */
+export const INBOX_STAFF_ONLY_TAB_KEYS: InboxTabKey[] = ['not-actionable']
+
+/** Small tag rendered next to a tab's label in the tab bar. */
+export const INBOX_TAB_TAG: Partial<Record<InboxTabKey, 'Staff' | 'Alpha'>> = {
+    'not-actionable': 'Staff',
+}
+
+/** The flat report-list tabs that share the keyed `reportListLogic` + `InboxReportList` primitive. */
+export const INBOX_FLAT_LIST_TAB_KEYS = ['pulls', 'reports', 'not-actionable', 'archived'] as const
+export type InboxFlatListTabKey = (typeof INBOX_FLAT_LIST_TAB_KEYS)[number]
+
+/**
+ * Each legacy report tab shows exactly one of the redesign's sections, with the same server filter.
+ * Both layouts share the keyed `reportListLogic` instances through this map, so a report loaded
+ * under one layout is found by the other and the mount-time count loaders are not duplicated.
+ */
+export const INBOX_LEGACY_TAB_SECTION: Record<InboxFlatListTabKey, InboxReportSectionKey> = {
+    pulls: 'monitoring',
+    reports: 'needs-decision',
+    'not-actionable': 'not-actionable',
+    archived: 'resolved',
+}
+
+/** The inverse of `INBOX_LEGACY_TAB_SECTION`: the legacy tab that lists a section's reports. */
+export const INBOX_SECTION_LEGACY_TAB: Record<InboxReportSectionKey, InboxFlatListTabKey> = {
+    monitoring: 'pulls',
+    'needs-decision': 'reports',
+    'not-actionable': 'not-actionable',
+    resolved: 'archived',
+}
+
+/**
+ * The legacy counterpart of `INBOX_PRIMARY_REPORT_SECTION_KEY`: the Pull requests tab is the one
+ * whose For-you count decides the default scope with the flag off.
+ */
+export const INBOX_LEGACY_PRIMARY_REPORT_SECTION_KEY: InboxReportSectionKey = 'monitoring'
 
 /** `for-you` (suggested-reviewer reports), `entire-project` (all), or `teammate:<uuid>`. */
 export type InboxScope = 'for-you' | 'entire-project' | `teammate:${string}`

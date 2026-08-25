@@ -43,6 +43,7 @@ describe('reportListLogic', () => {
     describe('shouldDefaultToEntireProject', () => {
         const base = {
             sectionKey: 'needs-decision' as InboxReportSectionKey,
+            primarySectionKey: 'needs-decision' as InboxReportSectionKey,
             scope: INBOX_SCOPE_FOR_YOU as InboxScope,
             hasUserChosenScope: false,
             hasResolvedUser: true,
@@ -51,6 +52,13 @@ describe('reportListLogic', () => {
 
         it('switches to Entire project when a fresh user has zero assigned reports', () => {
             expect(shouldDefaultToEntireProject(base)).toBe(true)
+        })
+
+        // With the redesign flag off the Pull requests list is the primary section instead.
+        it('keys the switch on whichever section the layout treats as primary', () => {
+            const legacy = { ...base, primarySectionKey: 'monitoring' as InboxReportSectionKey }
+            expect(shouldDefaultToEntireProject({ ...legacy, sectionKey: 'monitoring' })).toBe(true)
+            expect(shouldDefaultToEntireProject({ ...legacy, sectionKey: 'needs-decision' })).toBe(false)
         })
 
         it.each<[string, Partial<typeof base>]>([

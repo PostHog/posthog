@@ -3,6 +3,7 @@ import { useState } from 'react'
 import { IconChevronRight, IconComment, IconGithub, IconLetter } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconMicrosoftTeams, IconSlack } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonTag, type LemonTagType } from 'lib/lemon-ui/LemonTag'
@@ -114,9 +115,11 @@ function TicketImageThumbnail({ image }: { image: ConversationsTicketImageApi })
 }
 
 export function ConversationsTicketSignalCard({ signal }: SignalCardProps): JSX.Element {
+    const redesign = useFeatureFlag('INBOX_REDESIGN')
     const extra = signal.extra as Record<string, unknown> & ConversationsTicketSignalExtraApi
     const channelIcon = conversationsChannelIcon(extra.channel_source)
-    const images = Array.isArray(extra.images) ? extra.images : []
+    // Attachment thumbnails are part of the redesign's evidence rail.
+    const images = redesign && Array.isArray(extra.images) ? extra.images : []
     const ticketUrl = urls.supportTicketDetail(extra.ticket_number)
 
     return (

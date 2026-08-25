@@ -1,7 +1,17 @@
+/* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
+import { router } from 'kea-router'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
+
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
+
 import { OriginProduct, Task, TaskRun, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 import { RuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
-import { mergeSignalRuns } from './inboxSceneLogic'
+import { inboxSceneLogic, mergeSignalRuns } from './inboxSceneLogic'
 import { SignalScoutRunSummary } from './types'
 
 function scoutRun(overrides: Partial<SignalScoutRunSummary> = {}): SignalScoutRunSummary {
@@ -91,5 +101,69 @@ describe('mergeSignalRuns', () => {
         // The `TaskRunStatus` enum is bridged to the equivalent `SignalScoutRunStatus` string the row
         // field holds (here 'in_progress'), and the run's own timestamp wins over the task's.
         expect(row).toMatchObject({ status: 'in_progress', created_at: '2026-06-11T12:00:00Z' })
+    })
+})
+
+// Slack links, bookmarks, and other products carry `/inbox/<tab>` segments from either layout, so
+// each layout has to land the other's segments on its own surface instead of dropping them.
+describe('inboxSceneLogic routing', () => {
+    let logic: ReturnType<typeof inboxSceneLogic.build>
+
+    beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/available_reviewers': {},
+                '/api/projects/:team_id/signals/reports/': { results: [], count: 0, next: null, previous: null },
+                '/api/projects/:team_id/signals/source_configs/': { results: [] },
+                '/api/projects/:team_id/signals/scout/configs/': [],
+            },
+        })
+        initKeaTests()
+        featureFlagLogic.mount()
+    })
+
+    afterEach(() => logic?.unmount())
+
+    function mountWithRedesign(enabled: boolean): void {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
+            [FEATURE_FLAGS.INBOX_REDESIGN]: enabled,
+        })
+        logic = inboxSceneLogic()
+        logic.mount()
+    }
+
+    it.each<[string, string, string]>([
+        ['/inbox/pulls', urls.inbox('reports'), 'reports'],
+        ['/inbox/archived', urls.inbox('reports'), 'reports'],
+        ['/inbox/config', urls.inbox('settings'), 'settings'],
+        ['/inbox/runs', urls.inboxRuns(), 'scouts'],
+        ['/inbox/pulls/report-1', urls.inboxReport('reports', 'report-1'), 'reports'],
+    ])('under the redesign %s lands on %s', (path, expectedPath, expectedTab) => {
+        mountWithRedesign(true)
+        router.actions.push(path)
+        expect(router.values.location.pathname.endsWith(expectedPath)).toBe(true)
+        expect(logic.values.activeTab).toBe(expectedTab)
+    })
+
+    it.each<[string, string, string]>([
+        ['/inbox/settings', urls.inbox('config'), 'config'],
+        ['/inbox/scouts/runs', urls.inbox('runs'), 'runs'],
+        ['/inbox/reports/triage', urls.inbox('reports'), 'reports'],
+        ['/inbox/pulls', urls.inbox('pulls'), 'pulls'],
+        ['/inbox/pulls/report-1', urls.inboxReport('pulls', 'report-1'), 'pulls'],
+    ])('with the flag off %s lands on %s', (path, expectedPath, expectedTab) => {
+        mountWithRedesign(false)
+        router.actions.push(path)
+        expect(router.values.location.pathname.endsWith(expectedPath)).toBe(true)
+        expect(logic.values.activeTab).toBe(expectedTab)
+    })
+
+    it.each([
+        [true, 'reports'],
+        [false, 'pulls'],
+    ])('with the redesign flag %p a bare /inbox lands on the %s tab', (enabled, expectedTab) => {
+        mountWithRedesign(enabled)
+        router.actions.push(urls.inbox())
+        expect(logic.values.activeTab).toBe(expectedTab)
     })
 })

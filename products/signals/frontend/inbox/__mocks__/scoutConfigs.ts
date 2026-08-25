@@ -139,24 +139,3 @@ export const mockLargeScoutFleet: SignalScoutConfigApi[] = [
         emit: false,
     }),
 ]
-
-type MockRunOverrides = Pick<SignalScoutRunSummaryApi, 'run_id' | 'skill_name' | 'started_at'> &
-    Partial<Omit<SignalScoutRunSummaryApi, 'run_id' | 'skill_name' | 'started_at'>>
-
-function makeMockRun(overrides: MockRunOverrides): SignalScoutRunSummaryApi {
-    const completedAt = new Date(new Date(overrides.started_at).getTime() + 4 * 60 * 1000).toISOString()
-    return {
-        skill_version: 3,
-        status: 'completed',
-        created_at: overrides.started_at,
-        completed_at: completedAt,
-        task_url: `/project/1/tasks/task-${overrides.run_id}?runId=${overrides.run_id}`,
-        summary: 'Checked the window and found nothing new.',
-        emitted_count: 0,
-        emitted_finding_ids: [],
-        emitted_report_ids: [],
-        edited_report_ids: [],
-        metadata: { report_channel: 'both', skill_origin: 'canonical' },
-        ...overrides,
-    }
-}

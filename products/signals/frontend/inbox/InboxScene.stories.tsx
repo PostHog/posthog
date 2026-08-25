@@ -18,6 +18,7 @@ import {
     mockSourceConfigs,
     mockTask,
     mockTeamConfig,
+    pullRequestReports,
 } from './__mocks__/inboxMocks'
 import { mockLargeScoutFleet, mockScoutConfigs, mockScoutRuns } from './__mocks__/scoutConfigs'
 import { InboxScene } from './InboxScene'
@@ -77,6 +78,7 @@ const meta: Meta = {
         featureFlags: {
             [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
             [FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE]: 'empty-state',
+            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
         },
         // The scene shell keeps a loader element mounted past the VR wait window, so don't block on it.
         testOptions: { waitForLoadersToDisappear: false },
@@ -110,6 +112,37 @@ export const Settings: Story = {
     decorators: [routeTo(urls.inbox('settings'))],
 }
 
+// The layout the flag replaces: one tab per report list, the Runs and Configuration tabs, and the
+// setup rail. Story parameters replace the meta's, so the meta-level flags are re-listed.
+const LEGACY_FLAGS = {
+    [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
+    [FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE]: 'empty-state',
+    [FEATURE_FLAGS.INBOX_REDESIGN]: false,
+}
+
+export const Legacy: Story = {
+    parameters: { featureFlags: LEGACY_FLAGS },
+    decorators: [routeTo(urls.inbox('pulls'))],
+}
+
+export const LegacyReport: Story = {
+    parameters: { featureFlags: LEGACY_FLAGS },
+    decorators: [routeTo(urls.inboxReport('pulls', pullRequestReports[0].id))],
+}
+
+export const LegacyScouts: Story = {
+    parameters: { featureFlags: LEGACY_FLAGS },
+    decorators: [
+        routeTo(urls.inbox('scouts')),
+        mswDecorator({
+            get: {
+                '/api/projects/:id/signals/scout/configs': () => [200, mockScoutConfigs],
+                '/api/projects/:id/signals/scout/runs/recent-per-scout': () => [200, mockScoutRuns(mockScoutConfigs)],
+            },
+        }),
+    ],
+}
+
 // Set up (sources enabled) but no reports yet – exercises the empty list states.
 export const Empty: Story = {
     decorators: [
@@ -128,6 +161,7 @@ export const EmptyControl: Story = {
         featureFlags: {
             [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
             [FEATURE_FLAGS.INBOX_SELF_DRIVING_EMPTY_STATE]: 'control',
+            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
         },
     },
     decorators: [
@@ -191,7 +225,11 @@ export const SelfDrivingOnboarding: Story = {
 export const SelfDrivingOnboardingRedesign: Story = {
     parameters: {
         // Story parameters replace the meta's, so the meta-level flag is re-listed here.
-        featureFlags: { [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true, [FEATURE_FLAGS.INBOX_WELCOME_REDESIGN]: 'test' },
+        featureFlags: {
+            [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true,
+            [FEATURE_FLAGS.INBOX_WELCOME_REDESIGN]: 'test',
+            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+        },
     },
     decorators: [
         mswDecorator({

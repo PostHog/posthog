@@ -8,6 +8,7 @@ import type { LemonTagType } from '@posthog/lemon-ui'
 import { sessionRecordingInfoLogic } from 'lib/components/ViewRecordingButton/sessionRecordingInfoLogic'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { Dayjs, dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { humanFriendlyDuration, reverseColonDelimitedDuration } from 'lib/utils/durations'
 
@@ -105,6 +106,7 @@ function TimelineRow({
 
 /** Live card for a session-replay problem segment: a replay link-out and an event timeline. */
 export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Element {
+    const redesign = useFeatureFlag('INBOX_REDESIGN')
     const [showAllEvents, setShowAllEvents] = useState(false)
 
     const extra = signal.extra as Record<string, unknown> & SessionProblemSignalExtraApi
@@ -143,9 +145,9 @@ export function SessionReplaySignalCard({ signal }: SignalCardProps): JSX.Elemen
             )}
 
             {/* Both open the recording at the segment in the player modal and disable when it wasn't
-                captured. The screenshot frame is used when the emitter exported one, since it shows
-                what the user saw without opening the player. */}
-            {typeof extra.exported_asset_id === 'number' ? (
+                captured. Under the redesign the screenshot frame is used when the emitter exported
+                one, since it shows what the user saw without opening the player. */}
+            {redesign && typeof extra.exported_asset_id === 'number' ? (
                 <RecordingPreview
                     sessionId={extra.session_id}
                     seekTime={segmentSeekTime}

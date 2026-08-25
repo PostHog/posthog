@@ -2,6 +2,11 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render } from '@testing-library/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
+import { initKeaTests } from '~/test/init'
+
 import { SignalReport, SignalReportStatus } from '../../types'
 import { ReportCard } from './ReportCard'
 
@@ -29,7 +34,24 @@ function makeReport(overrides: Partial<SignalReport> = {}): SignalReport {
 }
 
 describe('ReportCard', () => {
+    beforeEach(() => {
+        initKeaTests()
+        featureFlagLogic.mount()
+    })
     afterEach(cleanup)
+
+    // The redesign gives a row one action; the legacy list keeps Archive and the "Review" label.
+    it.each([
+        [true, 'View report', false],
+        [false, 'Review', true],
+    ])('with the redesign flag %p shows %p and archive=%p on a report without a PR', (redesign, label, archive) => {
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
+            [FEATURE_FLAGS.INBOX_REDESIGN]: redesign,
+        })
+        const { getByText, queryByText } = render(<ReportCard report={makeReport()} />)
+        expect(getByText(label)).toBeInTheDocument()
+        expect(queryByText('Archive') !== null).toBe(archive)
+    })
 
     it('links the card to the report detail by default', () => {
         const { container } = render(<ReportCard report={makeReport()} />)

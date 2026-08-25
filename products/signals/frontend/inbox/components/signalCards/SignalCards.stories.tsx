@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { HttpResponse } from 'msw'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import type { SignalNode } from 'scenes/debug/signals/types'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -155,7 +156,13 @@ const genericWithoutLink = makeSignal({
 
 const meta: Meta = {
     title: 'Scenes-App/Inbox/Signal cards',
-    parameters: { layout: 'padded', viewMode: 'story', mockDate: '2026-06-11' },
+    parameters: {
+        layout: 'padded',
+        viewMode: 'story',
+        mockDate: '2026-06-11',
+        // The evidence links and previews are part of the redesign.
+        featureFlags: { [FEATURE_FLAGS.INBOX_REDESIGN]: true },
+    },
     decorators: [
         mswDecorator({
             get: {

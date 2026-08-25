@@ -439,7 +439,7 @@ export function InboxDetailFrame({ report, asideFooter, primaryAction, children 
                         </div>
                         {/* The rating closes out the report body, pinned to the bottom of the column. */}
                         <div className="mt-auto">
-                            <ReportFeedbackFooter report={report} />
+                            <ReportFeedbackFooter report={report} align="end" />
                         </div>
                     </div>
                 </main>

@@ -12,6 +12,7 @@ import {
     LemonTextArea,
 } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -42,6 +43,7 @@ export interface ScoutCreateModalProps {
 }
 
 export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: ScoutCreateModalProps): JSX.Element {
+    const redesign = useFeatureFlag('INBOX_REDESIGN')
     const logicKey = useId()
     const formId = `scout-create-form-${logicKey}`
     const logicProps: ScoutCreateModalLogicProps = { logicKey, initialValues, onClose, onCreated }
@@ -124,21 +126,37 @@ export function ScoutCreateModal({ isOpen, onClose, initialValues, onCreated }: 
                         name="name"
                         label="Name"
                         help={
-                            touchedNameError ? (
+                            !redesign ? (
+                                <>
+                                    Scout names start with{' '}
+                                    <span className="font-mono text-[11px]">{SIGNALS_SCOUT_SKILL_PREFIX}</span>.
+                                </>
+                            ) : touchedNameError ? (
                                 <span className="text-danger">{touchedNameError}</span>
                             ) : (
                                 'Lowercase letters, numbers, and hyphens.'
                             )
                         }
                     >
-                        <LemonInput
-                            autoFocus
-                            // The prefix is fixed and shown in the field, so the limit is what is left for the typed part.
-                            maxLength={SKILL_NAME_MAX_LENGTH - SIGNALS_SCOUT_SKILL_PREFIX.length}
-                            prefix={<span className="font-mono text-xs text-muted">{SIGNALS_SCOUT_SKILL_PREFIX}</span>}
-                            placeholder="checkout-failures"
-                            data-attr="scout-create-name"
-                        />
+                        {redesign ? (
+                            <LemonInput
+                                autoFocus
+                                // The prefix is fixed and shown in the field, so the limit is what is left for the typed part.
+                                maxLength={SKILL_NAME_MAX_LENGTH - SIGNALS_SCOUT_SKILL_PREFIX.length}
+                                prefix={
+                                    <span className="font-mono text-xs text-muted">{SIGNALS_SCOUT_SKILL_PREFIX}</span>
+                                }
+                                placeholder="checkout-failures"
+                                data-attr="scout-create-name"
+                            />
+                        ) : (
+                            <LemonInput
+                                autoFocus
+                                maxLength={64}
+                                placeholder="signals-scout-checkout-failures"
+                                data-attr="scout-create-name"
+                            />
+                        )}
                     </LemonField>
 
                     <LemonField

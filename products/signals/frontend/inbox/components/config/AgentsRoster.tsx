@@ -2,8 +2,18 @@ import { useActions, useValues } from 'kea'
 import { memo, useCallback, useMemo, useState } from 'react'
 
 import { IconArrowUpRight, IconChevronRight, IconGear, IconPlus } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonSkeleton, LemonSwitch, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import {
+    LemonButton,
+    LemonInput,
+    LemonSkeleton,
+    LemonSwitch,
+    LemonTag,
+    Link,
+    Spinner,
+    Tooltip,
+} from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTagType } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -98,6 +108,44 @@ function AgentIcon({ source }: { source: AgentRosterDefinition }): JSX.Element |
     return <Icon className={`shrink-0 text-base ${meta.colorClass}`} />
 }
 
+/** The legacy roster's per-row health dot; the redesign relies on the tag alone. */
+function StatusDot({
+    status,
+    tool,
+    toolOff,
+}: {
+    status: AgentRosterStatus
+    tool?: SourceToolStatus
+    toolOff: boolean
+}): JSX.Element {
+    let className = 'bg-border-bold'
+    let title = 'Standby'
+    if (toolOff) {
+        title = `${tool?.toolName} is off, so this source has nothing to read`
+    } else if (status === 'sync_failed') {
+        className = 'bg-danger'
+        title = 'Sync failed'
+    } else if (status === 'syncing') {
+        className = 'bg-accent'
+        title = 'Syncing'
+    } else if (status === 'watching') {
+        // A hollow dot means watching but nothing has arrived, so the two read apart at a glance.
+        className = tool?.dataStatus === 'none' ? 'border border-success' : 'bg-success'
+        title =
+            tool?.dataStatus === 'none'
+                ? 'Watching, no data in the last 30 days'
+                : tool?.dataStatus === 'recent'
+                  ? 'Watching, receiving data'
+                  : 'Watching'
+    }
+    return (
+        <Tooltip title={title}>
+            <span className={`size-2 shrink-0 rounded-full ${className}`} />
+        </Tooltip>
+    )
+}
+
+/** Only the states worth interrupting a scan for. Everything healthy shows no tag at all. */
 function notableTag(
     status: AgentRosterStatus,
     armed: boolean,
@@ -408,6 +456,7 @@ const AgentRow = memo(function AgentRow({
     onSteer,
     onRetryData,
 }: AgentRowProps): JSX.Element {
+    const redesign = useFeatureFlag('INBOX_REDESIGN')
     const { armed, loading, requiresSetup, syncStatus, entities } = state
     const status = resolveAgentStatus(armed, syncStatus)
     const toolOff = tool?.enabled === false
@@ -427,6 +476,7 @@ const AgentRow = memo(function AgentRow({
                     expanded ? 'bg-surface-secondary' : 'hover:bg-surface-secondary'
                 } ${agent.legacy ? 'opacity-60 hover:opacity-100' : ''}`}
             >
+                {!redesign && <StatusDot status={status} tool={tool} toolOff={toolOff} />}
                 <AgentIcon source={agent} />
                 <div className="flex min-w-0 flex-1 flex-col">
                     <div className="flex items-center gap-2">
@@ -511,12 +561,30 @@ const AgentRow = memo(function AgentRow({
     )
 })
 
-/** Heading for one group of sources, in the same type as the row titles so it reads as a section. */
-function AgentRosterGroupHeader({ group }: { group: AgentRosterGroup }): JSX.Element {
+/**
+ * Heading for one group of sources. Under the redesign it is set in the same type as the row titles
+ * so it reads as a section of the Settings card; the legacy rail keeps a muted eyebrow over a
+ * bordered list.
+ */
+function AgentRosterGroupHeader({ group, redesign }: { group: AgentRosterGroup; redesign: boolean }): JSX.Element {
+    if (!redesign) {
+        return <span className="text-xs font-medium text-muted">{group.label}</span>
+    }
     return <h4 className="m-0 text-sm font-semibold text-default">{group.label}</h4>
 }
 
+function agentGroupClassName(redesign: boolean): string {
+    return redesign ? 'flex flex-col gap-2 pt-2' : 'flex flex-col gap-1'
+}
+
+function agentListClassName(redesign: boolean): string {
+    return redesign
+        ? '-mx-2 divide-y divide-primary'
+        : 'divide-y divide-primary overflow-hidden rounded border border-primary'
+}
+
 export function AgentsRoster(): JSX.Element {
+    const redesign = useFeatureFlag('INBOX_REDESIGN')
     const {
         conversationsConfig,
         evalReportsConfig,
@@ -765,12 +833,24 @@ export function AgentsRoster(): JSX.Element {
         agents: group.agents.filter((agent) => !agent.flag || featureFlags[agent.flag]),
     }))
 
+    const allAgents = visibleGroups.flatMap((group) => group.agents)
+    const armedCount = allAgents.filter((agent) => stateFor(agent.source).armed).length
+
     return (
         <div className="flex flex-col gap-3">
+            {!redesign && (
+                <div className="flex items-center gap-1.5 text-xs text-muted">
+                    <span className={`size-2 rounded-full ${armedCount ? 'bg-success' : 'bg-border-bold'}`} />
+                    <span>
+                        {armedCount} of {allAgents.length} sources on
+                    </span>
+                </div>
+            )}
+
             {visibleGroups.map((group) => (
-                <div key={group.label} className="flex flex-col gap-2 pt-2">
-                    <AgentRosterGroupHeader group={group} />
-                    <div className="-mx-2 divide-y divide-primary">
+                <div key={group.label} className={agentGroupClassName(redesign)}>
+                    <AgentRosterGroupHeader group={group} redesign={redesign} />
+                    <div className={agentListClassName(redesign)}>
                         {group.agents.map((agent) => {
                             const state = stateFor(agent.source)
                             // Steering needs a persisted row to write to, so optimistic `new_`
@@ -839,13 +919,14 @@ function AgentRowSkeleton(): JSX.Element {
 }
 
 export function AgentsRosterSkeleton(): JSX.Element {
+    const redesign = useFeatureFlag('INBOX_REDESIGN')
     return (
         <div className="flex flex-col gap-3">
             <LemonSkeleton className="h-3 w-48" />
             {AGENT_ROSTER_GROUPS.map((group) => (
-                <div key={group.label} className="flex flex-col gap-2 pt-2">
-                    <AgentRosterGroupHeader group={group} />
-                    <div className="-mx-2 divide-y divide-primary">
+                <div key={group.label} className={agentGroupClassName(redesign)}>
+                    <AgentRosterGroupHeader group={group} redesign={redesign} />
+                    <div className={agentListClassName(redesign)}>
                         {group.agents.map((agent) => (
                             <AgentRowSkeleton key={agent.source} />
                         ))}

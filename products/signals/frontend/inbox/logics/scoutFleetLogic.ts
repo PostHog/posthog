@@ -38,13 +38,7 @@ import {
 } from '../inboxAnalytics'
 import { SignalScoutRunSummary } from '../types'
 import { aiConsentDisabledReason } from '../utils/aiConsent'
-import {
-    compareScoutsByName,
-    SCOUT_GROUP_ORDER,
-    scoutGroup,
-    ScoutGroupKey,
-    ScoutRosterRow,
-} from '../utils/scoutGroups'
+import { compareScoutsByName, SCOUT_GROUP_ORDER, scoutGroup, ScoutGroupKey, ScoutRosterRow } from '../utils/scoutGroups'
 
 export type ScoutEnabledFilter = 'all' | 'enabled' | 'disabled'
 /** Roster order: A to Z by name, or by lifecycle group so scouts that need a decision lead. */

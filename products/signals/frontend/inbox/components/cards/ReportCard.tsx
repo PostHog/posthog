@@ -5,12 +5,19 @@ import { IconArchive, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { derivePrState } from 'lib/signals/prState'
 import { ScoutLink } from 'lib/signals/ScoutLink'
 import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
 import { PrBadge } from 'lib/signals/SignalReportPrBadge'
 
-import { InboxReportSectionKey, SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
+import {
+    INBOX_SECTION_LEGACY_TAB,
+    InboxReportSectionKey,
+    SignalReport,
+    SignalReportStatus,
+    SignalSourceProduct,
+} from '../../types'
 import { dismissalReasonLabel, DismissalReasonValue } from '../../utils/dismissalReasons'
 import { inboxReportDetailUrl } from '../../utils/inboxReportUrls'
 import {
@@ -94,9 +101,10 @@ export function InboxCardSourceMeta({
  * "Review" action; plain reports get a dashed border, a summary placeholder, the
  * status/actionability chips, and "View report".
  *
- * The inbox list gives a row one action, the one that moves the report forward; archiving lives in
- * the report detail pane and the bulk selection bar, where what is being dismissed is in full view.
- * Other surfaces that embed this card can still opt into a row-level Archive via `onArchive`.
+ * Under the redesign the inbox list gives a row one action, the one that moves the report forward;
+ * archiving lives in the report detail pane and the bulk selection bar, where what is being
+ * dismissed is in full view. Other surfaces that embed this card can still opt into a row-level
+ * Archive via `onArchive`. With the flag off every row keeps its Archive button and "Review" label.
  */
 export function ReportCard({
     report,
@@ -133,7 +141,13 @@ export function ReportCard({
     const conventionalTitle = parseConventionalCommitTitle(report.title)
     const cardTitle = displayConventionalCommitTitle(report.title, hasPr ? 'Untitled pull request' : 'Untitled report')
     const headline = deriveHeadline(report.summary)
-    const detailUrl = inboxReportDetailUrl(report.id, backUrl)
+    const redesign = useFeatureFlag('INBOX_REDESIGN')
+    // The legacy layout addresses a report through the tab that listed it, so its back control returns there.
+    const detailUrl = inboxReportDetailUrl(
+        report.id,
+        backUrl,
+        redesign ? 'reports' : INBOX_SECTION_LEGACY_TAB[sectionKey]
+    )
 
     const { isArchiving, onArchiveClick } = useReportArchive({
         reportId: report.id,
@@ -276,7 +290,7 @@ export function ReportCard({
                         )
                     ) : (
                         <>
-                            {onArchive && (
+                            {(onArchive || !redesign) && (
                                 <LemonButton
                                     type="secondary"
                                     size="small"
@@ -305,7 +319,7 @@ export function ReportCard({
                                 }
                                 tabIndex={preview ? -1 : undefined}
                             >
-                                {hasPr ? 'Review' : 'View report'}
+                                {hasPr || !redesign ? 'Review' : 'View report'}
                             </LemonButton>
                         </>
                     )}

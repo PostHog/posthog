@@ -2,6 +2,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -66,6 +68,11 @@ describe('inboxTriageLogic', () => {
             },
         })
         initKeaTests()
+        // Triage mode is a redesign surface: with the flag off the scene redirects its URL to the list.
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.INBOX_REDESIGN], {
+            [FEATURE_FLAGS.INBOX_REDESIGN]: true,
+        })
     })
 
     afterEach(() => logic?.unmount())
