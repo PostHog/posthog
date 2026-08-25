@@ -281,5 +281,58 @@ describe('integrationsLogic', () => {
                 expect(requestedTeamIds).toEqual([String(MOCK_TEAM_ID)])
             })
         })
+
+        describe('connection failure handling', () => {
+            const state = 'next=%2Fproject%2F228502%2Fsettings%2Fproject-integrations&token=csrf-tok'
+
+            beforeEach(() => {
+                document.cookie = 'ph_oauth_state=csrf-tok'
+            })
+
+            afterEach(() => {
+                document.cookie = 'ph_oauth_state=; expires=Thu, 01 Jan 1970 00:00:00 GMT'
+            })
+
+            it('handles each authorization code once, so a replayed callback does not create twice', async () => {
+                createSpy.mockResolvedValue({ id: 7, kind: 'slack' } as IntegrationType)
+                const errorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast')
+
+                await expectLogic(logic, () => {
+                    logic.actions.handleOauthCallback('slack' as IntegrationKind, { state, code: 'dup-code' })
+                    logic.actions.handleOauthCallback('slack' as IntegrationKind, { state, code: 'dup-code' })
+                }).toFinishAllListeners()
+
+                expect(createSpy).toHaveBeenCalledTimes(1)
+                expect(errorSpy).not.toHaveBeenCalled()
+            })
+
+            it('reports success when a create fails but the integration already got connected', async () => {
+                // The client can lose the response after the server connected the integration. The
+                // callback must not toast an error over a working connection.
+                createSpy.mockRejectedValue(new ApiError('Bad request', 400))
+                integrationsPayload = [{ id: 7, kind: 'slack' } as IntegrationType]
+                const successSpy = jest.spyOn(lemonToast, 'success').mockImplementation(() => 'toast')
+                const errorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast')
+
+                await expectLogic(logic, () => {
+                    logic.actions.handleOauthCallback('slack' as IntegrationKind, { state, code: 'lost-code' })
+                }).toFinishAllListeners()
+
+                expect(successSpy).toHaveBeenCalledWith('Integration successful.')
+                expect(errorSpy).not.toHaveBeenCalled()
+            })
+
+            it('reports failure when a create fails and no integration got connected', async () => {
+                createSpy.mockRejectedValue(new ApiError('Bad request', 400))
+                integrationsPayload = []
+                const errorSpy = jest.spyOn(lemonToast, 'error').mockImplementation(() => 'toast')
+
+                await expectLogic(logic, () => {
+                    logic.actions.handleOauthCallback('slack' as IntegrationKind, { state, code: 'fail-code' })
+                }).toFinishAllListeners()
+
+                expect(errorSpy).toHaveBeenCalled()
+            })
+        })
     })
 })
