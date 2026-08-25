@@ -6,13 +6,22 @@ import * as React from 'react'
 
 import { Button } from './button'
 import { Checkbox } from './checkbox'
+import { HoverSafeArea } from './hover-safe-area'
 import { Kbd } from './kbd'
 import { cn } from './lib/utils'
 import { MenuLabel } from './menu-label'
 import { RadioIndicator } from './radio-group'
 
+const DropdownMenuAnchorContext = React.createContext<React.MutableRefObject<HTMLElement | null> | null>(null)
+
 function DropdownMenu({ ...props }: MenuPrimitive.Root.Props): React.ReactElement {
-    return <MenuPrimitive.Root data-slot="dropdown-menu" {...props} />
+    const anchorRef = React.useRef<HTMLElement | null>(null)
+
+    return (
+        <DropdownMenuAnchorContext.Provider value={anchorRef}>
+            <MenuPrimitive.Root data-slot="dropdown-menu" {...props} />
+        </DropdownMenuAnchorContext.Provider>
+    )
 }
 
 function DropdownMenuPortal({ ...props }: MenuPrimitive.Portal.Props): React.ReactElement {
@@ -20,7 +29,16 @@ function DropdownMenuPortal({ ...props }: MenuPrimitive.Portal.Props): React.Rea
 }
 
 function DropdownMenuTrigger({ ...props }: MenuPrimitive.Trigger.Props): React.ReactElement {
-    return <MenuPrimitive.Trigger data-slot="dropdown-menu-trigger" {...props} />
+    const anchorRef = React.useContext(DropdownMenuAnchorContext)
+    const setAnchor = React.useCallback(
+        (element: HTMLButtonElement | null): void => {
+            if (anchorRef) {
+                anchorRef.current = element
+            }
+        },
+        [anchorRef]
+    )
+    return <MenuPrimitive.Trigger ref={setAnchor} data-slot="dropdown-menu-trigger" {...props} />
 }
 
 function DropdownMenuContent({
@@ -31,15 +49,22 @@ function DropdownMenuContent({
     className,
     anchor,
     children,
+    hoverSafeArea = true,
     ...props
 }: MenuPrimitive.Popup.Props &
-    Pick<
-        MenuPrimitive.Positioner.Props,
-        'align' | 'alignOffset' | 'side' | 'sideOffset' | 'anchor'
-    >): React.ReactElement {
+    Pick<MenuPrimitive.Positioner.Props, 'align' | 'alignOffset' | 'side' | 'sideOffset' | 'anchor'> & {
+        hoverSafeArea?: boolean
+    }): React.ReactElement {
+    const defaultAnchorRef = React.useContext(DropdownMenuAnchorContext)
+    const positionerRef = React.useRef<HTMLDivElement | null>(null)
+
     return (
         <MenuPrimitive.Portal>
+            {hoverSafeArea && anchor === undefined && defaultAnchorRef ? (
+                <HoverSafeArea anchorRef={defaultAnchorRef} floatingRef={positionerRef} />
+            ) : null}
             <MenuPrimitive.Positioner
+                ref={positionerRef}
                 data-quill
                 data-quill-portal="popover"
                 className="isolate outline-none"
@@ -160,6 +185,7 @@ function DropdownMenuSubContent({
             alignOffset={alignOffset}
             side={side}
             sideOffset={sideOffset}
+            hoverSafeArea={false}
             {...props}
         />
     )

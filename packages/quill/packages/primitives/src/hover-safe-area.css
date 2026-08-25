@@ -1,0 +1,11 @@
+@layer components {
+    .quill-hover-safe-area {
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+    }
+
+    .quill-hover-safe-area[data-ready] {
+        pointer-events: auto;
+    }
+}
