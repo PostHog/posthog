@@ -1,4 +1,4 @@
-import { CaretLeftIcon, StarIcon } from "@phosphor-icons/react";
+import { ArrowUUpLeftIcon, StarIcon } from "@phosphor-icons/react";
 import {
   Button,
   cn,
@@ -42,7 +42,7 @@ function RowStar({ channel }: { channel: Channel }) {
       }}
       // Parks in the row's reserved well: 8px padding + 3px gap = 11px from the
       // right edge.
-      className="-translate-y-1/2 absolute top-1/2 right-[3px] text-muted-foreground"
+      className="-translate-y-1/2 absolute top-1/2 right-2 text-muted-foreground"
     >
       <StarIcon size={14} weight={isStarred ? "fill" : "regular"} />
     </Button>
@@ -69,7 +69,7 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
   });
 
   return (
-    <div className="relative mx-2 mt-1">
+    <div className="relative h-10 border-border border-b px-1.5 pt-1.5 pb-2">
       <Tooltip>
         <TooltipTrigger
           render={
@@ -83,7 +83,7 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
                   surface: "sidebar",
                   channel_id: channelId,
                 });
-                showChannelList();
+                showChannelList({ animate: true });
               }}
               // Quill's own height and radius, so this reads as one of the rows
               // under it rather than a control sitting on top. The right padding
@@ -97,9 +97,13 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
                 showStar && "pr-8",
               )}
             >
-              <CaretLeftIcon
+              {/* The way out of a space, in the brand's own colour: a muted
+                  caret read as decoration on a header rather than the control
+                  it is, and people could not find their way back to the list. */}
+              <ArrowUUpLeftIcon
                 size={12}
-                className="shrink-0 text-muted-foreground"
+                weight="bold"
+                className="shrink-0 text-primary"
               />
               {/* Only #me still has a glyph under the layout, and its well is
                   drawn only when there's something in it — an empty 16px column
@@ -141,7 +145,7 @@ export function ChannelBackRow({ channelId }: { channelId: string }) {
             </Button>
           }
         />
-        <TooltipContent side="bottom">Go back</TooltipContent>
+        <TooltipContent side="bottom">Back to spaces</TooltipContent>
       </Tooltip>
       {/* #me can't be starred, so its well stays empty — a greyed-out star read
           as a control you were being denied. The well itself is unconditional

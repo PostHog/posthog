@@ -14,6 +14,7 @@ export type { RunStreamLogicProps, RunSseStatus, RunStatus } from '../logics/run
 
 // --- Interaction facade (follow-up / queue) ---
 export { runInteractionLogic } from '../logics/runInteractionLogic'
+export { messageRatingsLogic } from '../logics/messageRatingsLogic'
 export type { RunInteractionLogicProps, QueuedMessage } from '../logics/runInteractionLogic'
 
 // --- Thinking-message helpers ---

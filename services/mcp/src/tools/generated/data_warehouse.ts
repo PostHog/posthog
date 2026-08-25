@@ -27,9 +27,16 @@ import {
     WarehouseSavedQueriesRunCreateBody,
     WarehouseSavedQueriesRunCreateParams,
     WarehouseSavedQueriesRunHistoryRetrieveParams,
+    WarehouseTablesCreateBody,
     WarehouseTablesRefreshSchemaCreateParams,
 } from '@/generated/data_warehouse/api'
-import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
+import {
+    withPostHogUrl,
+    pickResponseFields,
+    withInformationalResponse,
+    type WithPostHogUrl,
+    type WithInformationalResponse,
+} from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ManagedWarehouseMetricHistoryGetSchema = DataWarehouseManagedWarehouseMonitoringTimeseriesRetrieveQueryParams
@@ -583,6 +590,67 @@ const warehouseColumnAnnotationsPartialUpdate = (): ToolBase<
     },
 })
 
+const WarehouseTablesCreateSchema = WarehouseTablesCreateBody.extend({
+    name: WarehouseTablesCreateBody.shape['name'].describe(
+        "Name the agent and the user will query this table by in HogQL. Pick a short snake_case name that describes the data (e.g. `orders`, `stripe_payouts`). It must be unique across the project's tables and views."
+    ),
+    format: WarehouseTablesCreateBody.shape['format'].describe(
+        'File format of the objects the pattern matches, one of CSV, CSVWithNames (a CSV whose first row is a header), Parquet, JSONEachRow (newline-delimited JSON), or Delta. Do not pass DeltaS3Wrapper, which PostHog uses for its own materialized views.'
+    ),
+    credential: WarehouseTablesCreateBody.shape['credential'].describe(
+        'Send only `access_key` and `access_secret`, the credentials for the bucket in `url_pattern`. The other fields are set by PostHog and are ignored on create.'
+    ),
+})
+
+const warehouseTablesCreate = (): ToolBase<
+    typeof WarehouseTablesCreateSchema,
+    WithInformationalResponse<Schemas.Table>
+> => ({
+    name: 'warehouse-tables-create',
+    schema: WarehouseTablesCreateSchema,
+    handler: async (context: Context, params: z.infer<typeof WarehouseTablesCreateSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.deleted !== undefined) {
+            body['deleted'] = params.deleted
+        }
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.format !== undefined) {
+            body['format'] = params.format
+        }
+        if (params.url_pattern !== undefined) {
+            body['url_pattern'] = params.url_pattern
+        }
+        if (params.credential !== undefined) {
+            body['credential'] = params.credential
+        }
+        if (params.options !== undefined) {
+            body['options'] = params.options
+        }
+        const result = await context.api.request<Schemas.Table>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/warehouse_tables/`,
+            body,
+        })
+        const filtered = pickResponseFields(result, [
+            'id',
+            'name',
+            'hogql_name',
+            'format',
+            'url_pattern',
+            'created_via',
+            'columns',
+        ]) as typeof result
+        return withInformationalResponse(
+            filtered,
+            'warehouse-table-record',
+            "Use the returned columns only to describe the new table's schema to the user."
+        )
+    },
+})
+
 const WarehouseTablesRefreshSchemaCreateSchema = WarehouseTablesRefreshSchemaCreateParams.omit({ project_id: true })
 
 const warehouseTablesRefreshSchemaCreate = (): ToolBase<typeof WarehouseTablesRefreshSchemaCreateSchema, unknown> => ({
@@ -618,5 +686,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'warehouse-column-annotations-create': warehouseColumnAnnotationsCreate,
     'warehouse-column-annotations-list': warehouseColumnAnnotationsList,
     'warehouse-column-annotations-partial-update': warehouseColumnAnnotationsPartialUpdate,
+    'warehouse-tables-create': warehouseTablesCreate,
     'warehouse-tables-refresh-schema-create': warehouseTablesRefreshSchemaCreate,
 }

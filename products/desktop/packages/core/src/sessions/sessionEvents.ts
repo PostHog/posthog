@@ -47,6 +47,23 @@ export function getStoredLogEventPosition(
   return storedLogEventPositions.get(event);
 }
 
+export function dropEventsCoveredByTail(
+  events: AcpMessage[],
+  taskRunId: string,
+  startEntryIndex: number,
+): AcpMessage[] | undefined {
+  const isCovered = (event: AcpMessage): boolean => {
+    const position = storedLogEventPositions.get(event);
+    return (
+      position !== undefined &&
+      position.taskRunId === taskRunId &&
+      position.entryIndex >= startEntryIndex
+    );
+  };
+  if (!events.some(isCovered)) return undefined;
+  return events.filter((event) => !isCovered(event));
+}
+
 function recordStoredLogEventPosition(
   event: AcpMessage,
   position: StoredLogEventPosition | undefined,

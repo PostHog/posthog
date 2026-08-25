@@ -40,6 +40,8 @@ class TestCreateStripeMarketplaceOauthApp(BaseTest):
             redirect_uris="https://localhost",
             algorithm="RS256",
             is_provisioning_partner=True,
+            scopes=["insight:read"],
+            optional_scopes=["person:read"],
         )
         drifted.update_provisioning(
             active=True,
@@ -57,6 +59,15 @@ class TestCreateStripeMarketplaceOauthApp(BaseTest):
         assert app.client_type == OAuthApplication.CLIENT_PUBLIC
         assert app.is_provisioning_partner is False
         assert app.provisioning == ProvisioningConfig()
+        assert app.optional_scopes == []
+        assert set(app.ceiling_scopes) == set(StripeIntegration.SCOPES.split())
+
+    def test_refuses_a_client_id_this_region_does_not_run_on(self):
+        with self.settings(STRIPE_MARKETPLACE_OAUTH_CLIENT_ID="a_different_client_id"):
+            with pytest.raises(CommandError):
+                call_command("create_stripe_marketplace_oauth_app", client_id=MARKETPLACE_CLIENT_ID, stdout=StringIO())
+
+        assert not OAuthApplication.objects.filter(client_id=MARKETPLACE_CLIENT_ID).exists()
 
     def test_dry_run_writes_nothing(self):
         call_command(

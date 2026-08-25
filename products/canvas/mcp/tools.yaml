@@ -79,7 +79,9 @@ tools:
             capture events, inline queries, network origins) — so added access is visible before shipping. Poll
             canvas-builds-retrieve until the draft's build is terminal, preview the draft with canvas-source-retrieve
             passing the returned `version_id`, then make it live with canvas-promote-create. Declare runtime
-            capabilities in `project.capabilities`.
+            capabilities in `project.capabilities`. A project that shows PostHog data must make every figure verifiable
+            before staging: an insight-backed metric links its saved insight (ph.openExternal with a URL from
+            generate-app-url); an ad-hoc ph.query figure exposes the exact query that ran in a modal or collapsed area.
         param_overrides:
             id:
                 description: ID of the canvas to stage a draft for.
@@ -256,8 +258,11 @@ tools:
             `expected_current_version_id` (from canvas-source-retrieve) so a concurrent edit is rejected with 409
             version_conflict instead of overwritten; on conflict, re-read the source, re-apply your edits, and publish
             against the new head. A 429 means the team's build capacity is exhausted — wait a moment and retry. Declare
-            the canvas's runtime capabilities (insights, capture events, inline queries) in `project.capabilities`. The
-            canvas lives in PostHog, not on disk — this tool is what saves it.
+            the canvas's runtime capabilities (insights, capture events, inline queries) in `project.capabilities`. A
+            project that shows PostHog data must make every figure verifiable before publishing: an insight-backed
+            metric links its saved insight (ph.openExternal with a URL from generate-app-url); an ad-hoc ph.query figure
+            exposes the exact query that ran in a modal or collapsed area. The canvas lives in PostHog, not on disk —
+            this tool is what saves it.
         param_overrides:
             id:
                 description: ID of the canvas whose source to publish.
@@ -303,6 +308,36 @@ tools:
         param_overrides:
             id:
                 description: ID of the canvas whose source to read.
+    canvas-state-retrieve:
+        operation: canvases_state_retrieve
+        enabled: true
+        scopes:
+            - canvas:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Read canvas state
+        description: >
+            Read persisted `ph.state` entries for a visible canvas. Returns shared entries and the authenticated user's
+            own user-scoped entries, never another user's. Use this with canvas-source-retrieve when collaborative
+            progress, checklist selections, filters, or other runtime values live outside the source. Only scopes
+            declared by the live canvas version are readable. Optionally filter to `user` or `shared` with `scope`.
+    canvas-state-set:
+        operation: canvases_state_set
+        enabled: true
+        scopes:
+            - canvas:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set canvas state
+        description: >
+            Set one persisted `ph.state` key on a visible canvas, or delete it by passing a null value. `user` updates
+            only the authenticated user's private state; `shared` updates the state every viewer sees. The scope must be
+            declared by the live canvas version. Read the current entries with canvas-state-retrieve before changing
+            progress or other existing values.
     canvas-validate-create:
         operation: canvases_validate_create
         enabled: true
@@ -344,12 +379,6 @@ tools:
         enabled: false
     canvases-revert-create:
         operation: canvases_revert_create
-        enabled: false
-    canvases-state-retrieve:
-        operation: canvases_state_retrieve
-        enabled: false
-    canvases-state-set:
-        operation: canvases_state_set
         enabled: false
     canvases-versions-retrieve:
         operation: canvases_versions_retrieve

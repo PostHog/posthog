@@ -2116,7 +2116,10 @@ class TestScoutHarnessConfigAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         # A partial update skips the `thread_reports` default, so the flag reaches the reader
         # through the response only and the stored destination keeps the shape it was sent in.
-        assert response.json()["output_destinations"] == {"slack": {**destination["slack"], "thread_reports": False}}
+        assert response.json()["output_destinations"] == {
+            "slack": {**destination["slack"], "thread_reports": False},
+            "webhook": None,
+        }
         config.refresh_from_db()
         assert config.output_destinations == destination
 

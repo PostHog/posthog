@@ -58,13 +58,6 @@ export const NewS3CompatibleExport: Story = {
     },
 }
 
-// Legacy `S3` type — hidden from the picker but still renders for not-yet-migrated rows.
-export const NewS3Export: Story = {
-    parameters: {
-        pageUrl: urls.batchExportNew('s3'),
-    },
-}
-
 export const NewSnowflakeExport: Story = {
     parameters: {
         pageUrl: urls.batchExportNew('snowflake'),
