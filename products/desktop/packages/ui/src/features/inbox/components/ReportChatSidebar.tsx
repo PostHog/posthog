@@ -313,6 +313,24 @@ function ReportChatStarter({ report }: { report: SignalReport }) {
     [isDiscussing, discussReport, fireAction],
   );
 
+  const starterPrompts = [
+    { label: "What caused this?", prompt: "What caused this?" },
+    { label: "Who is affected?", prompt: "Who is affected?" },
+    {
+      label: "Walk me through the fix",
+      prompt: "Walk me through the fix",
+    },
+    ...(!report.implementation_pr_url
+      ? [
+          {
+            label: "Visualize in a canvas",
+            prompt:
+              "Create a canvas that visualizes this report using its evidence and relevant live data.",
+          },
+        ]
+      : []),
+  ];
+
   return (
     <div className="flex h-full flex-col justify-between gap-3 p-3">
       <div className="flex flex-col gap-1 pt-1">
@@ -324,13 +342,9 @@ function ReportChatStarter({ report }: { report: SignalReport }) {
           context. Highlight any part of the report to quote it here.
         </span>
         <div className="mt-1 flex flex-wrap gap-1.5">
-          {[
-            "What caused this?",
-            "Who is affected?",
-            "Walk me through the fix",
-          ].map((prompt) => (
+          {starterPrompts.map(({ label, prompt }) => (
             <Button
-              key={prompt}
+              key={label}
               type="button"
               variant="outline"
               size="sm"
@@ -340,7 +354,7 @@ function ReportChatStarter({ report }: { report: SignalReport }) {
               disabled={isDiscussing || starterDraft.trim().length > 0}
               onClick={() => ask(prompt)}
             >
-              {prompt}
+              {label}
             </Button>
           ))}
         </div>
