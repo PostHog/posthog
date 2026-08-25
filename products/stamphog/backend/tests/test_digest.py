@@ -733,6 +733,9 @@ def test_same_pr_number_across_repos_both_survive_summarization() -> None:
         ("a_kept_pr_without_a_rule_is_a_judged_empty", '{"prs": [{"index": 0, "summary": "x"}]}', True),
         ("an_invented_rule_is_a_judged_empty", '{"prs": [{"index": 0, "rule": "vibes", "summary": "x"}]}', True),
         ("an_index_naming_no_merge_is_still_unreadable", '{"prs": [{"index": 99, "rule": "contract"}]}', False),
+        # `in` against a frozenset raises on an unhashable value, and the raise escaped into the
+        # outage fallback, which posts unjudged titles for a response that named no valid rule.
+        ("an_unhashable_rule_is_a_judged_empty", '{"prs": [{"index": 0, "rule": [], "summary": "x"}]}', True),
     ]
 )
 def test_only_a_genuinely_empty_result_posts_nothing(_name: str, content: str, accepted: bool) -> None:

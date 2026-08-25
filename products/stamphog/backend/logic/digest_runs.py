@@ -119,9 +119,10 @@ def _finalize_empty_run(team_id: int, run_id: str, pr_count: int, summary_dict: 
     the same answer, so a batch grew instead of draining and merges reached a channel days after
     they landed.
 
-    The prompt injection this once guarded against is handled where it starts instead: a
-    contributor's own description reaches the prompt only for a PR stamphog never summarized (see
-    logic/digest.py), so one PR's text can no longer answer for the batch around it.
+    The prompt injection this once guarded against is handled where it starts instead. The author's
+    body never reaches the prompt, and the values that do cannot close their own tag and continue as
+    instructions (see logic/digest.py), so one PR's text can no longer answer for the batch around
+    it.
     """
     DigestRun.objects.for_team(team_id).filter(id=run_id).update(
         status=DigestRunStatus.COMPLETED,

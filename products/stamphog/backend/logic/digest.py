@@ -389,11 +389,15 @@ def _parse_llm_response(content: str, prs_by_index: dict[int, PullRequest]) -> D
         if pr is None:
             continue
         readable = True
-        if item.get("rule") not in KEEP_RULES:
+        rule = item.get("rule")
+        # Checked for a string first: `in` against a frozenset raises on an unhashable value, and a
+        # `"rule": []` would have escaped as a TypeError into the outage fallback, which posts
+        # unjudged titles. That is the path the named rules exist to close.
+        if not isinstance(rule, str) or rule not in KEEP_RULES:
             # The model was asked to name the rule that admits this merge. Anything else means it
             # kept the merge without one, which is the drift the named rules exist to catch. A
             # response where nothing survives this raises below and falls back to the plain list.
-            logger.info("stamphog_digest_pr_dropped_without_rule", pr_number=pr.pr_number, rule=item.get("rule"))
+            logger.info("stamphog_digest_pr_dropped_without_rule", pr_number=pr.pr_number, rule=repr(rule))
             filtered = True
             continue
         picked.append(
