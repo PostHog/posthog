@@ -553,6 +553,8 @@ jobs:
             # gets. Renders before the quarantine gate, so a fourth-party lookup in the
             # artifact UI never has to happen first. Skipped on forks (no checks: write on
             # the fork token) and paralleized by shard so one broken run doesn't mask the rest.
+            # fail-on-error: false matches the upload's `if-no-files-found: ignore` posture —
+            # a cache-hit/skipped shard must never red the job over a missing report.
             - name: Publish test report
               if: always() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
               uses: dorny/test-reporter@a43b3a5f7366b97d083190328d2c652e1a8b6aa2 # v3.0.0
@@ -562,6 +564,7 @@ jobs:
                       junit-results/junit-nodejs-*.xml
                       nodejs/junit-results/junit-nodejs-*.xml
                   reporter: jest-junit
+                  fail-on-error: 'false'
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on test failure" step below is
             # the verdict, so a Trunk outage can't red a passing shard. Internal PRs only (needs the
