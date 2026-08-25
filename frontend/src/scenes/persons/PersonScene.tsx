@@ -127,10 +127,9 @@ function PersonCaption({ person }: { person: PersonType }): JSX.Element {
                 >
                     <Tooltip
                         title={
-                            <>
-                                {person.is_identified ? <strong>Cannot</strong> : 'Can'} be used as `alias_id` - click
-                                for more info.
-                            </>
+                            person.is_identified
+                                ? 'This person is identified, so their ID cannot be merged into another person. Click to learn more.'
+                                : 'This person is not identified, so their ID can still be merged into another person. Click to learn more.'
                         }
                     >
                         <IconInfo className="ml-1 text-base shrink-0" />
