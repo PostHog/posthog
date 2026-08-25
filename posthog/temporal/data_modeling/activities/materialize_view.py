@@ -61,7 +61,8 @@ from products.data_quality.backend.facade.contracts import QUALITY_AUDIT_SKIP, Q
 from products.data_warehouse.backend.facade.api import ensure_bucket_exists, get_s3_client
 from products.endpoints.backend.facade.temporal import prepare_executable_query
 from products.warehouse_sources.backend.facade.hooks import saved_query_binding
-from products.warehouse_sources.backend.facade.temporal import PersonPropertyRowSink
+from products.warehouse_sources.backend.facade.pipelines import CDPProducer
+from products.warehouse_sources.backend.facade.temporal import AccountPropertyRowSink, PersonPropertyRowSink
 
 LOGGER = get_logger(__name__)
 
@@ -159,6 +160,54 @@ def _resolve_write_plan(saved_query: DataWarehouseSavedQuery, team_id: int) -> W
     )
 
 
+class _CDPRowSink:
+    """Stages the rows a run wrote so CDP destinations and workflows subscribed to the view can act
+    on them.
+
+    Best effort by design: the materialization is the product and the trigger is not, so a staging
+    failure never fails the run. A partial stage is worse than none, though — a subscriber would get
+    some of the run's rows and silently miss the rest — so the first failure discards everything
+    staged and the run produces nothing.
+    """
+
+    def __init__(self, producer: CDPProducer, logger: FilteringBoundLogger) -> None:
+        self._producer = producer
+        self._logger = logger
+        self._chunk = 0
+        self.enabled = False
+
+    async def prepare(self) -> None:
+        """Resolve the gate once, then clear anything a previous attempt of this activity staged."""
+        try:
+            self.enabled = await self._producer.should_run()
+            if self.enabled:
+                await self._producer.clear()
+        except Exception as e:
+            capture_exception(e)
+            await self._logger.awarning(f"Could not prepare CDP row staging; skipping it for this run: {e}")
+            self.enabled = False
+
+    async def stage(self, batch: pa.RecordBatch) -> None:
+        if not self.enabled or batch.num_rows == 0:
+            return
+
+        try:
+            await self._producer.stage_chunk(self._chunk, batch)
+            self._chunk += 1
+        except Exception as e:
+            capture_exception(e)
+            await self._logger.awarning(f"Failed to stage rows for CDP; discarding this run's staged rows: {e}")
+            self.enabled = False
+            await self.discard()
+
+    async def discard(self) -> None:
+        try:
+            await self._producer.clear()
+        except Exception as e:
+            capture_exception(e)
+            await self._logger.awarning(f"Failed to clear staged CDP rows: {e}")
+
+
 class InvalidNodeTypeException(Exception):
     """Exception raised when attempting to materialize an invalid node type."""
 
@@ -198,6 +247,12 @@ class MaterializeViewResult:
     # what the workflow gates the person-property child on. Defaulted to the skip value so an old
     # history decodes without it and never fires that child during replay.
     person_property_sync_enabled: bool = False
+    # Defaulted so workflow histories recorded before account staging do not start new children on replay.
+    account_property_sync_enabled: bool = False
+    delta_version: int | None = None
+    # Whether this run staged rows for a warehouse-view CDP trigger, so the workflow knows to start
+    # the producer job. Defaulted so old workflow histories decode without it.
+    should_trigger_cdp_producer: bool = False
 
 
 def _build_model_table_uri(team_id: int, saved_query_id_hex: str, normalized_name: str) -> str:
@@ -633,6 +688,23 @@ async def _build_person_property_sink(
         return None
 
 
+async def _account_property_sync_enabled(
+    objects: MatviewInputObjects, job_id: str, logger: FilteringBoundLogger
+) -> bool:
+    sink = AccountPropertyRowSink(
+        team_id=objects.team.pk,
+        binding=saved_query_binding(objects.saved_query.id),
+        job_id=job_id,
+        logger=logger,
+    )
+    try:
+        return await sink.should_run()
+    except Exception as error:
+        await logger.awarning(f"Could not resolve account-property staging for this view: {error}")
+        capture_exception(error)
+        return False
+
+
 async def _clear_person_property_staging(sink: PersonPropertyRowSink, logger: FilteringBoundLogger) -> None:
     """Clear stale staged rows at run start. Never raises, for the same reason staging doesn't."""
     try:
@@ -676,6 +748,7 @@ async def _materialize_fully(
     table_uri: str,
     storage_options: dict[str, str],
     logger: FilteringBoundLogger,
+    cdp_sink: "_CDPRowSink",
     person_property_sink: PersonPropertyRowSink | None = None,
 ) -> tuple[int, list[str]]:
     """Rebuild the whole table from the query. The only path that creates a Delta table, and the
@@ -736,6 +809,9 @@ async def _materialize_fully(
                 schema_mode="merge",
                 storage_options=storage_options,
             )
+        # Staged only once the batch is committed: a run that announces rows it then fails to write
+        # cannot take the announcement back.
+        await cdp_sink.stage(batch)
         if plan.config is not None and plan.config.incremental_key in batch.schema.names:
             watermark = max_of(batch, plan.config.incremental_key, watermark)
         row_count = row_count + batch.num_rows
@@ -772,6 +848,7 @@ async def _materialize_incrementally(
     table_uri: str,
     storage_options: dict[str, str],
     logger: FilteringBoundLogger,
+    cdp_sink: "_CDPRowSink",
     person_property_sink: PersonPropertyRowSink | None = None,
 ) -> tuple[int, list[str]]:
     """Upsert only the rows at or after the watermark into the existing table.
@@ -824,6 +901,7 @@ async def _materialize_incrementally(
                 commit_metadata={"posthog_job_id": str(objects.job.id)},
             )
             await logger.ainfo("Upserted batch into delta table", **upsert_stats_fields(stats))
+            await cdp_sink.stage(batch)
 
             watermark = max_of(batch, config.incremental_key, watermark)
             row_count = row_count + batch.num_rows
@@ -876,6 +954,40 @@ async def _vacuum(delta_table: deltalake.DeltaTable, logger: FilteringBoundLogge
     )
 
 
+@dataclasses.dataclass(frozen=True, kw_only=True, slots=True)
+class ClearCDPStagingInputs:
+    team_id: int
+    saved_query_id: str
+    job_id: str
+
+    @property
+    def properties_to_log(self) -> dict[str, typing.Any]:
+        return {
+            "team_id": self.team_id,
+            "saved_query_id": self.saved_query_id,
+            "job_id": self.job_id,
+        }
+
+
+@activity.defn
+async def clear_cdp_staging_activity(inputs: ClearCDPStagingInputs) -> None:
+    """Drop the rows a run staged for CDP but never published.
+
+    The staging prefix is keyed on the job, so the next run's own clear never reaches this one's.
+    A run that ends without producing has to clean up after itself or the objects stay forever.
+    """
+    bind_contextvars(team_id=inputs.team_id)
+    logger = LOGGER.bind()
+
+    producer = CDPProducer.for_view(
+        team_id=inputs.team_id,
+        saved_query_id=inputs.saved_query_id,
+        job_id=inputs.job_id,
+        logger=logger,
+    )
+    await producer.clear()
+
+
 @activity.defn
 async def materialize_view_activity(inputs: MaterializeViewInputs) -> MaterializeViewResult:
     """Materialize a view by executing its query and writing to delta lake."""
@@ -915,30 +1027,94 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
         # what sweeps long-abandoned sibling job prefixes.
         await _clear_person_property_staging(person_property_sink, logger)
 
-    async with Heartbeater():
-        hogql_query = typing.cast(dict, objects.saved_query.query)["query"]
-
-        if plan.incremental:
-            row_count, file_uris = await _materialize_incrementally(
-                objects, plan, hogql_query, table_uri, storage_options, logger, person_property_sink
-            )
-        else:
-            row_count, file_uris = await _materialize_fully(
-                objects, plan, hogql_query, table_uri, storage_options, logger, person_property_sink
-            )
-
-        await logger.ainfo(f"Materialized node {objects.node.name} with {row_count} rows")
-    quality_audit = await database_sync_to_async_pool(data_quality_facade.quality_audit_mode)(
-        inputs.team_id, str(objects.saved_query.id)
+    cdp_sink = _CDPRowSink(
+        CDPProducer.for_view(
+            team_id=inputs.team_id,
+            saved_query_id=str(objects.saved_query.id),
+            job_id=str(objects.job.id),
+            logger=logger,
+        ),
+        logger,
     )
-    return MaterializeViewResult(
-        node_id=objects.node.id,
-        node_name=objects.node.name,
-        row_count=row_count,
-        table_uri=table_uri,
-        file_uris=file_uris,
-        saved_query_id=str(objects.saved_query.id),
-        quality_audit=quality_audit,
-        incremental=plan.incremental,
-        person_property_sync_enabled=person_property_sink is not None,
-    )
+    await cdp_sink.prepare()
+
+    # Staged rows are only safe to leave in place once MaterializeViewResult is actually returned:
+    # that is the one signal the workflow's own cleanup keys off. Anything that leaves this block
+    # early - a write failure, a cancellation mid-write, or a cancellation during the logging,
+    # heartbeat teardown, or quality-audit lookup that follow it - must discard what was staged
+    # itself, because the workflow will never see a result to clean up after. CancelledError is a
+    # BaseException, not an Exception, so it has to be named explicitly to be caught here at all.
+    # cdp_sink.discard() only clears a non-empty prefix, so catching it at both this level and the
+    # inner write-loop level below is safe to double up on.
+    published = False
+    try:
+        async with Heartbeater():
+            hogql_query = typing.cast(dict, objects.saved_query.query)["query"]
+
+            try:
+                if plan.incremental:
+                    row_count, file_uris = await _materialize_incrementally(
+                        objects,
+                        plan,
+                        hogql_query,
+                        table_uri,
+                        storage_options,
+                        logger,
+                        cdp_sink,
+                        person_property_sink,
+                    )
+                else:
+                    row_count, file_uris = await _materialize_fully(
+                        objects,
+                        plan,
+                        hogql_query,
+                        table_uri,
+                        storage_options,
+                        logger,
+                        cdp_sink,
+                        person_property_sink,
+                    )
+            except (Exception, asyncio.CancelledError):
+                # A retry stages from scratch and a terminal failure produces nothing, so whatever
+                # this attempt wrote is only ever waste.
+                await cdp_sink.discard()
+                raise
+
+            await logger.ainfo(f"Materialized node {objects.node.name} with {row_count} rows")
+        quality_audit = await database_sync_to_async_pool(data_quality_facade.quality_audit_mode)(
+            inputs.team_id, str(objects.saved_query.id)
+        )
+        account_property_sync_enabled = await _account_property_sync_enabled(objects, inputs.job_id, logger)
+        delta_version: int | None = None
+        if account_property_sync_enabled:
+            try:
+                delta_table = await asyncio.to_thread(
+                    deltalake.DeltaTable,
+                    table_uri,
+                    storage_options=storage_options,
+                )
+                delta_version = delta_table.version()
+            except Exception as error:
+                await logger.awarning(f"Could not resolve account-property Delta snapshot: {error}")
+                capture_exception(error)
+                account_property_sync_enabled = False
+        result = MaterializeViewResult(
+            node_id=objects.node.id,
+            node_name=objects.node.name,
+            row_count=row_count,
+            table_uri=table_uri,
+            file_uris=file_uris,
+            saved_query_id=str(objects.saved_query.id),
+            quality_audit=quality_audit,
+            incremental=plan.incremental,
+            person_property_sync_enabled=person_property_sink is not None,
+            account_property_sync_enabled=account_property_sync_enabled,
+            delta_version=delta_version,
+            should_trigger_cdp_producer=cdp_sink.enabled,
+        )
+        published = True
+        return result
+    except (Exception, asyncio.CancelledError):
+        if not published:
+            await cdp_sink.discard()
+        raise

@@ -11,7 +11,6 @@ import {
     setActiveProjectAndOrg,
     validateEnvironmentVariables,
 } from '@/shared/test-utils'
-import { GENERATED_TOOLS as FF_TOOLS } from '@/tools/generated/feature_flags'
 import { GENERATED_TOOLS } from '@/tools/generated/logs'
 import type { Context } from '@/tools/types'
 
@@ -41,34 +40,6 @@ describe('Logs Alerts', { concurrent: false }, () => {
         const client = createTestClient()
         context = createTestContext(client)
         await setActiveProjectAndOrg(context, TEST_PROJECT_ID!, TEST_ORG_ID!)
-
-        // Ensure the logs-alerting feature flag is active — the API is gated behind it
-        const listFlags = FF_TOOLS['feature-flag-get-all']!()
-        const updateFlag = FF_TOOLS['update-feature-flag']!()
-        const createFlag = FF_TOOLS['create-feature-flag']!()
-
-        const flagsResult = await listFlags.handler(context, { search: 'logs-alerting' })
-        const flags = (flagsResult as any).results ?? []
-        const flag = flags.find((f: any) => f.key === 'logs-alerting')
-        // eslint-disable-next-line no-console -- Intentionally preserved for debugging feature flag state in integration test
-        console.log('flag', flag)
-
-        if (flag && !flag.active) {
-            const updateResult = await updateFlag.handler(context, { id: flag.id, active: true })
-            // eslint-disable-next-line no-console -- Preserve output for test visibility
-            console.log('updateResult', updateResult)
-        } else if (!flag) {
-            const createResult = await createFlag.handler(context, {
-                key: 'logs-alerting',
-                name: 'Logs alerting',
-                active: true,
-                filters: {
-                    groups: [{ properties: [], rollout_percentage: 100 }],
-                },
-            })
-            // eslint-disable-next-line no-console -- Preserve output for test visibility
-            console.log('createResult', createResult)
-        }
     })
 
     afterEach(async () => {

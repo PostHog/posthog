@@ -4,8 +4,9 @@ from typing import TypedDict
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.db import connection as django_connection
 from django.db.models import OneToOneField
-from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
 
@@ -15,7 +16,6 @@ from posthog.hogql.query import HogQLQueryExecutor
 from posthog.models import Organization, Team
 
 from products.data_warehouse.backend.facade.api import DIRECT_POSTGRES_URL_PATTERN
-from products.data_warehouse.backend.facade.tasks import reconcile_all_managed_warehouse_tables_task
 from products.data_warehouse.backend.tasks.tasks import (
     ensure_managed_warehouse_direct_source_v2_task,
     schedule_managed_warehouse_direct_source_ensure,
@@ -241,10 +241,6 @@ def _create_dynamic_source(team: Team, *, lifecycle_generation: int = 1) -> Exte
 
 @pytest.mark.django_db
 class TestEnsureManagedWarehouseDirectSource:
-    @pytest.fixture(autouse=True)
-    def _enable_dynamic_auth(self, settings) -> None:
-        settings.MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED = True
-
     def test_creates_a_secretless_service_source_when_no_compatibility_source_exists(self) -> None:
         org = Organization.objects.create(name="Org")
         team = Team.objects.create(organization=org)
@@ -441,30 +437,61 @@ class TestEnsureManagedWarehouseDirectSource:
 
 
 @pytest.mark.django_db
-class TestDynamicSourceCreationGate:
-    @override_settings(MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED=False)
-    def test_gate_off_preserves_the_static_stored_login_source(self) -> None:
+class TestDynamicSourceCompatibility:
+    def test_missing_source_creates_dynamic_auth_without_reading_the_stored_root_credential(self) -> None:
         org = Organization.objects.create(name="Org")
         team = Team.objects.create(organization=org)
         _create_server(org)
+        current_generation = get_managed_warehouse_source_generation(organization_id=org.id)
+        generation = activate_managed_warehouse_source_lifecycle(
+            organization_id=org.id,
+            expected_generation=current_generation,
+        )
+        assert generation is not None
 
-        source = _ensure(team)
+        with CaptureQueriesContext(django_connection) as queries:
+            source = ensure_managed_warehouse_direct_source(
+                team_id=team.id,
+                organization_id=org.id,
+                expected_generation=generation,
+            )
 
-        assert source.managed_warehouse_sql_mode == ManagedWarehouseSQLMode.EXTERNAL
-        assert isinstance(source.connection_metadata, dict)
-        assert isinstance(source.job_inputs, dict)
-        assert source.connection_metadata["credential_kind"] == "org_root"
-        assert source.job_inputs["host"] == _CONNECTION["host"]
-        assert source.job_inputs["user"] == _CONNECTION["username"]
-        assert source.job_inputs["password"] == _CONNECTION["password"]
+        assert source is not None
+        assert source.is_dynamic_managed_warehouse
+        assert source.job_inputs == {}
+        server_table = DuckgresServer._meta.db_table.lower()
+        assert all(server_table not in query["sql"].lower() for query in queries.captured_queries)
 
-    def test_gate_off_preserves_an_existing_dynamic_source_without_persisting_the_root_secret(self) -> None:
+    def test_source_creation_does_not_evaluate_product_feature_flags(self) -> None:
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org)
+        current_generation = get_managed_warehouse_source_generation(organization_id=org.id)
+        generation = activate_managed_warehouse_source_lifecycle(
+            organization_id=org.id,
+            expected_generation=current_generation,
+        )
+        assert generation is not None
+
+        with patch(
+            "posthog.permissions.posthog_feature_flag_enabled",
+            side_effect=AssertionError("source auth must not evaluate the product feature flag"),
+        ):
+            source = ensure_managed_warehouse_direct_source(
+                team_id=team.id,
+                organization_id=org.id,
+                expected_generation=generation,
+            )
+
+        assert source is not None
+        assert source.is_dynamic_managed_warehouse
+        assert source.job_inputs == {}
+
+    def test_preserves_an_existing_dynamic_source_without_persisting_the_root_secret(self) -> None:
         org = Organization.objects.create(name="Org")
         team = Team.objects.create(organization=org)
         _create_server(org, password="must-not-be-copied")
 
-        with override_settings(MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED=True):
-            source = _ensure(team)
+        source = _ensure(team)
         source.refresh_from_db()
         original_metadata = deepcopy(source.connection_metadata)
         original_job_inputs = deepcopy(source.job_inputs)
@@ -472,7 +499,33 @@ class TestDynamicSourceCreationGate:
         generation = get_active_managed_warehouse_source_generation(organization_id=org.id)
         assert generation is not None
 
-        with override_settings(MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED=False):
+        ensured = ensure_managed_warehouse_direct_source(
+            team_id=team.id,
+            organization_id=org.id,
+            expected_generation=generation,
+        )
+
+        assert ensured is not None
+        assert ensured.id == source.id
+        ensured.refresh_from_db()
+        assert ensured.connection_metadata == original_metadata
+        assert ensured.job_inputs == original_job_inputs == {}
+        assert ensured.updated_at == original_updated_at
+
+    def test_preserves_an_existing_static_source_without_reading_duckgres_server(self) -> None:
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org)
+        source = _create_stored_login_source(team)
+        source.refresh_from_db()
+        original_job_inputs = deepcopy(source.job_inputs)
+        current_generation = get_managed_warehouse_source_generation(organization_id=org.id)
+        generation = activate_managed_warehouse_source_lifecycle(
+            organization_id=org.id,
+            expected_generation=current_generation,
+        )
+        assert generation is not None
+
+        with CaptureQueriesContext(django_connection) as queries:
             ensured = ensure_managed_warehouse_direct_source(
                 team_id=team.id,
                 organization_id=org.id,
@@ -482,16 +535,84 @@ class TestDynamicSourceCreationGate:
         assert ensured is not None
         assert ensured.id == source.id
         ensured.refresh_from_db()
-        assert ensured.connection_metadata == original_metadata
-        assert ensured.job_inputs == original_job_inputs == {}
-        assert ensured.updated_at == original_updated_at
+        assert ensured.job_inputs == original_job_inputs
+        server_table = DuckgresServer._meta.db_table.lower()
+        assert all(server_table not in query["sql"].lower() for query in queries.captured_queries)
 
-    def test_gate_off_genuine_reprovision_updates_dynamic_generation_and_tombstones_stale_reader(self) -> None:
+    @parameterized.expand(
+        [
+            ("org_root_empty", "org_root", {}),
+            ("org_root_malformed", "org_root", {"host": "", "port": "invalid"}),
+            ("stored_login_empty", "stored_server_login", {}),
+            ("stored_login_malformed", "stored_server_login", {"host": "", "port": "invalid"}),
+        ]
+    )
+    def test_converts_an_unusable_legacy_source_without_reading_duckgres_server(
+        self, _name: str, credential_kind: str, job_inputs: dict[str, object]
+    ) -> None:
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org)
+        source = _create_stored_login_source(team)
+        source.connection_metadata = {
+            "engine": "duckdb",
+            "system_managed": True,
+            "credential_kind": credential_kind,
+        }
+        source.job_inputs = job_inputs
+        source.save(update_fields=["connection_metadata", "job_inputs"])
+        assert source.managed_warehouse_sql_mode == ManagedWarehouseSQLMode.UNAVAILABLE
+        generation = get_active_managed_warehouse_source_generation(organization_id=org.id)
+        assert generation is not None
+
+        with CaptureQueriesContext(django_connection) as queries:
+            ensured = ensure_managed_warehouse_direct_source(
+                team_id=team.id,
+                organization_id=org.id,
+                expected_generation=generation,
+            )
+
+        assert ensured is not None
+        assert ensured.id == source.id
+        ensured.refresh_from_db()
+        assert ensured.is_dynamic_managed_warehouse
+        assert ensured.job_inputs == {}
+        assert ensured.connection_metadata == {
+            "engine": "duckdb",
+            "system_managed": True,
+            "credential_kind": "duckgres_service",
+            "lifecycle_generation": generation,
+        }
+        assert ExternalDataSource.objects.filter(team_id=team.id).count() == 1
+        server_table = DuckgresServer._meta.db_table.lower()
+        assert all(server_table not in query["sql"].lower() for query in queries.captured_queries)
+
+    def test_preserves_an_existing_project_reader(self) -> None:
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org)
+        reader = _create_project_reader_source(team)
+        current_generation = get_managed_warehouse_source_generation(organization_id=org.id)
+        generation = activate_managed_warehouse_source_lifecycle(
+            organization_id=org.id,
+            expected_generation=current_generation,
+        )
+        assert generation is not None
+
+        ensured = ensure_managed_warehouse_direct_source(
+            team_id=team.id,
+            organization_id=org.id,
+            expected_generation=generation,
+        )
+
+        assert ensured is not None
+        assert ensured.id == reader.id
+        reader.refresh_from_db()
+        assert reader.deleted is False
+
+    def test_genuine_reprovision_updates_dynamic_generation_and_tombstones_stale_reader(self) -> None:
         org = Organization.objects.create(name="Org")
         team = Team.objects.create(organization=org)
         _create_server(org, password="must-not-be-copied")
-        with override_settings(MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED=True):
-            dynamic = _ensure(team)
+        dynamic = _ensure(team)
         reader = _create_project_reader_source(team)
         reader_table = DataWarehouseTable.objects.create(
             team=team,
@@ -509,8 +630,7 @@ class TestDynamicSourceCreationGate:
         )
         assert inactive_generation is not None
 
-        with override_settings(MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED=False):
-            reprovisioned = _ensure(team)
+        reprovisioned = _ensure(team)
 
         assert reprovisioned.id == dynamic.id
         assert reprovisioned.is_dynamic_managed_warehouse
@@ -523,7 +643,7 @@ class TestDynamicSourceCreationGate:
         assert reader.deleted is True
         assert reader_table.deleted is True
 
-    def test_gate_off_genuine_reprovision_tombstones_stale_reader_before_creating_static_source(self) -> None:
+    def test_genuine_reprovision_replaces_a_stale_reader_with_dynamic_auth(self) -> None:
         org = Organization.objects.create(name="Org")
         team = Team.objects.create(organization=org)
         _create_server(org)
@@ -536,15 +656,67 @@ class TestDynamicSourceCreationGate:
         )
         assert inactive_generation is not None
 
-        with override_settings(MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED=False):
-            replacement = _ensure(team)
+        new_generation = activate_managed_warehouse_source_lifecycle(
+            organization_id=org.id,
+            expected_generation=inactive_generation,
+        )
+        assert new_generation is not None
+        replacement = ensure_managed_warehouse_direct_source(
+            team_id=team.id,
+            organization_id=org.id,
+            expected_generation=new_generation,
+        )
 
         reader.refresh_from_db()
         assert reader.deleted is True
+        assert replacement is not None
         assert replacement.id != reader.id
-        assert replacement.managed_warehouse_sql_mode == ManagedWarehouseSQLMode.EXTERNAL
-        assert isinstance(replacement.connection_metadata, dict)
-        assert replacement.connection_metadata["credential_kind"] == "org_root"
+        assert replacement.is_dynamic_managed_warehouse
+        assert replacement.job_inputs == {}
+
+    def test_genuine_reprovision_replaces_stale_static_credentials_with_dynamic_auth_without_reading_root(
+        self,
+    ) -> None:
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(organization=org)
+        source = _create_stored_login_source(team)
+        source_table = DataWarehouseTable.objects.create(
+            team=team,
+            name="static_table",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            url_pattern=DIRECT_POSTGRES_URL_PATTERN,
+            external_data_source=source,
+            columns={},
+        )
+        active_generation = get_active_managed_warehouse_source_generation(organization_id=org.id)
+        assert active_generation is not None
+        inactive_generation = deactivate_managed_warehouse_source_lifecycle(
+            organization_id=org.id,
+            expected_generation=active_generation,
+        )
+        assert inactive_generation is not None
+        new_generation = activate_managed_warehouse_source_lifecycle(
+            organization_id=org.id,
+            expected_generation=inactive_generation,
+        )
+        assert new_generation is not None
+
+        with CaptureQueriesContext(django_connection) as queries:
+            replacement = ensure_managed_warehouse_direct_source(
+                team_id=team.id,
+                organization_id=org.id,
+                expected_generation=new_generation,
+            )
+
+        source.refresh_from_db()
+        source_table.refresh_from_db()
+        assert replacement is not None
+        assert replacement.id == source.id
+        assert replacement.is_dynamic_managed_warehouse
+        assert replacement.job_inputs == {}
+        assert source_table.deleted is True
+        server_table = DuckgresServer._meta.db_table.lower()
+        assert all(server_table not in query["sql"].lower() for query in queries.captured_queries)
 
 
 def _source_schema(table_name: str, source_schema: str = "posthog") -> SourceSchema:
@@ -560,10 +732,6 @@ def _source_schema(table_name: str, source_schema: str = "posthog") -> SourceSch
 
 @pytest.mark.django_db
 class TestReconcileManagedWarehouseTables:
-    @pytest.fixture(autouse=True)
-    def _enable_dynamic_auth(self, settings) -> None:
-        settings.MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED = True
-
     def _setup(self) -> tuple[Organization, Team]:
         org = Organization.objects.create(name="Org")
         team = Team.objects.create(organization=org)
@@ -671,19 +839,12 @@ class TestReconcileManagedWarehouseTables:
             seen_users.append(config.user)
             return [_source_schema("events")]
 
-        with (
-            patch(
-                "products.managed_warehouse.backend.facade.feature_flags.posthog_feature_flag_enabled",
-                side_effect=AssertionError("lifecycle must not evaluate the SQL editor flag"),
-            ) as feature_flag,
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.get_schemas",
-                side_effect=discover,
-            ),
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.get_schemas",
+            side_effect=discover,
         ):
             reconcile_managed_warehouse_tables(team_id=team.id, organization_id=org.id)
 
-        feature_flag.assert_not_called()
         assert set(seen_users) == {_CONNECTION["username"], f"posthog_team_{team.id}"}
         assert ExternalDataSchema.objects.filter(source=stored_login, name="posthog.events").exists()
         assert ExternalDataSchema.objects.filter(source=reader, name="posthog.events").exists()
@@ -952,41 +1113,6 @@ class TestReconcileManagedWarehouseTables:
         assert schema.deleted is False
         assert table.deleted is False
 
-    def test_periodic_sweep_schedules_every_managed_project(self) -> None:
-        org, team = self._setup()
-        all_rows = _MEMBERSHIPS[str(org.id)] + [
-            # Legacy shared-table membership remains an enrolled project, so the sweep schedules it.
-            _membership(team.id + 1, str(org.id), "team_x", legacy_shared=True),
-        ]
-
-        with (
-            patch(
-                "products.data_warehouse.backend.tasks.tasks.list_enabled_backfill_team_memberships",
-                return_value=all_rows,
-            ),
-            patch(
-                "products.data_warehouse.backend.tasks.tasks.schedule_managed_warehouse_tables_reconcile"
-            ) as schedule,
-        ):
-            reconcile_all_managed_warehouse_tables_task()
-
-        assert schedule.call_count == 2
-        assert {call.kwargs["team_id"] for call in schedule.call_args_list} == {team.id, team.id + 1}
-
-    def test_periodic_sweep_skips_run_when_control_plane_unreachable(self) -> None:
-        with (
-            patch(
-                "products.data_warehouse.backend.tasks.tasks.list_enabled_backfill_team_memberships",
-                return_value=None,
-            ),
-            patch(
-                "products.data_warehouse.backend.tasks.tasks.schedule_managed_warehouse_tables_reconcile"
-            ) as schedule,
-        ):
-            reconcile_all_managed_warehouse_tables_task()
-
-        schedule.assert_not_called()
-
     def test_periodic_reconcile_does_not_create_a_missing_connection(self) -> None:
         org = Organization.objects.create(name="Org")
         team = Team.objects.create(organization=org)
@@ -1001,8 +1127,7 @@ class TestReconcileManagedWarehouseTables:
         ).exists()
         get_schemas.assert_not_called()
 
-    def test_gate_off_periodic_reconcile_recovers_a_static_source_after_inline_setup_failed(self, settings) -> None:
-        settings.MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED = False
+    def test_periodic_reconcile_recovers_a_missing_dynamic_source_without_reading_root_credentials(self) -> None:
         org = Organization.objects.create(name="Org")
         team = Team.objects.create(organization=org)
         _create_server(org)
@@ -1017,21 +1142,34 @@ class TestReconcileManagedWarehouseTables:
             prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX,
         ).exists()
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.get_schemas",
-            return_value=[],
+        with (
+            CaptureQueriesContext(django_connection) as queries,
+            patch(
+                "products.managed_warehouse.backend.logic.connection.resolve_managed_warehouse_postgres_connection",
+                return_value=ManagedWarehousePostgresConnection(
+                    host=_CONNECTION["host"],
+                    port=_CONNECTION["port"],
+                    database=_CONNECTION["database"],
+                    username="svc_discovery",
+                    password="service-secret",
+                    sslmode="require",
+                ),
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.get_schemas",
+                return_value=[],
+            ) as get_schemas,
         ):
             reconcile_managed_warehouse_tables(team_id=team.id, organization_id=org.id)
 
         source = ExternalDataSource.objects.get(team_id=team.id, prefix=MANAGED_WAREHOUSE_SOURCE_PREFIX)
-        assert source.managed_warehouse_sql_mode == ManagedWarehouseSQLMode.EXTERNAL
-        assert isinstance(source.connection_metadata, dict)
-        assert source.connection_metadata["credential_kind"] == "org_root"
-        assert isinstance(source.job_inputs, dict)
-        assert source.job_inputs["password"] == _CONNECTION["password"]
+        assert source.is_dynamic_managed_warehouse
+        assert source.job_inputs == {}
+        get_schemas.assert_called_once()
+        server_table = DuckgresServer._meta.db_table.lower()
+        assert all(server_table not in query["sql"].lower() for query in queries.captured_queries)
 
-    def test_gate_off_periodic_reconcile_does_not_revive_an_unfenced_legacy_tombstone(self, settings) -> None:
-        settings.MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED = False
+    def test_periodic_reconcile_does_not_revive_an_unfenced_legacy_tombstone(self) -> None:
         org = Organization.objects.create(name="Org")
         team = Team.objects.create(organization=org)
         _create_server(org)
@@ -1140,10 +1278,6 @@ class TestReconcileManagedWarehouseTables:
 
 @pytest.mark.django_db
 class TestManagedWarehouseLifecycle:
-    @pytest.fixture(autouse=True)
-    def _enable_dynamic_auth(self, settings) -> None:
-        settings.MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED = True
-
     def _org_team_source(self) -> tuple[Organization, Team, ExternalDataSource, DuckgresServer]:
         org = Organization.objects.create(name="Org")
         team = Team.objects.create(organization=org)
@@ -1235,8 +1369,7 @@ class TestManagedWarehouseLifecycle:
         reprovisioned = _ensure(team)
         assert reprovisioned.id == original.id
 
-        with override_settings(MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED=False):
-            soft_delete_legacy_managed_warehouse_sources(organization_id=org.id)
+        soft_delete_legacy_managed_warehouse_sources(organization_id=org.id)
 
         reprovisioned.refresh_from_db()
         assert reprovisioned.deleted is False
@@ -1255,8 +1388,7 @@ class TestManagedWarehouseLifecycle:
         )
         assert cleanup_generation is not None
 
-        with override_settings(MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED=False):
-            soft_delete_legacy_managed_warehouse_sources(organization_id=org.id)
+        soft_delete_legacy_managed_warehouse_sources(organization_id=org.id)
 
         source.refresh_from_db()
         assert source.deleted is True
@@ -1267,8 +1399,7 @@ class TestManagedWarehouseLifecycle:
         source = _create_stored_login_source(team)
         assert not ManagedWarehouseSourceLifecycle.objects.filter(organization=org).exists()
 
-        with override_settings(MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED=False):
-            soft_delete_legacy_managed_warehouse_sources(organization_id=org.id)
+        soft_delete_legacy_managed_warehouse_sources(organization_id=org.id)
 
         source.refresh_from_db()
         assert source.deleted is True
@@ -1490,7 +1621,6 @@ def test_ready_status_queues_table_discovery(mock_schedule: MagicMock) -> None:
     mock_schedule.assert_called_once_with(team_id=42, organization_id=organization_id)
 
 
-@override_settings(MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED=False)
 @patch("products.managed_warehouse.backend.facade.connection.soft_delete_legacy_managed_warehouse_sources")
 def test_old_one_argument_cleanup_message_runs_on_a_new_worker(mock_soft_delete: MagicMock) -> None:
     soft_delete_managed_warehouse_sources_task("org-1")
@@ -1498,15 +1628,6 @@ def test_old_one_argument_cleanup_message_runs_on_a_new_worker(mock_soft_delete:
     mock_soft_delete.assert_called_once_with(organization_id="org-1")
 
 
-@override_settings(MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED=True)
-@patch("products.managed_warehouse.backend.facade.connection.soft_delete_legacy_managed_warehouse_sources")
-def test_old_cleanup_message_cannot_delete_dynamic_sources_after_the_rollout(mock_soft_delete: MagicMock) -> None:
-    soft_delete_managed_warehouse_sources_task("org-1")
-
-    mock_soft_delete.assert_not_called()
-
-
-@override_settings(MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED=True)
 @patch("products.managed_warehouse.backend.facade.connection.soft_delete_managed_warehouse_sources")
 def test_v2_cleanup_task_carries_the_original_deprovision_generation(mock_soft_delete: MagicMock) -> None:
     soft_delete_managed_warehouse_sources_v2_task("org-1", 7)
@@ -1514,8 +1635,7 @@ def test_v2_cleanup_task_carries_the_original_deprovision_generation(mock_soft_d
     mock_soft_delete.assert_called_once_with(organization_id="org-1", expected_generation=7)
 
 
-@parameterized.expand([(False,), (True,)])
-def test_source_cleanup_scheduler_uses_a_rolling_compatible_task(dynamic_auth_enabled: bool) -> None:
+def test_source_cleanup_scheduler_uses_the_generation_fenced_task() -> None:
     assert soft_delete_managed_warehouse_sources_task.name == (
         "products.data_warehouse.backend.tasks.soft_delete_managed_warehouse_sources"
     )
@@ -1523,21 +1643,15 @@ def test_source_cleanup_scheduler_uses_a_rolling_compatible_task(dynamic_auth_en
         "products.data_warehouse.backend.tasks.soft_delete_managed_warehouse_sources_v2"
     )
     with (
-        override_settings(MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED=dynamic_auth_enabled),
         patch.object(soft_delete_managed_warehouse_sources_task, "delay") as legacy_delay,
         patch.object(soft_delete_managed_warehouse_sources_v2_task, "delay") as v2_delay,
     ):
         schedule_soft_delete_managed_warehouse_sources(organization_id="org-1", expected_generation=7)
 
-    if dynamic_auth_enabled:
-        legacy_delay.assert_not_called()
-        v2_delay.assert_called_once_with(organization_id="org-1", expected_generation=7)
-    else:
-        legacy_delay.assert_called_once_with(organization_id="org-1")
-        v2_delay.assert_not_called()
+    legacy_delay.assert_not_called()
+    v2_delay.assert_called_once_with(organization_id="org-1", expected_generation=7)
 
 
-@override_settings(MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED=True)
 @patch("products.managed_warehouse.backend.facade.connection.ensure_managed_warehouse_direct_source")
 def test_v2_source_recovery_task_rechecks_the_generation(mock_ensure: MagicMock) -> None:
     ensure_managed_warehouse_direct_source_v2_task(42, "org-1", 7)
@@ -1545,17 +1659,7 @@ def test_v2_source_recovery_task_rechecks_the_generation(mock_ensure: MagicMock)
     mock_ensure.assert_called_once_with(team_id=42, organization_id="org-1", expected_generation=7)
 
 
-def test_source_recovery_scheduler_is_only_emitted_after_the_rollout_gate() -> None:
-    with (
-        patch.object(ensure_managed_warehouse_direct_source_v2_task, "delay") as delay,
-        override_settings(MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED=False),
-    ):
-        schedule_managed_warehouse_direct_source_ensure(team_id=42, organization_id="org-1", expected_generation=7)
-        delay.assert_not_called()
-
-    with (
-        patch.object(ensure_managed_warehouse_direct_source_v2_task, "delay") as delay,
-        override_settings(MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED=True),
-    ):
+def test_source_recovery_scheduler_always_emits_the_generation_fenced_task() -> None:
+    with patch.object(ensure_managed_warehouse_direct_source_v2_task, "delay") as delay:
         schedule_managed_warehouse_direct_source_ensure(team_id=42, organization_id="org-1", expected_generation=7)
         delay.assert_called_once_with(team_id=42, organization_id="org-1", expected_generation=7)

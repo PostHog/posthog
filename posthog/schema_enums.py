@@ -36,11 +36,24 @@ class AccountsTableAccountField(StrEnum):
     CREATED_AT = "created_at"
     UPDATED_AT = "updated_at"
     CHURNED_AT = "churned_at"
+    IGNORED_AT = "ignored_at"
     STRIPE_CUSTOMER_ID = "stripe_customer_id"
     HUBSPOT_DEAL_ID = "hubspot_deal_id"
     BILLING_ID = "billing_id"
     SFDC_ID = "sfdc_id"
     ZENDESK_ID = "zendesk_id"
+
+
+class AccountsTableAccountFieldOperator(StrEnum):
+    EXACT = "exact"
+    IS_NOT = "is_not"
+    ICONTAINS = "icontains"
+    NOT_ICONTAINS = "not_icontains"
+    IS_SET = "is_set"
+    IS_NOT_SET = "is_not_set"
+    IS_DATE_EXACT = "is_date_exact"
+    IS_DATE_BEFORE = "is_date_before"
+    IS_DATE_AFTER = "is_date_after"
 
 
 class AccountsTableAggregation(StrEnum):
@@ -1138,6 +1151,13 @@ class ErrorTrackingOrderBy(StrEnum):
     OCCURRENCES = "occurrences"
     USERS = "users"
     SESSIONS = "sessions"
+
+
+class ErrorTrackingQueryIssueSeverity(StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
 
 
 class EvaluationRuntime(StrEnum):
@@ -2559,6 +2579,17 @@ class ExternalDataSourceType(StrEnum):
     SAM_CART = "SamCart"
     IRON_SOURCE_ADS = "IronSourceAds"
     MICROSOFT_EXCEL = "MicrosoftExcel"
+    PROFOUND = "Profound"
+    AIRWALLEX = "Airwallex"
+    POLYMARKET = "Polymarket"
+    KALSHI = "Kalshi"
+    CAPTERRA = "Capterra"
+    GOOGLE_POSTMASTER_TOOLS = "GooglePostmasterTools"
+    GROWI = "Growi"
+    CLARIFY = "Clarify"
+    DATO_CMS = "DatoCMS"
+    WPS_OFFICE = "WPSOffice"
+    TERA_BOX = "TeraBox"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -3085,6 +3116,8 @@ class MarketingAnalyticsColumnsSchemaNames(StrEnum):
 class MarketingAnalyticsConstants(StrEnum):
     GOAL = "Goal"
     COST_PER = "Cost per"
+    ROAS = "ROAS"
+    CUSTOMER = "customer"
     CONST_ = "const:"
 
 
@@ -3272,6 +3305,7 @@ class NodeKind(StrEnum):
     SESSION_ATTRIBUTION_EXPLORER_QUERY = "SessionAttributionExplorerQuery"
     ERROR_TRACKING_QUERY = "ErrorTrackingQuery"
     ERROR_TRACKING_SIMILAR_ISSUES_QUERY = "ErrorTrackingSimilarIssuesQuery"
+    ERROR_TRACKING_FINGERPRINT_PROJECTION_QUERY = "ErrorTrackingFingerprintProjectionQuery"
     ERROR_TRACKING_BREAKDOWNS_QUERY = "ErrorTrackingBreakdownsQuery"
     ERROR_TRACKING_ISSUE_CORRELATION_QUERY = "ErrorTrackingIssueCorrelationQuery"
     LOGS_QUERY = "LogsQuery"
@@ -3352,6 +3386,7 @@ class NodeKind(StrEnum):
     MCP_TOOL_QUALITY_DAILY_STATS_QUERY = "MCPToolQualityDailyStatsQuery"
     MCP_TOOL_CATEGORY_COUNTS_QUERY = "MCPToolCategoryCountsQuery"
     MCP_TOOL_CATEGORIES_QUERY = "MCPToolCategoriesQuery"
+    MCP_TOOL_CATEGORY_MAP_QUERY = "MCPToolCategoryMapQuery"
     MCP_TOOL_DESCRIPTIONS_QUERY = "MCPToolDescriptionsQuery"
     MCP_TOOL_SAMPLE_INTENTS_QUERY = "MCPToolSampleIntentsQuery"
     MCP_TOOL_NEIGHBORS_QUERY = "MCPToolNeighborsQuery"
@@ -3416,6 +3451,7 @@ class ProductIntentContext(StrEnum):
     EXPERIMENT_ANALYZED = "experiment analyzed"
     EXPERIMENT_VIEW_RECORDINGS = "experiment view recordings"
     EXPERIMENT_REPLAY_VISION_SCANNER_CREATED = "experiment replay vision scanner created"
+    EXPERIMENT_CREATE_SCANNER = "experiment create scanner"
     FEATURE_FLAG_CREATED = "feature flag created"
     SESSION_REPLAY_SET_FILTERS = "session_replay_set_filters"
     SESSION_REPLAY_EXPERIMENT_LINK_CLICKED = "session_replay_experiment_link_clicked"
@@ -3601,6 +3637,7 @@ class PropertyFilterType(StrEnum):
     DATA_WAREHOUSE_PERSON_PROPERTY = "data_warehouse_person_property"
     ERROR_TRACKING_ISSUE = "error_tracking_issue"
     REVENUE_ANALYTICS = "revenue_analytics"
+    ACCOUNT = "account"
     ACCOUNT_CUSTOM_PROPERTY = "account_custom_property"
     FLAG = "flag"
     LOG = "log"
@@ -3984,6 +4021,7 @@ class TaxonomicFilterGroupType(StrEnum):
     COHORTS_WITH_ALL = "cohorts_with_all"
     DATA_WAREHOUSE = "data_warehouse"
     DATA_WAREHOUSE_SOURCE_TABLES = "data_warehouse_source_tables"
+    DATA_WAREHOUSE_MATERIALIZED_VIEWS = "data_warehouse_materialized_views"
     DATA_WAREHOUSE_PROPERTIES = "data_warehouse_properties"
     DATA_WAREHOUSE_PERSON_PROPERTIES = "data_warehouse_person_properties"
     ELEMENTS = "elements"
@@ -4027,6 +4065,7 @@ class TaxonomicFilterGroupType(StrEnum):
     REPLAY = "replay"
     REPLAY_SAVED_FILTERS = "replay_saved_filters"
     REVENUE_ANALYTICS_PROPERTIES = "revenue_analytics_properties"
+    ACCOUNT_FIELDS = "account_fields"
     ACCOUNT_CUSTOM_PROPERTIES = "account_custom_properties"
     RESOURCES = "resources"
     ERROR_TRACKING_PROPERTIES = "error_tracking_properties"

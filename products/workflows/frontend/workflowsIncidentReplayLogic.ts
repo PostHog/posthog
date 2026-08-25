@@ -12,9 +12,10 @@ import { AccessControlLevel } from '~/types'
 
 import {
     hogFlowsInvocationResultsCountRetrieve,
-    hogFlowsList,
     hogFlowsRerunCreate,
+    hogFlowsRetrieve,
 } from 'products/workflows/frontend/generated/api'
+import type { HogFlowApi } from 'products/workflows/frontend/generated/api.schemas'
 
 // The window of the 2026-08-17 email send incident (UTC), padded around the first and last
 // observed failures. Both the affected-workflow lookup and the rerun filter use it, so a
@@ -137,13 +138,32 @@ export const workflowsIncidentReplayLogic = kea<workflowsIncidentReplayLogicType
                         return []
                     }
 
-                    // Keep only workflows the list endpoint returns: it applies object-level
-                    // access control, so this never names a workflow the user can't see, and it
-                    // drops deleted workflows, which can't be replayed anyway.
+                    // Fetch each affected workflow by ID rather than intersecting with the list
+                    // endpoint: the list caps at a page size, so in projects with more workflows
+                    // than one page the affected ones can fall outside it and silently drop off
+                    // the banner. Only a definitive 403 (no access) or 404 (hard-deleted, can't
+                    // be replayed) drops a row - the same gates the list applied. A transient
+                    // retrieve failure (network, 429, 5xx) keeps the row with fallback fields,
+                    // so a blip never hides the recovery path.
                     const projectId = String(values.currentProjectId)
-                    const flows = await hogFlowsList(projectId, { limit: 300 })
-                    const flowsById = new Map((flows.results ?? []).map((flow) => [flow.id, flow]))
-                    const visible = affected.filter((row) => flowsById.has(row.id))
+                    const dropped = new Set<string>()
+                    const flows = await Promise.all(
+                        affected.map(async (row) => {
+                            try {
+                                return await hogFlowsRetrieve(projectId, row.id)
+                            } catch (error) {
+                                const status = (error as { status?: number }).status
+                                if (status === 403 || status === 404) {
+                                    dropped.add(row.id)
+                                }
+                                return null
+                            }
+                        })
+                    )
+                    const flowsById = new Map(
+                        flows.filter((flow): flow is HogFlowApi => flow !== null).map((flow) => [flow.id, flow])
+                    )
+                    const visible = affected.filter((row) => !dropped.has(row.id))
 
                     if (visible.length === 0) {
                         return []

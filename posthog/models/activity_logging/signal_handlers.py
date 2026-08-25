@@ -30,6 +30,7 @@ from posthog.models.activity_logging.activity_log import (
     LogActivityEntry,
     bulk_log_activity,
     changes_between,
+    field_name_overrides,
     log_activity,
 )
 from posthog.models.activity_logging.model_activity import get_current_trigger, get_current_user, get_was_impersonated
@@ -494,16 +495,19 @@ def handle_oauth_application_scopes_change(
     else:
         if before_update is None or after_update is None:
             return
-        # `scopes` is an ordered ArrayField but semantically a set (a permission ceiling),
-        # so a pure reorder is not an auditable change.
-        if set(before_update.scopes or []) == set(after_update.scopes or []):
-            return
-        # Only the scope ceiling is audited for OAuth apps; other fields changed in the
-        # same save are deliberately left out of the entry.
+        # Only the scope ceiling and the provisioning config (capabilities and rate-limit
+        # overrides) are audited for OAuth apps; other fields changed in the same save are
+        # deliberately left out of the entry. `scopes` is an ordered ArrayField but
+        # semantically a set (a permission ceiling), so a pure reorder is not auditable.
+        scopes_changed = set(before_update.scopes or []) != set(after_update.scopes or [])
+        # Changes carry the display name, not the column name.
+        provisioning_field = field_name_overrides.get("OAuthApplication", {}).get(
+            "_provisioning_config", "_provisioning_config"
+        )
         changes = [
             change
             for change in changes_between(scope, previous=before_update, current=after_update)
-            if change.field == "scopes"
+            if (change.field == "scopes" and scopes_changed) or change.field == provisioning_field
         ]
         if not changes:
             return

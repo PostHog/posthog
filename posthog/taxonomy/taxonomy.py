@@ -484,6 +484,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Conversation ticket priority changed",
             "description": "Fires when the priority of a support conversation ticket changes.",
         },
+        "$slack_message_received": {
+            "label": "Slack message received",
+            "description": "Fires when a message is posted in a Slack channel PostHog is connected to.",
+        },
     },
     "elements": {
         "tag_name": {
@@ -688,16 +692,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "initialization time",
             "description": "The iso formatted timestamp of SDK initialization.",
             "type": "String",
-            "used_for_debug": True,
-        },
-        "$transformations_skipped": {
-            "label": "Transformations skipped",
-            "description": "Array of transformations skipped during ingestion.",
-            "used_for_debug": True,
-        },
-        "$transformations_succeeded": {
-            "label": "Transformations succeeded",
-            "description": "Array of transformations that succeeded during ingestion.",
             "used_for_debug": True,
         },
         "$config_defaults": {
@@ -3428,12 +3422,6 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "description": "The revenue associated with an event, in your account's base currency.",
             "examples": [9.99],
             "type": "Numeric",
-        },
-        "$transformations_failed": {
-            "label": "Transformations failed",
-            "description": "The transformations that failed to run on this event during ingestion.",
-            "type": "String",
-            "ignored_in_assistant": True,
         },
         "$override_feature_flag_payloads": {
             "label": "Override feature flag payloads",

@@ -3,6 +3,7 @@ import {
     DateRange,
     DocumentSimilarityQuery,
     ErrorTrackingBreakdownsQuery,
+    ErrorTrackingFingerprintProjectionQuery,
     ErrorTrackingIssueCorrelationQuery,
     ErrorTrackingPendingFingerprintIssueStateUpdate,
     ErrorTrackingQuery,
@@ -182,6 +183,11 @@ export const errorTrackingIssueEventsQuery = ({
 
     return eventsQuery
 }
+
+export const errorTrackingFingerprintProjectionQuery = (issueId: string): ErrorTrackingFingerprintProjectionQuery => ({
+    kind: NodeKind.ErrorTrackingFingerprintProjectionQuery,
+    issueId,
+})
 
 export const errorTrackingIssueCorrelationQuery = ({
     events,

@@ -5,6 +5,7 @@ from django.conf import settings
 
 import pyarrow as pa
 import posthoganalytics
+from redis import exceptions as redis_exceptions
 from structlog.typing import FilteringBoundLogger
 from temporalio import activity
 
@@ -237,10 +238,19 @@ async def handle_non_retryable_error(
             raise NonRetryableException() from error
 
         retry_key = build_non_retryable_errors_redis_key(team_id, source_id, run_id)
-        attempts = await redis_client.incr(retry_key)
+        try:
+            attempts = await redis_client.incr(retry_key)
+            if attempts <= NON_RETRYABLE_ERROR_RETRY_LIMIT:
+                await redis_client.expire(retry_key, 86400)  # Expire after 24 hours
+        except redis_exceptions.RedisError as e:
+            # A successful ping doesn't guarantee later commands still have a Redis to talk to -
+            # treat that the same as a `None` client instead of letting it surface unwrapped and
+            # mask the already-classified `error` behind an ordinary retryable activity failure.
+            capture_exception(e)
+            await logger.adebug(f"Redis became unreachable tracking a non-retryable error. error={error_msg}")
+            raise NonRetryableException() from error
 
         if attempts <= NON_RETRYABLE_ERROR_RETRY_LIMIT:
-            await redis_client.expire(retry_key, 86400)  # Expire after 24 hours
             await logger.adebug(
                 f"Non-retryable error attempt {attempts}/{NON_RETRYABLE_ERROR_RETRY_LIMIT}, retrying. error={error_msg}"
             )
@@ -353,7 +363,6 @@ def validate_incremental_sync(
     *,
     is_first_sync: bool = True,
 ) -> None:
-    # Check for duplicate primary keys
     if is_incremental and resource.has_duplicate_primary_keys:
         raise DuplicatePrimaryKeysException(
             f"The primary keys for this table are not unique. We can't sync incrementally until the table "

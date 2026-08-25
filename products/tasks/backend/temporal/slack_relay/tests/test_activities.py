@@ -4,6 +4,7 @@ from typing import ClassVar
 import unittest
 from unittest.mock import patch
 
+from django.db import DatabaseError
 from django.test import TestCase, override_settings
 
 from parameterized import parameterized
@@ -119,6 +120,20 @@ class TestRelaySlackMessage(TestCase):
             mock_update.assert_called_once_with(reaction_emoji)
         self.task_run.refresh_from_db()
         assert relay_id in self.task_run.state.get("slack_sent_relay_ids", [])
+
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_relay_does_not_post_when_claim_write_fails(self, mock_delete_progress, mock_post):
+        with (
+            patch.object(TaskRun, "mutate_state_atomic", side_effect=DatabaseError("read-only")),
+            self.assertRaises(DatabaseError),
+        ):
+            relay_slack_message(
+                RelaySlackMessageInput(run_id=str(self.task_run.id), relay_id="relay-claim-fails", text="Done.")
+            )
+
+        mock_delete_progress.assert_not_called()
+        mock_post.assert_not_called()
 
     @parameterized.expand(
         [

@@ -11,6 +11,8 @@ from __future__ import annotations
 
 from typing import Any, ClassVar
 
+from django.core.exceptions import ImproperlyConfigured
+
 from rest_framework import serializers
 from rest_framework.authentication import BaseAuthentication
 from rest_framework.request import Request
@@ -18,11 +20,18 @@ from rest_framework.response import Response
 from rest_framework.throttling import BaseThrottle
 from rest_framework.views import APIView
 
-from posthog.models.oauth import OAuthAccessToken
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.team.team import Team
 
 from ee.api.agentic_provisioning.authentication import GitHubGrantsAuthentication, ProvisioningBearerAuthentication
 from ee.api.agentic_provisioning.exceptions import Envelope, ProvisioningError, render_provisioning_error
+from ee.api.agentic_provisioning.ratelimits import (
+    BudgetDeclaration,
+    apply_rate_limit_headers,
+    charge_partner,
+    partner_for_rate_limiting,
+    refund_no_work,
+)
 from ee.api.agentic_provisioning.region_proxy import RegionProxyMixin
 from ee.api.agentic_provisioning.serializers import first_error_message
 
@@ -98,10 +107,60 @@ class ProvisioningAPIView(RegionProxyMixin, APIView):
                 retry_after=int(wait) if wait else None,
             )
 
+        # Partner bucket charges declared with @rate_limited(charge="auto") on the
+        # handler. After the throttles above, so a request they refuse spends nothing.
+        for declaration in self._budget_declarations(request).values():
+            if declaration.charge != "auto":
+                continue
+            partner = partner_for_rate_limiting(request)
+            if partner is None:
+                continue
+            key_suffix = declaration.key(request, self) if declaration.key else ""
+            charge_partner(
+                declaration,
+                partner,
+                request=request,
+                key_suffix=key_suffix,
+                resource_id=str(self.kwargs.get("resource_id", "")),
+            )
+
+    def _budget_declarations(self, request: Request) -> dict[str, BudgetDeclaration]:
+        handler = getattr(self, (request.method or "").lower(), None)
+        return getattr(handler, "_provisioning_budgets", {})
+
+    def charge_rate_limit(
+        self, request: Request, partner: OAuthApplication, *, endpoint: str | None = None, resource_id: str = ""
+    ) -> None:
+        """Charge a ``charge="manual"`` budget declared on the current handler.
+
+        ``endpoint`` is only needed when the handler declares more than one
+        budget; the declaration itself stays on the decorator, so the policy is
+        stated exactly once.
+        """
+        declarations = self._budget_declarations(request)
+        if endpoint is None:
+            if len(declarations) != 1:
+                raise ImproperlyConfigured(
+                    f"{type(self).__name__} declares {len(declarations)} budgets; pass endpoint= to charge_rate_limit"
+                )
+            declaration = next(iter(declarations.values()))
+        else:
+            declaration = declarations[endpoint]
+        charge_partner(declaration, partner, request=request, resource_id=resource_id)
+
     def handle_exception(self, exc: Exception) -> Response:
         if isinstance(exc, ProvisioningError):
+            # A rejection that provably did no work costs no quota. The one
+            # exception class carries the code, so the refund decision needs no
+            # per-endpoint choreography in the handlers.
+            refund_no_work(self.request, exc.code)
             return render_provisioning_error(exc, self.error_envelope)
         return super().handle_exception(exc)
+
+    def finalize_response(self, request: Request, response: Response, *args: Any, **kwargs: Any) -> Response:
+        response = super().finalize_response(request, response, *args, **kwargs)
+        apply_rate_limit_headers(request, response)
+        return response
 
     def validated_body(
         self,

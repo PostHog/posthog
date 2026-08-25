@@ -12,11 +12,23 @@ from rest_framework.response import Response
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.permissions import PostHogFeatureFlagPermission
-from posthog.rate_limit import LogsAnomalyScanBurstRateThrottle, LogsAnomalyScanSustainedRateThrottle
+from posthog.rate_limit import (
+    LogsAnomalyScanBurstRateThrottle,
+    LogsAnomalyScanSustainedRateThrottle,
+    LogsSeriesBandsBurstRateThrottle,
+    LogsSeriesBandsSustainedRateThrottle,
+)
 
 from products.logs.backend.anomaly_scan import MAX_EVAL_DAYS, ScanBudgetExceeded, floor_to_bucket, run_scan
+from products.logs.backend.series_bands import (
+    BASELINE_WEEKS,
+    MIN_BASELINE_WEEKS_FOR_BAND,
+    SeriesBandsFetchTruncated,
+    run_series_bands,
+)
 
 SCAN_CACHE_TTL_SECONDS = 60
+SERIES_BANDS_CACHE_TTL_SECONDS = 60
 
 _STAGE_CHOICES = ["insufficient", "cold_start", "developing", "mature"]
 _VERDICT_CHOICES = ["spike", "drop", "silence"]
@@ -180,11 +192,77 @@ class LogsAnomalyScanErrorSerializer(serializers.Serializer):
     error = serializers.CharField(help_text="Human readable description of why the scan could not run.")
 
 
-class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
-    """On-demand anomaly scan over one service's log volume.
+class LogsSeriesBandsRequestSerializer(serializers.Serializer):
+    serviceName = serializers.CharField(
+        help_text="Service whose per-series volume to chart (the log record's service_name).",
+    )
+    intervalMinutes = serializers.ChoiceField(
+        choices=[60],
+        default=60,
+        help_text="Display grain in minutes for buckets and bands. Only hourly is supported today.",
+    )
 
-    Experimental, behind the logs-anomalies feature flag. Computes everything
-    per request from raw logs; nothing is persisted.
+
+class LogsSeriesBandBucketSerializer(serializers.Serializer):
+    time = serializers.DateTimeField(help_text="Start of the display bucket (UTC).")
+    observed = serializers.IntegerField(help_text="Log count observed in this bucket.")
+    lower = serializers.FloatField(
+        allow_null=True,
+        help_text="Lower edge of the expected band. Null while the series has too little history to band.",
+    )
+    upper = serializers.FloatField(
+        allow_null=True,
+        help_text="Upper edge of the expected band. Null while the series has too little history to band.",
+    )
+
+
+class LogsSeriesBandSeriesSerializer(serializers.Serializer):
+    namespace = serializers.CharField(
+        allow_blank=True, help_text="Namespace of the emitting resource; empty when the logs carry none."
+    )
+    environment = serializers.CharField(
+        allow_blank=True, help_text="Deployment environment of the emitting resource; empty when the logs carry none."
+    )
+    severity = serializers.CharField(help_text="Lowercased log severity of this series (for example info, error).")
+    total_count = serializers.IntegerField(
+        help_text="Total observed log count over the window. Series are ordered by this, descending."
+    )
+    baseline_weeks = serializers.IntegerField(
+        help_text=(
+            f"Full weeks of history behind the band, 0 to {BASELINE_WEEKS}. "
+            f"Below {MIN_BASELINE_WEEKS_FOR_BAND} the series is still learning and its buckets carry no band."
+        )
+    )
+    buckets = LogsSeriesBandBucketSerializer(
+        many=True,
+        help_text="One entry per display bucket across the whole window, oldest first, zero-filled.",
+    )
+
+
+class LogsSeriesBandsResponseSerializer(serializers.Serializer):
+    service_name = serializers.CharField(help_text="Service the series belong to.")
+    window_start = serializers.DateTimeField(help_text="Start of the observed window (UTC, inclusive).")
+    window_end = serializers.DateTimeField(help_text="End of the observed window (UTC, exclusive).")
+    interval_minutes = serializers.IntegerField(help_text="Display grain of the buckets, in minutes.")
+    series_truncated = serializers.BooleanField(
+        help_text="True when the service has more series than the response carries; the quietest were dropped."
+    )
+    series = LogsSeriesBandSeriesSerializer(
+        many=True,
+        help_text="One entry per (namespace, environment, severity) series, ordered by observed volume descending.",
+    )
+
+
+class LogsSeriesBandsErrorSerializer(serializers.Serializer):
+    error = serializers.CharField(help_text="Human readable description of why the series could not be charted.")
+
+
+class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    """Anomaly surfaces over one service's log volume.
+
+    Experimental, behind the logs-anomalies feature flag. `scan` computes
+    everything per request from raw logs; `series_bands` reads the volume
+    rollup. Neither persists anything.
     """
 
     scope_object = "logs"
@@ -237,4 +315,52 @@ class LogsAnomalyScanViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
 
         response_data = LogsAnomalyScanResponseSerializer(result).data
         cache.set(cache_key, response_data, SCAN_CACHE_TTL_SECONDS)
+        return Response(response_data)
+
+    @validated_request(
+        request_serializer=LogsSeriesBandsRequestSerializer,
+        responses={
+            200: OpenApiResponse(
+                response=LogsSeriesBandsResponseSerializer,
+                description="Observed volume and expected band per series of the service.",
+            ),
+            422: OpenApiResponse(
+                response=LogsSeriesBandsErrorSerializer,
+                description="The service has too many series to chart in one response.",
+            ),
+        },
+        summary="Per-series log volume with expected bands",
+        description=(
+            "Returns the last 7 days of log volume for every (namespace, environment, severity) series "
+            "of one service, with a time-of-week expected band derived from the prior weeks of the "
+            "volume rollup. Synchronous and read only."
+        ),
+    )
+    @action(
+        detail=False,
+        methods=["POST"],
+        required_scopes=["logs:read"],
+        url_path="series_bands",
+        throttle_classes=[LogsSeriesBandsBurstRateThrottle, LogsSeriesBandsSustainedRateThrottle],
+    )
+    def series_bands(self, request: ValidatedRequest, **kwargs: Any) -> Response:
+        data = request.validated_data
+        service_name: str = data["serviceName"]
+        interval_minutes: int = int(data["intervalMinutes"])
+
+        cache_key = (
+            "logs_series_bands/"
+            + hashlib.sha256(f"{self.team.id}/{service_name}/{interval_minutes}".encode()).hexdigest()
+        )
+        cached = cache.get(cache_key)
+        if cached is not None:
+            return Response(cached)
+
+        try:
+            result = run_series_bands(self.team, service_name, interval_minutes=interval_minutes)
+        except SeriesBandsFetchTruncated as err:
+            return Response({"error": str(err)}, status=status.HTTP_422_UNPROCESSABLE_ENTITY)
+
+        response_data = LogsSeriesBandsResponseSerializer(result).data
+        cache.set(cache_key, response_data, SERIES_BANDS_CACHE_TTL_SECONDS)
         return Response(response_data)

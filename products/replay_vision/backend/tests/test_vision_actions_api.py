@@ -7,8 +7,8 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.cdp.templates.fixtures import template_slack
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
-from posthog.cdp.templates.slack.template_slack import template as template_slack
 from posthog.models import Organization, Team
 from posthog.models.integration import Integration
 
@@ -739,6 +739,7 @@ class TestVisionActionRunNow(_VisionActionAPITestCase):
         from products.replay_vision.backend.temporal.constants import (
             PROCESS_VISION_ACTION_WORKFLOW_NAME,
             build_process_vision_action_workflow_id,
+            on_demand_priority,
         )
 
         mock_sync_connect.return_value = MagicMock()
@@ -756,6 +757,7 @@ class TestVisionActionRunNow(_VisionActionAPITestCase):
 
         args, kwargs = start_workflow.call_args
         self.assertEqual(args[0], PROCESS_VISION_ACTION_WORKFLOW_NAME)
+        self.assertEqual(kwargs["priority"], on_demand_priority(self.team.id))
         inputs = args[1]
         self.assertEqual(inputs.vision_action_id, action.id)
         self.assertEqual(inputs.mode, "group_summary")

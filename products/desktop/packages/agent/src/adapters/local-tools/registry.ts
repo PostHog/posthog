@@ -46,6 +46,14 @@ export interface LocalToolGateMeta {
    * human ends.
    */
   background?: boolean;
+  /**
+   * Agent peer messaging is enabled for this run (backend flag + runtime check,
+   * surfaced as POSTHOG_AGENT_PEER_MESSAGING at agent-server launch): enables
+   * the `list_agents`/`send_agent_message` tools. Exposure only — the peers
+   * endpoints re-check authorization server-side on every call.
+   */
+  peerMessaging?: boolean;
+  taskOriginProduct?: string;
 }
 
 /**

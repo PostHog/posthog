@@ -6,6 +6,7 @@ browser and React Native SDKs treat a linked flag they can't resolve as "do not 
 stale key silently turns replay off for the team rather than surfacing an error anywhere.
 """
 
+from collections.abc import Collection
 from typing import Any
 
 from django.db import transaction
@@ -21,6 +22,10 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 logger = structlog.get_logger(__name__)
 
+REPLAY_LINKED_FLAG_DELETE_ERROR = (
+    "This feature flag is used in session replay settings. Please remove it from replay settings before deleting."
+)
+
 
 def teams_linking_flag(feature_flag: FeatureFlag) -> QuerySet[Team]:
     """Every team gating session recording on this flag."""
@@ -30,6 +35,25 @@ def teams_linking_flag(feature_flag: FeatureFlag) -> QuerySet[Team]:
         project_id=feature_flag.team.project_id,
         session_recording_linked_flag__contains={"id": feature_flag.id},
     )
+
+
+def replay_linked_flag_ids(project_id: int, flag_ids: Collection[int]) -> set[int]:
+    """Which of the given flags a team in this project gates session recording on.
+
+    The batch equivalent of `teams_linking_flag`, in one query. Matching ids inside jsonb keeps
+    that check's comparison semantics, so the single-flag and bulk delete guards agree on what
+    counts as linked; a malformed value like `{"id": true}` matches no flag, because jsonb never
+    equates booleans with numbers.
+    """
+    if not flag_ids:
+        return set()
+    stored_ids = Team.objects.filter(
+        project_id=project_id,
+        session_recording_linked_flag__id__in=flag_ids,
+    ).values_list("session_recording_linked_flag__id", flat=True)
+    # jsonb also equates numbers regardless of representation, so a stored float id can match an
+    # int flag id; normalize for the int membership checks callers do.
+    return {int(stored_id) for stored_id in stored_ids}
 
 
 def update_linked_flag_key(team: Team, expected_flag_id: int, new_key: str) -> None:

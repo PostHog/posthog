@@ -40,6 +40,12 @@ from products.tasks.backend.logic.services.run_actor import (
     loop_owner_eligible_for_credentials,
 )
 from products.tasks.backend.redis import get_tasks_cache
+from products.tasks.backend.temporal.process_task.ai_gateway_token import (
+    MINTABLE_PRODUCTS,
+    mint_scoped_token,
+    resolve_sandbox_ai_product,
+    sandbox_product_routed,
+)
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -384,6 +390,7 @@ class RunState(BaseModel, extra="allow"):
     fast_mode: bool | None = None
     resume_from_run_id: str | None = None
     handoff_resumed: bool = False
+    handoff_resume_idle: bool = False
     snapshot_external_id: str | None = None
     snapshot_kind: str | None = None
     snapshot_mount_path: str | None = None
@@ -549,6 +556,10 @@ class McpServerConfig:
 
 
 def get_sandbox_api_url() -> str:
+    # Local Docker caveat: this URL reaches the sandbox inside MCP server configs, which
+    # (unlike the env vars in _DOCKER_URL_ENV_KEYS) are never rewritten to
+    # host.docker.internal. With the localhost default, a local sandbox can't dial the
+    # MCP Store proxy, so the agent SDK silently drops every store connector.
     return settings.SANDBOX_API_URL or settings.SITE_URL
 
 
@@ -1222,11 +1233,15 @@ def get_sandbox_name_for_task(task_id: str) -> str:
 def build_sandbox_environment_variables(
     github_token: str | None,
     access_token: str,
-    team_id: int,
+    ctx,
+    task,
     sandbox_environment: Optional[Any] = None,
     otel_telemetry_enabled: bool = False,
 ) -> dict[str, str]:
     """Build the environment variables dict for a sandbox, merging user env vars from SandboxEnvironment.
+
+    Takes the run's ctx/task wholesale so the gateway routing/mint env is derived by
+    ``run_gateway_env_vars`` and no caller can drop part of the context.
 
     User-provided env vars are applied first so system vars always take precedence,
     preventing a malicious SandboxEnvironment from overriding security-critical values.
@@ -1247,7 +1262,7 @@ def build_sandbox_environment_variables(
         {
             "POSTHOG_PERSONAL_API_KEY": access_token,
             "POSTHOG_API_URL": get_sandbox_api_url(),
-            "POSTHOG_PROJECT_ID": str(team_id),
+            "POSTHOG_PROJECT_ID": str(ctx.team_id),
             "JWT_PUBLIC_KEY": get_sandbox_jwt_public_key(),
         }
     )
@@ -1255,7 +1270,7 @@ def build_sandbox_environment_variables(
     if settings.SANDBOX_LLM_GATEWAY_URL:
         env_vars["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
-    env_vars.update(ai_gateway_env_vars())
+    env_vars.update(run_gateway_env_vars(ctx, task))
 
     if otel_telemetry_enabled:
         env_vars.update(get_sandbox_otel_env_vars())
@@ -1281,18 +1296,57 @@ def get_sandbox_otel_env_vars() -> dict[str, str]:
     return env_vars
 
 
-def ai_gateway_env_vars() -> dict[str, str]:
+def run_gateway_env_vars(ctx, task) -> dict[str, str]:
+    """The gateway routing/mint env for one run, derived from its server-side context.
+
+    Every sandbox provisioning path calls this rather than spelling out the kwargs, so
+    no path can silently drop the team, origin, stage, internal, or acting-identity
+    context that scoped-token minting depends on. `ctx` is the run's
+    TaskProcessingContext (duck-typed to avoid an import cycle); `task` the Task row.
+    """
+    return ai_gateway_env_vars(
+        team_id=ctx.team_id,
+        origin_product=ctx.origin_product,
+        ai_stage=(ctx.state or {}).get("ai_stage"),
+        internal=task.internal,
+        distinct_id=ctx.distinct_id,
+    )
+
+
+def ai_gateway_env_vars(
+    *,
+    team_id: int | None = None,
+    origin_product: str | None = None,
+    ai_stage: str | None = None,
+    internal: bool = False,
+    distinct_id: str | None = None,
+) -> dict[str, str]:
     """Env vars routing listed products to the Go ai-gateway, shared by every
     injection site so the both-or-nothing guard cannot drift per site. Both
     settings or nothing: a URL with no product allowlist would route every
     sandbox caller, and a product list with no URL has nowhere to go.
+
+    When the run's product is on the allowlist and a mint credential is
+    configured, a per-run `phe_` scoped token is minted and injected as
+    ``AI_GATEWAY_TOKEN``; the agent server routes to the Go gateway only when
+    the token is present, so a missing token (mint failure, or a caller that
+    cannot supply run context) degrades the run to the Python gateway.
     """
-    if settings.SANDBOX_AI_GATEWAY_URL and settings.SANDBOX_AI_GATEWAY_PRODUCTS:
-        return {
-            "AI_GATEWAY_URL": settings.SANDBOX_AI_GATEWAY_URL,
-            "AI_GATEWAY_PRODUCTS": settings.SANDBOX_AI_GATEWAY_PRODUCTS,
-        }
-    return {}
+    if not (settings.SANDBOX_AI_GATEWAY_URL and settings.SANDBOX_AI_GATEWAY_PRODUCTS):
+        return {}
+    env_vars = {
+        "AI_GATEWAY_URL": settings.SANDBOX_AI_GATEWAY_URL,
+        "AI_GATEWAY_PRODUCTS": settings.SANDBOX_AI_GATEWAY_PRODUCTS,
+    }
+    if team_id is not None:
+        ai_product = resolve_sandbox_ai_product(origin_product, ai_stage, internal=internal)
+        if ai_product in MINTABLE_PRODUCTS and sandbox_product_routed(
+            ai_product, ai_stage, settings.SANDBOX_AI_GATEWAY_PRODUCTS
+        ):
+            token = mint_scoped_token(ai_product=ai_product, team_id=team_id, user=distinct_id)
+            if token:
+                env_vars["AI_GATEWAY_TOKEN"] = token
+    return env_vars
 
 
 def get_pr_authorship_mode(task: Task, state: dict[str, Any] | None = None) -> PrAuthorshipMode:
@@ -1313,6 +1367,28 @@ def get_pr_authorship_mode(task: Task, state: dict[str, Any] | None = None) -> P
         return PrAuthorshipMode.BOT
 
     return PrAuthorshipMode.USER if task.origin_product in USER_AUTHORABLE_ORIGIN_PRODUCTS else PrAuthorshipMode.BOT
+
+
+def is_bot_authorship_fallback(task: Task, run_id: str, state: dict[str, Any] | None = None) -> bool:
+    """Whether this run was meant to carry a human git identity but couldn't.
+
+    True exactly when the run's origin is user-authorable and it still resolved to bot
+    authorship, which happens when the creator had no usable personal GitHub installation
+    at creation time. Runs that are bot-authored by design (signal reports) and runs pinned
+    to a caller-supplied token are excluded: neither would be fixed by anyone connecting
+    their own GitHub.
+
+    Selects the same population `upgrade_run_to_user_authorship` promotes, so a surface can
+    tell someone their pull request went out under the bot's name and know that connecting
+    is what changes it.
+    """
+    if task.origin_product not in USER_AUTHORABLE_ORIGIN_PRODUCTS:
+        return False
+    if parse_run_state(state).run_source == RunSource.SIGNAL_REPORT:
+        return False
+    if get_pr_authorship_mode(task, state) != PrAuthorshipMode.BOT:
+        return False
+    return not is_caller_token_run(run_id, state)
 
 
 def upgrade_run_to_user_authorship(

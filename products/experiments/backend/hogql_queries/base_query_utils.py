@@ -2,6 +2,8 @@ from datetime import datetime
 from typing import Literal, Optional, Union
 from zoneinfo import ZoneInfo
 
+from rest_framework.exceptions import ValidationError
+
 from posthog.schema import (
     ActionsNode,
     BaseMathType,
@@ -34,6 +36,7 @@ from products.actions.backend.models.action import Action
 from products.experiments.backend.hogql_queries.hogql_aggregation_utils import (
     aggregation_needs_numeric_input,
     build_aggregation_call,
+    contains_aggregation,
     extract_aggregation_and_inner_expr,
 )
 from products.experiments.backend.models.experiment import Experiment
@@ -148,12 +151,28 @@ def get_source_value_expr(source: Union[EventsNode, ActionsNode, ExperimentDataW
             if math_hogql:
                 tag_contains_user_hogql()
                 _, inner_expr, _, _ = extract_aggregation_and_inner_expr(math_hogql)
+                # The inner expression is evaluated per event row, so any aggregate call
+                # left in it (a compound expression like sum(a) / count(), or a nested
+                # aggregate) would generate invalid SQL and fail in ClickHouse with
+                # NOT_AN_AGGREGATE. Reject it with an actionable error instead.
+                if contains_aggregation(inner_expr):
+                    raise ValidationError(
+                        "HogQL metric expressions must be a single aggregation, e.g. sum(properties.revenue). "
+                        "Compound expressions like sum(a) / count() are not supported."
+                    )
                 return inner_expr
     elif isinstance(source, ExperimentDataWarehouseNode):
         metric_property = getattr(source, "math_property", None)
         if metric_property:
             tag_contains_user_hogql()
-            return parse_expr(metric_property)
+            parsed = parse_expr(metric_property)
+            # Same constraint as math_hogql above: this is a per-row value expression.
+            if contains_aggregation(parsed):
+                raise ValidationError(
+                    "Data warehouse metric properties cannot contain aggregate functions; "
+                    "reference a column or a per-row expression instead."
+                )
+            return parsed
 
     # Default to count - emit 1 so we can easily sum it up
     return ast.Constant(value=1)

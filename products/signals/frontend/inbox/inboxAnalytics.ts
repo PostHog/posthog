@@ -80,6 +80,29 @@ export type InboxReportActionType =
     | 'remove_suggested_reviewer'
 
 /**
+ * Where the text of an "Ask AI" question came from. `suggested` is a scout-authored question sent as
+ * written, `edited_suggestion` one the reader changed first, and `typed` one written from scratch.
+ */
+export type InboxQuestionSource = 'suggested' | 'edited_suggestion' | 'typed'
+
+/**
+ * Extra properties the `discuss` {@link captureInboxReportAction} carries. Without them the event
+ * records that a question was asked and nothing about where it came from, so there is no way to tell
+ * whether the suggestions are worth offering. `suggestion_count` is what makes `question_source`
+ * readable: a `typed` question on a report that offered none is not evidence against suggestions.
+ *
+ * The question text itself is deliberately absent, like the list's search term: it is incidental
+ * typing that can name a customer's own entities.
+ */
+// pinned: analytics property names — renaming breaks dashboards
+export function discussQuestionProperties(params: {
+    source: InboxQuestionSource
+    suggestionCount: number
+}): Record<string, unknown> {
+    return { question_source: params.source, suggestion_count: params.suggestionCount }
+}
+
+/**
  * Whether a task-kickoff action (`discuss` / `create_pr`) actually produced a task. The press itself
  * is already an {@link captureInboxReportAction} event; without the outcome the two are
  * indistinguishable, so an attempted PR counts the same as a created one. `limited` is a server
@@ -94,12 +117,12 @@ export type InboxPanelName = 'runs' | 'config' | 'scratchpad' | 'findings'
 export type InboxQueryChange = 'scope' | 'sort' | 'source_product' | 'scout' | 'priority' | 'search' | 'clear' | 'url'
 
 /** Surface a scout-management event fired from. Matches the desktop values. */
-export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state'
+export type ScoutSurface = 'fleet_list' | 'scout_detail' | 'empty_state' | 'replay_vision_scanner'
 
 /**
- * Scout-management actions. The first block matches desktop's enum; the trailing three are
- * cloud-only, covering affordances desktop doesn't have (creating and deleting scouts, and the
- * scratchpad callout).
+ * Scout-management actions. The first block matches desktop's enum; the trailing block is
+ * cloud-only, covering affordances desktop doesn't have (creating and deleting scouts, the
+ * scratchpad callout, and the roster's on/off filter and search).
  */
 export type ScoutActionType =
     | 'open_settings'
@@ -122,6 +145,8 @@ export type ScoutActionType =
     | 'create_scout'
     | 'delete_scout'
     | 'open_memory'
+    | 'filter_enabled'
+    | 'search_scouts'
 
 /** What a scout chat CTA was asking for. Matches the desktop values. */
 export type ScoutChatType = 'author_scout' | 'fleet_overview' | 'recent_signals'
@@ -226,10 +251,19 @@ export function captureInboxWelcomeCommandCopied(params: {
     })
 }
 
+/**
+ * The report list settled for the first time in a tab mount. `report_count` / `total_count` describe
+ * the active tab's list only (and `report_count` is capped at the loaded page), so the headline
+ * "how many reports does this user have" numbers are `pulls_tab_count` / `reports_tab_count`: the tab badge
+ * counts, sent on every view regardless of which tab is open (same shape as the desktop event).
+ * A badge count is null only if its request failed.
+ */
 export function captureInboxViewed(params: {
     tab: string
     reports: SignalReport[]
     totalCount: number
+    pullsTabCount: number | null
+    reportsTabCount: number | null
     hasActiveFilters: boolean
     sourceProductFilter: string[]
     priorityFilter: string[]
@@ -239,6 +273,8 @@ export function captureInboxViewed(params: {
         tab: params.tab,
         report_count: params.reports.length,
         total_count: params.totalCount,
+        pulls_tab_count: params.pullsTabCount,
+        reports_tab_count: params.reportsTabCount,
         is_empty: params.totalCount === 0,
         has_active_filters: params.hasActiveFilters,
         source_product_filter: params.sourceProductFilter,

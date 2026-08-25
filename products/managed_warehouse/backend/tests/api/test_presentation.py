@@ -350,7 +350,6 @@ def test_provision_succeeds_even_when_the_team_row_completion_fails(mock_request
 
 
 @pytest.mark.django_db
-@override_settings(MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED=True)
 @patch("products.data_warehouse.backend.facade.api.schedule_managed_warehouse_direct_source_ensure")
 @patch("products.managed_warehouse.backend.presentation.views._request")
 def test_provision_schedules_generation_fenced_source_recovery_when_inline_ensure_fails(
@@ -749,7 +748,6 @@ def test_onboard_team_creates_duckgres_row_with_legacy_names(
 
 
 @pytest.mark.django_db
-@override_settings(MANAGED_WAREHOUSE_DYNAMIC_SQL_EDITOR_AUTH_ENABLED=True)
 @patch("products.data_warehouse.backend.facade.api.schedule_managed_warehouse_direct_source_ensure")
 @patch("products.managed_warehouse.backend.presentation.views.is_enabled", return_value=True)
 @patch("products.managed_warehouse.backend.presentation.views._request")

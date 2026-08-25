@@ -73,6 +73,8 @@ export interface SignalReport {
     is_suggested_reviewer: boolean
     /** Charts the report shows, placed by `[label](chart:<chart_id>)` links in the summary. */
     charts?: ReportChartApi[]
+    /** Questions the report's author suggests asking about it, offered above the "Ask AI" box. */
+    suggested_prompts?: string[]
     /** Count of signals at the time the latest research run kicked off. */
     signals_at_run?: number
     /** P0–P4 from the priority judgment when the report is researched. */
@@ -283,6 +285,12 @@ export interface SignalTeamConfig {
     default_slack_notification_channel?: string | null
     /** Per-repo base-branch overrides for auto-started PRs, keyed by 'org/repo'. */
     autostart_base_branches?: Record<string, string>
+    /** Daily cap on new reports surfacing to the inbox (project-timezone day). Null means unlimited. */
+    max_reports_per_day?: number | null
+    /** Read-only: reports that first became visible today (project timezone). Never send in a patch. */
+    reports_generated_today?: number
+    /** Read-only: whether the daily report limit is reached, pausing new report generation until local midnight. Never send in a patch. */
+    daily_report_limit_reached?: boolean
     created_at?: string
     updated_at?: string
 }

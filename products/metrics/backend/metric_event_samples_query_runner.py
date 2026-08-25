@@ -18,14 +18,30 @@ sample's trace_id can be passed straight to the trace endpoint / trace URL.
 
 import base64
 import datetime as dt
+from collections.abc import Sequence
 from typing import Any
 
 from posthog.hogql import ast
-from posthog.hogql.parser import parse_select
+from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.database.schema.metrics import HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES
+from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
+
+from products.metrics.backend.facade.contracts import MetricFilter
+from products.metrics.backend.facade.enums import MetricType
+from products.metrics.backend.metric_query_runner import filters_expr, type_filter_expr
+
+# This runs on the ClickHouse cluster shared with the live logs/traces
+# products, so cap how much one request may read. Same budget the chart
+# queries get, and the same throw-on-overflow: a truncated sample list would
+# read as "these are the emissions" while silently hiding most of them.
+_QUERY_SETTINGS = HogQLGlobalSettings(
+    max_bytes_to_read=HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES,
+    read_overflow_mode="throw",
+)
 
 
 def _normalise_to_base64(value: str) -> str:
@@ -50,6 +66,8 @@ class MetricEventSamplesQueryRunner:
         date_from: dt.datetime,
         date_to: dt.datetime,
         trace_id: str | None = None,
+        filters: Sequence[MetricFilter] = (),
+        metric_type: MetricType | None = None,
         limit: int = 100,
     ) -> None:
         if not metric_name:
@@ -64,7 +82,42 @@ class MetricEventSamplesQueryRunner:
         self.date_from = date_from
         self.date_to = date_to
         self.trace_id = _normalise_to_base64((trace_id or "").strip())
+        self.filters = tuple(filters)
+        self.metric_type = metric_type
         self.limit = limit
+
+    def _series_scope_expr(self) -> ast.Expr:
+        """Restrict the emissions to the series the caller's label filters select.
+
+        Labels live only on `metric_series`, so the predicate has to be an IN
+        over fingerprints, and it has to sit inside the sample subquery before
+        its LIMIT. Filtering after the LIMIT would take the newest `limit`
+        emissions across every series and then discard most of them, so a
+        filtered view would look almost empty while the chart shows plenty.
+
+        TRUE when nothing is pinned, which keeps the orphan case working: a
+        sample whose series row hasn't landed yet still renders. Once a filter
+        or a metric type is pinned there is no way to tell whether an orphan
+        belongs to the selection, so it drops out.
+        """
+        if not self.filters and self.metric_type is None:
+            return ast.Constant(value=True)
+        return parse_expr(
+            """
+                series_fingerprint IN (
+                    SELECT series_fingerprint
+                    FROM posthog.metric_series
+                    WHERE metric_name = {metric_name}
+                      AND {type_filter}
+                      AND {filters}
+                )
+            """,
+            placeholders={
+                "metric_name": ast.Constant(value=self.metric_name),
+                "type_filter": type_filter_expr(self.metric_type.value if self.metric_type else None),
+                "filters": filters_expr(self.filters),
+            },
+        )
 
     def run(self) -> list[dict[str, Any]]:
         # The trace filter is an always-present predicate that is a no-op when no
@@ -95,6 +148,7 @@ class MetricEventSamplesQueryRunner:
                       AND timestamp >= {date_from}
                       AND timestamp < {date_to}
                       AND ({trace_id} = '' OR trace_id = {trace_id})
+                      AND {series_scope}
                     ORDER BY timestamp DESC
                     LIMIT {limit}
                 ) AS s
@@ -124,6 +178,7 @@ class MetricEventSamplesQueryRunner:
                 "date_from": ast.Constant(value=self.date_from),
                 "date_to": ast.Constant(value=self.date_to),
                 "trace_id": ast.Constant(value=self.trace_id),
+                "series_scope": self._series_scope_expr(),
                 "limit": ast.Constant(value=self.limit),
             },
         )
@@ -134,6 +189,7 @@ class MetricEventSamplesQueryRunner:
             query=query,
             team=self.team,
             workload=Workload.LOGS,  # metrics share the logs ClickHouse workload pool for now
+            settings=_QUERY_SETTINGS,
         )
 
         return [

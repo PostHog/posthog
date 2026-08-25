@@ -1,5 +1,6 @@
 import {
     AccountsTableAccountField,
+    AccountsTableAccountFieldOperator,
     AccountsTableCustomPropertyOperator,
     AccountsTableSortDirection,
     NodeKind,
@@ -8,6 +9,7 @@ import { AccountCustomPropertyFilter, PropertyFilterType, PropertyOperator } fro
 
 import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import type { AccountPropertyFilter } from './accountsPropertyFilters'
 import {
     AccountsTableQueryPlan,
     BuildAccountsTableQueryPlanInput,
@@ -23,6 +25,16 @@ const definition = {
     name: 'MRR',
     display_type: 'currency',
 } as CustomPropertyDefinitionApi
+
+function accountFieldFilter(overrides: Partial<AccountPropertyFilter> = {}): AccountPropertyFilter {
+    return {
+        type: PropertyFilterType.Account,
+        key: AccountsTableAccountField.IgnoredAt,
+        operator: PropertyOperator.IsSet,
+        value: null,
+        ...overrides,
+    }
+}
 
 function customFilter(overrides: Partial<AccountCustomPropertyFilter> = {}): AccountCustomPropertyFilter {
     return {
@@ -49,7 +61,7 @@ function queryInput(overrides: Partial<BuildAccountsTableQueryPlanInput> = {}): 
         assignedToFilter: [],
         accountIdFilter: null,
         tileFilter: null,
-        customPropertyFilters: [],
+        accountFilters: [],
         customPropertyDefinitionsById: { [CUSTOM_PROPERTY_ID]: definition },
         columnDisplay: {},
         sortOrder: null,
@@ -65,7 +77,7 @@ describe('accountsTableQuery', () => {
                 searchQuery: ' acme ',
                 tagsFilter: ['enterprise'],
                 assignedToFilter: [7, 9],
-                customPropertyFilters: [customFilter()],
+                accountFilters: [customFilter()],
                 sortOrder: { column: 'csm', direction: 'desc' },
                 canSortClientSide: false,
             })
@@ -95,6 +107,52 @@ describe('accountsTableQuery', () => {
                 direction: AccountsTableSortDirection.Descending,
             },
         })
+    })
+
+    it('translates typed native account field filters', () => {
+        const plan = buildAccountsTableQueryPlan(
+            queryInput({
+                accountFilters: [
+                    accountFieldFilter(),
+                    accountFieldFilter({
+                        key: AccountsTableAccountField.CreatedAt,
+                        operator: PropertyOperator.IsDateAfter,
+                        value: '2026-08-01',
+                    }),
+                ],
+            })
+        )
+
+        expect(plan.query.filters).toEqual([
+            {
+                kind: 'account_field',
+                field: AccountsTableAccountField.IgnoredAt,
+                operator: AccountsTableAccountFieldOperator.IsSet,
+                values: [],
+            },
+            {
+                kind: 'account_field',
+                field: AccountsTableAccountField.CreatedAt,
+                operator: AccountsTableAccountFieldOperator.DateAfter,
+                values: ['2026-08-01'],
+            },
+        ])
+    })
+
+    it('omits incompatible native account field filters', () => {
+        const plan = buildAccountsTableQueryPlan(
+            queryInput({
+                accountFilters: [
+                    accountFieldFilter({
+                        key: AccountsTableAccountField.Name,
+                        operator: PropertyOperator.IsDateAfter,
+                        value: '2026-08-01',
+                    }),
+                ],
+            })
+        )
+
+        expect(plan.query.filters).toEqual([])
     })
 
     it('translates saved custom-property history display configuration', () => {
@@ -134,6 +192,7 @@ describe('accountsTableQuery', () => {
 
         expect(plan?.query.filters).toEqual([{ kind: 'account_id', accountId: RELATIONSHIP_ID }])
         expect(plan?.query.includeChurned).toBe(true)
+        expect(plan?.query.includeIgnored).toBe(true)
     })
 
     it('drops unsupported columns instead of changing runners', () => {
@@ -214,7 +273,7 @@ describe('accountsTableQuery', () => {
         const plan = buildAccountsTableQueryPlan(
             queryInput({
                 customPropertyDefinitionsById: { [CUSTOM_PROPERTY_ID]: incompatibleDefinition },
-                customPropertyFilters: [customFilter({ operator })],
+                accountFilters: [customFilter({ operator })],
             })
         )
 

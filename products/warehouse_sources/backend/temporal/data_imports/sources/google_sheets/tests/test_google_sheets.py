@@ -675,6 +675,68 @@ def test_get_schema_incremental_fields_skips_unparseable_range():
         assert get_schema_incremental_fields(config, "csm_followups") == []
 
 
+def test_google_sheets_source_skips_unparseable_header_range():
+    """Google rejects the unbounded "1:1" header-row range with the same deterministic 400 'Unable
+    to parse range' handled in `get_schema_incremental_fields` above (e.g. an empty sheet, or a
+    sheet resized to have no columns). The sync must treat this as a worksheet with no header row
+    instead of failing outright."""
+    config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+
+    mock_worksheet = mock.MagicMock()
+    mock_worksheet.get_all_values.side_effect = _api_error(
+        400, "Unable to parse range: 'empty_sheet'!1:1", "INVALID_ARGUMENT"
+    )
+    mock_worksheet.get.return_value = [[]]
+
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.get_schemas",
+            return_value=[("empty_sheet", 123)],
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets._get_worksheet",
+            return_value=mock_worksheet,
+        ),
+    ):
+        response = google_sheets_source(
+            config, "empty_sheet", db_incremental_field_last_value=None, api_version=GOOGLE_SHEETS_API_VERSION_V4
+        )
+        tables = list(cast(Iterable[Any], response.items()))
+
+    assert response.primary_keys is None
+    assert tables[0].num_rows == 0
+
+
+def test_google_sheets_source_skips_unparseable_invalid_range_on_data_read():
+    """The full-grid read in `get_rows` has no explicit A1 range (it asks for the whole sheet by
+    name), so the same deterministic 400 handled above for the header/incremental-field reads
+    surfaces as 'Invalid range: <title>' instead of 'Unable to parse range'. This call had no
+    handling for it at all, so a zero-dimension worksheet crashed the sync outright instead of
+    syncing as an empty table."""
+    config = GoogleSheetsSourceConfig(spreadsheet_url="https://docs.google.com/spreadsheets/d/fake")
+
+    mock_worksheet = mock.MagicMock()
+    mock_worksheet.get_all_values.return_value = [[]]
+    mock_worksheet.get.side_effect = _api_error(400, "Invalid range: 'empty_sheet'", "INVALID_ARGUMENT")
+
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets.get_schemas",
+            return_value=[("empty_sheet", 123)],
+        ),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.google_sheets.google_sheets._get_worksheet",
+            return_value=mock_worksheet,
+        ),
+    ):
+        response = google_sheets_source(
+            config, "empty_sheet", db_incremental_field_last_value=None, api_version=GOOGLE_SHEETS_API_VERSION_V4
+        )
+        tables = list(cast(Iterable[Any], response.items()))
+
+    assert tables[0].num_rows == 0
+
+
 def test_get_schema_incremental_fields_reraises_other_api_errors():
     """Only the deterministic 'Unable to parse range' 400 is swallowed. Transient 5xx errors are
     retried with backoff and, once retries are exhausted, must still propagate so Temporal can retry

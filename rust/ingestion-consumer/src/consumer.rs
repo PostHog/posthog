@@ -164,6 +164,13 @@ impl IngestionConsumer {
         }
 
         let client_config = config.build_consumer_config();
+        // After the build, so the caps reported are the ones the client runs
+        // with rather than the settings that seeded them.
+        crate::kafka_stats::export_limits(
+            &client_config,
+            config.consumer_batch_size,
+            config.consumer_batch_size_kb,
+        );
         let commit_sentinel = Arc::new(CommitSentinel::new());
         commit_sentinel.set_enabled(config.consumer_order_sentinel_enabled);
         let key_sentinel = dispatcher.key_order_sentinel();
@@ -301,18 +308,31 @@ impl IngestionConsumer {
         info!("Consumer loop stopped");
     }
 
-    fn spawn_batch_processing(&self, collected: CollectedBatch) -> InFlightBatch {
+    fn spawn_batch_processing(&self, mut collected: CollectedBatch) -> InFlightBatch {
         let batch_size = collected.messages.len();
         let batch_id = make_batch_id();
-        // Register here, on the consumer loop, so the stash learns batch order
-        // before the spawned tasks race: assignment and failed-send deferrals
-        // can reach the stash out of batch order.
+        // Register AND assign here, on the consumer loop, so both happen in
+        // true batch order. Registration first, so the stash learns batch
+        // order before failed-send deferrals (which land in gather order) can
+        // reach it. Assignment too: on spawned tasks, batch N+1's assign could
+        // beat batch N's to the pin table and send a key's newer messages
+        // first — per-key send order must be fixed exactly once, in Kafka
+        // order, at assignment.
         self.dispatcher.register_batch(&batch_id);
         record_if(&self.debug_recorder, || DebugEventKind::BatchDispatched {
             batch_id: batch_id.clone(),
             messages: batch_size,
             partitions: debug_partition_offsets(&collected.offsets, &collected.stats.max_lag_ms),
         });
+        let assign_start = Instant::now();
+        let messages = std::mem::take(&mut collected.messages);
+        let sub_batches = self.dispatcher.assign(&batch_id, messages);
+        // Assignment serializes on the consumer loop (it no longer overlaps
+        // batch collection) — watch this stays a small fraction of the batch
+        // collection interval.
+        histogram!("ingestion_consumer_assign_duration_seconds")
+            .record(assign_start.elapsed().as_secs_f64());
+
         let task_batch_id = batch_id.clone();
         let dispatcher = Arc::clone(&self.dispatcher);
         let transport = Arc::clone(&self.transport);
@@ -323,6 +343,8 @@ impl IngestionConsumer {
         let handle = tokio::spawn(async move {
             Self::process_collected_batch(
                 collected,
+                sub_batches,
+                batch_size,
                 task_batch_id,
                 dispatcher,
                 transport,
@@ -558,11 +580,15 @@ impl IngestionConsumer {
             .signal_failure(format!("Batch processing failed: {err:#}"));
     }
 
-    /// Assign a collected batch via the Dispatcher, scatter to workers, gather
-    /// results, and feed passive health signals. Offset commits happen later,
-    /// in Kafka batch order, in `complete_oldest_batch`.
+    /// Scatter a batch's pre-assigned sub-batches to workers, gather results,
+    /// and feed passive health signals. Assignment already happened on the
+    /// consumer loop (see `spawn_batch_processing`); offset commits happen
+    /// later, in Kafka batch order, in `complete_oldest_batch`.
+    #[allow(clippy::too_many_arguments)]
     async fn process_collected_batch(
         collected: CollectedBatch,
+        sub_batches: Vec<SubBatch>,
+        batch_size: usize,
         batch_id: String,
         dispatcher: Arc<Dispatcher>,
         transport: Arc<HttpTransport>,
@@ -570,7 +596,6 @@ impl IngestionConsumer {
         max_batch_size: usize,
         max_batch_bytes: usize,
     ) -> anyhow::Result<ProcessedBatch> {
-        let batch_size = collected.messages.len();
         let start = Instant::now();
 
         counter!("ingestion_consumer_messages_received_total").increment(batch_size as u64);
@@ -619,11 +644,6 @@ impl IngestionConsumer {
             )
             .record(*lag_ms as f64);
         }
-
-        // Health-aware assignment: groups by routing key, honors stickiness,
-        // skips unhealthy/dead workers, and defers keys whose worker is
-        // draining/dead (held in the dispatcher's stash, flushed at completion).
-        let sub_batches = dispatcher.assign(&batch_id, collected.messages);
 
         // Nothing to send and no flush-path activity (deferred, in-flight
         // eager, or already eagerly accepted) → no usable workers.

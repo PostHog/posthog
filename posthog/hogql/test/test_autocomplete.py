@@ -21,7 +21,7 @@ from posthog.hogql.database.schema.persons import PERSONS_FIELDS
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.models import InsightVariable
 from products.warehouse_sources.backend.facade.models import (
     DataWarehouseCredential,
     DataWarehouseTable,
@@ -223,7 +223,7 @@ class TestAutocomplete(ClickhouseTestMixin, APIBaseTest):
         query = "select , (select id from persons) as blah from events"
         results = self._select(query=query, start=7, end=7)
 
-        keys = list(EventsTable().fields.keys())
+        keys = [key for key, field in EventsTable().fields.items() if not field.hidden]
 
         for index, key in enumerate(keys):
             assert results.suggestions[index].label == key

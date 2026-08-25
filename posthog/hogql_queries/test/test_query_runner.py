@@ -1181,9 +1181,7 @@ class TestApplySeriesCustomNames(BaseTest):
     ):
         from posthog.schema import CachedStickinessQueryResponse, StickinessQuery
 
-        from products.product_analytics.backend.hogql_queries.stickiness.stickiness_query_runner import (
-            StickinessQueryRunner,
-        )
+        from products.product_analytics.backend.facade.queries import StickinessQueryRunner
 
         query = StickinessQuery(
             series=[

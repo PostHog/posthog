@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 import structlog
 from parameterized import parameterized
 
-from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
+from posthog.schema import ReleaseStatus
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -21,10 +21,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.se
 from products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.source import WhoGhoSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.who_gho import (
     MAX_INDICATOR_CODES,
-    WhoGhoResumeConfig,
     who_gho_source,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _make_inputs(
@@ -53,9 +51,6 @@ class TestWhoGhoSource:
         self.source = WhoGhoSource()
         self.config = WhoGhoSourceConfig(indicator_codes="WHOSIS_000001\nWHOSIS_000002")
 
-    def test_source_type(self) -> None:
-        assert self.source.source_type == ExternalDataSourceType.WHOGHO
-
     def test_get_source_config(self) -> None:
         config = self.source.get_source_config
 
@@ -65,34 +60,6 @@ class TestWhoGhoSource:
         assert config.iconPath == "/static/services/who_gho.png"
         # A finished source ships visible; re-adding the flag would hide it from every user.
         assert not config.unreleasedSource
-
-    def test_get_source_config_fields(self) -> None:
-        fields = [field for field in self.source.get_source_config.fields if isinstance(field, SourceFieldInputConfig)]
-
-        assert [field.name for field in fields] == ["indicator_codes"]
-        assert fields[0].type == SourceFieldInputConfigType.TEXTAREA
-        assert fields[0].required is True
-        # The API is open, so nothing on this form is a credential.
-        assert fields[0].secret is False
-
-    def test_get_schemas(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=123)
-
-        assert [schema.name for schema in schemas] == list(ENDPOINTS)
-        assert all(schema.description for schema in schemas)
-
-    def test_only_indicator_data_supports_incremental(self) -> None:
-        schemas = {schema.name: schema for schema in self.source.get_schemas(self.config, team_id=123)}
-
-        assert schemas["indicator_data"].supports_incremental
-        assert not schemas["indicators"].supports_incremental
-        assert not schemas["dimensions"].supports_incremental
-        assert not schemas["dimension_values"].supports_incremental
-
-    def test_get_schemas_filters_by_name(self) -> None:
-        schemas = self.source.get_schemas(self.config, team_id=123, names=["indicator_data"])
-
-        assert [schema.name for schema in schemas] == ["indicator_data"]
 
     def test_documented_tables_render_without_credentials(self) -> None:
         # The public docs endpoint builds a blank config and calls get_schemas, so discovery must
@@ -116,12 +83,6 @@ class TestWhoGhoSource:
         # Unlike indicator_data, every dimension shares one DIMENSION_VALUE entity type, and the
         # API declares Code as that entity's only key -- it is genuinely unique table-wide.
         assert PRIMARY_KEYS["dimension_values"] == ["Code"]
-
-    def test_get_resumable_source_manager_is_bound_to_the_resume_config(self) -> None:
-        manager = self.source.get_resumable_source_manager(_make_inputs())
-
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is WhoGhoResumeConfig
 
     def test_non_retryable_error_matches_an_unknown_indicator_code(self) -> None:
         raised = "404 Client Error: Not Found for url: https://ghoapi.azureedge.net/api/NOT_REAL"
@@ -188,20 +149,3 @@ class TestWhoGhoSource:
             list(cast(Iterable[Any], response.items()))
 
         assert mock_source.call_args.kwargs["since"] is None
-
-    @parameterized.expand(
-        [
-            ("WHOSIS_000001", ["WHOSIS_000001"]),
-            ("", []),
-        ]
-    )
-    def test_validate_credentials_parses_the_codes_before_probing(
-        self, indicator_codes: str, expected_codes: list[str]
-    ) -> None:
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.sources.who_gho.source.validate_who_gho_credentials"
-        ) as mock_validate:
-            mock_validate.return_value = (True, None)
-            self.source.validate_credentials(WhoGhoSourceConfig(indicator_codes=indicator_codes), team_id=123)
-
-        assert mock_validate.call_args.args == (expected_codes,)

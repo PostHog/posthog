@@ -17,7 +17,6 @@
 1 posthog/clickhouse/property_groups.py
 1 posthog/clickhouse/test/test_explain.py
 1 posthog/dags/common/resources.py
-1 posthog/dags/postgres_to_clickhouse_etl.py
 1 posthog/dags/tests/test_events_backfill_to_duckling.py
 1 posthog/dags/tests/test_property_definitions.py
 1 posthog/errors.py
@@ -45,14 +44,13 @@
 1 posthog/management/commands/create_channel_definitions_file.py
 1 posthog/models/file_system/file_system_representation.py
 1 posthog/models/group/util.py
-1 posthog/models/integration.py
+1 posthog/models/integration/oauth.py
 1 posthog/models/person/bulk_delete.py
 1 posthog/models/person/util.py
 1 posthog/personhog_client/fake_client.py
 1 posthog/persons_seed.py
 1 posthog/session/backfill.py
 1 posthog/storage/auth_token_cache_verifier.py
-1 posthog/storage/hypercache_manager.py
 1 posthog/storage/hypercache_verifier.py
 1 posthog/tasks/alerts/detector.py
 1 posthog/tasks/alerts/detectors/base.py
@@ -191,6 +189,9 @@
 1 products/slack_app/backend/tests/services/test_slack_app_home.py
 1 products/stamphog/backend/tests/conftest.py
 1 products/stamphog/backend/tests/fakes.py
+1 products/stamphog/packages/pr-approval-agent/familiarity.py
+1 products/stamphog/packages/pr-approval-agent/github.py
+1 products/stamphog/packages/pr-approval-agent/review_pr.py
 1 products/streamlit_apps/backend/logic/zip_validator.py
 1 products/surveys/backend/summarization/llm/gemini.py
 1 products/tasks/backend/logic/services/agent_command.py
@@ -1593,7 +1594,7 @@
 5 products/customer_analytics/backend/temporal/calendar_sync.py
 5 products/managed_warehouse/backend/temporal/ducklake_copy_data_modeling_workflow.py
 5 products/notebooks/backend/kernel_runtime.py
-5 products/signals/backend/temporal/buffer.py
+4 products/signals/backend/temporal/buffer.py
 5 products/tasks/backend/temporal/execute_sandbox/workflow.py
 6 posthog/dags/deletes.py
 6 posthog/hogql/base.py

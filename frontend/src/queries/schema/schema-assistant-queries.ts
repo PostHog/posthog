@@ -1342,6 +1342,20 @@ export interface AssistantTrendsActorsQuery {
      * @default true
      */
     includeRecordings?: boolean
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true,
+     * call again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /** A single lifecycle bucket — see `AssistantLifecycleActorsQuery.status`. */
@@ -1373,6 +1387,20 @@ export interface AssistantLifecycleActorsQuery {
      * in the source's `lifecycleFilter.toggledLifecycles` (defaults to all four when omitted).
      */
     status: AssistantLifecycleStatus
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true,
+     * call again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /**
@@ -1399,6 +1427,20 @@ export interface AssistantPathsActorsQuery {
      * @default true
      */
     includeRecordings?: boolean
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true,
+     * call again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /**
@@ -1428,6 +1470,20 @@ export interface AssistantRetentionActorsQuery {
      * Defaults to `0` when omitted.
      */
     interval?: integer
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * cohort: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call
+     * again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /**
@@ -1460,6 +1516,20 @@ export interface AssistantStickinessActorsQuery {
 
     /** Whether to pull from the previous period when `compareFilter` is enabled in the source. */
     compare?: 'current' | 'previous'
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true,
+     * call again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /**
@@ -1523,6 +1593,20 @@ export interface AssistantFunnelsActorsQuery {
      * @default true
      */
     includeRecordings?: boolean
+
+    /**
+     * Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped.
+     * @default 100
+     */
+    limit?: integer
+
+    /**
+     * Number of persons to skip before the returned page. Use it with `limit` to walk the whole
+     * result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true,
+     * call again with `offset` raised by `limit`.
+     * @default 0
+     */
+    offset?: integer
 }
 
 /**

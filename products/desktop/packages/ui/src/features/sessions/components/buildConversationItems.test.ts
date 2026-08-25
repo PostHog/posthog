@@ -89,6 +89,18 @@ function backgroundTurnCompleteMsg(
   };
 }
 
+function backgroundTurnStartedMsg(ts: number): AcpMessage {
+  return {
+    type: "acp_message",
+    ts,
+    message: {
+      jsonrpc: "2.0",
+      method: "_posthog/background_turn_started",
+      params: { sessionId: "session-1" },
+    },
+  };
+}
+
 function agentMessageMsg(ts: number, text: string): AcpMessage {
   return {
     type: "acp_message",
@@ -789,10 +801,12 @@ describe("buildConversationItems", () => {
       });
     });
 
-    it("hides debug-level console logs by default and renders them inline when showDebugLogs is true", () => {
+    it("hides internal console logs by default and renders them inline when showDebugLogs is true", () => {
       const events: AcpMessage[] = [
         progressMsg(1, "sandbox", "in_progress", "Setting up sandbox"),
         consoleMsg(2, "sandbox provisioned", "debug"),
+        consoleMsg(3, "handoff skipped", "warn"),
+        consoleMsg(4, "checkpoint captured", "info"),
       ];
 
       const hidden = buildConversationItems(events, null);
@@ -807,11 +821,11 @@ describe("buildConversationItems", () => {
         showDebugLogs: true,
       });
       expect(
-        shown.items.some(
+        shown.items.filter(
           (i) =>
             i.type === "session_update" && i.update.sessionUpdate === "console",
         ),
-      ).toBe(true);
+      ).toHaveLength(3);
     });
 
     it("emits no progress group for a conversation without progress notifications", () => {
@@ -1124,6 +1138,24 @@ describe("buildConversationItems", () => {
       expect(lastTurnInfo?.durationMs).toBeGreaterThan(0);
     });
 
+    it("tracks an active background turn until its completion arrives", () => {
+      const active = buildConversationItems(
+        [backgroundTurnStartedMsg(10), agentMessageMsg(11, "Working")],
+        false,
+      );
+      const completed = buildConversationItems(
+        [
+          backgroundTurnStartedMsg(10),
+          agentMessageMsg(11, "Working"),
+          backgroundTurnCompleteMsg(12),
+        ],
+        false,
+      );
+
+      expect(active.isBackgroundTurnActive).toBe(true);
+      expect(completed.isBackgroundTurnActive).toBe(false);
+    });
+
     it("does not spawn a phantom turn for a silent trailing update like usage_update", () => {
       // A usage_update (or any other content-less session/update) commonly
       // trails the final background reply. It must not reopen a turn on its
@@ -1168,3 +1200,143 @@ function findProgressGroups(items: ConversationItem[]): ProgressGroupUpdate[] {
   }
   return groups;
 }
+
+describe("plan recovered from a permission request", () => {
+  // A sandbox agent that recovers the plan from a plan file sends the
+  // ExitPlanMode tool_call plan-less; the plan travels only inside the
+  // permission request, which persists in the run log.
+  const PLAN = "# Dummy plan\n\n1. Open `dummy.ts`.\n2. Add a log line.";
+
+  const exitPlanModeMsg = (
+    ts: number,
+    rawInput: Record<string, unknown> = {},
+  ): AcpMessage => ({
+    type: "acp_message",
+    ts,
+    message: {
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        update: {
+          sessionUpdate: "tool_call",
+          toolCallId: "toolu_plan",
+          title: "Ready to code?",
+          kind: "switch_mode",
+          status: "pending",
+          rawInput,
+          content: [],
+          _meta: { claudeCode: { toolName: "ExitPlanMode" } },
+        },
+      },
+    },
+  });
+
+  const permissionRequestMsg = (ts: number, plan: string): AcpMessage => ({
+    type: "acp_message",
+    ts,
+    message: {
+      jsonrpc: "2.0",
+      method: "_posthog/permission_request",
+      params: {
+        requestId: "req-plan",
+        toolCallId: "toolu_plan",
+        options: [
+          { optionId: "default", name: "Yes, continue", kind: "allow_once" },
+        ],
+        toolCall: {
+          toolCallId: "toolu_plan",
+          kind: "switch_mode",
+          title: "Ready to code?",
+          content: [{ type: "content", content: { type: "text", text: plan } }],
+          rawInput: {
+            plan,
+            planFilePath: "/root/.claude/plans/plan.md",
+            toolName: "ExitPlanMode",
+          },
+        },
+      },
+    },
+  });
+
+  const resolvingUpdateMsg = (ts: number): AcpMessage => ({
+    type: "acp_message",
+    ts,
+    message: {
+      jsonrpc: "2.0",
+      method: "session/update",
+      params: {
+        update: {
+          sessionUpdate: "tool_call_update",
+          toolCallId: "toolu_plan",
+          rawInput: {},
+          status: "completed",
+        },
+      },
+    },
+  });
+
+  function planToolCallOf(items: ConversationItem[]) {
+    const item = items.find(
+      (i) =>
+        i.type === "session_update" && i.update.sessionUpdate === "tool_call",
+    );
+    return (item?.type === "session_update" ? item.update : undefined) as
+      | { rawInput?: { plan?: string }; status?: string }
+      | undefined;
+  }
+
+  it("folds the plan from a logged permission_request into the plan-less tool call", () => {
+    const { items } = buildConversationItems(
+      [
+        userPromptMsg(1, 1, "plan something"),
+        exitPlanModeMsg(2),
+        permissionRequestMsg(3, PLAN),
+      ],
+      true,
+    );
+
+    expect(planToolCallOf(items)?.rawInput?.plan).toBe(PLAN);
+  });
+
+  it("keeps the recovered plan across the resolving plan-less tool_call_update", () => {
+    const { items } = buildConversationItems(
+      [
+        userPromptMsg(1, 1, "plan something"),
+        exitPlanModeMsg(2),
+        permissionRequestMsg(3, PLAN),
+        resolvingUpdateMsg(4),
+      ],
+      true,
+    );
+
+    const toolCall = planToolCallOf(items);
+    expect(toolCall?.status).toBe("completed");
+    expect(toolCall?.rawInput?.plan).toBe(PLAN);
+  });
+
+  it("applies a plan whose permission frame arrives before the tool_call", () => {
+    const { items } = buildConversationItems(
+      [
+        userPromptMsg(1, 1, "plan something"),
+        permissionRequestMsg(2, PLAN),
+        exitPlanModeMsg(3),
+      ],
+      true,
+    );
+
+    expect(planToolCallOf(items)?.rawInput?.plan).toBe(PLAN);
+  });
+
+  it("never overrides an inline plan", () => {
+    const { items } = buildConversationItems(
+      [
+        userPromptMsg(1, 1, "plan something"),
+        exitPlanModeMsg(2, { plan: "inline plan" }),
+        permissionRequestMsg(3, PLAN),
+      ],
+      true,
+    );
+
+    expect(planToolCallOf(items)?.rawInput?.plan).toBe("inline plan");
+  });
+});

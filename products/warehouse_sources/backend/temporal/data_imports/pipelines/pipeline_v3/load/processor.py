@@ -982,7 +982,6 @@ def _process_message_reported(
             file_count=len(delta_table.file_uris()),
         )
 
-        # Handle partial data loading for first-ever sync
         async_to_sync(_handle_partial_data_loading)(
             export_signal=export_signal,
             job=job,
