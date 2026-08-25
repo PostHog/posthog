@@ -176,3 +176,53 @@ def test_failed_finalization_with_no_job_resets_stale_running_schema() -> None:
     schema.refresh_from_db()
     assert schema.status == ExternalDataSchema.Status.FAILED
     assert schema.latest_error == "could not create the sync job"
+
+
+# transaction=True commits the fixture rows so the activity's pool-thread connection can resolve
+# the source through database_sync_to_async_pool.
+@pytest.mark.django_db(transaction=True)
+def test_retryable_proxy_tunnel_failure_stores_a_redacted_terminal_message() -> None:
+    # A Salesforce proxy tunnel failure is retryable, but a job that exhausts its whole retry
+    # budget lands FAILED with the raw urllib3 text. That text must never reach the customer-facing
+    # latest_error: no proxy host, port, or driver internals.
+    org = Organization.objects.create(name="org")
+    team = Team.objects.create(organization=org, name="team")
+    source = ExternalDataSource.objects.create(team=team, source_type="Salesforce")
+    schema = ExternalDataSchema.objects.create(team=team, source=source, name="Contact")
+
+    raw_error = (
+        "HTTPSConnectionPool(host='login.salesforce.com', port=443): Max retries exceeded with url: "
+        "/services/oauth2/token (Caused by ProxyError('Cannot connect to proxy.', "
+        "OSError('Tunnel connection failed: 502 Bad Gateway')))"
+    )
+    inputs = UpdateExternalDataJobStatusInputs(
+        team_id=team.id,
+        job_id="019fde98-0727-0000-3f05-9991b4c84155",
+        schema_id=str(schema.id),
+        source_id=str(source.id),
+        status=ExternalDataJob.Status.FAILED,
+        internal_error=raw_error,
+        latest_error=raw_error,
+    )
+
+    env = ActivityEnvironment()
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_rows",
+            return_value=0,
+        ),
+        mock.patch("products.warehouse_sources.backend.temporal.data_imports.external_data_job.finish_row_tracking"),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_should_sync"
+        ) as mock_update_should_sync,
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_external_job_status"
+        ) as mock_update_job_status,
+    ):
+        asyncio.run(env.run(update_external_data_job_model, inputs))
+
+    stored_error = mock_update_job_status.call_args.kwargs["latest_error"]
+    for leaked in ("HTTPSConnectionPool", "login.salesforce.com", "443", "Tunnel connection failed", "ProxyError"):
+        assert leaked not in stored_error
+    # The source is not disabled, so the next scheduled sync retries.
+    mock_update_should_sync.assert_not_called()

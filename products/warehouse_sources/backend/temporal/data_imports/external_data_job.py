@@ -356,6 +356,21 @@ async def update_external_data_job_model(inputs: UpdateExternalDataJobStatusInpu
                 disable_error_message=inputs.latest_error or AUTO_DISABLED_JOB_ERROR,
                 disable_exclude_workflow_id=activity.info().workflow_id,
             )
+        else:
+            # A retryable error can still exhaust its whole retry budget and land here FAILED. Its
+            # raw text can leak transport internals (proxy host, port, driver), so swap in the
+            # source's redacted message. The source stays enabled, so the next scheduled sync retries.
+            redacted_messages = source_cls.get_retryable_error_messages()
+            redacted_error = next(
+                (
+                    message
+                    for pattern, message in redacted_messages.items()
+                    if message is not None and error_message_matches(internal_error_normalized, [pattern])
+                ),
+                None,
+            )
+            if redacted_error is not None:
+                inputs.latest_error = redacted_error
 
     await database_sync_to_async_pool(update_external_job_status)(
         job_id=job_id,

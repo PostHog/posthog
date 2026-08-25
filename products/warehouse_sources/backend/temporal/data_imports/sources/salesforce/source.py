@@ -85,6 +85,21 @@ class SalesforceSource(ResumableSource[SalesforceSourceConfig, SalesforceResumeC
             "Tunnel connection failed: 504",
         }
 
+    def get_retryable_error_messages(self) -> dict[str, str | None]:
+        # A proxy CONNECT (tunnel) failure that exhausts the whole retry budget lands the job
+        # FAILED, and its raw text carries the egress-proxy host, port, and urllib3 driver
+        # internals. Redact the stable proxy class to a message a customer can act on. Retryability
+        # is unchanged. The next scheduled sync retries.
+        proxy_message = (
+            "PostHog could not reach Salesforce through its network proxy. This is usually "
+            "temporary, and the sync will run again on its next schedule."
+        )
+        return {
+            "Tunnel connection failed: 502": proxy_message,
+            "Tunnel connection failed: 503": proxy_message,
+            "Tunnel connection failed: 504": proxy_message,
+        }
+
     def get_schemas(
         self,
         config: SalesforceSourceConfig,

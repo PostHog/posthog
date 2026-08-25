@@ -227,6 +227,23 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         return set()
 
+    def get_retryable_error_messages(self) -> dict[str, str | None]:
+        """Redacted terminal messages for retryable errors that exhaust the retry budget.
+
+        A retryable error (see `get_retryable_errors`) self-recovers on retry, but a job can
+        still exhaust its whole Temporal retry budget and land FAILED. The raw exception text
+        then becomes the customer-facing `latest_error`, which can leak transport internals
+        (proxy host, port, driver). Map a stable retryable class to a redacted, customer-facing
+        message here; the finalization activity swaps it into `latest_error` when the terminal
+        error matches. A `None` value keeps the raw message.
+
+        Returns `dict[str, str | None]`:
+            key = a partial error message to match on
+            value = a redacted message to show to users; the raw message is kept when this is `None`
+        """
+
+        return {}
+
     def get_required_parent_schemas(self, schema_name: str) -> list[str]:
         """Sibling schemas `schema_name` reads from the warehouse instead of re-fetching.
 
