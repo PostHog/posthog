@@ -20,6 +20,7 @@ from optimize_test_durations import (
     run_average_files,
     run_merge_files,
     scale_products_to_junit,
+    scope_products_to_junit,
     shard_sets_match,
 )
 
@@ -318,6 +319,25 @@ def test_shard_sets_match_requires_every_junit_artifact() -> None:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+def test_scope_products_to_junit_keeps_products_the_run_skipped(tmp_path: Path) -> None:
+    (tmp_path / "ran").mkdir()
+    (tmp_path / "skipped").mkdir()
+    durations = {
+        "products/ran/test_a.py::test_kept": 1.0,
+        "products/ran/test_a.py::test_stale": 2.0,
+        "products/skipped/test_b.py::test_one": 3.0,
+        "products/deleted/test_c.py::test_one": 4.0,
+        "posthog/test_d.py::test_one": 5.0,
+    }
+
+    scoped = scope_products_to_junit(durations, {"products/ran/test_a.py::test_kept"}, products_dir=tmp_path)
+
+    assert scoped == {
+        "products/ran/test_a.py::test_kept": 1.0,
+        "products/skipped/test_b.py::test_one": 3.0,
+    }
 
 
 def test_scale_products_to_junit_matches_sums_to_measured_work(tmp_path: Path) -> None:

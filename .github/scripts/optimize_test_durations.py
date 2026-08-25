@@ -540,6 +540,33 @@ def product_junit_work(junit_dir: Path) -> dict[str, float]:
     return dict(work)
 
 
+def product_module(test_id: str) -> str | None:
+    """The products/<module>/ directory a nodeid lives in, or None outside products/."""
+    parts = test_id.split("/", 2)
+    if parts[0] != "products" or len(parts) < 3:
+        return None
+    return parts[1]
+
+
+def scope_products_to_junit(durations: dict[str, float], ran: set[str], products_dir: Path) -> dict[str, float]:
+    """Keep the nodeids the product jobs ran, plus every product no job ran at all.
+
+    A product a run skips (SKIP_PRODUCT_TESTS, the quarantine file) still has a
+    complete shard set, so it reaches here with no entries in ran. Dropping it
+    would make the products/ replace-merge forget its timings, and once the skip
+    lifts it sizes from the per-file fallback until the next run. A product whose
+    directory is gone is stale, not skipped, so it is dropped.
+    """
+    ran_modules = {module for module in map(product_module, ran) if module}
+    absent_modules = {module for module in map(product_module, durations) if module} - ran_modules
+    skipped_modules = {module for module in absent_modules if (products_dir / module).is_dir()}
+    return {
+        test_id: duration
+        for test_id, duration in durations.items()
+        if test_id in ran or product_module(test_id) in skipped_modules
+    }
+
+
 def scale_products_to_junit(durations: dict[str, float], junit_dir: Path) -> dict[str, float]:
     """Scale each product's entries so their sum equals the JUnit-measured work.
 
@@ -794,7 +821,7 @@ def main():
         if shard_sets_match(shards, junit_shards):
             ran = set().union(*(shard.call_times.keys() for shard in junit_shards))
             before_count = len(durations)
-            durations = {test_id: duration for test_id, duration in durations.items() if test_id in ran}
+            durations = scope_products_to_junit(durations, ran, Path("products"))
             logger.info(
                 "  Scoped Products to complete JUnit coverage (%d shards, dropped %d stale nodeids)",
                 len(junit_shards),

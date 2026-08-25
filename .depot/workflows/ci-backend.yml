@@ -865,12 +865,14 @@ jobs:
                   #   Core POE on:    posthog/clickhouse, posthog/queries, ee/clickhouse/,
                   #                   products/product_analytics/backend/tests/api,
                   #                   posthog/api/test/dashboards/test_dashboard.py
-                  #   Temporal:       posthog/temporal, products/{batch_exports,tasks}/backend/temporal,
-                  #                   products/signals/backend/emission
+                  #   Temporal:       posthog/temporal, products/signals/backend/emission
                   #   Compat:         CLICKHOUSE_COMPAT_PYTEST_TARGETS (posthog/clickhouse, ee/clickhouse)
                   # Files outside posthog/ and ee/ (e.g. products/foo/backend/test_*) are not in this
-                  # matrix. turbo-tests handles them; warehouse_sources and managed_warehouse run
-                  # their own temporal suites there.
+                  # matrix. turbo-tests handles them, including the temporal suites of
+                  # batch_exports, managed_warehouse, tasks and warehouse_sources, because every
+                  # shard starts the temporal profile, so running them there costs nothing
+                  # extra. Keep this list in sync with PRODUCTS_RUNNING_TEMPORAL_IN_JOB and
+                  # DJANGO_SEGMENTS in turbo-discover.js.
                   core=()
                   poe=()
                   temporal=()

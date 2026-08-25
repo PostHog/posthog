@@ -796,8 +796,7 @@ jobs:
                   #   Core POE on:    posthog/clickhouse, posthog/queries, ee/clickhouse/,
                   #                   products/product_analytics/backend/tests/api,
                   #                   posthog/api/test/dashboards/test_dashboard.py
-                  #   Temporal:       posthog/temporal, products/{batch_exports,tasks}/backend/temporal,
-                  #                   products/signals/backend/emission
+                  #   Temporal:       posthog/temporal, products/signals/backend/emission
                   #   Compat:         CLICKHOUSE_COMPAT_PYTEST_TARGETS (posthog/clickhouse, ee/clickhouse)
                   # Files outside posthog/ and ee/ (e.g. products/foo/backend/test_*) are not in this
                   # matrix. turbo-tests handles them, including the temporal suites of
