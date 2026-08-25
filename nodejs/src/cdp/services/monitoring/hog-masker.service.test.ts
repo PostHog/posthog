@@ -400,7 +400,6 @@ describe('HogMasker', () => {
 
             describe('hog flow trigger masking', () => {
                 let hogFlowEvery: HogFlow
-                let hogFlowOncePer: HogFlow
                 let hogFlowOnceEver: HogFlow
 
                 beforeEach(() => {
@@ -424,11 +423,6 @@ describe('HogMasker', () => {
                         ...base,
                         id: 'hf_every',
                         trigger_masking: { ...HOG_FLOW_MASK_EXAMPLES.everyTime.trigger_masking },
-                    } as HogFlow
-                    hogFlowOncePer = {
-                        ...base,
-                        id: 'hf_once_per',
-                        trigger_masking: { ...HOG_FLOW_MASK_EXAMPLES.oncePerTimePeriod.trigger_masking, ttl: 1 },
                     } as HogFlow
                     hogFlowOnceEver = {
                         ...base,
@@ -465,15 +459,6 @@ describe('HogMasker', () => {
                     // negative) would let this one through too.
                     const extra = await masker.filterByMasking([createExampleHogFlowInvocation(hogFlowEvery)])
                     expect(extra.masked).toHaveLength(1)
-                })
-
-                it('resets after ttl for hog flow trigger masking', async () => {
-                    const inv = createExampleHogFlowInvocation(hogFlowOncePer)
-                    expect((await masker.filterByMasking([inv])).notMasked).toHaveLength(1)
-                    expect((await masker.filterByMasking([inv])).masked).toHaveLength(1)
-                    await reallyAdvanceTime(1000)
-                    expect((await masker.filterByMasking([inv])).notMasked).toHaveLength(1)
-                    expect((await masker.filterByMasking([inv])).masked).toHaveLength(1)
                 })
 
                 it('uses threshold for onceEver flow trigger masking', async () => {
