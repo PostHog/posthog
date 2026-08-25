@@ -28,7 +28,7 @@ Common reinventions and what to use instead:
 
 If nothing fits, say so and propose extending the existing component before adding a new one. Don't silently fork. If you do end up building custom, stay on brand: system tokens and primitives only, matching the surrounding scene's density and flatness — and none of the generic AI-generated look (purple/blue gradients, glassmorphism, gradient text, icon-tile card grids, decorative motion). The full slop-tell catalog is in the `/writing-ui-components` skill.
 
-The same goes for patterns, not just components: before building a new scene or view, read 2–3 comparable ones and model yours on those that follow these rules. Precedent that violates Rule 4 or `/writing-ui-components` is legacy to route around, not license to repeat — conventions outrank precedent, and compliant precedent outranks invention.
+The same goes for patterns, not just components: before building a new scene or view, read 2–3 comparable ones and model yours on those that follow these rules. Precedent that violates Rule 5 or `/writing-ui-components` is legacy to route around, not license to repeat — conventions outrank precedent, and compliant precedent outranks invention.
 
 > LemonUI vs quill lives in the root `AGENTS.md` ("Code Style → Frontend (quill vs LemonUI)"). If you're working somewhere quill genuinely applies (an MCP app, the desktop app), `packages/quill/packages/primitives/AGENTS.md` has its component-choice and spacing rules, and the two libraries must not be mixed inside one component's internals.
 
@@ -62,11 +62,7 @@ Covered by the root `AGENTS.md` (Code Style → Frontend). The discovery hint fo
 
 **Cleanup in a logic goes through disposables.** If a `*Logic.ts` adds a `setInterval`, `setTimeout`, `addEventListener`, or any other resource that needs teardown, prefer `cache.disposables.add(() => ..., 'key')` over `cache.foo = setInterval(...)` plus `beforeUnmount` cleanup — the plugin handles teardown and auto-pauses on hidden tabs. `add`/`dispose` are no-ops after unmount, so call them without `?.` or a null check. When an async continuation must also skip its own work after an unmount, branch on `cache.disposables.isDisposed`. Invoke `/using-kea-disposables` before making the change.
 
-## Feature flags in stories
-
-If a story renders a component gated on a feature flag, set the flag via the `featureFlags` story parameter — not by calling `featureFlagLogic.setFeatureFlags` imperatively, which is silently dropped in the visual-regression runtime. For a multivariate flag use the record form, e.g. `parameters: { featureFlags: { [FEATURE_FLAGS.MY_FLAG]: 'test_b' } }`. Invoke `/setting-feature-flags-in-storybook` before making the change.
-
-## Rule 4 — Structure and abstraction
+## Rule 5 — Structure and abstraction
 
 Full doctrine + convert-on-sight catalog: the `/writing-ui-components` skill. Load it before creating, moving, splitting, or restructuring any component or frontend file, extracting a shared component, or renaming frontend symbols. The always-on core:
 
@@ -75,6 +71,10 @@ Full doctrine + convert-on-sight catalog: the `/writing-ui-components` skill. Lo
 - **Interactive elements are real `<button>`/`<a>`** — that's what `LemonButton`/quill triggers render. Never `onClick` on a `<div>`/Card.
 - **Loading, empty, and error are three different screens.** Never derive "empty" from data that hasn't resolved — branch on the loading/unknown state first.
 - **Renames sweep code symbols completely; wire strings stay frozen.** Event names, property names/values, flag keys, `data-attr` values, storage keys, and URL paths are API (dashboards, rollouts, and Playwright depend on them) — pin them with a comment instead of renaming.
+
+## Feature flags in stories
+
+If a story renders a component gated on a feature flag, set the flag via the `featureFlags` story parameter — not by calling `featureFlagLogic.setFeatureFlags` imperatively, which is silently dropped in the visual-regression runtime. For a multivariate flag use the record form, e.g. `parameters: { featureFlags: { [FEATURE_FLAGS.MY_FLAG]: 'test_b' } }`. Invoke `/setting-feature-flags-in-storybook` before making the change.
 
 ## Typecheck & typegen cadence (don't over-run these)
 

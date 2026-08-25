@@ -250,7 +250,8 @@ class RunEvaluationWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: RunEvaluationInputs) -> WorkflowResult:
         # Every #71518-era run recorded the "remove-trial-evals" patch marker; accept those
-        # histories for one release, then delete this call (temporal-workflow-versioning rule).
+        # histories for one release, then delete this call (see posthog/temporal/README.md,
+        # "Version a workflow before you edit its body").
         temporalio.workflow.deprecate_patch("remove-trial-evals")
 
         start_time = temporalio.workflow.now()
