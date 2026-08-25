@@ -93870,6 +93870,10 @@ export namespace Schemas {
 
     export type PersonsListParams = {
     /**
+     * Names the ClickHouse query this request runs. Send the same id to `DELETE /api/projects/:project_id/query/:client_query_id/` to stop a search that is still running. Up to 128 characters.
+     */
+    client_query_id?: string;
+    /**
      * Filter list by distinct id.
      */
     distinct_id?: string;
