@@ -536,6 +536,32 @@ describe('SourceWebhooksConsumer', () => {
                 ])
             })
 
+            it('does not report usage when queueing the workflow fails', async () => {
+                const reportBillableInvocation = jest.spyOn(
+                    api['cdpSourceWebhooksConsumer']['cdpUsageReporter'],
+                    'reportBillableInvocation'
+                )
+                mockQueueHogflowInvocationsSpy.mockRejectedValueOnce(new Error('queue unavailable'))
+
+                const res = await doPostRequest({
+                    webhookId: hogFlow.id,
+                    body: {
+                        event: 'my-event',
+                        distinct_id: 'test-distinct-id',
+                    },
+                })
+
+                expect(res.status).toEqual(500)
+                await waitForBackgroundTasks()
+                expect(reportBillableInvocation).not.toHaveBeenCalled()
+                expect(getMetrics()).not.toContainEqual(
+                    expect.objectContaining({
+                        metric_kind: 'billing',
+                        metric_name: 'billable_invocation',
+                    })
+                )
+            })
+
             it('should not capture webhook event to database and should remove execution count property', async () => {
                 // Mock the monitoring service to track what events would be captured
                 const mockQueueInvocationResults = jest.spyOn(
