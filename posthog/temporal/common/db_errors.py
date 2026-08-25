@@ -40,7 +40,11 @@ _TRANSIENT_DB_ERROR_MARKERS = (
 # refusing work while it does, which clears once it comes back. Available on the wrapped
 # psycopg error for server-raised failures; connect failures carry no SQLSTATE and fall
 # through to the message markers above.
-_TRANSIENT_SQLSTATE_PREFIXES = ("57P",)
+# 25006 (read_only_sql_transaction): a primary briefly refuses writes/locks mid-failover
+# (e.g. Aurora promoting a new writer) before client connections are redirected. psycopg
+# classes this under its own InternalError, not OperationalError, so it needs the wider
+# isinstance check below.
+_TRANSIENT_SQLSTATE_PREFIXES = ("57P", "25006")
 
 # read_only_sql_transaction: a primary/replica failover briefly leaves the connection's target
 # read-only until promotion finishes or the pooler redirects to the new primary. Matched exactly
