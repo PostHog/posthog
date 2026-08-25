@@ -21,7 +21,7 @@ from oauth2_provider.utils import jwk_from_pem
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models.organization_domain import OrganizationDomain
+from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.user import User
 from posthog.scopes import get_oauth_scopes_supported
 from posthog.security.url_validation import is_url_allowed
@@ -233,12 +233,11 @@ def _get_scopes(id_jag_scopes: list[str], requested_scopes: list[str] | None) ->
     return intersected
 
 
-def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, "OrganizationDomain"]:
+def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, IdentityProviderConfig]:
     """
     Verifies the provided ID-JAG token against the IdP's JWKS and returns the
     claims, the provider name we stamp into the issued access token's `sub`,
-    and the `OrganizationDomain` row that owns the trusted IdP config (used to
-    bind the issued access token to a single organization).
+    and the IdP configuration that binds the token to one organization.
 
     Raises `IdJagError` (with the right RFC 6749 error code) on every documented
     failure mode at https://xaa.dev/docs/error-codes
@@ -269,7 +268,7 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
 
     id_jag_email = unverified_claims.get("email") or unverified_claims.get("sub") or ""
 
-    resolution = OrganizationDomain.objects.get_verified_for_email_address_and_issuer(id_jag_email, issuer)
+    resolution = IdentityProviderConfig.objects.get_id_jag_for_request(id_jag_email, issuer)
     if resolution.organization_domain is None or resolution.identity_provider_config is None or resolution.error:
         # Do not echo the specific reason — see GENERIC_ID_JAG_REJECTION.
         logger.info(
@@ -280,10 +279,10 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
         )
         raise InvalidGrantError(GENERIC_ID_JAG_REJECTION)
 
-    org_domain = resolution.organization_domain
     idp_config = resolution.identity_provider_config
+    organization_domain = resolution.organization_domain
     expected_issuer = (idp_config.id_jag_issuer_url or "").rstrip("/")
-    provider_name = org_domain.domain
+    provider_name = organization_domain.domain
 
     try:
         jwks_client = _get_jwks_client(expected_issuer, jwks_url=idp_config.id_jag_jwks_url or None)
@@ -385,22 +384,18 @@ def _verify_and_extract_id_jag_token(assertion: str) -> tuple[IdJagClaims, str, 
 
     verified_email = claims.get("email") or claims.get("sub") or ""
 
-    # The user must be an active member of the *specific* organization whose
-    # OrganizationDomain pinned this IdP — not merely a member of any org that
-    # also verified this domain. The issued access token is scoped to
-    # `org_domain.organization_id` downstream, so membership must be enforced
-    # on that exact org.
+    # Membership must match the configuration's organization because the access token is scoped to it.
     is_member = User.objects.filter(
         is_active=True,
         email__iexact=verified_email,
-        organization_membership__organization_id=org_domain.organization.pk,
+        organization_membership__organization_id=idp_config.organization_id,
     ).exists()
     if not is_member:
         raise InvalidGrantError(
             "ID-JAG sub is not an active member of the organization that owns this IdP configuration"
         )
 
-    return claims, provider_name, org_domain
+    return claims, provider_name, idp_config
 
 
 def _construct_access_token_payload(
@@ -478,9 +473,9 @@ def issue_access_token(
     handler. Returns `(access_token, granted_scopes, expires_in_seconds)`.
     """
 
-    claims, provider_name, org_domain = _verify_and_extract_id_jag_token(assertion)
+    claims, provider_name, idp_config = _verify_and_extract_id_jag_token(assertion)
 
-    organization = org_domain.organization
+    organization = idp_config.organization
     if not organization.is_feature_available(AvailableFeature.XAA_AUTHENTICATION):
         raise AccessDeniedError("ID-JAG (XAA) is not enabled for this organization")
 
