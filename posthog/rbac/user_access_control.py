@@ -333,6 +333,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "replay_scanner"
     if name in ("visionaction", "visionactionrun"):
         return "vision_action"
+    if name == "llmskill":
+        return "llm_skill"
 
     if name not in API_SCOPE_OBJECTS or name in INTERNAL_API_SCOPE_OBJECTS:
         return None
