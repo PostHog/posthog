@@ -42,11 +42,14 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.rate_limit import MaterializationRateThrottle, PersonalApiKeyOrUserRateThrottle, RunSavedQueryRateThrottle
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.query_access import assert_user_can_read_query
-from posthog.rbac.user_access_control import UserAccessControl, UserAccessControlSerializerMixin
 from posthog.temporal.common.client import sync_connect
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.data_modeling.backend.facade.api import MAX_LOOKBACK_SECONDS, get_incremental_config
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import (

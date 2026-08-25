@@ -209,7 +209,7 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert results["sampled"] is False
 
     def test_blocks_generic_query_runner_access(self) -> None:
-        from posthog.rbac.user_access_control import UserAccessControlError
+        from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
         query = LogsQuery(
             dateRange=_WINDOW,
