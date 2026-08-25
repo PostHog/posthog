@@ -1240,9 +1240,11 @@ export interface EvaluationRunsStats {
 export async function queryEvaluationRunsStats(params: {
     evaluationId?: string
     traceId?: string
+    /** Bounds the scan so it can prune partitions, same as queryEvaluationRuns. */
+    lookbackDays?: number
     forceRefresh?: boolean
 }): Promise<EvaluationRunsStats> {
-    const { evaluationId, traceId, forceRefresh } = params
+    const { evaluationId, traceId, lookbackDays, forceRefresh } = params
 
     const propertyValue = evaluationId || traceId
 
@@ -1261,6 +1263,7 @@ export async function queryEvaluationRunsStats(params: {
         WHERE
             event = '$ai_evaluation'
             AND ${hogql.raw(`properties.${propertyName}`)} = ${propertyValue}
+            ${lookbackDays ? hogql.raw(`AND timestamp >= now() - INTERVAL ${Math.floor(lookbackDays)} DAY`) : hogql.raw('')}
     `
 
     const response = await api.queryHogQL(

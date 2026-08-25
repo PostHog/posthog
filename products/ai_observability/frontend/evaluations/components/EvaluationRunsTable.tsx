@@ -38,10 +38,43 @@ function SentimentEvaluationRunsFilters(): JSX.Element {
 }
 
 export function EvaluationRunsTable(): JSX.Element {
-    const { filteredEvaluationRuns, evaluation, evaluationRunsLoading } = useValues(llmEvaluationLogic)
+    const { filteredEvaluationRuns, evaluationRuns, evaluationRunsError, evaluation, evaluationRunsLoading } =
+        useValues(llmEvaluationLogic)
     const { refreshEvaluationRuns } = useActions(llmEvaluationLogic)
     const showOutcomeFilters = evaluationSupportsRunOutcomes(evaluation)
     const showSentimentFilters = evaluation?.evaluation_type === 'sentiment'
+
+    // A filter is hiding rows when the evaluation has runs but none match the current filter.
+    const filterHidesRuns = evaluationRuns.length > 0 && filteredEvaluationRuns.length === 0
+
+    const emptyState = evaluationRunsError ? (
+        <div className="text-center py-8">
+            <div className="text-muted mb-2">Could not load evaluation runs</div>
+            <div className="text-sm text-muted mb-3">The query failed. This is usually temporary. Try again.</div>
+            <LemonButton
+                type="secondary"
+                icon={<IconRefresh />}
+                onClick={refreshEvaluationRuns}
+                loading={evaluationRunsLoading}
+                size="small"
+                data-attr="llma-evaluation-runs-retry"
+            >
+                Retry
+            </LemonButton>
+        </div>
+    ) : filterHidesRuns ? (
+        <div className="text-center py-8">
+            <div className="text-muted mb-2">No runs match this filter</div>
+            <div className="text-sm text-muted">Change the filter above to see this evaluation's other runs.</div>
+        </div>
+    ) : (
+        <div className="text-center py-8">
+            <div className="text-muted mb-2">No evaluation runs yet</div>
+            <div className="text-sm text-muted">
+                Runs will appear here once this evaluation starts executing based on your triggers.
+            </div>
+        </div>
+    )
 
     const columns: LemonTableColumns<EvaluationRun> = [
         {
@@ -119,14 +152,7 @@ export function EvaluationRunsTable(): JSX.Element {
                 pagination={{
                     pageSize: 50,
                 }}
-                emptyState={
-                    <div className="text-center py-8">
-                        <div className="text-muted mb-2">No evaluation runs yet</div>
-                        <div className="text-sm text-muted">
-                            Runs will appear here once this evaluation starts executing based on your triggers.
-                        </div>
-                    </div>
-                }
+                emptyState={emptyState}
             />
         </div>
     )
