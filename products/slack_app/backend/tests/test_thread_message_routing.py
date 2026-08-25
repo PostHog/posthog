@@ -247,6 +247,28 @@ class TestRouteThreadMessage(TestCase):
         mock_proxy.assert_not_called()
         mock_start.assert_not_called()
 
+    @override_settings(SLACK_WORKFLOW_TRIGGERS_ENABLED=True)
+    def test_thread_reply_crosses_once_via_region_gate_not_mirror(self):
+        # A thread reply on a workspace held in both regions must cross exactly once. The follow-up
+        # pipeline's region gate already forwards it to the region that also claims the workspace, so
+        # adding an emit-only mirror would make that region emit the reply twice and trigger a
+        # workflow twice. Deliver to EU (can defer) with the other region claiming the workspace.
+        from products.slack_app.backend.api import ROUTE_PROXIED, route_posthog_code_event_to_relevant_region
+
+        event = self._make_event()  # thread_ts != ts, a reply
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="eu.posthog.com")
+        with (
+            patch("products.slack_app.backend.api.cross_region_routing_enabled", return_value=True),
+            patch("products.slack_app.backend.api.does_other_region_claim_workspace", return_value=True),
+            patch("products.slack_app.backend.api._proxy_event_to_region") as mock_proxy,
+            patch("products.slack_app.backend.slack_workflow_events.produce_internal_event"),
+        ):
+            result = route_posthog_code_event_to_relevant_region(request, event, "T_SLACK")
+
+        assert result == ROUTE_PROXIED
+        mock_proxy.assert_called_once()
+        assert mock_proxy.call_args.kwargs.get("extra_headers") is None
+
     # --- Mapping + FF gate -------------------------------------------------
 
     def test_thread_without_mapping_dropped(self):

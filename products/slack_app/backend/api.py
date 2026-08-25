@@ -656,6 +656,17 @@ def _proxy_event_and_return_route(request: HttpRequest, target_domain: str) -> s
     return ROUTE_PROXIED if _proxy_event_to_region(request, target_domain) is not None else ROUTE_PROXY_FAILED
 
 
+def _is_top_level_channel_post(event: dict[str, Any]) -> bool:
+    """Whether a channel ``message`` starts a thread rather than replying inside one.
+
+    Slack sets ``thread_ts`` on replies and to ``ts`` on the post that opened the thread. Top-level
+    posts are the ones the follow-up pipeline discards before its region gate, so the mirror is what
+    carries them across; a reply already reaches that gate and crosses through it.
+    """
+    thread_ts = event.get("thread_ts")
+    return not isinstance(thread_ts, str) or thread_ts == event.get("ts")
+
+
 def _mirror_message_event_to_other_region(
     request: HttpRequest,
     event: dict,
@@ -664,14 +675,19 @@ def _mirror_message_event_to_other_region(
     incoming_host: str,
     other_domain: str,
 ) -> None:
-    """Send an emit-only copy of a channel message to the other region when it also holds the workspace.
+    """Send an emit-only copy of a top-level channel post to the other region when it also holds the workspace.
 
     A workspace connected in both regions gets its events consumed by the region Slack delivers to,
     and the plain hand-off only fires when that region holds no connection — so the other region's
     workflow triggers would otherwise never see a top-level channel message. Fire-and-forget: the
     local pipeline continues regardless, and a failed mirror costs the other region one message,
     not this region's handling.
+
+    Only top-level posts are mirrored. A thread reply already reaches the follow-up pipeline's
+    region gate and crosses through it, so mirroring one would make the other region emit it twice.
     """
+    if not _is_top_level_channel_post(event):
+        return
     if not is_triggering_message(event):
         return
     claimed = does_other_region_claim_workspace(
@@ -2147,8 +2163,7 @@ def route_posthog_code_event_to_relevant_region(
                 )
                 return ROUTE_HANDLED_LOCALLY
             # Top-level channel posts dominate the wire volume; drop before the pipeline's DB hits.
-            top_level_thread_ts = event.get("thread_ts")
-            if not isinstance(top_level_thread_ts, str) or top_level_thread_ts == event.get("ts"):
+            if _is_top_level_channel_post(event):
                 return ROUTE_HANDLED_LOCALLY
 
         slack_user_id_str = str(event.get("user") or "")
