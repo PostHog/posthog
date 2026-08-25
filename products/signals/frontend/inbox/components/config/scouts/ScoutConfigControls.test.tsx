@@ -1,3 +1,5 @@
+import '@testing-library/jest-dom'
+
 import { cleanup, fireEvent, render } from '@testing-library/react'
 
 import { useMocks } from '~/mocks/jest'
@@ -53,6 +55,21 @@ describe('ScoutConfigForm', () => {
         expect(onUpdate).toHaveBeenNthCalledWith(1, 'config-1', { enabled: false })
         expect(onUpdate).toHaveBeenNthCalledWith(2, 'config-1', { emit: false })
         expect(getByText('Turn off inbox signals to run the scout in dry-run mode.')).toBeTruthy()
+    })
+
+    it('reflects the saved run settings and locks them while updating', () => {
+        const onUpdate = jest.fn()
+        const { getByRole } = render(
+            <ScoutConfigForm config={{ ...config, emit: false }} onUpdate={onUpdate} updating />
+        )
+
+        const enabledSwitch = getByRole('switch', { name: 'Enable this scout' })
+        const emitSwitch = getByRole('switch', { name: 'Write signals to the inbox' })
+
+        expect(enabledSwitch).toHaveAttribute('aria-checked', 'true')
+        expect(emitSwitch).toHaveAttribute('aria-checked', 'false')
+        expect(enabledSwitch).toBeDisabled()
+        expect(emitSwitch).toBeDisabled()
     })
 
     it('saves the daily run time on blur and never clears the schedule from an empty input', () => {
