@@ -121,6 +121,28 @@ private key is per-region. Any of the three being empty keeps publishing off.
 repo pinned in `community_skill_sync.py`, so pointing this setting elsewhere sends pull requests to a
 repo the sync never reads back.
 
+### The App and its privileges
+
+Registering and installing the App is manual org-admin work in the GitHub UI. Nothing in
+`posthog-cloud-infra` manages App installations, and the env values land through `PostHog/charts`
+(`shared/posthog-django/common.prod-us.yaml` and `common.prod-eu.yaml`, next to the
+`STAMPHOG_GITHUB_APP_*` block, with the private key in `secret_env`). Least privilege is held at
+three layers, and only the last one is code:
+
+1. **App registration.** The App declares `Contents: write`, `Pull requests: write`, and
+   `Metadata: read`, and nothing else. No webhook, no user-authorization flow, so it has no client
+   secret and no webhook secret. Private, owned by the PostHog org. This is the ceiling on anything
+   the App can ever do.
+2. **Installation.** Installed with "Only select repositories" and the publish repo as the one
+   selection. This caps the repo scope, and is why the core `GITHUB_APP_*` App cannot serve here.
+3. **Token mint.** `PUBLISHER_TOKEN_PERMISSIONS` in `community_publish_services.py` requests an
+   installation token holding exactly those three permissions on `COMMUNITY_SKILLS_GITHUB_REPO`
+   alone. GitHub only lets a token request narrow what the two layers above granted, so a later
+   over-grant in the UI still cannot reach a publish.
+
+Keep the three in step: a permission the App does not declare makes the token mint fail with a 422
+rather than a scoped token, which the publish path reports as a gateway error.
+
 ### Repo writes
 
 The target repo is public, so a failed publish must not leave anything behind:
