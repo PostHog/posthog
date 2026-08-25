@@ -27,6 +27,7 @@ import math
 import uuid
 import hashlib
 import importlib
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Any
@@ -453,11 +454,12 @@ def _fetch_population_distinct_ids(
     if parts:
         where_clause += " AND " + " AND ".join(parts)
     where_clause += identified_clause
-    sql = f"SELECT DISTINCT person_id FROM events WHERE {where_clause}"
+    sql = _bounded_sql(f"SELECT DISTINCT person_id FROM events WHERE {where_clause}")
 
     try:
         tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
         rows = run_hogql_rows(team=team, query=HogQLQuery(query=sql, values=values))
+        _raise_if_truncated(rows, "Population filter")
         return frozenset(str(row[0]) for row in rows if row[0])
     except Exception as exc:
         logger.exception("autoresearch_population_query_failed", team_id=team.pk)
@@ -479,13 +481,14 @@ def _fetch_label_distinct_ids(
     target_cond, target_values = build_target_condition(
         target_event=pipeline.target_event, target_definition=pipeline.target_definition, team=team
     )
-    label_sql = (
+    label_sql = _bounded_sql(
         f"SELECT DISTINCT person_id FROM events WHERE {target_cond} AND timestamp >= now() - toIntervalDay({{horizon}})"
     )
     values: dict[str, Any] = {"horizon": pipeline.horizon_days, **target_values}
     try:
         tag_queries(product=Product.AUTORESEARCH, feature=Feature.QUERY)
         rows = run_hogql_rows(team=team, query=HogQLQuery(query=label_sql, values=values))
+        _raise_if_truncated(rows, "Target label")
         return frozenset(str(row[0]) for row in rows if row[0])
     except Exception as exc:
         logger.exception("autoresearch_label_query_failed", pipeline_id=str(pipeline.pk))
@@ -594,7 +597,7 @@ def _bounded_sql(sql: str) -> str:
     return sql.rstrip().rstrip(";") + f"\nLIMIT {_MATERIALIZE_ROW_LIMIT}"
 
 
-def _raise_if_truncated(rows: list[dict[str, Any]], what: str) -> None:
+def _raise_if_truncated(rows: Sequence[Any], what: str) -> None:
     # A result that fills the bound is almost certainly truncated — scoring a partial
     # population would silently skip users while last_scored_at advances. Pagination
     # for larger populations is follow-up work; until then, fail loudly.

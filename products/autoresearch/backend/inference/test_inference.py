@@ -8,10 +8,12 @@ from parameterized import parameterized
 
 from products.autoresearch.backend.dataset.labeling import _build_population_conditions
 from products.autoresearch.backend.inference import scoring
+from products.autoresearch.backend.inference.sandbox import _MATERIALIZE_ROW_LIMIT
 from products.autoresearch.backend.inference.scoring import (
     InferenceRunError,
     _fetch_feature_rows,
     _fetch_inference_rows,
+    _fetch_label_distinct_ids,
     _fetch_population_distinct_ids,
     _fetch_training_rows,
     _score_rows,
@@ -473,6 +475,43 @@ class TestFetchPopulationDistinctIds(TeamScopedTestMixin, BaseTest):
                 lookback_days=30,
             )
         mock_rows.assert_not_called()
+
+
+class TestPersonIdQueriesAreBounded(TeamScopedTestMixin, BaseTest):
+    def _pipeline(self) -> AutoresearchPipeline:
+        return AutoresearchPipeline.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Bounded",
+            target_event="$pageview",
+            horizon_days=7,
+        )
+
+    def _call(self, which: str):
+        if which == "population":
+            return _fetch_population_distinct_ids(team=self.team, population={}, lookback_days=30)
+        return _fetch_label_distinct_ids(team=self.team, pipeline=self._pipeline())
+
+    @parameterized.expand([("population",), ("label",)])
+    @patch("products.autoresearch.backend.inference.scoring.run_hogql_rows")
+    def test_query_carries_an_explicit_limit(self, which: str, mock_rows: MagicMock):
+        # HogQL silently caps an unbounded query at 100 rows, so dropping the LIMIT
+        # scored only the first 100 people while the run reported success.
+        mock_rows.return_value = [("person-1",)]
+
+        self._call(which)
+
+        assert f"LIMIT {_MATERIALIZE_ROW_LIMIT}" in mock_rows.call_args.kwargs["query"].query
+
+    @parameterized.expand([("population",), ("label",)])
+    @patch("products.autoresearch.backend.inference.scoring.run_hogql_rows")
+    def test_a_result_that_fills_the_bound_fails_the_run(self, which: str, mock_rows: MagicMock):
+        # A full result is almost certainly truncated; scoring the partial set would skip
+        # users while last_scored_at advanced past them.
+        mock_rows.return_value = [(f"person-{i}",) for i in range(_MATERIALIZE_ROW_LIMIT)]
+
+        with self.assertRaises(InferenceRunError):
+            self._call(which)
 
 
 class TestAnchorsRecipeQueries(TeamScopedTestMixin, BaseTest):
