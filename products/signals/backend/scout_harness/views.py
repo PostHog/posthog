@@ -51,9 +51,9 @@ from posthog.dataclasses import frozen
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.permissions import AccessControlPermission, APIScopePermission, get_authenticator_scopes
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.temporal.common.client import sync_connect
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.daily_limit import daily_report_limit_gate
 from products.signals.backend.models import (
     SignalProjectProfile,
@@ -1014,6 +1014,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 priority_explanation=data.get("priority_explanation"),
                 suggested_reviewers=_to_reviewer_inputs(data.get("suggested_reviewers")),
                 charts=_to_report_charts(data.get("charts")),
+                suggested_prompts=data.get("suggested_prompts"),
             )
         except InvalidScoutReportError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -1070,6 +1071,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 append_note=data.get("append_note"),
                 suggested_reviewers=_to_reviewer_inputs(data.get("suggested_reviewers")),
                 charts=_to_report_charts(data.get("charts")),
+                suggested_prompts=data.get("suggested_prompts"),
             )
         except InvalidScoutReportError as exc:
             raise exceptions.ValidationError({"detail": str(exc)})
@@ -1081,6 +1083,7 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "note_appended": result.note_appended,
                     "reviewers_set": result.reviewers_set,
                     "charts_set": result.charts_set,
+                    "suggested_prompts_set": result.suggested_prompts_set,
                 }
             ).data,
             status=status.HTTP_200_OK,

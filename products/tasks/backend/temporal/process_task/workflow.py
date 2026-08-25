@@ -27,6 +27,7 @@ from products.tasks.backend.temporal.babysit_pr.prompts import (
 )
 from products.tasks.backend.temporal.babysit_pr.snapshot import AttentionSet, BabysitJournal, PRSnapshot
 from products.tasks.backend.temporal.create_snapshot.workflow import CreateSnapshotForRepositoryInput
+from products.tasks.backend.temporal.metrics import increment_pr_babysit_decision
 from products.tasks.backend.temporal.patches import ci_follow_up_actionable_gate
 from products.tasks.backend.temporal.process_task.activities.get_pr_babysit_snapshot import (
     GetPrBabysitSnapshotInput,
@@ -890,7 +891,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         won't appear later.
         """
         if self.context.pr_babysit_enabled:
-            return await self._should_run_babysit_follow_up()
+            decision = await self._should_run_babysit_follow_up()
+            increment_pr_babysit_decision(decision.value)
+            return decision
         pr_context = await workflow.execute_activity(
             get_pr_context,
             GetPrContextInput(context=self.context),
@@ -1622,6 +1625,17 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 "agent_launch_ms": sandbox_output.launch_ms,
                 "agent_ready_wait_ms": agent_server_output.ready_wait_ms,
                 "agent_session_init_ms": agent_server_output.session_init_ms,
+                "agent_context_fetch_ms": agent_server_output.boot_phases_ms.get("context_fetch"),
+                "agent_acp_initialize_ms": agent_server_output.boot_phases_ms.get("acp_initialize"),
+                "agent_repository_ready_ms": agent_server_output.boot_phases_ms.get("repository_ready"),
+                "agent_session_dependencies_ms": agent_server_output.boot_phases_ms.get("session_dependencies"),
+                "agent_session_create_ms": agent_server_output.boot_phases_ms.get("session_create"),
+                "agent_shadow_launched": agent_server_output.shadow_observation.get("launched"),
+                "agent_shadow_outcome": agent_server_output.shadow_observation.get("outcome"),
+                "agent_shadow_observed_ready_ms": agent_server_output.shadow_observation.get("observed_ready_ms"),
+                "agent_shadow_production_ready_ms": agent_server_output.shadow_observation.get("production_ready_ms"),
+                "agent_shadow_failure_class": agent_server_output.shadow_observation.get("failure_class"),
+                "agent_shadow_read_timed_out": agent_server_output.shadow_observation.get("timed_out"),
                 "loop_id": self.context.loop_id,
                 "loop_trigger_id": self.context.loop_trigger_id,
             },

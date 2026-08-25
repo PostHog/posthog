@@ -264,6 +264,32 @@ describe('PersonsManagerService', () => {
         })
     })
 
+    describe('forceFresh', () => {
+        it('re-reads a cached person, so a write made after it was cached is visible', async () => {
+            // A hogflow run enrolling just after a person write evaluates its first wait against this
+            // read. Serving the pre-write cache entry there parks the run with nothing left to wake it.
+            const cachedRead = await manager.getCyclotronPerson(TEAM_1, 'distinct_id_A_1', 'distinct_id')
+            expect(cachedRead?.properties).toEqual({ foo: '1' })
+
+            jest.spyOn(repo, 'fetchPersonsByDistinctIds').mockResolvedValue([
+                {
+                    uuid: TEST_PERSONS[0].uuid,
+                    team_id: TEAM_1,
+                    distinct_id: 'distinct_id_A_1',
+                    properties: { foo: 'written-after-caching' },
+                },
+            ] as any)
+
+            expect((await manager.getCyclotronPerson(TEAM_1, 'distinct_id_A_1', 'distinct_id'))?.properties).toEqual({
+                foo: '1',
+            })
+            expect(
+                (await manager.getCyclotronPerson(TEAM_1, 'distinct_id_A_1', 'distinct_id', { forceFresh: true }))
+                    ?.properties
+            ).toEqual({ foo: 'written-after-caching' })
+        })
+    })
+
     describe('getCyclotronPerson with person_id', () => {
         it('returns a person by UUID and resolves distinct_id', async () => {
             const result = await manager.getCyclotronPerson(TEAM_1, TEST_PERSONS[0].uuid, 'person_id')

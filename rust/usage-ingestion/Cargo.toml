@@ -1,0 +1,36 @@
+[package]
+name = "usage-ingestion"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+async-trait = { workspace = true }
+axum = { workspace = true }
+chrono = { workspace = true }
+common-database = { path = "../common/database" }
+common-kafka = { path = "../common/kafka" }
+common-liveness = { path = "../common/liveness" }
+envconfig = { workspace = true }
+health = { path = "../common/health" }
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+moka = { workspace = true }
+rdkafka = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tonic = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
+usage-ingestion-proto = { path = "../usage-ingestion-proto" }
+uuid = { workspace = true }
+
+[dev-dependencies]
+reqwest = { workspace = true }
+tokio-stream = { version = "0.1", features = ["net"] }
+
+[lints]
+workspace = true

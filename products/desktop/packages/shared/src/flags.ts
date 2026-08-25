@@ -62,6 +62,29 @@ export const TASK_COST_VISIBLE_FLAG = "posthog-code-task-cost-visible";
 export const ANNOUNCEMENTS_FLAG = "posthog-desktop-announcements";
 /** Gates the PR-refund action in the inbox (matches the web SIGNALS_PR_REFUNDS flag). */
 export const SIGNALS_PR_REFUNDS_FLAG = "signals-pr-refunds";
+/**
+ * Gates reports living in the channels sidebar: the per-space Reports tab and its
+ * report detail route, plus report entries in the feed. Requires project-bluebird.
+ */
+export const CHANNEL_REPORTS_FLAG = "posthog-desktop-channel-reports";
+
+/**
+ * The global reports inbox: one sectioned, keyboard-triageable page for every
+ * report, reclaiming the inbox nav slot from the channel-reports takeover.
+ * The per-space sidebar list stays the working set beside it.
+ */
+export const REPORTS_INBOX_FLAG = "posthog-desktop-reports-inbox";
+
+/** Experiment: open the report chat panel when a report detail loads. */
+export const REPORT_CHAT_DEFAULT_OPEN_FLAG =
+  "posthog-desktop-report-chat-default-open";
+
+/**
+ * One-report-at-a-time keyboard triage inside the reports inbox. On by
+ * default in dev builds for iteration (see useTriageFocusEnabled); off in
+ * production until it stabilizes.
+ */
+export const TRIAGE_FOCUS_FLAG = "posthog-desktop-triage-focus";
 
 /**
  * Serves a session's Claude traffic from Bedrock instead of Anthropic. The

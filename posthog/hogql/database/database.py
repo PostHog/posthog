@@ -80,6 +80,7 @@ from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides im
     ErrorTrackingIssueFingerprintOverridesTable,
     RawErrorTrackingIssueFingerprintOverridesTable,
 )
+from posthog.hogql.database.schema.error_tracking_recent_issue_state import ErrorTrackingRecentIssueStateTable
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.exchange_rate import ExchangeRateTable
 from posthog.hogql.database.schema.experiment_exposures_preaggregated import ExperimentExposuresPreaggregatedTable
@@ -100,7 +101,12 @@ from posthog.hogql.database.schema.log_entries import (
     LogEntriesTable,
     ReplayConsoleLogsLogEntriesTable,
 )
-from posthog.hogql.database.schema.logs import LogAttributesTable, LogsKafkaMetricsTable, LogsTable
+from posthog.hogql.database.schema.logs import (
+    LogAttributesTable,
+    LogsKafkaMetricsTable,
+    LogsTable,
+    LogsVolumeBucketsTable,
+)
 from posthog.hogql.database.schema.marketing_conversions_preaggregated import MarketingConversionsPreaggregatedTable
 from posthog.hogql.database.schema.marketing_costs_preaggregated import MarketingCostsPreaggregatedTable
 from posthog.hogql.database.schema.marketing_costs_precomputed import MarketingCostsPrecomputedTable
@@ -178,9 +184,9 @@ if TYPE_CHECKING:
 
     from posthog.models import User
     from posthog.models.team.team import Team
-    from posthog.rbac.user_access_control import UserAccessControl
     from posthog.shared_link_user import SharedLinkUser
 
+    from products.access_control.backend.facade.user_access_control import UserAccessControl
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.data_tools.backend.models.expression import DataWarehouseExpression
     from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -406,6 +412,7 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                 children={
                     **clone_root_tables(),
                     # Add new tables here
+                    "logs_volume_buckets": TableNode(name="logs_volume_buckets", table=LogsVolumeBucketsTable()),
                     "ai_events": TableNode(name="ai_events", table=AiEventsTable()),
                     "trace_spans": TableNode(name="trace_spans", table=TraceSpansTable()),
                     "trace_attributes": TableNode(name="trace_attributes", table=TraceAttributesTable()),
@@ -423,6 +430,11 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     "error_tracking_fingerprint_issue_state": TableNode(
                         name="error_tracking_fingerprint_issue_state",
                         table=ErrorTrackingFingerprintIssueStateTable(),
+                    ),
+                    "error_tracking_recent_issue_state": TableNode(
+                        name="error_tracking_recent_issue_state",
+                        table=ErrorTrackingRecentIssueStateTable(),
+                        hidden=True,
                     ),
                     "web_overview_preaggregated": TableNode(
                         name="web_overview_preaggregated", table=WebOverviewPreaggregatedTable()
@@ -535,8 +547,12 @@ def _compute_system_table_access_decision(
     Pass user_access_control when it's already preloaded to reuse the instance and avoid an extra query."""
     # Lazy imports keep the Django ORM off this module's import path.
     from posthog.models.organization import OrganizationMembership  # noqa: PLC0415
-    from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl  # noqa: PLC0415
     from posthog.shared_link_user import SharedLinkUser  # noqa: PLC0415
+
+    from products.access_control.backend.facade.user_access_control import (  # noqa: PLC0415
+        NO_ACCESS_LEVEL,
+        UserAccessControl,
+    )
 
     scoped_tables = _scoped_system_tables()
     # Applies to every principal below, admins included - an entitlement the organization does not
