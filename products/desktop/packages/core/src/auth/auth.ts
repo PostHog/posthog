@@ -42,6 +42,10 @@ import {
   type ValidAccessTokenOutput,
 } from "./schemas";
 
+// A refresh failure the classifier could not identify is not evidence the token
+// is dead: `unknown_error` absorbs 429s and any 400 whose body will not parse.
+// Pause that token instead of retiring it.
+const UNCLASSIFIED_REFRESH_COOLDOWN_MS = 60_000;
 const TOKEN_EXPIRY_SKEW_MS = 60_000;
 const AUTH_FETCH_TIMEOUT_MS = 30_000;
 const AUTH_BOOTSTRAP_DEADLINE_MS = 20_000;
@@ -96,6 +100,14 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
   private refreshPromise: Promise<InMemorySession> | null = null;
   private impersonationExpiryTimer: ReturnType<typeof setTimeout> | null = null;
   private sessionGeneration = 0;
+  // A refresh the server will not honour, keyed to the session generation so
+  // every teardown and new grant invalidates it. `until: null` means the server
+  // proved the token dead; a timestamp means the failure was unclassified.
+  private refusedRefresh: {
+    token: string;
+    generation: number;
+    until: number | null;
+  } | null = null;
   // Serializes session-state commits so overlapping selections can't
   // interleave across async encryption (see commitSessionState).
   private commitChain: Promise<void> = Promise.resolve();
@@ -707,6 +719,22 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       throw new Error("Offline");
     }
 
+    const refused = this.refusedRefresh;
+    if (
+      refused &&
+      refused.token === input.refreshToken &&
+      refused.generation === this.sessionGeneration
+    ) {
+      if (refused.until === null) {
+        throw new NotAuthenticatedError(
+          "Your session has expired. Sign in again to continue.",
+        );
+      }
+      if (Date.now() < refused.until) {
+        throw new Error("Token refresh paused after an unclassified failure");
+      }
+    }
+
     let lastError = "Token refresh failed";
 
     for (
@@ -731,6 +759,11 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
       if (result.errorCode === "auth_error") {
         this.logger.warn("Refresh token rejected by server, forcing logout");
         this.sessionGeneration += 1;
+        this.refusedRefresh = {
+          token: input.refreshToken,
+          generation: this.sessionGeneration,
+          until: null,
+        };
         this.authSession.clearCurrent();
         this.session = null;
         this.setAnonymousState({
@@ -745,6 +778,16 @@ export class AuthService extends TypedEventEmitter<AuthServiceEvents> {
         result.errorCode === "server_error";
 
       if (!isRetryable) {
+        // This arm keeps the session and the stored token, so nothing else
+        // stops the caller re-presenting the same token on the next trigger.
+        this.refusedRefresh = {
+          token: input.refreshToken,
+          generation: this.sessionGeneration,
+          until: Date.now() + UNCLASSIFIED_REFRESH_COOLDOWN_MS,
+        };
+        this.logger.warn("Refresh failed unclassified, pausing this token", {
+          errorCode: result.errorCode,
+        });
         throw new Error(lastError);
       }
 

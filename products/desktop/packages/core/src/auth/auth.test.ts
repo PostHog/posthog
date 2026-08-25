@@ -1,6 +1,6 @@
 import type { RootLogger } from "@posthog/di/logger";
 import type { IPowerManager } from "@posthog/platform/power-manager";
-import { OAUTH_SCOPE_VERSION } from "@posthog/shared";
+import { NotAuthenticatedError, OAUTH_SCOPE_VERSION } from "@posthog/shared";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthService } from "./auth";
 import type {
@@ -1187,6 +1187,86 @@ describe("AuthService", () => {
       });
       expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
       expect(sessionPort.getCurrent()).toBeNull();
+    });
+
+    it("never re-presents a refresh token the server rejected", async () => {
+      seedStoredSession();
+      oauthFlow.refreshToken.mockResolvedValue({
+        success: false,
+        error: "Token revoked",
+        errorCode: "auth_error",
+      });
+
+      await service.initialize();
+      expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
+
+      // Storage still holds the dead token, so the refusal has to fail this
+      // attempt without a request.
+      seedStoredSession();
+      await expect(service.getValidAccessToken()).rejects.toThrow(
+        NotAuthenticatedError,
+      );
+      expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
+    });
+
+    it("pauses rather than retires a token after an unclassified failure", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date("2026-08-24T00:00:00.000Z"));
+      try {
+        seedStoredSession();
+        oauthFlow.refreshToken.mockResolvedValue({
+          success: false,
+          error: "Something weird",
+          errorCode: "unknown_error",
+        });
+
+        await service.initialize();
+        expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
+
+        // A 429, or a 400 whose body will not parse, lands here. That is not
+        // evidence the token is dead, so the next trigger is paused.
+        await expect(service.getValidAccessToken()).rejects.toThrow(/paused/i);
+        expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
+
+        // And the pause lifts on its own, unlike a server rejection.
+        vi.setSystemTime(new Date("2026-08-24T00:01:01.000Z"));
+        await expect(service.getValidAccessToken()).rejects.toThrow();
+        expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("releases the refusal when a new grant bumps the session generation", async () => {
+      seedStoredSession();
+      oauthFlow.refreshToken.mockResolvedValue({
+        success: false,
+        error: "Token revoked",
+        errorCode: "auth_error",
+      });
+      await service.initialize();
+      expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(1);
+
+      oauthFlow.startFlow.mockResolvedValue(
+        mockTokenResponse({
+          accessToken: "fresh-access-token",
+          refreshToken: "stored-refresh-token",
+        }),
+      );
+      stubAuthFetch();
+      await service.login("us");
+
+      // Same token value as the refused one, so only the generation bump can
+      // release it. Otherwise signing back in leaves the user locked out.
+      seedStoredSession();
+      oauthFlow.refreshToken.mockResolvedValue(
+        mockTokenResponse({
+          accessToken: "rotated-access-token",
+          refreshToken: "rotated-refresh-token",
+        }),
+      );
+      await service.refreshAccessToken();
+      expect(oauthFlow.refreshToken).toHaveBeenCalledTimes(2);
     });
 
     it("keeps restoring after a non-retryable unknown_error", async () => {

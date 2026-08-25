@@ -1,5 +1,5 @@
 import { ROOT_LOGGER, type RootLogger } from "@posthog/di/logger";
-import { TypedEventEmitter } from "@posthog/shared";
+import { isNotAuthenticatedError, TypedEventEmitter } from "@posthog/shared";
 import { inject, injectable, postConstruct, preDestroy } from "inversify";
 import type { AuthService } from "../auth/auth";
 import { AUTH_SERVICE } from "../auth/auth.module";
@@ -18,6 +18,9 @@ const COALESCE_INTERVAL_MS = 5_000;
 // Catches reset-window rollovers and out-of-band plan changes while the app
 // sits idle and no LlmActivity events fire.
 const BACKSTOP_INTERVAL_MS = 30 * 60_000;
+// Bounds a persistent failure to one request per window, not one per trigger.
+const FAILURE_BACKOFF_BASE_MS = COALESCE_INTERVAL_MS;
+const FAILURE_BACKOFF_MAX_MS = BACKSTOP_INTERVAL_MS;
 
 type BucketName = "burst" | "sustained";
 
@@ -27,6 +30,10 @@ export class UsageMonitorService extends TypedEventEmitter<UsageMonitorEvents> {
   private coalesceTimeoutId: ReturnType<typeof setTimeout> | null = null;
   private lastFetchStartedAt = 0;
   private isFetching = false;
+  private consecutiveFailures = 0;
+  private nextAllowedFetchAt = 0;
+  // A dead session is fixed by a new sign-in, never by polling.
+  private reauthRequired = false;
   private thresholdsSeen: Record<string, string>;
   private latestUsage: UsageOutput | null = null;
 
@@ -47,6 +54,10 @@ export class UsageMonitorService extends TypedEventEmitter<UsageMonitorEvents> {
     // never be served the previous account's spend.
     let orgId = authService.getState().currentOrgId;
     authService.on(AuthServiceEvent.StateChanged, (state) => {
+      // Level-triggered, so a re-login that republishes the same status still
+      // releases it. Only the terminal stop is cleared here: the timed window
+      // must survive the refresh that a failing fetch performs on its way out.
+      if (state.status === "authenticated") this.reauthRequired = false;
       if (state.currentOrgId === orgId) return;
       orgId = state.currentOrgId;
       this.latestUsage = null;
@@ -60,8 +71,9 @@ export class UsageMonitorService extends TypedEventEmitter<UsageMonitorEvents> {
     return this.latestUsage;
   }
 
+  // Skips the failure backoff. The terminal stop still applies.
   async refreshNow(): Promise<UsageOutput | null> {
-    return this.fetchOnce();
+    return this.fetchOnce({ force: true });
   }
 
   // Coalesces N parallel agents finishing turns into at most two fetches
@@ -100,8 +112,19 @@ export class UsageMonitorService extends TypedEventEmitter<UsageMonitorEvents> {
     }
   }
 
-  async fetchOnce(): Promise<UsageOutput | null> {
+  async fetchOnce({
+    force = false,
+  }: {
+    force?: boolean;
+  } = {}): Promise<UsageOutput | null> {
     if (this.isFetching) return null;
+    // force skips the timed window, never the terminal stop.
+    if (
+      this.reauthRequired ||
+      (!force && Date.now() < this.nextAllowedFetchAt)
+    ) {
+      return null;
+    }
     this.isFetching = true;
     this.lastFetchStartedAt = Date.now();
     if (this.coalesceTimeoutId) {
@@ -113,11 +136,14 @@ export class UsageMonitorService extends TypedEventEmitter<UsageMonitorEvents> {
       try {
         usage = await this.host.fetchUsage();
       } catch (err) {
+        this.recordFailure(err);
         this.log.debug("Usage fetch skipped", {
           error: err instanceof Error ? err.message : String(err),
+          consecutiveFailures: this.consecutiveFailures,
         });
       }
       if (usage) {
+        this.resetBackoff();
         const changed = !isSameUsage(this.latestUsage, usage);
         this.latestUsage = usage;
         if (changed) {
@@ -129,6 +155,29 @@ export class UsageMonitorService extends TypedEventEmitter<UsageMonitorEvents> {
     } finally {
       this.isFetching = false;
     }
+  }
+
+  private recordFailure(err: unknown): void {
+    if (isNotAuthenticatedError(err)) {
+      this.reauthRequired = true;
+      this.log.warn("Usage polling stopped, session needs re-auth", {
+        reason: "reauth_required",
+      });
+      return;
+    }
+    this.consecutiveFailures += 1;
+    const delay = Math.min(
+      FAILURE_BACKOFF_BASE_MS * 2 ** (this.consecutiveFailures - 1),
+      FAILURE_BACKOFF_MAX_MS,
+    );
+    // Jitter so N agents that failed together don't retry in lockstep.
+    this.nextAllowedFetchAt = Date.now() + delay * (0.5 + Math.random() / 2);
+  }
+
+  private resetBackoff(): void {
+    this.consecutiveFailures = 0;
+    this.nextAllowedFetchAt = 0;
+    this.reauthRequired = false;
   }
 
   private scheduleBackstop(): void {
