@@ -20,14 +20,17 @@
 #
 # Content delivery (the crux): snapshot-build has no file-push or exec API, only
 # --inline-file (a heredoc capped at 256 KiB of bootstrap) and this script, which
-# runs *inside* the box. So the same split the two existing hogland personas use:
+# runs *inside* the box. So content arrives two ways:
 #   * small, fixed posthog-owned files (the git/gh guards, the cpu sampler) ride
 #     in as --inline-file, the way the devbox persona lays down its overlay units.
-#   * the skills payload is multi-MB and cannot fit the bootstrap, so this script
-#     fetches it over the network from inside the box, the way the preview persona
-#     clones posthog and pulls its image. We sparse-clone PostHog/posthog for the
-#     skill sources plus install-skills.sh, and pull the context-mill skills from
-#     their public release zip — the same two sources the CD image build merges.
+#   * the rendered skills and the @posthog/agent build both come from the already
+#     published ghcr.io/posthog/posthog-sandbox-base image. The CD image build
+#     renders the skill .md.j2 templates with a database (build:skills), merges in
+#     the context-mill skills, and bakes the result at fixed paths; it also pins a
+#     resolved @posthog/agent version. We `docker pull` that image inside the box
+#     and `docker cp` those artifacts straight out, so the golden ships the SAME
+#     rendered skills + agent the image ships. The image tag (templated in by the
+#     workflow, default master) is the single knob for what the golden tracks.
 #
 # Do NOT write a success sentinel here: `hogland snapshot-build` appends
 # `touch /var/lib/hog/snapshot-build-ok` as the final action and SSH-polls for it
@@ -51,15 +54,21 @@ RTK_VERSION=0.43.0
 RTK_SHA256_AMD64=ff8a1e7766496e175291a85aeca1dc97c9ff6df33e51e5893d1fbc78fea2a609
 RTK_SHA256_ARM64=5519f7ca12e5c143a609f0d28a0a77b97413a8dce31c2681f1a41c24519a8731
 
-# @posthog/agent version to install into /scripts. The CD image resolves the
-# latest published version on npm; the workflow passes the same value through
-# POSTHOG_AGENT_VERSION so the golden tracks the same release.
-AGENT_VERSION="${POSTHOG_AGENT_VERSION:-latest}"
-
-# Ref of PostHog/posthog to source skills + install-skills.sh from. The workflow
-# sets it to the commit it ran against; default to master for a hand-run bake.
-POSTHOG_REF="${POSTHOG_REF:-master}"
-CONTEXT_MILL_ZIP_URL="https://github.com/PostHog/context-mill/releases/latest/download/skills-mcp-resources.zip"
+# Which posthog-sandbox-base image to source the rendered skills + the pinned
+# @posthog/agent from. The workflow substitutes the tag at assembly time (default
+# master; a workflow_dispatch input can override it); a hand run leaves the
+# placeholder untouched and falls back to master. This tag is the single knob for
+# what the golden tracks — bump it to move the golden to a different image build.
+IMAGE_TAG="__SANDBOX_IMAGE_TAG__"
+# Detect the un-substituted placeholder (a hand run that skipped the workflow's
+# sed) and fall back to master. The sentinel is split so the workflow's global
+# sed — which matches the contiguous token — replaces only the assignment above,
+# never this comparison; bash concatenates the two literals back at runtime.
+placeholder='__SANDBOX''_IMAGE_TAG__'
+if [ -z "$IMAGE_TAG" ] || [ "$IMAGE_TAG" = "$placeholder" ]; then
+    IMAGE_TAG="master"
+fi
+IMAGE_REF="ghcr.io/posthog/posthog-sandbox-base:${IMAGE_TAG}"
 
 APT_PACKAGES="curl wget git vim nano tree htop unzip zip jq \
 build-essential pkg-config musl \
@@ -163,62 +172,68 @@ tar -xzf /tmp/rtk.tar.gz -C /usr/local/bin rtk
 rm /tmp/rtk.tar.gz
 rtk --version
 
+# --- Image-sourced content: rendered skills + pinned @posthog/agent -----------
+# The rendered skills need a database to expand their .md.j2 templates, which is
+# only available in the CD image build. Rather than reproduce that here, pull the
+# published image and copy the already-rendered artifacts straight out of it, so
+# the golden is content-equivalent to the image. The image is public on ghcr.io,
+# so an anonymous `docker pull` works — no registry login is needed in the box.
+log "sandbox-base image: pull ${IMAGE_REF}"
+command -v docker >/dev/null 2>&1 || {
+    echo "docker is required in the seed box to source skills + agent from ${IMAGE_REF}" >&2
+    exit 1
+}
+docker pull "$IMAGE_REF"
+img_cid="$(docker create "$IMAGE_REF")"
+cleanup_img_cid() { [ -n "${img_cid:-}" ] && docker rm -f "$img_cid" >/dev/null 2>&1 || true; }
+trap cleanup_img_cid EXIT
+
+log "@posthog/agent in /scripts (version pinned to ${IMAGE_REF})"
+# Pin to the exact @posthog/agent the image baked so the golden's agent-server
+# matches it. Reading the version from the image keeps the image tag the one knob
+# rather than resolving @latest independently (which could drift from the image).
+agent_pkg_dir="$(mktemp -d)"
+docker cp "$img_cid:/scripts/node_modules/@posthog/agent/package.json" "$agent_pkg_dir/package.json"
+AGENT_VERSION="$(jq -r '.version // empty' "$agent_pkg_dir/package.json")"
+rm -rf "$agent_pkg_dir"
+[ -n "$AGENT_VERSION" ] || { echo "could not read @posthog/agent version from ${IMAGE_REF}" >&2; exit 1; }
 log "@posthog/agent@${AGENT_VERSION} in /scripts"
 mkdir -p /scripts
 (cd /scripts && npm init -y && npm install "@posthog/agent@${AGENT_VERSION}")
 test -x /scripts/node_modules/.bin/agent-server
 
-log "skills: clone posthog@${POSTHOG_REF} (sources + install-skills.sh) + context-mill zip"
-# Mirror of the preview persona's in-box clone. A blob-filtered sparse checkout
-# keeps only the skill sources and the sandbox image scripts, so the clone stays
-# small and the golden carries no posthog source once we remove it below.
-clone_dir="$(mktemp -d)"
-git clone --filter=blob:none --sparse --depth 1 --branch "$POSTHOG_REF" \
-    https://github.com/PostHog/posthog "$clone_dir"
-git -C "$clone_dir" sparse-checkout set \
-    products/tasks/backend/sandbox/images \
-    products
+log "skills: copy rendered skills out of ${IMAGE_REF}"
+# The image was built with the same install-skills.sh, which lands the rendered
+# skills at these exact paths (running as root, so HOME=/root). Copy them
+# byte-for-byte into the same paths here. This replaces both the old sparse-clone
+# of the skill sources and the context-mill zip fetch: the image already merges
+# PostHog + context-mill skills, rendered.
+mkdir -p /scripts/plugins /root/.agents /root/.claude
+docker cp "$img_cid:/scripts/plugins/posthog" /scripts/plugins/
+docker cp "$img_cid:/root/.agents/skills" /root/.agents/
+docker cp "$img_cid:/root/.claude/skills" /root/.claude/
+docker rm -f "$img_cid" >/dev/null
+img_cid=""
+trap - EXIT
+# Drop the pulled image so it does not bloat the snapshot; the box never runs it.
+docker rmi -f "$IMAGE_REF" >/dev/null 2>&1 || true
 
-# Flatten every products/*/skills/<skill>/ into one staging dir, the layout
-# install-skills.sh expects. Skills are plain SKILL.md today, so this copy
-# matches what the CD build ships; a future Jinja-templated skill (SKILL.md.j2)
-# would need the CD renderer and is not handled here.
-skills_stage="$(mktemp -d)"
-for skills_dir in "$clone_dir"/products/*/skills; do
-    [ -d "$skills_dir" ] || continue
-    for skill in "$skills_dir"/*/; do
-        [ -d "$skill" ] || continue
-        cp -r "$skill" "$skills_stage/$(basename "$skill")"
-    done
+# Fail closed: a broken pull or an empty skills copy must not ship a golden that
+# silently lost its skills.
+for skills_target in /scripts/plugins/posthog/skills /root/.agents/skills /root/.claude/skills; do
+    find "$skills_target" -name 'SKILL.md' -type f 2>/dev/null | grep -q . || {
+        echo "no SKILL.md found under ${skills_target} after copying from ${IMAGE_REF}" >&2
+        exit 1
+    }
 done
 
-# Context-mill skills from their public release zip (the exact source the CD
-# image build merges in). Strip the omnibus- name prefix the same way.
-cm_tmp="$(mktemp -d)"
-fetch "$CONTEXT_MILL_ZIP_URL" "$cm_tmp/cm.zip"
-unzip -q -o "$cm_tmp/cm.zip" -d "$cm_tmp/outer"
-while IFS= read -r inner_zip; do
-    skill_name="$(basename "$inner_zip" .zip)"
-    skill_name="${skill_name#omnibus-}"
-    mkdir -p "$skills_stage/$skill_name"
-    unzip -q -o "$inner_zip" -d "$skills_stage/$skill_name"
-    find "$skills_stage/$skill_name" -name 'SKILL.md' -type f -exec sed -i 's/^\(name: *\)omnibus-/\1/' {} +
-done < <(find "$cm_tmp/outer" -name 'omnibus-*.zip' -type f)
-
-bash "$clone_dir/products/tasks/backend/sandbox/images/install-skills.sh" "$skills_stage"
-
-log "guards + cpu sampler into place"
+log "guards + cpu sampler (delivered as --inline-file)"
 # The git/gh guards and the cpu sampler arrive as --inline-file (see the header),
-# so they already exist at their target paths. Fall back to the clone if a hand
-# run omitted the --inline-file flags, so the script is self-contained either way.
-mkdir -p /opt/posthog/bin
-images_dir="$clone_dir/products/tasks/backend/sandbox/images"
-[ -f /opt/posthog/bin/git ] || cp "$images_dir/git-guard.sh" /opt/posthog/bin/git
-[ -f /opt/posthog/bin/gh ] || cp "$images_dir/gh-guard.sh" /opt/posthog/bin/gh
-[ -f /usr/local/bin/posthog-cpu-billing-sampler ] || cp "$images_dir/cpu_billing_sampler.py" /usr/local/bin/posthog-cpu-billing-sampler
-chmod +x /opt/posthog/bin/git /opt/posthog/bin/gh /usr/local/bin/posthog-cpu-billing-sampler
-
-rm -rf "$clone_dir" "$skills_stage" "$cm_tmp"
+# so they already exist at their target paths with mode 0755. The final verify
+# below fails the bake if a hand run omitted those flags.
+test -x /opt/posthog/bin/git
+test -x /opt/posthog/bin/gh
+test -x /usr/local/bin/posthog-cpu-billing-sampler
 
 log "git identity"
 git config --global user.email "code@posthog.com"
@@ -236,11 +251,8 @@ PYTHONPATH="/tmp/workspace"
 PATH="${STATIC_ENV_PATH}"
 EOF
 # Lay down the agent-daemon drop-in so exec processes inherit the container-style
-# env plus the per-box /etc/hogbox-env. We do NOT restart the daemon in-bootstrap:
-# this script runs under that daemon's cgroup, so restarting it here would kill
-# the script before snapshot-build's success marker is written. The drop-in
-# applies on the daemon's next (re)start. Validating that exec processes see this
-# env after a real restore is a live-cluster check (see GOLDEN_CI_RUNBOOK.md).
+# env plus the per-box /etc/hogbox-env, then restart the daemon so the snapshot
+# captures a hogpanion already re-exec'd with the new env.
 if [ -d /etc/systemd/system ]; then
     dropin_dir=/etc/systemd/system/hogpanion.service.d
     mkdir -p "$dropin_dir"
@@ -255,7 +267,37 @@ Environment="PYTHONPATH=/tmp/workspace"
 Environment="PATH=${STATIC_ENV_PATH}"
 EnvironmentFile=-/etc/hogbox-env
 EOF
-    systemctl daemon-reload || true
+    systemctl daemon-reload
+    # daemon-reload does NOT re-exec a running unit, so the drop-in's new
+    # Environment= only reaches hogpanion on its next restart. Without a restart
+    # the snapshot freezes the OLD env, and restored task boxes' hog-exec children
+    # lack IS_SANDBOX=1, the /opt/posthog/bin-first PATH (git/gh guards), and
+    # PYTHONPATH. This script runs under hogpanion's cgroup, so a direct restart
+    # would kill it mid-bake; fire the restart from a detached transient unit and
+    # then poll until the daemon is back with a NEW main pid before returning.
+    if systemctl cat hogpanion.service >/dev/null 2>&1; then
+        old_pid="$(systemctl show hogpanion.service -p MainPID --value 2>/dev/null || echo 0)"
+        systemd-run --collect --unit=hogpanion-reload --on-active=2 \
+            systemctl restart hogpanion.service
+        restarted=0
+        for _ in $(seq 1 60); do
+            new_pid="$(systemctl show hogpanion.service -p MainPID --value 2>/dev/null || echo 0)"
+            if systemctl is-active --quiet hogpanion.service \
+                && [ -n "$new_pid" ] && [ "$new_pid" != "0" ] && [ "$new_pid" != "$old_pid" ]; then
+                restarted=1
+                break
+            fi
+            sleep 1
+        done
+        if [ "$restarted" != "1" ]; then
+            echo "hogpanion did not restart with the env drop-in (old pid ${old_pid})" >&2
+            systemctl status hogpanion.service --no-pager || true
+            exit 1
+        fi
+        log "hogpanion restarted (pid ${old_pid} -> ${new_pid}) with the env drop-in"
+    else
+        log "hogpanion.service not present; skipping restart (drop-in applies on next start)"
+    fi
 fi
 
 log "verify"

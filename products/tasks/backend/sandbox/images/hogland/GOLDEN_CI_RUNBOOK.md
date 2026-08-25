@@ -25,11 +25,17 @@ same contents into a hogland snapshot, it does not change the container image.
 3. Builds the `hogland` CLI from a scoped checkout of `PostHog/hogland`.
 4. `hogland snapshot-build --alias posthog-tasks-candidate --setup-script
 setup-golden.sh` — builds a seed box, runs the setup script inside it,
-   snapshots it, and points the candidate alias at the snapshot.
+   snapshots it, and points the candidate alias at the snapshot. Inside the box,
+   `setup-golden.sh` `docker pull`s `ghcr.io/posthog/posthog-sandbox-base` and
+   copies the rendered skills and the pinned `@posthog/agent` out of it, so the
+   golden is content-equivalent to the image. The image tag is templated into the
+   setup script at assembly time (default `master`; the `image_tag`
+   `workflow_dispatch` input overrides it).
 5. Boots a smoke box from `posthog-tasks-candidate`, runs `smoke-golden.sh`
-   (agent-server starts; a trivial clone + exec works), and deletes it. A smoke
-   failure skips promotion, leaving `posthog-tasks-default` on the previous
-   known-good snapshot.
+   (agent-server starts; a trivial clone + exec works; the hogpanion exec daemon
+   is running with the container-style env), and deletes it. A smoke failure
+   skips promotion, leaving `posthog-tasks-default` on the previous known-good
+   snapshot.
 6. On success, re-points `posthog-tasks-default` at the candidate's snapshot and
    stamps a dated archive alias `posthog-tasks-default-YYYYMMDD` for rollback.
 
@@ -111,18 +117,25 @@ hogland snapshot alias <snapshot_id> posthog-tasks-default
 - **No live bake has run.** The scripts and workflow are lint- and
   shellcheck-clean, but a real bake needs a cluster, the tailnet, and the
   principal — none of which exist in local dev. First armed run is the real test.
-- **Exec-daemon env restart is deferred.** `setup-golden.sh` lays down the
-  agent-daemon systemd env drop-in and reloads the unit, but does not restart the
-  daemon in-bootstrap (a restart would kill the bootstrap script before the
-  success marker). Confirm exec processes see the container-style env (PATH with
-  `/opt/posthog/bin` first, `IS_SANDBOX=1`, ...) after a real restore; if not, the
-  drop-in needs a restart wired the way the terminal bake detaches it.
+- **Smoke asserts the daemon env, not a real hog-exec child.** `smoke-golden.sh`
+  reads the running hogpanion daemon's live `/proc/<MainPID>/environ` — the env
+  its hog-exec children inherit — and asserts `IS_SANDBOX=1`, a `/opt/posthog/bin`
+  first `PATH`, and `PYTHONPATH`. This catches a hogpanion that never re-exec'd
+  with the drop-in, which an SSH login shell would hide (PAM feeds it
+  `/etc/environment`). It does not yet spawn a command _through_ hogpanion's exec
+  API and assert on the child directly. Wiring that (via `hogland box exec` or the
+  in-box exec endpoint) is the intended upgrade once the CLI surface is confirmed.
+  The daemon-env assert also depends on the sandbox ssh user being root (it reads
+  another process's `/proc` environ); the task sandbox runs as root.
 - **No quiet-deploy-window guard.** hogland's own golden workflow waits for a
   quiet hogd rollout window; this workflow does not (that needs cross-repo API
   access to hogland's deploy runs). A hogd rollout racing the bake orphans the
   seed box, which just times out `snapshot-build` and skips promotion — safe, but
   a wasted run. Consider adding the guard in a later phase.
-- **The golden tracks `master` + `@posthog/agent@latest`.** `setup-golden.sh`
-  clones `master` and installs the latest published agent, like the preview
-  persona. Pin `POSTHOG_REF` / `POSTHOG_AGENT_VERSION` (both read from the
-  environment) if a bake must be reproducible to an exact commit.
+- **The golden tracks the sandbox-base image tag (default `master`).**
+  `setup-golden.sh` sources the rendered skills and the pinned `@posthog/agent`
+  from `ghcr.io/posthog/posthog-sandbox-base:<tag>`, so the image tag is the one
+  knob for what the golden tracks. It defaults to `master`; pass the `image_tag`
+  `workflow_dispatch` input to bake against a specific `:sha` build for a
+  reproducible golden. The image is public on ghcr.io, so the in-box `docker pull`
+  needs no registry login.

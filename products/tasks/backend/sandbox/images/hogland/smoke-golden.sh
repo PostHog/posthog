@@ -6,11 +6,17 @@
 # tells the workflow to skip the promote step, which leaves the live
 # posthog-tasks-default alias pointing at the previous known-good snapshot.
 #
-# The contract asserts the two things a task run depends on:
+# The contract asserts the things a task run depends on:
 #   a. AGENT-SERVER — @posthog/agent's agent-server binary is present and starts
 #      (a golden that baked a broken /scripts install must not promote).
 #   b. CLONE + EXEC — a trivial `git clone` of a public repo and a command run
 #      inside it work, i.e. the toolchain (git guard, network, exec) is live.
+#   c. EXEC-DAEMON ENV — the running hogpanion daemon (whose env hog-exec children
+#      inherit) carries the container-style env: IS_SANDBOX=1, a PATH with
+#      /opt/posthog/bin first (the git/gh guards), and PYTHONPATH. This reads the
+#      daemon's live /proc environ, NOT an SSH login shell — a login shell reads
+#      /etc/environment via PAM and would look correct even if the daemon env
+#      never picked up the drop-in, certifying a broken golden green.
 #
 # Required env vars (set by the workflow):
 #   ALIAS    — the posthog-tasks-candidate alias to boot from
@@ -102,12 +108,20 @@ log "smoke box $SMOKE_BOX_ID ssh_command: $ssh_cmd"
 # probe to our ephemeral key (a stray agent identity would burn MaxAuthTries
 # first); BatchMode never prompts; accept-new trusts the fresh host key silently.
 read -r -a ssh_parts <<<"$ssh_cmd"
-ssh_opts=(-i "$SSH_KEY" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o BatchMode=yes)
+# ServerAlive* turns a wedged binary or dead session on the box into a dropped
+# connection in ~45s, instead of hanging an assert until the job's 150m ceiling.
+ssh_opts=(-i "$SSH_KEY" -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3)
 ssh_base=("${ssh_parts[0]}" "${ssh_opts[@]}" "${ssh_parts[@]:1}")
+
+# Run one SSH assertion under a hard local ceiling, so neither a hung binary nor
+# a stuck TCP session can wedge the job. Usage: ssh_assert <remote-command...>
+ssh_assert() {
+    timeout 60 "${ssh_base[@]}" "$@"
+}
 
 log "waiting for ssh reachability (up to 5m)"
 ssh_deadline=$(( $(date +%s) + 300 ))
-until "${ssh_base[@]}" -o ConnectTimeout=5 true 2>/dev/null; do
+until timeout 20 "${ssh_base[@]}" -o ConnectTimeout=5 true 2>/dev/null; do
     if [[ "$(date +%s)" -ge "$ssh_deadline" ]]; then
         log "ssh never became reachable within 5m"
         exit 1
@@ -119,11 +133,11 @@ log "ssh reachable"
 # (a) agent-server: present and able to report its version. --help/--version
 # exits cleanly without needing task credentials or a running control plane.
 log "asserting agent-server present and starts"
-if ! "${ssh_base[@]}" "test -x /scripts/node_modules/.bin/agent-server"; then
+if ! ssh_assert "test -x /scripts/node_modules/.bin/agent-server"; then
     log "FAIL: /scripts/node_modules/.bin/agent-server missing or not executable"
     exit 1
 fi
-if ! "${ssh_base[@]}" "/scripts/node_modules/.bin/agent-server --version >/dev/null 2>&1 || /scripts/node_modules/.bin/agent-server --help >/dev/null 2>&1"; then
+if ! ssh_assert "/scripts/node_modules/.bin/agent-server --version >/dev/null 2>&1 || /scripts/node_modules/.bin/agent-server --help >/dev/null 2>&1"; then
     log "FAIL: agent-server did not start (neither --version nor --help succeeded)"
     exit 1
 fi
@@ -132,8 +146,39 @@ fi
 # works, and a command runs inside the checkout. POSTHOG_ALLOW_UNSIGNED_GIT is
 # irrelevant here (clone is never blocked); this exercises the everyday path.
 log "asserting trivial clone + exec"
-if ! "${ssh_base[@]}" "set -e; d=\$(mktemp -d); git clone --depth 1 https://github.com/octocat/Hello-World \"\$d/repo\"; test -f \"\$d/repo/README\"; ( cd \"\$d/repo\" && git rev-parse HEAD ); rm -rf \"\$d\""; then
+if ! ssh_assert "set -e; d=\$(mktemp -d); git clone --depth 1 https://github.com/octocat/Hello-World \"\$d/repo\"; test -f \"\$d/repo/README\"; ( cd \"\$d/repo\" && git rev-parse HEAD ); rm -rf \"\$d\""; then
     log "FAIL: trivial clone/exec did not complete"
+    exit 1
+fi
+
+# (c) exec-daemon env: the golden must promote only if hogpanion — the daemon
+# whose env hog-exec children inherit — is running with the container-style env
+# from setup-golden.sh's drop-in. We read the DAEMON's live /proc environ, not a
+# login shell: PAM feeds an SSH shell /etc/environment, so a shell would look
+# correct even when the daemon never re-exec'd with the drop-in (the exact bug a
+# missing hogpanion restart causes). MainPID + /proc/<pid>/environ need root; the
+# task sandbox's ssh user is root. `systemctl show` of the unit config is the
+# secondary, weaker signal (config loaded, not necessarily applied to the live
+# process). Reaching a real hog-exec child through hogpanion's exec API is the
+# ideal upgrade — see GOLDEN_CI_RUNBOOK.md's known-gaps.
+log "asserting exec-daemon (hogpanion) env carries the container-style env"
+# shellcheck disable=SC2016 # $pid/$environ must expand on the box, not locally
+daemon_env_probe='set -eu
+pid=$(systemctl show hogpanion.service -p MainPID --value 2>/dev/null || echo 0)
+if [ -z "$pid" ] || [ "$pid" = "0" ]; then
+    echo "hogpanion has no running MainPID" >&2; exit 1
+fi
+environ=$(tr "\0" "\n" < "/proc/$pid/environ")
+printf "%s\n" "$environ" | grep -qx "IS_SANDBOX=1" || { echo "daemon env missing IS_SANDBOX=1" >&2; exit 1; }
+printf "%s\n" "$environ" | grep -q "^PATH=/opt/posthog/bin:" || { echo "daemon PATH does not start with /opt/posthog/bin" >&2; exit 1; }
+printf "%s\n" "$environ" | grep -q "^PYTHONPATH=" || { echo "daemon env missing PYTHONPATH" >&2; exit 1; }
+# The /opt/posthog/bin-first PATH is what makes git resolve to the guard; confirm
+# the guard is actually there so the guarded path the daemon exposes is real.
+test -x /opt/posthog/bin/git || { echo "/opt/posthog/bin/git missing" >&2; exit 1; }
+grep -q POSTHOG_ALLOW_UNSIGNED_GIT /opt/posthog/bin/git || { echo "/opt/posthog/bin/git is not the git guard" >&2; exit 1; }
+systemctl show hogpanion.service -p Environment -p EnvironmentFiles --no-pager >&2'
+if ! ssh_assert "$daemon_env_probe"; then
+    log "FAIL: hogpanion daemon env is not the container-style env (restart likely did not take before snapshot)"
     exit 1
 fi
 

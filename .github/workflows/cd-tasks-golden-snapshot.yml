@@ -38,6 +38,10 @@ on:
                 description: 'Only bake this cluster (blank = all armed clusters)'
                 required: false
                 default: ''
+            image_tag:
+                description: 'posthog-sandbox-base image tag to source skills + @posthog/agent from (blank = master)'
+                required: false
+                default: ''
     schedule:
         # Daily, minute offset off :00 — GitHub's scheduler is contended at the
         # top of the hour and may drop those runs. No-op until armed (job `if`).
@@ -167,17 +171,34 @@ jobs:
 
             # Build into the CANDIDATE alias — no live consumer points at this
             # name, so a bad build can't poison task runs. The guards + cpu
-            # sampler ride in as --inline-file (small, fixed); the multi-MB skills
-            # payload is fetched inside the box by setup-golden.sh. Golden shape is
-            # the task sandbox shape: 4 CPU / 16 GiB / 64 GiB.
+            # sampler ride in as --inline-file (small, fixed); the rendered skills
+            # and the pinned @posthog/agent are copied out of the sandbox-base
+            # image by setup-golden.sh. snapshot-build has no --env, so the one
+            # knob (which image tag to source) is templated into a rendered copy
+            # of the setup script here. Golden shape is the task sandbox shape:
+            # 4 CPU / 16 GiB / 64 GiB.
             - name: snapshot-build (candidate)
               if: env.skip != 'true'
+              env:
+                  # Untrusted dispatch input reaches the shell only through env,
+                  # never ${{ }} interpolation into run: (semgrep shell-injection).
+                  IMAGE_TAG: ${{ github.event.inputs.image_tag }}
               run: |
                   set -euo pipefail
                   IMG=products/tasks/backend/sandbox/images
+                  TAG="${IMAGE_TAG:-master}"
+                  # Constrain the tag to characters a valid ghcr tag/ref uses, so
+                  # it cannot smuggle sed metacharacters into the substitution.
+                  if ! printf '%s' "$TAG" | grep -Eq '^[A-Za-z0-9._/-]+$'; then
+                    echo "invalid image_tag: $TAG" >&2
+                    exit 1
+                  fi
+                  RENDERED="$RUNNER_TEMP/setup-golden.rendered.sh"
+                  sed "s|__SANDBOX_IMAGE_TAG__|${TAG}|g" \
+                    "$IMG/hogland/setup-golden.sh" > "$RENDERED"
                   hogland snapshot-build \
                     --alias posthog-tasks-candidate \
-                    --setup-script "$IMG/hogland/setup-golden.sh" \
+                    --setup-script "$RENDERED" \
                     --inline-file "$IMG/git-guard.sh:/opt/posthog/bin/git:0755" \
                     --inline-file "$IMG/gh-guard.sh:/opt/posthog/bin/gh:0755" \
                     --inline-file "$IMG/cpu_billing_sampler.py:/usr/local/bin/posthog-cpu-billing-sampler:0755" \
@@ -213,15 +234,20 @@ jobs:
                   hogland snapshot alias "$SNAP_ID" posthog-tasks-default
                   echo "snapshot_id=$SNAP_ID" >> "$GITHUB_OUTPUT"
 
-            # Dated archive alias for rollback. Retention prune is intentionally
-            # not wired here — a separate cleanup cron handles it once we've
-            # watched the alias count for a couple of weeks.
+            # Dated archive alias for rollback. Reuse the snapshot id the promote
+            # step already resolved (via env, not ${{ }} into run:) rather than
+            # resolving the candidate alias again — a second resolve could race a
+            # concurrent rebuild and archive a different snapshot than was
+            # promoted. Retention prune is intentionally not wired here — a
+            # separate cleanup cron handles it once we've watched the alias count
+            # for a couple of weeks.
             - name: Archive dated alias
               if: env.skip != 'true'
+              env:
+                  SNAP_ID: ${{ steps.promote.outputs.snapshot_id }}
               run: |
                   set -euo pipefail
                   DATE=$(date -u +%Y%m%d)
-                  SNAP_ID=$(hogland snapshot resolve posthog-tasks-candidate | jq -r .snapshot_id)
                   hogland snapshot alias "$SNAP_ID" posthog-tasks-default-"$DATE"
 
             # Step outputs go through env vars, not direct ${{ }} interpolation
