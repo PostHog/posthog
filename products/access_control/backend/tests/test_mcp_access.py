@@ -1,8 +1,18 @@
 from posthog.test.base import APIBaseTest
 
+from django.http import HttpRequest
+from django.test import SimpleTestCase
+
 from parameterized import parameterized
 
-from posthog.auth import MCP_USER_AGENT_MARKER
+from posthog.auth import (
+    MCP_USER_AGENT_MARKER,
+    IDJagAccessTokenAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    SessionAuthentication,
+    is_mcp_request,
+)
 from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
@@ -132,3 +142,28 @@ class TestMCPReadOnlyEnforcement(APIBaseTest):
         self.organization.save()
 
         assert self._request("post", {"key": "flag-unentitled", "name": "e2e"}).status_code == 201
+
+
+class TestIsMCPRequest(SimpleTestCase):
+    @staticmethod
+    def _request(authenticator: object, user_agent: str) -> HttpRequest:
+        request = HttpRequest()
+        request.META["HTTP_USER_AGENT"] = user_agent
+        request.successful_authenticator = authenticator  # type: ignore[attr-defined]
+        return request
+
+    @parameterized.expand(
+        [
+            ("personal_api_key", PersonalAPIKeyAuthentication),
+            ("oauth", OAuthAccessTokenAuthentication),
+            ("id_jag", IDJagAccessTokenAuthentication),
+        ]
+    )
+    def test_scoped_token_with_mcp_user_agent_is_mcp(self, _name: str, auth_class: type) -> None:
+        assert is_mcp_request(self._request(auth_class(), f"cursor/1.0 {MCP_USER_AGENT_MARKER}")) is True
+
+    def test_scoped_token_without_mcp_user_agent_is_not_mcp(self) -> None:
+        assert is_mcp_request(self._request(PersonalAPIKeyAuthentication(), "curl/8")) is False
+
+    def test_session_auth_is_never_mcp(self) -> None:
+        assert is_mcp_request(self._request(SessionAuthentication(), MCP_USER_AGENT_MARKER)) is False

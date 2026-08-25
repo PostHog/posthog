@@ -1490,6 +1490,12 @@ MCP_USER_AGENT_MARKER = "posthog/mcp-server"
 def is_mcp_request(request: Union[HttpRequest, Request]) -> bool:
     """Returns True when a token-authenticated request comes through the MCP server."""
     authenticator = getattr(request, "successful_authenticator", None)
-    if isinstance(authenticator, PersonalAPIKeyAuthentication | OAuthAccessTokenAuthentication):
+    # Every user-delegated scoped-token type the MCP server can authenticate with. ID-JAG
+    # (XAA) tokens are served from the same OAuth token endpoint and carry scopes, so a
+    # write on that pathway must be classified as MCP like a personal key or OAuth token.
+    if isinstance(
+        authenticator,
+        PersonalAPIKeyAuthentication | OAuthAccessTokenAuthentication | IDJagAccessTokenAuthentication,
+    ):
         return MCP_USER_AGENT_MARKER in (request.headers.get("User-Agent") or "")
     return False
