@@ -24,8 +24,11 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.rbac.subject_access_control import SubjectAccessControl
-from posthog.rbac.user_access_control import (
+from posthog.scopes import APIScopeObject
+from posthog.user_permissions import UserPermissions
+
+from products.access_control.backend.facade.subject_access_control import SubjectAccessControl
+from products.access_control.backend.facade.user_access_control import (
     ACCESS_CONTROL_RESOURCES,
     NO_ACCESS_LEVEL,
     RESOURCE_INHERITANCE_MAP,
@@ -38,14 +41,8 @@ from posthog.rbac.user_access_control import (
     model_to_resource,
     ordered_access_levels,
 )
-from posthog.scopes import APIScopeObject
-from posthog.user_permissions import UserPermissions
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-    from ee.models.rbac.role import Role, RoleMembership
-except ImportError:
-    pass
+from products.access_control.backend.models.access_control import AccessControl
+from products.access_control.backend.models.role import Role, RoleMembership
 
 pytestmark = pytest.mark.ee
 
