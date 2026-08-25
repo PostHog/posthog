@@ -34,6 +34,23 @@ const DEFAULT_BILLING_LIMIT_CONFIG: BillingLimitConfig = {
 
 type BillingLimitConfigResolver = (context: BillingLimitConfigContext) => Partial<BillingLimitConfig> | null
 
+const currentAboveStartupCapNotice = (
+    productName: string,
+    cap: number,
+    customLimitUsd: number | null,
+    billingLimitNextPeriod: number | null
+): string | null => {
+    if (customLimitUsd === null || customLimitUsd <= cap) {
+        return null
+    }
+
+    if (billingLimitNextPeriod !== null && billingLimitNextPeriod <= cap) {
+        return `This period's ${productName} billing limit is above the startup program cap, so it stays at $${customLimitUsd.toLocaleString()}. The $${billingLimitNextPeriod.toLocaleString()} limit starts next period.`
+    }
+
+    return `This period's ${productName} billing limit is above the startup program cap, so future edits must be $${cap.toLocaleString()} or less.`
+}
+
 // Mirrors the caps the billing service enforces for startup-program customers, so the form
 // rejects out-of-range limits before the API does. The billing API product names are too
 // verbose for copy (e.g. "PostHog Desktop (usage-based)").
@@ -48,13 +65,12 @@ const startupProgramCapResolver = (productName: string, cap: number): BillingLim
             help: `While your organization is in the startup program, ${productName} billing limits can be set from $0 to $${cap.toLocaleString()} per month.`,
             removalDisabledReason: `While your organization is in the startup program, ${productName} billing limits can't be removed. Set the limit to $0 instead.`,
             maxExceededError: `While your organization is in the startup program, ${productName} billing limits can't exceed $${cap.toLocaleString()} per month.`,
-            currentAboveMaxNotice:
-                customLimitUsd !== null &&
-                customLimitUsd > cap &&
-                billingLimitNextPeriod !== null &&
-                billingLimitNextPeriod <= cap
-                    ? `Current usage is already above the startup program cap, so this period's limit stays at $${customLimitUsd.toLocaleString()}. The $${billingLimitNextPeriod.toLocaleString()} limit starts next period.`
-                    : null,
+            currentAboveMaxNotice: currentAboveStartupCapNotice(
+                productName,
+                cap,
+                customLimitUsd,
+                billingLimitNextPeriod
+            ),
         }
     }
 }

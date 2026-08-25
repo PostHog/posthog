@@ -45,20 +45,21 @@ describe('getBillingLimitConfig', () => {
     )
 
     it.each([
-        [POSTHOG_CODE_USAGE_PRODUCT_KEY, 750, 500, true],
-        [POSTHOG_CODE_USAGE_PRODUCT_KEY, 750, 600, false],
-        [REPLAY_VISION_PRODUCT_KEY, 3750, 2000, true],
-        [REPLAY_VISION_PRODUCT_KEY, 3750, 5000, false],
-        [REPLAY_VISION_PRODUCT_KEY, null, 2000, false],
+        [POSTHOG_CODE_USAGE_PRODUCT_KEY, 750, 500, 'The $500 limit starts next period.'],
+        [POSTHOG_CODE_USAGE_PRODUCT_KEY, 750, null, 'future edits must be $500 or less.'],
+        [POSTHOG_CODE_USAGE_PRODUCT_KEY, 750, 600, 'future edits must be $500 or less.'],
+        [REPLAY_VISION_PRODUCT_KEY, 3750, 2000, 'The $2,000 limit starts next period.'],
+        [REPLAY_VISION_PRODUCT_KEY, 3750, 5000, 'future edits must be $3,000 or less.'],
+        [REPLAY_VISION_PRODUCT_KEY, null, 2000, null],
     ])(
-        'for %s with current limit %p and next period limit %p, above-cap notice shown: %p',
-        (productType, customLimitUsd, billingLimitNextPeriod, noticeShown) => {
+        'for %s with current limit %p and next period limit %p, above-cap notice includes %p',
+        (productType, customLimitUsd, billingLimitNextPeriod, expectedNotice) => {
             const config = getConfig(productType, StartupProgramLabel.YC, {
                 customLimitUsd,
                 billingLimitNextPeriod,
             })
-            if (noticeShown) {
-                expect(config.currentAboveMaxNotice).toContain('next period')
+            if (expectedNotice) {
+                expect(config.currentAboveMaxNotice).toContain(expectedNotice)
             } else {
                 expect(config.currentAboveMaxNotice).toBeNull()
             }
