@@ -863,11 +863,12 @@ class APIScopePermission(ScopeBasePermission):
 class MCPAccessPermission(ScopeBasePermission):
     """Denies write actions through the MCP server when the organization restricts it.
 
-    An independent vote in the stack: DRF combines permission classes with AND semantics,
-    so a `*`-scoped token that passes `APIScopePermission` is still capped here. Runs after
-    the membership permissions, so non-members get the generic denial. Subclasses
-    ScopeBasePermission only for `_get_required_scopes`, so it derives an action's read or
-    write nature the same way `APIScopePermission` does."""
+    This class is an independent vote in the permission stack. DRF combines permission
+    classes with AND semantics, so a `*`-scoped token that passes `APIScopePermission`
+    is still capped here. The stack runs this class after the membership permissions,
+    so non-members get the generic denial. This class subclasses ScopeBasePermission
+    only for `_get_required_scopes`. It derives an action's read or write nature the
+    same way `APIScopePermission` does."""
 
     def has_permission(self, request, view) -> bool:
         # Cheap exit first. Almost every request is not MCP. The check is two isinstance
@@ -884,10 +885,10 @@ class MCPAccessPermission(ScopeBasePermission):
 
         required_scopes = self._get_required_scopes(request, view)
         if required_scopes is None:
-            # An unclassified action (custom action without required_scopes, or INTERNAL).
-            # On the default stack APIScopePermission already rejects token auth for these.
-            # A dangerously_get_permissions chain can omit APIScopePermission, so fall back
-            # to the HTTP method and treat every non-safe method as a write.
+            # This action is unclassified: no required_scopes, or an INTERNAL scope object.
+            # On the default stack, APIScopePermission already rejects token auth for these.
+            # A dangerously_get_permissions chain can omit APIScopePermission. Fall back to
+            # the HTTP method there and treat every non-safe method as a write.
             writes = request.method not in SAFE_METHODS
         else:
             writes = any(scope.endswith(":write") for scope in required_scopes)

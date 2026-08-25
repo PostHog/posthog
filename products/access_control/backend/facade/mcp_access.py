@@ -5,9 +5,9 @@ server. Reads work. Writes are denied. The cap applies to every member, includin
 Access through the app and direct API use are not affected.
 
 This module is the decision point. It takes domain facts and returns a verdict. It does
-not read requests: `posthog.auth.is_mcp_request` classifies the pathway, and enforcement
-points such as `MCPAccessPermission` in posthog/permissions.py gather the facts and apply
-the verdict. The access-control facade's `decide()` can call this later, to apply the
+not read requests. `posthog.auth.is_mcp_request` classifies the pathway. Enforcement
+points such as `MCPAccessPermission` in posthog/permissions.py gather the facts and
+apply the verdict. The access-control facade's `decide()` can call this later, to apply the
 same cap to object-level decisions.
 """
 
