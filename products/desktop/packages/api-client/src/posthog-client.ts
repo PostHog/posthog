@@ -125,6 +125,7 @@ import type {
   TeamMcpGatewayConfigUpdate,
 } from "./mcp-gateway";
 import type { SpendAnalysisResponse } from "./spend-analysis";
+import { parseUserSpendLimit, type UserSpendLimit } from "./spend-limit";
 import {
   normalizeTaskResponse,
   normalizeTaskRunArtifact,
@@ -6270,6 +6271,61 @@ export class PostHogAPIClient {
       throw new Error(`Failed to fetch spend analysis: ${response.status}`);
     }
     return (await response.json()) as SpendAnalysisResponse;
+  }
+
+  /**
+   * The signed-in person's own spend limit, as the gateway holds it. A
+   * deployment without the gateway wired answers `enforced: false` rather than
+   * failing, so the settings page can say the limit informs only.
+   */
+  async getUserSpendLimit(): Promise<UserSpendLimit> {
+    return parseUserSpendLimit(await this.spendLimitRequest("get"));
+  }
+
+  /** Sets the limit; `windowSeconds` is the window it resets over. */
+  async setUserSpendLimit(
+    limitUsd: number,
+    windowSeconds: number,
+  ): Promise<UserSpendLimit> {
+    return parseUserSpendLimit(
+      await this.spendLimitRequest("post", "", {
+        limit_usd: String(limitUsd),
+        window_seconds: windowSeconds,
+      }),
+    );
+  }
+
+  /** Removes the limit, so nothing holds this person's spend. */
+  async clearUserSpendLimit(): Promise<UserSpendLimit> {
+    return parseUserSpendLimit(
+      await this.spendLimitRequest("delete", "clear/"),
+    );
+  }
+
+  private async spendLimitRequest(
+    method: "get" | "post" | "delete",
+    suffix = "",
+    body?: Record<string, unknown>,
+  ): Promise<unknown> {
+    const teamId = await this.getTeamId();
+    const urlPath = `/api/projects/${teamId}/ai_gateway/@me/spend_limit/${suffix}`;
+    const response = await this.api.fetcher.fetch({
+      method,
+      url: new URL(`${this.api.baseUrl}${urlPath}`),
+      path: urlPath,
+      ...(body ? { overrides: { body: JSON.stringify(body) } } : {}),
+    });
+    if (!response.ok) {
+      const detail = (await response.json().catch(() => ({}))) as {
+        detail?: unknown;
+      };
+      throw new Error(
+        typeof detail.detail === "string"
+          ? detail.detail
+          : `Spend limit request failed: ${response.status}`,
+      );
+    }
+    return response.json();
   }
 
   /**

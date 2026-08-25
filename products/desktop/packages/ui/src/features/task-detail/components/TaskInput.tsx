@@ -16,6 +16,10 @@ import { ButtonGroup } from "@posthog/quill";
 import { type AgentRuntime, ANALYTICS_EVENTS } from "@posthog/shared";
 import type { Task } from "@posthog/shared/domain-types";
 import {
+  spendStopMessage,
+  useSpendStop,
+} from "@posthog/ui/features/billing/useSpendStop";
+import {
   TaskRepositoryChip,
   TaskRepositoryDialog,
 } from "@posthog/ui/features/canvas/components/TaskRepositoryDialog";
@@ -290,6 +294,7 @@ export function TaskInput({
     setLastUsedPiModel,
     _hasHydrated: settingsHydrated,
   } = useSettingsStore();
+  const spendStop = useSpendStop();
   const { data: skills } = useSkills();
 
   const editorRef = useRef<EditorHandle>(null);
@@ -1510,7 +1515,11 @@ export function TaskInput({
                     channelContextBlocked ||
                     !isOnline ||
                     (runtime === "pi" ? isPiConfigLoading : isPreviewLoading) ||
-                    (runtime === "pi" && !currentPiModel)
+                    (runtime === "pi" && !currentPiModel) ||
+                    spendStop !== null
+                  }
+                  submitTooltipOverride={
+                    spendStop ? spendStopMessage(spendStop) : undefined
                   }
                   tourTarget="task-input"
                   submitAdornment={
