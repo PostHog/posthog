@@ -67,7 +67,10 @@ export function StepWaitUntilConditionConfiguration({
                     <span className="text-md font-semibold">Property conditions</span>
                 </span>
                 <span className="text-xs text-muted">
-                    The workflow continues when the person matches these properties.
+                    The workflow continues when the person matches these properties. Base the condition on person or
+                    event properties so it resolves as soon as they change. A condition that can only become true with
+                    the passage of time (such as <code>now()</code>), or through cohort or group membership, won't be
+                    re-checked on its own and only resolves once the max wait time is reached.
                 </span>
                 <LemonInput
                     value={localConditionName || ''}
