@@ -180,9 +180,15 @@ deliver "$SETUP_SCRIPT"   /tmp/setup-golden.sh                        0755
 # check are our success gate: a failing step returns non-zero and we never reach
 # `box snapshot`. AGENT_VERSION / SKILLS_TARBALL / INSTALL_SKILLS reach it as env.
 log "running setup-golden.sh in the box"
+# %q-escape AGENT_VERSION before splicing it into the remote command string --
+# it comes from an npm registry response (see the workflow's "Resolve
+# published agent version" step), and unescaped single-quote interpolation
+# would let a value containing a quote break out of the assignment and run
+# arbitrary commands in the box.
+printf -v agent_version_escaped '%q' "$AGENT_VERSION"
 setup_rc=0
 "${ssh_base[@]}" \
-    "AGENT_VERSION='$AGENT_VERSION' SKILLS_TARBALL=/tmp/golden-skills.tar.gz INSTALL_SKILLS=/tmp/install-skills.sh bash /tmp/setup-golden.sh" \
+    "AGENT_VERSION=$agent_version_escaped SKILLS_TARBALL=/tmp/golden-skills.tar.gz INSTALL_SKILLS=/tmp/install-skills.sh bash /tmp/setup-golden.sh" \
     || setup_rc=$?
 if [[ "$setup_rc" -ne 0 ]]; then
     log "FAIL: setup-golden.sh exited $setup_rc in the box; not snapshotting"
