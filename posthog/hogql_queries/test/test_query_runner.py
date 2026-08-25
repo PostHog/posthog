@@ -64,6 +64,7 @@ from posthog.hogql_queries.query_runner import (
     shared_insights_execution_mode,
 )
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import OrganizationMembership
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team, WeekStartDay
@@ -253,6 +254,17 @@ class TestQueryRunner(BaseTest):
         assert results[0] is results[1]
         timing_keys = [key for key in runner.timings.to_dict() if "build_shared_database" in key]
         assert timing_keys == ["./build_shared_database"]
+
+    def test_shared_database_kill_switch_disables_sharing(self):
+        TestQueryRunner = self.setup_test_query_runner_class()
+        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
+
+        with override_instance_config("HOGQL_SHARED_INSIGHT_DATABASE_ENABLED", False):
+            first = runner.shared_database
+            second = runner.shared_database
+
+        assert first is not second
+        assert runner.shared_database is runner.shared_database
 
     def test_init_with_query_dict(self):
         TestQueryRunner = self.setup_test_query_runner_class()
