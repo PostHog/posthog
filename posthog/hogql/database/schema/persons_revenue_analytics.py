@@ -112,7 +112,11 @@ def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.S
                     # and those views are, on their own, safe to query "without a `team_id` filter"
                     # since they're getting data from either the data warehouse (safe) or the events table (safe)
                     ast.Alias(alias="team_id", expr=ast.Constant(value=context.team_id)),
-                    ast.Alias(alias="person_id", expr=ast.Field(chain=person_id_chain)),
+                    # Event views give a String id, warehouse views a UUID. A Variant cannot be a GROUP BY key.
+                    ast.Alias(
+                        alias="person_id",
+                        expr=ast.Call(name="toString", args=[ast.Field(chain=person_id_chain)]),
+                    ),
                     ast.Alias(
                         alias="revenue",
                         expr=ast.Call(

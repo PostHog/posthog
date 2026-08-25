@@ -312,13 +312,13 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
             table_results = execute_hogql_query(
                 parse_select(
                     "SELECT person_id, revenue, mrr FROM persons_revenue_analytics WHERE person_id = {id}",
-                    placeholders={"id": ast.Constant(value=person.uuid)},
+                    placeholders={"id": ast.Constant(value=str(person.uuid))},
                 ),
                 self.team,
                 user=self.user,
                 modifiers=self.MODIFIERS,
             )
-            self.assertEqual(table_results.results, [(person.uuid, expected_revenue, expected_mrr)])
+            self.assertEqual(table_results.results, [(str(person.uuid), expected_revenue, expected_mrr)])
 
             persons_results = execute_hogql_query(
                 parse_select(
@@ -331,6 +331,39 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
             )
             self.assertEqual(persons_results.results, [(person.uuid, expected_revenue, expected_mrr)])
 
+    def test_revenue_aggregated_per_person_across_event_and_warehouse_sources(self):
+        self.setup_schema_sources()
+        self.join.source_table_key = "id"
+        self.join.save()
+        self.setup_events()
+
+        self.team.revenue_analytics_config.events = [
+            RevenueAnalyticsEventItem(
+                eventName=self.PURCHASE_EVENT_NAME,
+                revenueProperty=self.REVENUE_PROPERTY,
+                revenueCurrencyProperty=RevenueCurrencyPropertyConfig(static="USD"),
+                currencyAwareDecimal=True,
+            )
+        ]
+        self.team.revenue_analytics_config.save()
+        self.team.save()
+
+        # Both source kinds are configured, so the two legs of the UNION ALL must agree on `person_id`
+        warehouse_person = _create_person(team_id=self.team.pk, distinct_ids=["cus_1"])
+
+        with freeze_time(self.QUERY_TIMESTAMP):
+            results = execute_hogql_query(
+                parse_select("SELECT person_id FROM persons_revenue_analytics ORDER BY person_id ASC"),
+                self.team,
+                user=self.user,
+                modifiers=self.MODIFIERS,
+            )
+
+            self.assertEqual(
+                [row[0] for row in results.results],
+                sorted([self.PERSON_ID, str(warehouse_person.uuid)]),
+            )
+
     def test_query_revenue_analytics_table_sources(self):
         self.setup_schema_sources()
         self.join.source_table_key = "id"
@@ -340,7 +373,7 @@ class TestPersonsRevenueAnalytics(TestPersonsRevenueAnalyticsMixin):
         distinct_id_to_person_id: dict[str, str] = {}
         for distinct_id in ["cus_1", "cus_2", "cus_3", "cus_4", "cus_5", "cus_6"]:
             person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
-            distinct_id_to_person_id[distinct_id] = person.uuid
+            distinct_id_to_person_id[distinct_id] = str(person.uuid)
 
         with freeze_time(self.QUERY_TIMESTAMP):
             results = execute_hogql_query(
@@ -502,7 +535,7 @@ class TestPersonsRevenueAnalyticsManagedViewsets(
         distinct_id_to_person_id: dict[str, str] = {}
         for distinct_id in ["cus_1", "cus_2", "cus_3", "cus_4", "cus_5", "cus_6"]:
             person = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id])
-            distinct_id_to_person_id[distinct_id] = person.uuid
+            distinct_id_to_person_id[distinct_id] = str(person.uuid)
         self.create_and_materialize_viewsets()
         with freeze_time(self.QUERY_TIMESTAMP), self.snapshot_select_queries():
             results = execute_hogql_query(
