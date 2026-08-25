@@ -95,6 +95,20 @@ def source_supports_row_filters(source_type: str) -> bool:
     return bool(source.supports_row_filters)
 
 
+def source_projects_columns_at_source(source_type: str) -> bool:
+    """Whether enabled column names are interpolated into a source-side query.
+
+    These sources require exact source identifiers. Warehouse table columns have already
+    passed through dlt normalization, so they are not a safe fallback for configuration.
+    """
+    try:
+        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+    except Exception as e:
+        capture_exception(e)
+        return False
+    return bool(source.supports_column_selection)
+
+
 _CDC_WRITE_TARGETS_BY_TABLE_MODE: dict[str, frozenset[str]] = {
     "consolidated": frozenset({"consolidated"}),
     "cdc_only": frozenset({"cdc_history"}),
@@ -451,6 +465,13 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             ]
             if sql_columns:
                 return sql_columns
+        # Source-projected selections are quoted into the upstream query and therefore need
+        # exact source identifiers. The synced table keys below are dlt-normalized destination
+        # names (for example Postgres `"accountID"` becomes `account_id`), so exposing them in
+        # the picker can persist a selection that the source query cannot execute. Return the
+        # empty state instead; it offers an explicit schema refresh that records safe metadata.
+        if source_projects_columns_at_source(schema.source.source_type):
+            return []
         # `schema_metadata` is only written on source creation and explicit schema reload
         # (`refresh_schemas`) — never by background schema discovery or the data sync, and never for
         # non-SQL sources. So it's empty for non-SQL sources and for SQL schemas discovered/added later
@@ -703,6 +724,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                             f"Unknown columns in enabled_columns: {sorted(unknown)}. "
                             "Run `Pull new schemas` to refresh available columns."
                         )
+                elif source_projects_columns_at_source(instance.source.source_type):
+                    raise ValidationError(
+                        "Column metadata is unavailable. Run `Pull new schemas` before selecting source columns."
+                    )
 
         # Validate against the schema's columns; raw filters are persisted as-is and re-coerced at sync time.
         if "row_filters" in validated_data and validated_data["row_filters"] is not None:
