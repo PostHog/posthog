@@ -107,16 +107,30 @@ export function dropUnactionableNetworkExceptions<
 // identifier. Our own bundle never leaves such an identifier undefined at runtime.
 const UNKNOWN_IDENTIFIER_REFERENCE_ERROR = /^(Can't find variable: \S+|\S+ is not defined)$/
 
+// A script that a wallet in-app browser or an extension injects runs as top-level code in the page
+// document, so WebKit reports its only stack frame with the function name `global code`. Our own
+// bundle always runs inside module and chunk functions, never as a document's global code, so a lone
+// `global code` frame marks an injected script rather than our code.
+function isInjectedGlobalCodeFrame(frames: Array<{ function?: string }>): boolean {
+    return frames.length === 1 && frames[0]?.function === 'global code'
+}
+
 // Filters `$exception` events that a browser extension or an in-app browser injected into the page.
-// Each one is an unhandled ReferenceError for an identifier our code never defines (for example
-// `WeixinJSBridge`, `__firefox__`, or `Can't find variable: pos`), and posthog-js captures it
-// through the global handler with no stack frames because the throwing script is not ours. A real
-// ReferenceError in our own bundle carries a stack, so the empty-stack check keeps those. Each
-// injected variant fingerprints to its own error tracking issue, so drop the whole class here.
+// Two shapes reach us:
+//
+//   1. An unhandled ReferenceError for an identifier our code never defines (for example
+//      `WeixinJSBridge`, `__firefox__`, or `Can't find variable: pos`). posthog-js captures it
+//      through the global handler with no stack frames because the throwing script is not ours, and a
+//      real ReferenceError in our own bundle carries a stack, so the empty-stack check keeps those.
+//   2. An unhandled TypeError that a crypto wallet browser throws while it probes or defines
+//      `window.ethereum` before the page owns it (for example accessing `selectedAddress` on an
+//      undefined `window.ethereum`). Its only stack frame is `global code` in the document itself.
+//
+// Each injected variant fingerprints to its own error tracking issue, so drop the whole class here.
 // Exported for unit testing.
-export function dropInjectedScriptReferenceErrors<
-    T extends { event?: string; properties?: Record<string, any> } | null,
->(event: T): T | null {
+export function dropInjectedScriptExceptions<T extends { event?: string; properties?: Record<string, any> } | null>(
+    event: T
+): T | null {
     if (!event || event.event !== '$exception') {
         return event
     }
@@ -124,14 +138,17 @@ export function dropInjectedScriptReferenceErrors<
         type?: string
         value?: string
         mechanism?: { handled?: boolean }
-        stacktrace?: { frames?: unknown[] }
+        stacktrace?: { frames?: Array<{ function?: string }> }
     }>
     const hasFrames = list.some((ex) => (ex?.stacktrace?.frames?.length ?? 0) > 0)
     const isUnhandled = list.every((ex) => ex?.mechanism?.handled === false)
     const isUnknownIdentifierReferenceError = list.some(
         (ex) => ex?.type === 'ReferenceError' && ex?.value != null && UNKNOWN_IDENTIFIER_REFERENCE_ERROR.test(ex.value)
     )
-    if (!hasFrames && isUnhandled && isUnknownIdentifierReferenceError) {
+    const isInjectedGlobalCodeTypeError = list.some(
+        (ex) => ex?.type === 'TypeError' && isInjectedGlobalCodeFrame(ex?.stacktrace?.frames ?? [])
+    )
+    if (isUnhandled && ((!hasFrames && isUnknownIdentifierReferenceError) || isInjectedGlobalCodeTypeError)) {
         return null
     }
     return event
@@ -252,8 +269,8 @@ export const selfReadOnlyModeLogic = kea<selfReadOnlyModeLogicType>([
 
         // Central error-tracking filter chain — drops `$exception` events for a ReadOnlyModeError
         // (a block by design), for the handled auth gates (2FA setup/verify, re-auth), for the
-        // network failures that only describe the client's situation, and for the ReferenceErrors
-        // that browser extensions and in-app browsers inject. Catches direct captures *and* wrapped
+        // network failures that only describe the client's situation, and for the errors that
+        // browser extensions and in-app browsers inject. Catches direct captures *and* wrapped
         // errors (`new Error('...', { cause: readOnlyErr })`). This logic mounts in the authenticated
         // app, where every gated request happens, and no other code that runs there sets
         // `before_send`, so we own this config slot.
@@ -262,7 +279,7 @@ export const selfReadOnlyModeLogic = kea<selfReadOnlyModeLogicType>([
                 dropReadOnlyExceptions,
                 dropHandledAuthGateExceptions,
                 dropUnactionableNetworkExceptions,
-                dropInjectedScriptReferenceErrors,
+                dropInjectedScriptExceptions,
             ],
         })
 

@@ -2,7 +2,7 @@ import { NETWORK_ERROR_MESSAGES } from 'lib/api-error'
 
 import {
     dropHandledAuthGateExceptions,
-    dropInjectedScriptReferenceErrors,
+    dropInjectedScriptExceptions,
     dropReadOnlyExceptions,
     dropUnactionableNetworkExceptions,
 } from './selfReadOnlyModeLogic'
@@ -144,7 +144,7 @@ describe('dropUnactionableNetworkExceptions', () => {
     })
 })
 
-describe('dropInjectedScriptReferenceErrors', () => {
+describe('dropInjectedScriptExceptions', () => {
     const injected = (value: string): { event: string; properties: any } => ({
         event: '$exception',
         properties: {
@@ -162,7 +162,31 @@ describe('dropInjectedScriptReferenceErrors', () => {
         ['Rt is not defined'],
         ['ehrMain is not defined'],
     ])('drops the unhandled, frameless ReferenceError "%s"', (value) => {
-        expect(dropInjectedScriptReferenceErrors(injected(value))).toBeNull()
+        expect(dropInjectedScriptExceptions(injected(value))).toBeNull()
+    })
+
+    // A crypto wallet browser probes or defines `window.ethereum` before the page owns it. WebKit
+    // reports the throw with a single `global code` frame in the page document.
+    const walletTypeError = (value: string): { event: string; properties: any } => ({
+        event: '$exception',
+        properties: {
+            $exception_list: [
+                {
+                    type: 'TypeError',
+                    value,
+                    mechanism: { type: 'generic', handled: false },
+                    stacktrace: { frames: [{ function: 'global code' }] },
+                },
+            ],
+        },
+    })
+
+    it.each([
+        ["undefined is not an object (evaluating 'window.ethereum.selectedAddress = undefined')"],
+        ["Cannot destructure property 'ethereum' of 'window' as it is undefined."],
+        ['can\'t redefine non-configurable property "ethereum"'],
+    ])('drops the unhandled, single global-code-frame TypeError "%s"', (value) => {
+        expect(dropInjectedScriptExceptions(walletTypeError(value))).toBeNull()
     })
 
     it('keeps a ReferenceError from our own bundle, which carries a stack', () => {
@@ -179,7 +203,59 @@ describe('dropInjectedScriptReferenceErrors', () => {
                 ],
             },
         }
-        expect(dropInjectedScriptReferenceErrors(event)).toBe(event)
+        expect(dropInjectedScriptExceptions(event)).toBe(event)
+    })
+
+    it('keeps a TypeError from our own bundle, whose frame is a real function, not global code', () => {
+        const event = {
+            event: '$exception',
+            properties: {
+                $exception_list: [
+                    {
+                        type: 'TypeError',
+                        value: 'undefined is not an object',
+                        mechanism: { type: 'generic', handled: false },
+                        stacktrace: { frames: [{ function: 'submitZendeskTicket' }] },
+                    },
+                ],
+            },
+        }
+        expect(dropInjectedScriptExceptions(event)).toBe(event)
+    })
+
+    it('keeps a TypeError with a global-code frame among other frames of ours', () => {
+        // Our own code that runs deeper than a document's top level carries more than one frame.
+        const event = {
+            event: '$exception',
+            properties: {
+                $exception_list: [
+                    {
+                        type: 'TypeError',
+                        value: 'undefined is not an object',
+                        mechanism: { type: 'generic', handled: false },
+                        stacktrace: { frames: [{ function: 'global code' }, { function: 'submitZendeskTicket' }] },
+                    },
+                ],
+            },
+        }
+        expect(dropInjectedScriptExceptions(event)).toBe(event)
+    })
+
+    it('keeps a handled global-code TypeError, which some code path already recovered from', () => {
+        const event = {
+            event: '$exception',
+            properties: {
+                $exception_list: [
+                    {
+                        type: 'TypeError',
+                        value: 'undefined is not an object',
+                        mechanism: { handled: true },
+                        stacktrace: { frames: [{ function: 'global code' }] },
+                    },
+                ],
+            },
+        }
+        expect(dropInjectedScriptExceptions(event)).toBe(event)
     })
 
     it('keeps a handled ReferenceError, which some code path already recovered from', () => {
@@ -191,7 +267,7 @@ describe('dropInjectedScriptReferenceErrors', () => {
                 ],
             },
         }
-        expect(dropInjectedScriptReferenceErrors(event)).toBe(event)
+        expect(dropInjectedScriptExceptions(event)).toBe(event)
     })
 
     it('keeps a non-ReferenceError that happens to match the message shape', () => {
@@ -201,11 +277,11 @@ describe('dropInjectedScriptReferenceErrors', () => {
                 $exception_list: [{ type: 'TypeError', value: 'foo is not defined', mechanism: { handled: false } }],
             },
         }
-        expect(dropInjectedScriptReferenceErrors(event)).toBe(event)
+        expect(dropInjectedScriptExceptions(event)).toBe(event)
     })
 
     it('tolerates missing properties and a missing exception list', () => {
-        expect(dropInjectedScriptReferenceErrors({ event: '$exception' })).toEqual({ event: '$exception' })
-        expect(dropInjectedScriptReferenceErrors(null)).toBeNull()
+        expect(dropInjectedScriptExceptions({ event: '$exception' })).toEqual({ event: '$exception' })
+        expect(dropInjectedScriptExceptions(null)).toBeNull()
     })
 })
