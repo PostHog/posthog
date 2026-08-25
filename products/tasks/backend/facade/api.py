@@ -432,9 +432,18 @@ _TASK_RUN_PUBLIC_STATE_KEYS = frozenset(
     }
 )
 
+# Served only to the run's own task-bound sandbox, which reads them to build the agent's
+# first message; without them it silently falls back to `task.description`. Withheld from
+# human readers: a workflow task is team-readable, and its boot prompt embeds the triggering
+# event wholesale, which for a Slack trigger can be a private channel's message content.
+_TASK_RUN_AGENT_STATE_KEYS = frozenset({"initial_prompt_override"})
 
-def _public_task_run_state(state: dict | None) -> dict:
-    return {key: value for key, value in (state or {}).items() if key in _TASK_RUN_PUBLIC_STATE_KEYS}
+
+def _public_task_run_state(state: dict | None, *, include_agent_keys: bool = False) -> dict:
+    allowed = _TASK_RUN_PUBLIC_STATE_KEYS
+    if include_agent_keys:
+        allowed = allowed | _TASK_RUN_AGENT_STATE_KEYS
+    return {key: value for key, value in (state or {}).items() if key in allowed}
 
 
 def _task_run_log_url(run: TaskRun) -> str | None:
@@ -454,7 +463,7 @@ def _task_run_log_url(run: TaskRun) -> str | None:
     return presigned_url
 
 
-def _task_run_detail_to_dto(run: TaskRun) -> contracts.TaskRunDetailDTO:
+def _task_run_detail_to_dto(run: TaskRun, *, include_agent_state: bool = False) -> contracts.TaskRunDetailDTO:
     """Map a ``TaskRun`` to its HTTP detail DTO.
 
     Reproduces the SMF-derived fields ``TaskRunDetailSerializer`` computed: ``log_url`` does
@@ -480,7 +489,7 @@ def _task_run_detail_to_dto(run: TaskRun) -> contracts.TaskRunDetailDTO:
         log_url=_task_run_log_url(run),
         error_message=run.error_message,
         output=run.output,
-        state=_public_task_run_state(run.state),
+        state=_public_task_run_state(run.state, include_agent_keys=include_agent_state),
         artifacts=run.artifacts or [],
         created_at=run.created_at,
         updated_at=run.updated_at,
@@ -2328,10 +2337,16 @@ def list_task_runs(task_id: str | UUID, team_id: int) -> list[contracts.TaskRunD
     return [_task_run_detail_to_dto(run) for run in runs]
 
 
-def get_task_run_detail(run_id: str | UUID, task_id: str | UUID, team_id: int) -> contracts.TaskRunDetailDTO | None:
-    """A single run as a detail DTO, scoped to its task + team."""
+def get_task_run_detail(
+    run_id: str | UUID, task_id: str | UUID, team_id: int, *, include_agent_state: bool = False
+) -> contracts.TaskRunDetailDTO | None:
+    """A single run as a detail DTO, scoped to its task + team.
+
+    ``include_agent_state`` is for the run's own task-bound sandbox only: it adds the
+    boot-prompt keys that are withheld from human readers.
+    """
     run = _get_visible_run(run_id, task_id, team_id)
-    return _task_run_detail_to_dto(run) if run is not None else None
+    return _task_run_detail_to_dto(run, include_agent_state=include_agent_state) if run is not None else None
 
 
 def get_task_run_stream_info(

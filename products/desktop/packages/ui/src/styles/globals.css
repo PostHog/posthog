@@ -58,6 +58,7 @@
  * guarantees the primitive/component class strings get compiled.
  */
 @source "../../../../node_modules/@posthog/quill/dist/**/*.js";
+@source "../../../../node_modules/@posthog/quill-charts/dist/**/*.js";
 
 /*
  * Indeterminate "section loading" bar — a thin accent bar that swoops across the
