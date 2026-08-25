@@ -262,20 +262,16 @@ export const issueActionsLogic = kea<issueActionsLogicType>([
                 })
             },
             updateIssueSeverity: async ({ id, severity }) => {
-                await runMutation(
-                    'updateIssueSeverity',
-                    async () => {
-                        posthog.capture('error_tracking_issue_update_severity', {
-                            severity,
-                            issue_id: id,
-                            source: 'issue_actions',
-                        })
-                        await errorTrackingIssuesPartialUpdate(String(teamLogic.values.currentProjectId), id, {
-                            severity,
-                        })
-                    },
-                    async () => pendingUpdateActions()?.capturePendingUpdatesForIssues([id], { severity })
-                )
+                await runMutation('updateIssueSeverity', async () => {
+                    posthog.capture('error_tracking_issue_update_severity', {
+                        severity,
+                        issue_id: id,
+                        source: 'issue_actions',
+                    })
+                    await errorTrackingIssuesPartialUpdate(String(teamLogic.values.currentProjectId), id, {
+                        severity,
+                    })
+                })
                 actions.finishIssueSeverityUpdate(id)
             },
             updateIssueName: async ({ id, name }) => {
