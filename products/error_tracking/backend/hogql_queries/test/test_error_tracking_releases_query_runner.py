@@ -83,7 +83,7 @@ class TestErrorTrackingReleasesQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         assert response.bucket_seconds == 24 * 60 * 60
         assert len(response.buckets) == 7
-        # Same version: the higher build number is the newer release.
+        # Newest first appearance on top.
         assert [(r.namespace, r.version, r.build, r.total) for r in response.results] == [
             ("com.example.android", "2.9.0", "20901", 1),
             ("com.example.ios", "2.9.0", "1502", 3),
@@ -122,11 +122,13 @@ class TestErrorTrackingReleasesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert response.total == 4
 
     @freeze_time("2024-01-10T12:00:00Z")
-    def test_unversioned_release_sorts_last_in_latest_order(self) -> None:
+    def test_latest_orders_by_first_seen_then_version(self) -> None:
         self.create_issue(ISSUE_ID, ["fp-a"])
         for day, release in [
             (1, ("com.example.ios", "3.0.0", "1600")),
+            (1, ("com.example.ios", "2.9.0", "1502")),
             (2, ("com.example.ios", None, None)),
+            (3, ("com.example.ios", "3a1b2c", None)),
             (4, ("com.example.ios", "2.8.0", "1460")),
         ]:
             self.create_exception("fp-a", f"2024-01-0{day}T10:00:00Z", release)
@@ -134,7 +136,9 @@ class TestErrorTrackingReleasesQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = self.run_query()
 
-        assert [r.version for r in response.results] == ["3.0.0", "2.8.0", None]
+        # An old release that reappears late ranks first, and a hash orders like any other version.
+        # Releases that share a first bucket order by version number. Unversioned releases sort last.
+        assert [r.version for r in response.results] == ["2.8.0", "3a1b2c", "3.0.0", "2.9.0", None]
 
     @parameterized.expand([(10**9, MAX_RESOLUTION + 1), (-1, 2)])
     def test_clamps_resolution(self, resolution: int, max_bucket_count: int) -> None:

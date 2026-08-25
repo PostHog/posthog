@@ -11,12 +11,12 @@ import { teamLogic } from 'scenes/teamLogic'
 import { ErrorTrackingReleasesQueryResponse } from '~/queries/schema/schema-general'
 
 import { issueFilterPreviewLogic } from '../IssueFilterPreview/issueFilterPreviewLogic'
-import { IssueReleaseStrip, listReleaseStrips, releaseFilters } from './issueReleases'
+import { IssueReleaseStrip, listReleaseStrips, releasePropertyFilters } from './issueReleases'
 
 export function IssueReleasesStackedChart({ releases }: { releases: ErrorTrackingReleasesQueryResponse }): JSX.Element {
     const theme = useChartTheme()
     const { timezone } = useValues(teamLogic)
-    const { applyPropertyFilter } = useActions(issueFilterPreviewLogic)
+    const { applyPropertyFilters } = useActions(issueFilterPreviewLogic)
 
     const labels = releases.buckets
     const series = useMemo<Series<IssueReleaseStrip>[]>(
@@ -49,8 +49,10 @@ export function IssueReleasesStackedChart({ releases }: { releases: ErrorTrackin
     )
 
     const onPointClick = ({ series: clicked }: PointClickData<IssueReleaseStrip>): void => {
-        const filters = clicked.meta ? releaseFilters(clicked.meta) : []
-        filters.forEach((filter) => applyPropertyFilter(filter.key, filter.value, filter.operator, true))
+        const filters = clicked.meta ? releasePropertyFilters(clicked.meta) : []
+        if (filters.length > 0) {
+            applyPropertyFilters(filters)
+        }
     }
 
     return (

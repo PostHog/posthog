@@ -7,6 +7,8 @@ import {
 } from '~/queries/schema/schema-general'
 import { PropertyOperator } from '~/types'
 
+import { PreviewPropertyFilter } from '../IssueFilterPreview/issueFilterPreviewLogic'
+
 /** Bars per release strip. The strips share the panel width with the label and count columns. */
 export const RELEASE_TIMELINE_RESOLUTION = 40
 export const MAX_VISIBLE_RELEASES = 5
@@ -81,31 +83,25 @@ export function listReleaseStrips(
     return strips
 }
 
-export interface ReleaseFilter {
-    key: string
-    value: string | null
-    operator: PropertyOperator
+function propertyFilter(key: string, value: string | null): PreviewPropertyFilter {
+    return value
+        ? { key, value, operator: PropertyOperator.Exact }
+        : { key, value: null, operator: PropertyOperator.IsNotSet }
 }
 
-/** The property filters a click on the strip applies, or empty when the strip cannot be filtered. */
-export function releaseFilters(strip: IssueReleaseStrip): ReleaseFilter[] {
+/**
+ * The filters a click on the strip applies, empty when the strip cannot be filtered. A release is identified by all
+ * three properties, and a missing one filters on "is not set" so a click never leaves a stale chip from an earlier click.
+ */
+export function releasePropertyFilters(strip: IssueReleaseStrip): PreviewPropertyFilter[] {
     if (strip.kind === 'other') {
         return []
     }
-    const filters: ReleaseFilter[] = []
-    // A release can carry a namespace without a version; an exact match on null would filter nothing.
-    const version = strip.release?.version ?? null
-    filters.push(
-        version
-            ? { key: '$app_version', value: version, operator: PropertyOperator.Exact }
-            : { key: '$app_version', value: null, operator: PropertyOperator.IsNotSet }
-    )
-    // Two apps can ship the same version, so scope to the namespace when the release carries one.
-    const namespace = strip.release?.namespace ?? null
-    if (namespace) {
-        filters.push({ key: '$app_namespace', value: namespace, operator: PropertyOperator.Exact })
-    }
-    return filters
+    return [
+        propertyFilter('$app_namespace', strip.release?.namespace ?? null),
+        propertyFilter('$app_version', strip.release?.version ?? null),
+        propertyFilter('$app_build', strip.release?.build ?? null),
+    ]
 }
 
 export function maxBucketValue(strips: IssueReleaseStrip[]): number {

@@ -22500,7 +22500,7 @@
                 },
                 "orderBy": {
                     "$ref": "#/definitions/ErrorTrackingReleasesOrderBy",
-                    "description": "`latest` orders by version number, `occurrences` by volume."
+                    "description": "`latest` puts the release that first appeared most recently in the range on top, `occurrences` orders by volume."
                 },
                 "resolution": {
                     "$ref": "#/definitions/integer",

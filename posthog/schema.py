@@ -28045,7 +28045,10 @@ class ErrorTrackingReleasesQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     orderBy: ErrorTrackingReleasesOrderBy | None = Field(
         default=None,
-        description="`latest` orders by version number, `occurrences` by volume.",
+        description=(
+            "`latest` puts the release that first appeared most recently in the range"
+            " on top, `occurrences` orders by volume."
+        ),
     )
     resolution: int | None = Field(default=None, description="Number of time buckets across the date range.")
     response: ErrorTrackingReleasesQueryResponse | None = None

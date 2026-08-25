@@ -8,7 +8,7 @@ import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { issueFilterPreviewLogic } from '../IssueFilterPreview/issueFilterPreviewLogic'
-import { IssueReleaseStrip as IssueReleaseStripData, releaseFilters } from './issueReleases'
+import { IssueReleaseStrip as IssueReleaseStripData, releasePropertyFilters } from './issueReleases'
 import { IssueReleaseStrip } from './IssueReleaseStrip'
 
 interface IssueReleaseRowProps {
@@ -19,7 +19,7 @@ interface IssueReleaseRowProps {
 }
 
 export function IssueReleaseRow({ strip, buckets, maxValue, total }: IssueReleaseRowProps): JSX.Element {
-    const { applyPropertyFilter } = useActions(issueFilterPreviewLogic)
+    const { applyPropertyFilters } = useActions(issueFilterPreviewLogic)
     const { timezone } = useValues(teamLogic)
     const { series, kind, label, color } = strip
     const share = total > 0 ? series.total / total : 0
@@ -28,7 +28,10 @@ export function IssueReleaseRow({ strip, buckets, maxValue, total }: IssueReleas
     const formatDate = (iso: string): string => dayjs(iso).tz(timezone).format('D MMM YYYY HH:mm')
 
     const onSelect = (): void => {
-        releaseFilters(strip).forEach((filter) => applyPropertyFilter(filter.key, filter.value, filter.operator, true))
+        const filters = releasePropertyFilters(strip)
+        if (filters.length > 0) {
+            applyPropertyFilters(filters)
+        }
     }
 
     const swatch = (

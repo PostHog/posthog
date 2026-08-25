@@ -1,5 +1,6 @@
 import re
 import datetime
+from collections.abc import Callable
 from zoneinfo import ZoneInfo
 
 from posthog.schema import (
@@ -32,7 +33,8 @@ MIN_BUCKET_SECONDS = 60
 # fold undercounts `other` but every returned series stays exact.
 MAX_QUERY_RELEASES = 5000
 
-# Bounded digit runs keep `int()` from raising on absurdly long client-set version strings.
+# Bounded digit runs keep `int()` from raising on absurdly long client-set version strings. Only the
+# numeric prefix counts, so a hash or a prerelease tag still yields a usable tiebreaker.
 NUMERIC_VERSION = re.compile(r"^\d{1,18}(\.\d{1,18})*")
 
 ReleaseKey = tuple[str | None, str | None, str | None]
@@ -231,7 +233,7 @@ class ErrorTrackingReleasesQueryRunner(
             for index, count in in_range:
                 target.add(index, count)
 
-        ordered = sorted(releases.values(), key=self.sort_key(list(releases.values())), reverse=True)
+        ordered = sorted(releases.values(), key=self.sort_key(), reverse=True)
         max_releases = max(0, self.query.maxReleases if self.query.maxReleases is not None else DEFAULT_MAX_RELEASES)
         visible, hidden = ordered[:max_releases], ordered[max_releases:]
 
@@ -266,22 +268,20 @@ class ErrorTrackingReleasesQueryRunner(
             total=total,
         )
 
-    def sort_key(self, releases: list[_Accumulator]):
+    def sort_key(self) -> Callable[[_Accumulator], tuple]:
         order_by = self.query.orderBy or ErrorTrackingReleasesOrderBy.LATEST
         if order_by == ErrorTrackingReleasesOrderBy.OCCURRENCES:
             return lambda release: (release.total, release.first_index)
-        # Version numbers order releases only when every versioned release has a numeric one; a mix
-        # (commit hashes, dates) falls back to when each release first appeared, since bucket ties are
-        # common. Releases without a version sort last either way.
-        versions = [release.key[1] for release in releases if release.key[1]]
-        if versions and all(NUMERIC_VERSION.match(version) for version in versions):
-            return lambda release: (
-                release.key[1] is not None,
-                version_tuple(release.key[1]),
-                version_tuple(release.key[2]),
-                release.first_index,
-            )
-        return lambda release: (release.first_index, version_tuple(release.key[1]), release.total)
+        # When a release first appeared in the range is the only signal that works for every version
+        # format (semver, commit hashes, dates). Version numbers break ties, which are common because
+        # releases active before the range all start in the first bucket. Unversioned releases sort last.
+        return lambda release: (
+            release.key[1] is not None,
+            release.first_index,
+            version_tuple(release.key[1]),
+            version_tuple(release.key[2]),
+            release.total,
+        )
 
     def bucket_iso(self, index: int) -> str:
         return datetime.datetime.fromtimestamp(self.bucket_starts[index], tz=ZoneInfo("UTC")).isoformat()

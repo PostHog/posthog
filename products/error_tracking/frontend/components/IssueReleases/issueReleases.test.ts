@@ -1,8 +1,9 @@
 import { PropertyOperator } from '~/types'
 
-import { IssueReleaseStrip, IssueReleaseStripKind, ReleaseFilter, releaseFilters } from './issueReleases'
+import { PreviewPropertyFilter } from '../IssueFilterPreview/issueFilterPreviewLogic'
+import { IssueReleaseStrip, IssueReleaseStripKind, releasePropertyFilters } from './issueReleases'
 
-describe('releaseFilters', () => {
+describe('releasePropertyFilters', () => {
     const emptySeries = { counts: [], total: 0, first_seen: null, last_seen: null }
 
     const strip = (
@@ -18,35 +19,31 @@ describe('releaseFilters', () => {
         color: '#000',
     })
 
-    it.each<[string, IssueReleaseStrip, ReleaseFilter[]]>([
+    const exact = (key: string, value: string): PreviewPropertyFilter => ({
+        key,
+        value,
+        operator: PropertyOperator.Exact,
+    })
+    const notSet = (key: string): PreviewPropertyFilter => ({ key, value: null, operator: PropertyOperator.IsNotSet })
+
+    it.each<[string, IssueReleaseStrip, PreviewPropertyFilter[]]>([
         [
-            'scopes a namespaced version to both properties',
+            'scopes a full release to all three properties',
             strip('release', { namespace: 'com.example.ios', version: '3.2.0', build: '1502' }),
-            [
-                { key: '$app_version', value: '3.2.0', operator: PropertyOperator.Exact },
-                { key: '$app_namespace', value: 'com.example.ios', operator: PropertyOperator.Exact },
-            ],
+            [exact('$app_namespace', 'com.example.ios'), exact('$app_version', '3.2.0'), exact('$app_build', '1502')],
         ],
         [
             'keeps a namespace-only release distinct from missing release data',
             strip('release', { namespace: 'com.example.ios', version: null, build: null }),
-            [
-                { key: '$app_version', value: null, operator: PropertyOperator.IsNotSet },
-                { key: '$app_namespace', value: 'com.example.ios', operator: PropertyOperator.Exact },
-            ],
+            [exact('$app_namespace', 'com.example.ios'), notSet('$app_version'), notSet('$app_build')],
         ],
         [
-            'filters on version alone when the release has no namespace',
-            strip('release', { namespace: null, version: '3.2.0', build: null }),
-            [{ key: '$app_version', value: '3.2.0', operator: PropertyOperator.Exact }],
-        ],
-        [
-            'filters missing release data on version only',
+            'filters missing release data on every property being unset',
             strip('unattributed', null),
-            [{ key: '$app_version', value: null, operator: PropertyOperator.IsNotSet }],
+            [notSet('$app_namespace'), notSet('$app_version'), notSet('$app_build')],
         ],
         ['cannot filter the folded "other" strip', strip('other', null), []],
     ])('%s', (_name, input, expected) => {
-        expect(releaseFilters(input)).toEqual(expected)
+        expect(releasePropertyFilters(input)).toEqual(expected)
     })
 })

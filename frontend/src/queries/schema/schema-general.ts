@@ -3964,7 +3964,7 @@ export interface ErrorTrackingReleasesQuery extends DataNode<ErrorTrackingReleas
     appNamespace?: string
     /** How many releases to return on their own; the rest fold into `other`. */
     maxReleases?: integer
-    /** `latest` orders by version number, `occurrences` by volume. */
+    /** `latest` puts the release that first appeared most recently in the range on top, `occurrences` orders by volume. */
     orderBy?: ErrorTrackingReleasesOrderBy
     /** Number of time buckets across the date range. */
     resolution?: integer
