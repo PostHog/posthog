@@ -20,6 +20,8 @@ permissions:
     pull-requests: read
 
 env:
+    PATHS_FILTER_PROBE_MODE: ${{ vars.CI_PATHS_FILTER_PROBE_MODE }}
+    PATHS_FILTER_PROBE_POSTHOG_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
     # Manual cache-bust knob. Keep in sync with SCHEMA_CACHE_EPOCH in ci-backend.yml, which saves these caches on master pushes.
     SCHEMA_CACHE_EPOCH: v2
     RUNS_ON_INTERNAL_PR: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.fork == false }}
@@ -41,6 +43,8 @@ jobs:
             mcp: ${{ steps.filter.outputs.mcp || 'true' }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 2
 
             # MCP integration tests boot the full PostHog backend (Django web server,
             # Celery worker, migrations, demo data), so the filter stays broad: any
@@ -49,8 +53,8 @@ jobs:
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
               if: github.event_name != 'push' # Run all tests on master push

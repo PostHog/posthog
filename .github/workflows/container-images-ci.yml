@@ -11,6 +11,11 @@ concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# THROWAWAY: drives the paths-filter change-detection probe. Delete with src/probe.ts.
+env:
+    PATHS_FILTER_PROBE_MODE: ${{ vars.CI_PATHS_FILTER_PROBE_MODE }}
+    PATHS_FILTER_PROBE_POSTHOG_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+
 jobs:
     changes:
         runs-on: ubuntu-24.04
@@ -38,12 +43,14 @@ jobs:
             dockerfiles_files: ${{ steps.filter.outputs.dockerfiles_files }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 2
             - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
               id: app-token
               if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               with:
-                  client-id: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_APP_ID }}
-                  private-key: ${{ secrets.GH_APP_POSTHOG_PATHS_FILTER_PRIVATE_KEY }}
+                  client-id: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_PRODUCT_TESTS_PRIVATE_KEY }}
             - uses: ./.github/actions/paths-filter
               id: filter
               with:
