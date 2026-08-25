@@ -396,3 +396,70 @@ class TestUpdateLastSyncedAt:
             await update_last_synced_at(job_id="job-1", schema_id="schema-1", team_id=1)
 
         assert "last_full_run_at" in update_keys.call_args.kwargs["updates"]
+
+
+class TestSetInitialSyncComplete(BaseTest):
+    """The purge-then-flip contract: a CDC snapshot schema's buffer prefix is purged before the
+    streaming flip (stale pre-snapshot files merged after the flip resurrect rows the snapshot
+    wiped), and NEVER purged when the schema is already streaming (those files are live,
+    unconsumed changes)."""
+
+    def _schema(self, *, sync_type: str, config: dict, initial_sync_complete: bool) -> ExternalDataSchema:
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            status="Completed",
+            source_type="Postgres",
+        )
+        return ExternalDataSchema.objects.create(
+            team_id=self.team.pk,
+            source=source,
+            name="public.users",
+            sync_type=sync_type,
+            sync_type_config=config,
+            initial_sync_complete=initial_sync_complete,
+        )
+
+    @parameterized.expand(
+        [
+            # The flip: stale buffer must be gone before streaming resumes.
+            ("cdc_snapshot_first_completion", "cdc", {"cdc_mode": "snapshot"}, False, True, "streaming"),
+            # Already streaming (idempotent completion call): purging would delete live files.
+            ("cdc_already_streaming", "cdc", {"cdc_mode": "streaming"}, True, False, "streaming"),
+            # Non-CDC schemas have no buffer; purge must not run.
+            ("non_cdc", "full_refresh", {}, False, False, None),
+        ]
+    )
+    def test_purges_buffer_only_on_snapshot_to_streaming_flip(
+        self,
+        _name: str,
+        sync_type: str,
+        config: dict,
+        initial_flag: bool,
+        expects_purge: bool,
+        expected_cdc_mode: str | None,
+    ) -> None:
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
+            _purge_stale_buffer_then_mark_initial_sync_complete,
+        )
+
+        schema = self._schema(sync_type=sync_type, config=config, initial_sync_complete=initial_flag)
+        calls: list[str] = []
+
+        def _record_purge(team_id: int, schema_id: str, logger, *, strict: bool = False) -> None:
+            assert strict, "flip purge must be strict — a swallowed failure re-ships the phantom-row bug"
+            fresh = ExternalDataSchema.objects.get(id=schema_id)
+            assert not fresh.initial_sync_complete, "purge must run BEFORE the flip commits"
+            calls.append(schema_id)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.cdc.buffer.purge_buffer_prefix",
+            side_effect=_record_purge,
+        ):
+            _purge_stale_buffer_then_mark_initial_sync_complete(str(schema.id), self.team.pk, MagicMock())
+
+        schema.refresh_from_db()
+        assert schema.initial_sync_complete is True
+        assert (calls == [str(schema.id)]) is expects_purge
+        assert schema.sync_type_config.get("cdc_mode") == expected_cdc_mode

@@ -13,8 +13,9 @@ from posthog.models import Integration
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.temporal.common.activity_context import current_activity_attempt
+from posthog.temporal.common.db_errors import is_transient_db_error
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.common.utils import asyncify
+from posthog.temporal.common.utils import asyncify, retry_on_db_connection_drop
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.exceptions import OAuthTokenError, SandboxExecutionError, SandboxMissingRepositoryError
@@ -73,16 +74,23 @@ def _emit_agent_server_log_tail(ctx: TaskProcessingContext, sandbox: SandboxBase
 
 
 def _resolve_protected_base_branch(ctx: TaskProcessingContext) -> str | None:
-    """The branch the agent must not commit directly onto (passed to the agent-server as --baseBranch).
+    """The run's base branch, passed to the agent-server as --baseBranch.
 
-    The task's working branch is normally the PR base it was started from, so protecting it is correct.
-    But when the working branch itself heads an open PR — e.g. a quick action started on an existing
-    posthog/* branch the agent is meant to update — the agent must commit *to* that branch, so the
-    protected base is the PR's own base instead. Without this the signed-commit guard refuses the very
-    branch the run needs to update. Best-effort: any failure falls back to the working branch.
+    The agent-server derives four things from it: the branch signed writes refuse, the `gh pr create`
+    base, the `git_signed_rewrite` rebase target, and the `git_signed_merge` source. So an unknown base
+    must stay unset rather than fall back to a guess.
+
+    The working branch is usually the base the run started from, but a resume carries forward the head
+    branch its predecessor pushed, and pinning a head branch refuses every signed write to the branch
+    the run exists to update. When the working branch heads an open PR, its own base is the answer. A
+    repo-less run cannot be checked and declares no base either, so it pins nothing and the
+    agent-server falls back to the remote default branch.
     """
     branch = ctx.branch
-    if not branch or not ctx.repository or not ctx.has_github_credentials:
+    if not branch or not ctx.repository:
+        return None
+
+    if not ctx.has_github_credentials:
         return branch
 
     try:
@@ -225,13 +233,15 @@ def _include_personal_mcp_for_task(task: Task) -> bool:
 
 
 def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes, sandbox_id: str) -> _LaunchParams:
+    task = retry_on_db_connection_drop(lambda: Task.objects.select_related("created_by", "team").get(id=ctx.task_id))
     try:
-        task = Task.objects.select_related("created_by", "team").get(id=ctx.task_id)
         actor_user = get_task_run_credential_user(task, ctx.state)
         access_token = create_oauth_access_token_for_run(task, ctx.state, scopes=scopes)
     except OAuthTokenError:
         raise
     except Exception as e:
+        if is_transient_db_error(e):
+            raise
         raise OAuthTokenError(
             f"Failed to create OAuth access token for MCP auth in task {ctx.task_id}",
             {"task_id": ctx.task_id, "error": str(e)},

@@ -1,32 +1,34 @@
-import { BellIcon, ChecksIcon } from "@phosphor-icons/react";
+import { BellIcon } from "@phosphor-icons/react";
 import type { TaskActivityItem } from "@posthog/core/canvas/taskActivity";
 import {
-  Button,
   cn,
   Empty,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
+  MenuLabel,
   Spinner,
 } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
 import { useCurrentUser } from "@posthog/ui/features/auth/useCurrentUser";
+import { ActivityActionsMenu } from "@posthog/ui/features/canvas/components/ActivityActionsMenu";
+import { ActivityRow } from "@posthog/ui/features/canvas/components/ActivityRow";
 import { ActivityUnreadsToggle } from "@posthog/ui/features/canvas/components/ActivityUnreadsToggle";
-import { ActivityRow } from "@posthog/ui/features/canvas/components/ActivityView";
 import { openActivityItem } from "@posthog/ui/features/canvas/components/openActivityItem";
 import { useBlockedTaskIds } from "@posthog/ui/features/canvas/hooks/useBlockedSessionCount";
+import { useLocalDayStart } from "@posthog/ui/features/canvas/hooks/useLocalDayStart";
 import { useMarkTaskActivityRead } from "@posthog/ui/features/canvas/hooks/useMarkTaskActivityRead";
 import { useTaskActivity } from "@posthog/ui/features/canvas/hooks/useTaskActivity";
 import { useActivityFilterStore } from "@posthog/ui/features/canvas/stores/activityFilterStore";
 import { useInView } from "@posthog/ui/primitives/hooks/useInView";
 import { track } from "@posthog/ui/shell/analytics";
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import {
   activityReadPayload,
   getUnreadActivityItems,
-  markLoadedReadLabel,
+  groupActivityItemsByDay,
 } from "./activityFeed";
 
 interface ActivityFeedListProps {
@@ -64,6 +66,11 @@ export function ActivityFeedList({
   const unreadsOnly = useActivityFilterStore((state) => state.unreadsOnly);
   const unreadItems = getUnreadActivityItems(items);
   const shownItems = unreadsOnly ? unreadItems : items;
+  const dayStart = useLocalDayStart();
+  const shownItemGroups = useMemo(
+    () => groupActivityItemsByDay(shownItems, new Date(dayStart)),
+    [shownItems, dayStart],
+  );
   const { mutate: markTasksRead, isPending: isMarkingRead } =
     useMarkTaskActivityRead();
   useEffect(() => {
@@ -91,22 +98,19 @@ export function ActivityFeedList({
       <div className="flex h-10 shrink-0 items-center gap-2 border-border border-b pr-2 pl-3">
         <span className="font-bold text-base">Activity</span>
         <div className="ml-auto flex shrink-0 items-center gap-1">
-          {unreadItems.length > 0 && (
-            <Button
-              variant="default"
-              size="sm"
-              loading={isMarkingRead}
-              disabled={isMarkingRead}
-              onClick={markAllRead}
-            >
-              <ChecksIcon size={14} />
-              {markLoadedReadLabel(unreadItems.length, unreadCount)}
-            </Button>
-          )}
           <ActivityUnreadsToggle />
+          <ActivityActionsMenu
+            loadedUnreadCount={unreadItems.length}
+            totalUnreadCount={unreadCount}
+            isMarkingRead={isMarkingRead}
+            onMarkAllRead={markAllRead}
+          />
         </div>
       </div>
-      <div ref={setScrollRoot} className="min-h-0 flex-1 overflow-y-auto p-1.5">
+      <div
+        ref={setScrollRoot}
+        className="scroll-mask-8 min-h-0 flex-1 overflow-y-auto p-1.5"
+      >
         {isLoading && shownItems.length === 0 ? (
           <div className="flex justify-center py-10">
             <Spinner />
@@ -129,23 +133,26 @@ export function ActivityFeedList({
           </Empty>
         ) : (
           <div className="flex flex-col gap-px">
-            {shownItems.map((item) => (
-              <ActivityRow
-                key={item.id}
-                item={item}
-                channelId={item.channelId}
-                onOpen={markRead}
-                onMarkRead={markRead}
-                currentUser={currentUser}
-                blockedTaskIds={blockedTaskIds}
-                surface="activity_panel"
-                onActivate={(activated) => {
-                  onActivate(activated);
-                  onOpened?.();
-                }}
-                isSelected={item.id === selectedId}
-                compact
-              />
+            {shownItemGroups.map((group) => (
+              <Fragment key={group.key}>
+                <MenuLabel>{group.label}</MenuLabel>
+                {group.items.map((item) => (
+                  <ActivityRow
+                    key={item.id}
+                    item={item}
+                    onMarkRead={markRead}
+                    currentUser={currentUser}
+                    blockedTaskIds={blockedTaskIds}
+                    surface="activity_panel"
+                    onActivate={(activated) => {
+                      onActivate(activated);
+                      onOpened?.();
+                    }}
+                    isSelected={item.id === selectedId}
+                    compact
+                  />
+                ))}
+              </Fragment>
             ))}
           </div>
         )}

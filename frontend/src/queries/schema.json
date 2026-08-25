@@ -1906,6 +1906,9 @@
                 },
                 {
                     "$ref": "#/definitions/WorkflowVariablePropertyFilter"
+                },
+                {
+                    "$ref": "#/definitions/BehavioralPropertyFilter"
                 }
             ]
         },
@@ -2807,6 +2810,16 @@
                     "const": "FunnelsActorsQuery",
                     "type": "string"
                 },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "default": 100,
+                    "description": "Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped."
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "default": 0,
+                    "description": "Number of persons to skip before the returned page. Use it with `limit` to walk the whole result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`."
+                },
                 "source": {
                     "$ref": "#/definitions/AssistantFunnelsQuery",
                     "description": "The source funnel insight query whose step (or trends point) we are drilling into."
@@ -3511,6 +3524,16 @@
                     "const": "InsightActorsQuery",
                     "type": "string"
                 },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "default": 100,
+                    "description": "Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped."
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "default": 0,
+                    "description": "Number of persons to skip before the returned page. Use it with `limit` to walk the whole result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`."
+                },
                 "source": {
                     "$ref": "#/definitions/AssistantLifecycleQuery",
                     "description": "The source lifecycle insight query whose bucket we are drilling into."
@@ -3817,6 +3840,16 @@
                 "kind": {
                     "const": "InsightActorsQuery",
                     "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "default": 100,
+                    "description": "Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped."
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "default": 0,
+                    "description": "Number of persons to skip before the returned page. Use it with `limit` to walk the whole result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`."
                 },
                 "source": {
                     "$ref": "#/definitions/AssistantPathsQuery",
@@ -4264,6 +4297,16 @@
                     "const": "InsightActorsQuery",
                     "type": "string"
                 },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "default": 100,
+                    "description": "Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped."
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "default": 0,
+                    "description": "Number of persons to skip before the returned page. Use it with `limit` to walk the whole cohort: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`."
+                },
                 "source": {
                     "$ref": "#/definitions/AssistantRetentionQuery",
                     "description": "The source retention insight query whose cohort we are drilling into."
@@ -4514,6 +4557,16 @@
                 "kind": {
                     "const": "InsightActorsQuery",
                     "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "default": 100,
+                    "description": "Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped."
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "default": 0,
+                    "description": "Number of persons to skip before the returned page. Use it with `limit` to walk the whole result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`."
                 },
                 "series": {
                     "$ref": "#/definitions/integer",
@@ -5041,6 +5094,16 @@
                 "kind": {
                     "const": "InsightActorsQuery",
                     "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "default": 100,
+                    "description": "Maximum number of persons to return in one page, from 1 to 1000. Higher values are clamped."
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "default": 0,
+                    "description": "Number of persons to skip before the returned page. Use it with `limit` to walk the whole result set: the response reports `limit`, `offset`, and `hasMore`, so when `hasMore` is true, call again with `offset` raised by `limit`."
                 },
                 "series": {
                     "$ref": "#/definitions/integer",
@@ -5829,6 +5892,86 @@
                 "first_matching_event_for_user"
             ],
             "type": "string"
+        },
+        "BehavioralEventSource": {
+            "description": "Whether a behavioral filter's `key` refers to an event name or an action id",
+            "enum": ["events", "actions"],
+            "type": "string"
+        },
+        "BehavioralPropertyFilter": {
+            "additionalProperties": false,
+            "description": "Filters persons on whether they performed an event in a time window, without a saved cohort. Event scope only.",
+            "properties": {
+                "event_filters": {
+                    "description": "Extra property filters the matching events must satisfy. Deliberately excludes nested behavioral/cohort filters and groups",
+                    "items": {
+                        "anyOf": [
+                            {
+                                "$ref": "#/definitions/EventPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/PersonPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/ElementPropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/FeaturePropertyFilter"
+                            },
+                            {
+                                "$ref": "#/definitions/HogQLPropertyFilter"
+                            }
+                        ]
+                    },
+                    "type": "array"
+                },
+                "event_type": {
+                    "$ref": "#/definitions/BehavioralEventSource"
+                },
+                "explicit_datetime": {
+                    "description": "Absolute or relative (e.g. -30d) lower date bound — alternative to time_value/time_interval",
+                    "type": "string"
+                },
+                "explicit_datetime_to": {
+                    "type": "string"
+                },
+                "key": {
+                    "description": "Event name, or action id when event_type is 'actions'",
+                    "type": "string"
+                },
+                "label": {
+                    "type": "string"
+                },
+                "negation": {
+                    "description": "Match persons who did NOT satisfy the criterion. Not the same as a low count — zero-occurrence persons never match count operators",
+                    "type": "boolean"
+                },
+                "operator": {
+                    "$ref": "#/definitions/PropertyOperator",
+                    "description": "Count comparison for performed_event_multiple, defaults to exact"
+                },
+                "operator_value": {
+                    "description": "Count threshold for performed_event_multiple",
+                    "type": "integer"
+                },
+                "time_interval": {
+                    "$ref": "#/definitions/TimeUnitType"
+                },
+                "time_value": {
+                    "description": "Relative time window size, paired with time_interval",
+                    "type": "integer"
+                },
+                "type": {
+                    "const": "behavioral",
+                    "description": "Person performed (or didn't perform) an event in a time window. ClickHouse-only — not evaluable by flags or CDP",
+                    "type": "string"
+                },
+                "value": {
+                    "$ref": "#/definitions/InlineBehavioralType"
+                }
+            },
+            "required": ["event_type", "key", "type", "value"],
+            "type": "object"
         },
         "BiasRisk": {
             "additionalProperties": false,
@@ -26144,7 +26287,9 @@
                 "GooglePostmasterTools",
                 "Growi",
                 "Clarify",
-                "DatoCMS"
+                "DatoCMS",
+                "WPSOffice",
+                "TeraBox"
             ],
             "type": "string"
         },
@@ -28874,6 +29019,11 @@
         "InfinityValue": {
             "enum": [999999, -999999],
             "type": "number"
+        },
+        "InlineBehavioralType": {
+            "description": "The subset of cohort behavioral criteria supported by the inline `BehavioralPropertyFilter`",
+            "enum": ["performed_event", "performed_event_multiple"],
+            "type": "string"
         },
         "InsightActorsQuery": {
             "additionalProperties": false,
@@ -38460,6 +38610,7 @@
                 "feature",
                 "session",
                 "cohort",
+                "behavioral",
                 "recording",
                 "log_entry",
                 "group",
@@ -51734,6 +51885,10 @@
                 }
             },
             "type": "object"
+        },
+        "TimeUnitType": {
+            "enum": ["day", "week", "month", "year"],
+            "type": "string"
         },
         "TimelineEntry": {
             "additionalProperties": false,

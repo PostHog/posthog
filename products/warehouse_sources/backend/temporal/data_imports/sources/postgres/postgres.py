@@ -255,9 +255,12 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # carrying "(ECIRCUITBREAKER) failed to retrieve database credentials after multiple attempts,
     # new connections are temporarily blocked". Same class as EAUTHQUERY above — the pooler's own
     # bookkeeping failing, not a rejection of the client's credentials — and the breaker resets once
-    # the fetch succeeds again, so a fresh connect after backoff typically recovers. Match the
-    # stable code, distinct from genuine credential-rejection wordings.
-    "(ecircuitbreaker)",
+    # the fetch succeeds again, so a fresh connect after backoff typically recovers. Match the full
+    # "failed to retrieve database credentials" wording, NOT the bare "(ECIRCUITBREAKER)" code —
+    # Supavisor reuses the same code for a different condition ("too many authentication failures",
+    # tripped by repeated bad credentials rather than pooler bookkeeping), which must stay
+    # non-retryable and is matched separately in source.py's `get_non_retryable_errors`.
+    "(ecircuitbreaker) failed to retrieve database credentials",
     # pgcat (a Rust Postgres pooler) refuses to hand out a backend when every server in the pool is
     # currently banned/down — a failed health check bans a server and pgcat auto-unbans it after
     # `ban_time` — reporting it as SQLSTATE 58000 ("could not get connection from the pool -

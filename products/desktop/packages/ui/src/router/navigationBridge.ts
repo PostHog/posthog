@@ -145,6 +145,16 @@ export function navigateToInboxDismissedDetail(reportId: string): void {
   });
 }
 
+export function navigateToChannelReportDetail(
+  channelId: string,
+  reportId: string,
+): void {
+  void getRouterOrNull()?.navigate({
+    to: "/spaces/$channelId/reports/$reportId",
+    params: { channelId, reportId },
+  });
+}
+
 export function navigateToScoutDetail(
   skillSlug: string,
   findingId?: string,
