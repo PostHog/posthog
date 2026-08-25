@@ -7,13 +7,16 @@ never touches tasks internals.
 
 import json
 import uuid
+from datetime import timedelta
 from typing import Any
 
 from django.db import IntegrityError, connection, transaction
+from django.utils import timezone as django_timezone
 
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.models import User
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.team.team import Team
 from posthog.temporal.oauth import PosthogMcpScopes
@@ -23,7 +26,9 @@ from products.slack_app.backend.facade.api import slack_channel_is_approved
 from products.slack_app.backend.models import SlackThreadTaskMapping
 from products.slack_app.backend.slack_thread import SlackThreadContext
 from products.tasks.backend.facade import contracts
+from products.tasks.backend.logic.services.code_usage_gate import usage_limit_response
 from products.tasks.backend.logic.services.run_actor import loop_owner_eligible_for_credentials
+from products.tasks.backend.metrics import observe_workflow_task_create
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.constants import WORKFLOW_RUN_IDLE_TIMEOUT_SECONDS
 
@@ -38,6 +43,14 @@ EVENT_PROMPT_MAX_CHARS = 16_000
 # Matches the in-progress marker the task's own Slack updates use, so the later swap to
 # `hedgehog` (or `x`) replaces this rather than stacking a second reaction beside it.
 TRIGGER_ACK_EMOJI = "eyes"
+
+# Daily ceilings on created tasks (trailing 24h) on top of the in-flight cap: a workflow
+# triggered by a common event can otherwise sustain hundreds of agent runs a day through
+# the concurrency cap alone. The team cap aggregates across a team's workflows so N
+# workflows can't each spend the per-workflow cap; it is deliberately separate from the
+# loops budget (LOOP_RATE_CAP_PER_DAY / LOOP_TEAM_RATE_CAP_PER_DAY).
+WORKFLOW_TASK_RATE_CAP_PER_DAY = 100
+WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY = 500
 
 WORKFLOW_FRAMING_BLOCK = (
     "This is an unattended run started by a PostHog workflow. No human is available to "
@@ -74,6 +87,22 @@ class WorkflowTaskOriginKeyConflict(Exception):
         super().__init__(f"Idempotency key {origin_key!r} is already used by another workflow")
 
 
+class WorkflowTaskRateCapped(Exception):
+    def __init__(self, cap: int) -> None:
+        self.cap = cap
+        super().__init__(f"Workflow reached its daily cap of {cap} created tasks")
+
+
+class WorkflowTaskTeamRateCapped(Exception):
+    def __init__(self, cap: int) -> None:
+        self.cap = cap
+        super().__init__(f"Team reached its daily cap of {cap} workflow-created tasks")
+
+
+class WorkflowTaskUsageLimited(Exception):
+    pass
+
+
 def create_workflow_task(
     *,
     team: Team,
@@ -99,7 +128,10 @@ def create_workflow_task(
     `WorkflowTaskConnectorsInvalid` when the requested connectors aren't ones the owner
     can mount, `WorkflowTaskOwnerIneligible` when the owner lost access to the project,
     and `WorkflowTaskLimitExceeded` when the workflow already has `max_parallel_tasks`
-    runs in flight.
+    runs in flight. Also raises `WorkflowTaskUsageLimited` when the owner is over the
+    AI usage limit, and `WorkflowTaskRateCapped` / `WorkflowTaskTeamRateCapped` when
+    the workflow or its team reached the daily created-task cap. A replayed
+    `origin_key` bypasses the gate and every cap.
 
     `event` is rendered into the agent's prompt as data. `slack_context` binds the run to
     the Slack thread that triggered the workflow. The task is created either way: a context
@@ -109,9 +141,22 @@ def create_workflow_task(
     """
     replay = _find_replayed_task(team.id, hog_flow_id, origin_key)
     if replay is not None:
+        observe_workflow_task_create(reason="replayed")
         return replay
 
     validate_connectors(team.id, owner_id, mcp_installation_ids)
+
+    # Usage gate before the transaction: it calls the LLM gateway (short timeout and
+    # fails open), and holding the advisory locks across an external call would stall
+    # every workflow fire for the team. Replays never reach it, so engine retries of
+    # an already-created task succeed even for a blocked owner.
+    gate_owner = User.objects.filter(id=owner_id).first()
+    if gate_owner is None:
+        observe_workflow_task_create(reason="owner_ineligible")
+        raise WorkflowTaskOwnerIneligible()
+    if usage_limit_response(gate_owner, team.id) is not None:
+        observe_workflow_task_create(reason="gate_blocked")
+        raise WorkflowTaskUsageLimited()
 
     # Snapshot the connector allowlist onto the run: the sandbox mounts only what's here
     # (see loop_mcp_installation_allowlist), so a later edit of the workflow can't change
@@ -135,9 +180,13 @@ def create_workflow_task(
         # One transaction so a duplicate origin_key rolls back the task, its run, and the
         # (on_commit, therefore never-fired) dispatch together.
         with transaction.atomic():
-            # Serialize fires per workflow: without this, concurrent triggers all read the
-            # same in-flight count and overshoot max_parallel_tasks.
+            # Team lock first, per-workflow lock second, always in this order so fires
+            # can't deadlock. The team lock serializes the team-wide daily-cap check
+            # (two workflows hold different per-workflow locks and would both read a
+            # below-cap count); the per-workflow lock keeps the in-flight count exact,
+            # including against pods that predate the team lock during a rolling deploy.
             with connection.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"workflow-tasks-team:{team.id}"])
                 cursor.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", [f"workflow-tasks:{hog_flow_id}"])
                 if slack_context is not None:
                     # And once per thread, across workflows, because the live-run check below
@@ -149,15 +198,38 @@ def create_workflow_task(
                         [f"workflow-task-slack-thread:{slack_context.channel}:{slack_context.thread_ts}"],
                     )
 
+            # Prometheus counters are process-local: the rollback these raises trigger
+            # can't undo an increment, and each raise ends the call, so each outcome
+            # counts exactly once.
             # Same in-transaction check loops make before minting: locks the owner and
             # membership rows so a concurrent offboarding can't slip between check and create.
             if not loop_owner_eligible_for_credentials(owner_id, team):
+                observe_workflow_task_create(reason="owner_ineligible")
                 raise WorkflowTaskOwnerIneligible()
+
+            # The daily caps count created Task rows in the trailing 24h. A capped attempt
+            # raises and rolls back, writing no row, so rejections can't consume the
+            # budget: the Task table is the "created" ledger, like loops'
+            # outcome_reason="created" fires.
+            since = django_timezone.now() - timedelta(hours=24)
+            workflow_day_count = Task.objects.filter(
+                team_id=team.id, hog_flow_id=hog_flow_id, created_at__gte=since
+            ).count()
+            if workflow_day_count >= WORKFLOW_TASK_RATE_CAP_PER_DAY:
+                observe_workflow_task_create(reason="rate_capped")
+                raise WorkflowTaskRateCapped(WORKFLOW_TASK_RATE_CAP_PER_DAY)
+            team_day_count = Task.objects.filter(
+                team_id=team.id, origin_product=Task.OriginProduct.WORKFLOW, created_at__gte=since
+            ).count()
+            if team_day_count >= WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY:
+                observe_workflow_task_create(reason="team_rate_capped")
+                raise WorkflowTaskTeamRateCapped(WORKFLOW_TASK_TEAM_RATE_CAP_PER_DAY)
 
             in_flight = TaskRun.objects.filter(
                 task__team_id=team.id, task__hog_flow_id=hog_flow_id, status__in=ACTIVE_RUN_STATUSES
             ).count()
             if in_flight >= max_parallel_tasks:
+                observe_workflow_task_create(reason="limit_reached")
                 raise WorkflowTaskLimitExceeded(in_flight, max_parallel_tasks)
 
             # Resolved under the thread lock so the live-run check inside it holds for the
@@ -202,8 +274,12 @@ def create_workflow_task(
         replay = _find_replayed_task(team.id, hog_flow_id, origin_key)
         if replay is None:
             raise
+        observe_workflow_task_create(reason="replayed")
         return replay
 
+    # Emitted after the transaction: an IntegrityError can divert a create into the
+    # replay path above, which counts as replayed instead.
+    observe_workflow_task_create(reason="created")
     return _task_dto(task, created=True)
 
 
