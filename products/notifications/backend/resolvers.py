@@ -3,9 +3,9 @@ from typing import cast
 import structlog
 
 from posthog.models import Team, User
-from posthog.rbac.user_access_control import UserAccessControl
 from posthog.scopes import APIScopeObject
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.notifications.backend.facade.enums import TargetType
 
 logger = structlog.get_logger(__name__)
@@ -29,7 +29,7 @@ class RecipientsResolver:
                 ).values_list("user_id", flat=True)
             )
         elif target_type == TargetType.ROLE:
-            from ee.models.rbac.role import RoleMembership
+            from products.access_control.backend.models.role import RoleMembership
 
             return list(
                 RoleMembership.objects.filter(

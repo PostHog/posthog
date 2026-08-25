@@ -12,6 +12,7 @@ from rest_framework import status
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Project, Team, User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.proxy import models_cache_key
 from products.ai_observability.backend.llm.providers.azure_openai import DEFAULT_API_VERSION
 from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
@@ -19,8 +20,6 @@ from products.ai_observability.backend.models.evaluations import Evaluation
 from products.ai_observability.backend.models.model_configuration import LLMModelConfiguration
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 from products.ai_observability.backend.models.taggers import Tagger
-
-from ee.models.rbac.access_control import AccessControl
 
 
 def _setup_team():
