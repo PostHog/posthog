@@ -1733,6 +1733,8 @@ export interface PersonListParams {
     distinct_id?: string
     include_total?: boolean // PostHog 3000-only
     limit?: number
+    /** Names the ClickHouse query so `api.cancelQuery` can stop it. Up to 128 characters. */
+    client_query_id?: string
 }
 
 export type SearchableEntity =
