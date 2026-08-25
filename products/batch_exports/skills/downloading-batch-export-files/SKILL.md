@@ -71,7 +71,7 @@ Example request for the `hogql` model:
   "file": {
     "format": "Parquet"
   },
-  "hogql_query": "SELECT event, timestamp, properties.$current_url AS url FROM events WHERE timestamp > now() - INTERVAL 1 DAY"
+  "hogql_query": "SELECT event, timestamp, properties.$current_url AS url FROM events WHERE timestamp > now() - INTERVAL 1 HOUR"
 }
 ```
 
