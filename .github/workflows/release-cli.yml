@@ -44,6 +44,29 @@ jobs:
                       echo "No CLI changesets to release"
                   fi
 
+            # No thread reply here: the approval message does not exist yet.
+            - name: Send failure event to PostHog
+              if: ${{ failure() }}
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: '${{ secrets.POSTHOG_PROJECT_API_KEY }}'
+                  event: 'posthog-sdk-github-release-workflow-failure'
+                  properties: >-
+                      {
+                        "commitSha": "${{ github.sha }}",
+                        "jobStatus": "${{ job.status }}",
+                        "ref": "${{ github.ref }}",
+                        "repository": "${{ github.repository }}",
+                        "sdk": "posthog-cli",
+                        "jobName": "check-changesets",
+                        "packageName": "posthog-cli",
+                        "packageVersion": "unknown",
+                        "actionUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+                        "alertText": ":rotating_light: Failed to check posthog-cli changesets :rotating_light:",
+                        "alertContext": "The release stopped before it asked for approval. The changesets stay on master until another CLI change lands."
+                      }
+
     notify-approval-needed:
         name: Notify Slack - Approval Needed
         needs: [check-changesets, cli-release-preview]
@@ -122,6 +145,30 @@ jobs:
                     echo "\`\`\`"
                     echo "</details>"
                   } >> "$GITHUB_STEP_SUMMARY"
+
+            # No thread reply here: notify-approval-needed depends on this job, so the approval
+            # message does not exist yet.
+            - name: Send failure event to PostHog
+              if: ${{ failure() }}
+              continue-on-error: true
+              uses: PostHog/posthog-github-action@58dea254b598fb5d469c0699c98af8288a7f7650 # v1.2.0
+              with:
+                  posthog-token: '${{ secrets.POSTHOG_PROJECT_API_KEY }}'
+                  event: 'posthog-sdk-github-release-workflow-failure'
+                  properties: >-
+                      {
+                        "commitSha": "${{ github.sha }}",
+                        "jobStatus": "${{ job.status }}",
+                        "ref": "${{ github.ref }}",
+                        "repository": "${{ github.repository }}",
+                        "sdk": "posthog-cli",
+                        "jobName": "cli-release-preview",
+                        "packageName": "posthog-cli",
+                        "packageVersion": "unknown",
+                        "actionUrl": "https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+                        "alertText": ":rotating_light: Failed to build the posthog-cli release preview :rotating_light:",
+                        "alertContext": "The release stopped before it asked for approval. The changesets stay on master until another CLI change lands."
+                      }
 
     release:
         name: Prepare CLI release
