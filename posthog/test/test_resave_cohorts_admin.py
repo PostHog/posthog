@@ -17,7 +17,7 @@ class TestResaveCohortsAdminView(BaseTest):
         self.user.save()
         self.client.force_login(self.user)
 
-    def _post(self, team_id: str, follow: bool = False) -> object:
+    def _post(self, team_id: str, follow: bool = False):
         return self.client.post("/admin/resave-cohorts/", {"batch_size": 500, "team_id": team_id}, follow=follow)
 
     @parameterized.expand(
