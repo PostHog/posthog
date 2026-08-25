@@ -38079,6 +38079,11 @@ export namespace Schemas {
       /** The reason for the evaluation result */
       reason: string;
       /**
+         * Human-readable explanation of the evaluation result. Set when the reason code is coarse, for example a non-match decided by a behavioral or realtime cohort whose membership is not fully evaluated here, which can disagree with the cohort's member list.
+         * @nullable
+         */
+      reason_description?: string | null;
+      /**
          * The index of the condition that matched, if applicable
          * @nullable
          */
