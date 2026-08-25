@@ -429,6 +429,8 @@ class LogsFilterBuilder:
             if self.log_filters:
                 for log_filter in self.log_filters:
                     if log_filter.key in COLUMN_FILTER_FACET_FIELDS:
+                        # Translated in filter order rather than through column_filter_exprs(), which
+                        # would move these predicates ahead of the others and churn query snapshots.
                         column_expr = self._column_filter_expr(log_filter)
                         if column_expr is not None:
                             exprs.append(column_expr)
