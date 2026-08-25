@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
+import { FilterLogicalOperator } from '~/types'
 
 import {
     SERVICE_NAME_FILTER,
@@ -75,6 +76,31 @@ describe('logsSceneLogic', () => {
             // selection back in, contradicting whatever the rail did to it since.
             expect(router.values.searchParams[param]).toBeUndefined()
             expect(router.values.searchParams.filterGroup).not.toBeUndefined()
+        })
+
+        it.each<[string, string, string[], string[]]>([
+            [
+                'a group that already selects the facet wins over the param',
+                '["error"]',
+                ['error', 'warn'],
+                ['error', 'warn'],
+            ],
+            ['a group silent about the facet lets the param through', '["error"]', [], ['error']],
+        ])('%s', async (_, param, groupLevels, expected) => {
+            const values = groupLevels.length
+                ? [{ key: 'severity_level', type: 'log', operator: 'exact', value: groupLevels }]
+                : []
+            await expectLogic(logic, () => {
+                router.actions.push('/logs', {
+                    severityLevels: param,
+                    filterGroup: JSON.stringify({
+                        type: FilterLogicalOperator.And,
+                        values: [{ type: FilterLogicalOperator.And, values }],
+                    }),
+                })
+            }).toFinishAllListeners()
+
+            expect(selectedLevels()).toEqual(expected)
         })
 
         it('filters out malformed JSON as invalid severity level', async () => {

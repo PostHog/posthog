@@ -293,8 +293,8 @@ describe('logs utils', () => {
             [{ label: 'Severity', value: 'Error, Fatal' }],
         ],
         ['singular service', { serviceNames: ['api'] }, [{ label: 'Service', value: 'api' }]],
-        // A viewer-written selection lives in the group, so a saved view or history entry created
-        // after that move has to summarize the same way one created before it does.
+        // A viewer-written selection lives in the group, so an entry holding it has to summarize the
+        // same way one holding a dedicated field does.
         [
             'group-stored level and service selections',
             {

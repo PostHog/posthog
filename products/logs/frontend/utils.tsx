@@ -14,10 +14,10 @@ import {
 } from 'products/logs/frontend/components/LogsViewer/FacetRail/facetFilters'
 
 /**
- * A level or service selection reaches a summary in one of two shapes: the legacy dedicated field
- * (saved views, alerts and persisted filter history written before the selection moved into
- * filterGroup) or the `exact` log filter the viewer writes now. Read both, so an old entry and a new
- * one summarize identically.
+ * A level or service selection reaches a summary in one of two shapes: the dedicated
+ * `severityLevels`/`serviceNames` field, which saved views, alerts and persisted filter history can
+ * carry, or the `exact` log filter in `filterGroup`, which is what the viewer writes. Read both, so
+ * an entry in either shape summarizes identically.
  */
 export function summaryColumnSelection(
     filters: Record<string, any>,

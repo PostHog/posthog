@@ -95,9 +95,9 @@ export function combineWithPinnedFilters(
  * A field that is present but empty clears that facet's includes, which is how an embedding scene
  * drops the scope it applied; a field that is absent leaves the group untouched. An empty field
  * handed over *alongside* a group is ignored, because the group is then the whole selection: a saved
- * view or a persisted filter-history entry written before the move carries `severityLevels: []` next
- * to a group that may hold a `severity_level =` chip the user added by hand, and clearing on that
- * would drop the chip on restore.
+ * view or a persisted filter-history entry can carry `severityLevels: []` next to a group that holds
+ * a `severity_level =` chip the user added by hand, and clearing on that would drop the chip on
+ * restore.
  */
 export function foldLegacyColumnFilters(
     filterGroup: UniversalFiltersGroup,
@@ -123,9 +123,8 @@ export function foldLegacyColumnFilters(
  * counts (LogFacetValuesQueryRunner._attribute_query) and the taxonomic key and value suggestions
  * (LogAttributesQueryRunner, LogValuesQueryRunner). None of them parses `filterGroup`, so a request
  * that omits these fields loses its level and service scope, and counts or suggestions widen without
- * saying so. Only inclusions survive the trip, which is exactly what those lookups honored before the
- * selection moved into the group: exclusions never had a field of their own. Delete this once those
- * three runners read the group.
+ * saying so. Only inclusions survive the trip, which is all those lookups have ever honored:
+ * exclusions have no field of their own. Delete this once those three runners read the group.
  */
 export interface ColumnQueryFields {
     severityLevels: LogsQuery['severityLevels']

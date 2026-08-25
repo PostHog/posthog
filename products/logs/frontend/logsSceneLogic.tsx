@@ -23,6 +23,7 @@ import {
     logsViewerDataLogic,
 } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 import {
+    FacetFilterTarget,
     SERVICE_NAME_FILTER,
     SEVERITY_LEVEL_FILTER,
     facetSelection,
@@ -245,27 +246,44 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                 filtersFromUrl.searchTerm = ''
                 hasFilterChanges = true
             }
-            // Level and service selections live in `filterGroup` now, so these two params are read
-            // but never written: they keep working for links minted before the move (and for
-            // hand-written ones like the services table's deep link), and `setFilters` folds them
-            // into the group. Compared against the group so a param the next syncUrl hasn't dropped
-            // yet doesn't re-apply itself on every URL change. Their absent-param case needs no
-            // reset branch: clearing `filterGroup` already clears these selections with it.
+            // `filterGroup` holds the level and service selections, so these two params are read but
+            // never written: reading them keeps legacy links working, along with hand-written ones
+            // like the services table's deep link, and `setFilters` folds a param into the group.
+            // Their absent-param case needs no reset branch: clearing `filterGroup` already clears
+            // these selections with it.
+            //
+            // A `filterGroup` in the same URL is the whole selection, so a param naming a facet that
+            // group already selects is residue from a link minted in the dedicated-field shape, and
+            // folding it would narrow the group's selection to the param's values. Without a group in
+            // the URL there is nothing to defer to, so the param is compared against the live
+            // selection, which also stops it re-applying on every URL change.
+            const legacyFacetParam = <T extends string>(
+                raw: T[] | null | undefined,
+                target: FacetFilterTarget
+            ): T[] | undefined => {
+                if (!raw?.length) {
+                    return undefined
+                }
+                const selected = facetSelection(
+                    filtersFromUrl.filterGroup ?? values.filters.filterGroup,
+                    target
+                ).included
+                if (filtersFromUrl.filterGroup !== undefined && selected.length > 0) {
+                    return undefined
+                }
+                return equal(raw, selected) ? undefined : raw
+            }
             if (params.severityLevels) {
                 const parsed = parseTagsFilter(params.severityLevels)
-                if (parsed) {
-                    const levels = parsed.filter(isValidSeverityLevel)
-                    const current = facetSelection(values.filters.filterGroup, SEVERITY_LEVEL_FILTER).included
-                    if (levels.length > 0 && !equal(levels, current)) {
-                        filtersFromUrl.severityLevels = levels
-                        hasFilterChanges = true
-                    }
+                const levels = parsed && legacyFacetParam(parsed.filter(isValidSeverityLevel), SEVERITY_LEVEL_FILTER)
+                if (levels) {
+                    filtersFromUrl.severityLevels = levels
+                    hasFilterChanges = true
                 }
             }
             if (params.serviceNames) {
-                const names = parseTagsFilter(params.serviceNames)
-                const current = facetSelection(values.filters.filterGroup, SERVICE_NAME_FILTER).included
-                if (names && !equal(names, current)) {
+                const names = legacyFacetParam(parseTagsFilter(params.serviceNames), SERVICE_NAME_FILTER)
+                if (names) {
                     filtersFromUrl.serviceNames = names
                     hasFilterChanges = true
                 }
@@ -340,10 +358,10 @@ export const logsSceneLogic = kea<logsSceneLogicType>([
                         DEFAULT_UNIVERSAL_GROUP_FILTER
                     )
                     updateSearchParams(params, 'dateRange', values.filters.dateRange, DEFAULT_DATE_RANGE)
-                    // Nothing writes these two any more, so they have to be deleted rather than left
-                    // alone: syncSearchParams only removes keys it is told about, and a param still in
-                    // the URL is read again on the next URL change, folding a selection back in on top
-                    // of whatever the rail did to it since.
+                    // No writer sets these two, so they have to be deleted rather than left alone:
+                    // syncSearchParams only removes keys it is told about, and a param still in the
+                    // URL is read again on the next URL change, folding a selection back in on top of
+                    // whatever the rail did to it since.
                     delete params.severityLevels
                     delete params.serviceNames
                     updateSearchParams(params, 'orderBy', values.orderBy, DEFAULT_ORDER_BY)
