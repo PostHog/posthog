@@ -138,35 +138,23 @@ const isAndOnlyGroup = (group: UniversalFiltersGroup): boolean =>
 export const hasPageFilter = (filters: RecordingUniversalFilters): boolean =>
     filtersFromUniversalFilterGroups(filters).some((filter) => pagePropertiesOf(filter).some(isPagePropertyFilter))
 
-// The backend routes `visited_page` into HAVING, where it is AND'd against the event filters it
-// used to share a group with, so swapping one member of a match-any group turns the union into an
-// intersection. A match-any group is only safe when every member is a page filter being swapped:
-// then the whole group survives as one OR of `visited_page` predicates.
-const orGroupsContainOnlySwappablePageFilters = (group: UniversalFiltersGroup): boolean =>
-    group.values.every((value) => {
-        if (value && typeof value === 'object' && 'values' in value && Array.isArray(value.values)) {
-            return orGroupsContainOnlySwappablePageFilters(value)
-        }
-        if (group.type !== FilterLogicalOperator.Or) {
-            return true
-        }
-        const filter = value as UniversalFilterValue
-        return isSwappablePageFilter(filter) || isSwappablePageviewFilter(filter)
-    })
+const isSwappableFilter = (filter: UniversalFilterValue): boolean =>
+    isSwappablePageFilter(filter) || isSwappablePageviewFilter(filter)
 
 /** Whether every page filter can be rewritten to `visited_page` without changing which recordings match. */
 export const canSwapPageFiltersForVisitedPage = (filters: RecordingUniversalFilters): boolean => {
     const filterList = filtersFromUniversalFilterGroups(filters)
     const pageFilters = filterList.filter((filter) => pagePropertiesOf(filter).some(isPagePropertyFilter))
-    const negatedSwapIsSafe = isAndOnlyGroup(filters.filter_group)
+    // `deriveOperand` collapses the whole tree to a single operand: AND only when every group is AND,
+    // otherwise OR. Under a global OR the backend still routes `visited_page` into the always-AND'd
+    // HAVING, so any filter left behind in WHERE gets intersected with the swapped predicates rather
+    // than unioned with them. The union only survives when every flattened filter moves to HAVING,
+    // which means every filter must itself be swappable, not just the ones directly under the OR group.
+    const andOnly = isAndOnlyGroup(filters.filter_group)
     return (
         pageFilters.length > 0 &&
-        orGroupsContainOnlySwappablePageFilters(filters.filter_group) &&
-        pageFilters.every(
-            (filter) =>
-                (isSwappablePageFilter(filter) || isSwappablePageviewFilter(filter)) &&
-                (negatedSwapIsSafe || !usesNegatedPageOperator(filter))
-        )
+        (andOnly || filterList.every(isSwappableFilter)) &&
+        pageFilters.every((filter) => isSwappableFilter(filter) && (andOnly || !usesNegatedPageOperator(filter)))
     )
 }
 

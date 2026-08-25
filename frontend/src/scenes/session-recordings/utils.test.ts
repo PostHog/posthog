@@ -177,6 +177,28 @@ describe('session recording utils', () => {
             ).toBe(true)
         })
 
+        it('does not swap when a non-page filter shares the tree with any OR group', () => {
+            // deriveOperand turns the whole query OR as soon as one group is OR, so a non-page sibling
+            // stays in WHERE and gets AND'd against the swapped visited_page HAVING predicate, turning
+            // the union into an intersection. Both shapes below are reachable: a "match any" scanner
+            // round-trips to an OR outer group wrapping a hard-coded inner AND group.
+            const browser = pageProperty('$browser', PropertyOperator.Exact, 'Chrome')
+
+            const orWrappingAndSibling = withFilterGroup({
+                type: FilterLogicalOperator.Or,
+                values: [{ type: FilterLogicalOperator.And, values: [pageProperty('$current_url'), browser] }],
+            })
+            expect(hasPageFilter(orWrappingAndSibling)).toBe(true)
+            expect(canSwapPageFiltersForVisitedPage(orWrappingAndSibling)).toBe(false)
+
+            const orPageGroupBesideSibling = withFilterGroup({
+                type: FilterLogicalOperator.And,
+                values: [{ type: FilterLogicalOperator.Or, values: [pageProperty('$current_url')] }, browser],
+            })
+            expect(hasPageFilter(orPageGroupBesideSibling)).toBe(true)
+            expect(canSwapPageFiltersForVisitedPage(orPageGroupBesideSibling)).toBe(false)
+        })
+
         it('does not swap a pageview scoped by a negated URL property even under match-all', () => {
             // Pre-swap this still requires a pageview to exist ("has a pageview whose URL doesn't
             // match"); a bare negated visited_page has no such requirement.
