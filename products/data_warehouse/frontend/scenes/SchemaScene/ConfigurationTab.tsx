@@ -658,7 +658,7 @@ function ColumnsAndRowFiltersSection({
     refreshingSchemas,
     supportsRowFilters,
 }: {
-    source: ExternalDataSource | null
+    source: SchemaSceneSource | null
     schema: ExternalDataSourceSchema
     updateSchema: (schema: ExternalDataSourceSchema) => void
     resyncSchema: (schema: ExternalDataSourceSchema) => void
