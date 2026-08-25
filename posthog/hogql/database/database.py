@@ -200,10 +200,6 @@ if TYPE_CHECKING:
 
 tracer = trace.get_tracer(__name__)
 
-# Process-wide rather than per-instance so no lock lives in the model's copyable state. The build
-# runs at most once per database, so cross-instance contention is negligible.
-_FOREIGN_KEYS_BUILD_LOCK = threading.Lock()
-
 
 @dataclasses.dataclass
 class SerializedField:
@@ -613,6 +609,9 @@ class Database(BaseModel):
     # database can be shared by several query threads (e.g. trends series), so the guard must
     # distinguish same-thread re-entry from a concurrent thread that has to wait.
     _foreign_keys_building_thread: Optional[int] = None
+    # Per-instance so unrelated databases built concurrently in one process never contend; nothing
+    # copies or pickles a Database, so the lock is safe to hold as instance state.
+    _foreign_keys_build_lock: Any = None
     # Lowercased, because Snowflake nodes resolve case-insensitively and a query may name a table with
     # casing that differs from the canonical catalog name.
     _foreign_key_trigger_names: Optional[set[str]] = None
@@ -648,6 +647,7 @@ class Database(BaseModel):
         self._deferred_foreign_key_tables = []
         self._foreign_keys_built = True
         self._foreign_keys_building_thread = None
+        self._foreign_keys_build_lock = threading.Lock()
         self._foreign_key_trigger_names = None
         self._deferred_overridable_expression_field_ids = set()
         self._serialization_errors: dict[str, str] = {}  # table_key -> error_message
@@ -730,7 +730,7 @@ class Database(BaseModel):
         """
         if self._foreign_keys_built or self._foreign_keys_building_thread == threading.get_ident():
             return
-        with _FOREIGN_KEYS_BUILD_LOCK:
+        with self._foreign_keys_build_lock:
             # Re-check under the lock: another thread may have finished the build while this one
             # waited. mypy's flow analysis cannot see cross-thread mutation.
             if self._foreign_keys_built:
