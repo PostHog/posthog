@@ -100,6 +100,10 @@ class TestProperty(BaseTest):
             ("is_not", []),
             ("not_icontains", ""),
             ("not_regex", []),
+            # An empty needle matches every URL, so these must no-op rather than hide everything.
+            ("not_icontains", [""]),
+            ("not_icontains", [None]),
+            ("is_not", [None, ""]),
         ]
     )
     def test_property_to_expr_visited_page_negated_with_empty_value_is_noop(self, operator, value):

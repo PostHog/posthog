@@ -79,22 +79,6 @@ const withPageFilter = (values: Record<string, any>[]): Record<string, any> => (
     }).url,
 })
 
-export const PageFilterWithSwapOffered: Story = {
+export const PageFilterNudge: Story = {
     parameters: withPageFilter([{ type: 'event', key: '$current_url', operator: 'icontains', value: '/pricing' }]),
-}
-
-export const PageviewFilterWithSwapOffered: Story = {
-    parameters: withPageFilter([
-        {
-            id: '$pageview',
-            name: '$pageview',
-            type: 'events',
-            properties: [{ type: 'event', key: '$current_url', operator: 'icontains', value: '/pricing' }],
-        },
-    ]),
-}
-
-// An exact pathname cannot be rewritten: recorded URLs are absolute, so the value would stop matching.
-export const PageFilterThatCannotBeSwapped: Story = {
-    parameters: withPageFilter([{ type: 'event', key: '$pathname', operator: 'exact', value: '/pricing' }]),
 }

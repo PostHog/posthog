@@ -86,6 +86,7 @@ PERSON_METADATA_FIELDS = {"created_at"}
 NEGATED_TO_POSITIVE_OPERATORS: dict[PropertyOperator, OperatorType] = {
     PropertyOperator.IS_NOT: "exact",
     PropertyOperator.NOT_ICONTAINS: "icontains",
+    PropertyOperator.NOT_ICONTAINS_MULTI: "icontains_multi",
     PropertyOperator.NOT_STARTS_WITH: "starts_with",
     PropertyOperator.NOT_ENDS_WITH: "ends_with",
     PropertyOperator.NOT_REGEX: "regex",
@@ -1302,8 +1303,13 @@ def property_to_expr(
             # multi-value paths correct, which recurse on property.operator and pick AND vs OR from it.
             if operator in NEGATED_TO_POSITIVE_OPERATORS:
                 # An empty value is an unfinished filter. The positive form compiles to a match-all
-                # no-op, and negating that would hide every recording, so no-op here too.
-                if value is None or value == "" or (isinstance(value, list) and len(value) == 0):
+                # no-op, and negating that would hide every recording, so no-op here too. A list of
+                # empty values counts as empty: an empty needle matches every URL, so negating it
+                # would hide every recording that has one.
+                is_empty = value is None or value == ""
+                if isinstance(value, list):
+                    is_empty = all(item is None or item == "" for item in value)
+                if is_empty:
                     return ast.Constant(value=1)
                 return ast.Not(
                     expr=property_to_expr(

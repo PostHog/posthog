@@ -54,12 +54,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { TestAccountFilter } from 'scenes/insights/filters/TestAccountFilter'
 import { MaxTool } from 'scenes/max/MaxTool'
-import {
-    TimestampFormatToLabel,
-    canSwapPageFiltersForVisitedPage,
-    hasPageFilter,
-    swapPageFiltersForVisitedPage,
-} from 'scenes/session-recordings/utils'
+import { TimestampFormatToLabel, hasPageFilter } from 'scenes/session-recordings/utils'
 
 import { actionsModel } from '~/models/actionsModel'
 import { cohortsModel } from '~/models/cohortsModel'
@@ -1020,21 +1015,7 @@ export const ReplayFiltersTab = ({
 
             {hasPageFilter(filters) && (
                 <div className="px-2 mt-4">
-                    <LemonBanner
-                        type="info"
-                        dismissKey="replay-filters-page-filter-vs-visited-page"
-                        action={
-                            canSwapPageFiltersForVisitedPage(filters)
-                                ? {
-                                      children: 'Switch to visited page',
-                                      onClick: () =>
-                                          setFilters({
-                                              filter_group: swapPageFiltersForVisitedPage(filters.filter_group),
-                                          }),
-                                  }
-                                : undefined
-                        }
-                    >
+                    <LemonBanner type="info" dismissKey="replay-filters-page-filter-vs-visited-page">
                         Filtering on a URL matches pageview events from anywhere in the session, including time the
                         recording doesn't cover. "Visited page" only matches URLs captured in the video.
                     </LemonBanner>

@@ -3,11 +3,7 @@ import emojiRegex from 'emoji-regex'
 import { isActionFilter, isEventFilter } from 'lib/components/UniversalFilters/utils'
 
 import {
-    type ActionFilter,
-    type EventPropertyFilter,
-    FilterLogicalOperator,
     LegacyRecordingFilters,
-    PropertyFilterType,
     PropertyOperator,
     RecordingUniversalFilters,
     type SessionRecordingMaskingConfig,
@@ -60,76 +56,8 @@ const isPagePropertyFilter = (filter: PageProperty): boolean =>
     filter.value !== '' &&
     !(Array.isArray(filter.value) && filter.value.length === 0)
 
-// Operators `visited_page` answers the same way a pageview filter does. Negated forms are included,
-// but only swap inside "match all" groups (see NEGATED_PAGE_OPERATORS below).
-// Ordering and is_set/is_not_set are left out: they compare a recording's URL list, not a page.
-const VISITED_PAGE_SAFE_OPERATORS: PropertyOperator[] = [
-    PropertyOperator.Exact,
-    PropertyOperator.IsNot,
-    PropertyOperator.IContains,
-    PropertyOperator.NotIContains,
-    PropertyOperator.Regex,
-    PropertyOperator.NotRegex,
-]
-
-// Under "match all" (AND) the backend turns a negated event property into a session-level exclusion
-// (the negative blocklist in ReplayFiltersEventsSubQuery), which is what a negated `visited_page`
-// means: "no URL matches". Under "match any" (OR) the same filter is existential, "some pageview
-// doesn't match", which a negated `visited_page` inverts. So these only swap inside AND-only groups.
-const NEGATED_PAGE_OPERATORS: PropertyOperator[] = [
-    PropertyOperator.IsNot,
-    PropertyOperator.NotIContains,
-    PropertyOperator.NotRegex,
-]
-
-// `visited_page` matches the full recorded URL, but `$pathname` is the path alone, so no rewrite is
-// safe: an exact or anchored value stops matching, and a substring can collide with the host, query,
-// or fragment (e.g. `icontains 'app'` on `app.example.com` matches every recording). `$pathname` still
-// gets the hint via PAGE_PROPERTY_KEYS, but is never swapped.
-const isSwappablePageProperty = (filter: PageProperty): boolean =>
-    isPagePropertyFilter(filter) &&
-    filter.key !== '$pathname' &&
-    VISITED_PAGE_SAFE_OPERATORS.includes(filter.operator!)
-
-const isSwappablePageFilter = (filter: UniversalFilterValue): boolean =>
-    filter.type === PropertyFilterType.Event && isSwappablePageProperty(filter)
-
-/**
- * A pageview event filter is the other way people express "visited this page". It only maps cleanly onto
- * `visited_page` when the URL property is the only thing scoping the event, and nothing is negated:
- * a negated entity means "sessions without any matching pageview", and a negated URL property compiles
- * to an existential predicate ("session has a pageview whose URL doesn't match", still requiring a
- * pageview to exist), while a negated `visited_page` means "no recorded URL matches" with no such
- * requirement.
- */
-const isSwappablePageviewFilter = (filter: UniversalFilterValue): boolean => {
-    if (!isEventFilter(filter) || filter.id !== '$pageview' || filter.negation) {
-        return false
-    }
-    const properties = filter.properties ?? []
-    return (
-        properties.length === 1 &&
-        properties[0].type === PropertyFilterType.Event &&
-        isSwappablePageProperty(properties[0]) &&
-        !NEGATED_PAGE_OPERATORS.includes(properties[0].operator!)
-    )
-}
-
 const pagePropertiesOf = (filter: UniversalFilterValue): PageProperty[] =>
     isEventFilter(filter) || isActionFilter(filter) ? (filter.properties ?? []) : [filter]
-
-const usesNegatedPageOperator = (filter: UniversalFilterValue): boolean =>
-    pagePropertiesOf(filter).some(
-        (property) => isPagePropertyFilter(property) && NEGATED_PAGE_OPERATORS.includes(property.operator!)
-    )
-
-const isAndOnlyGroup = (group: UniversalFiltersGroup): boolean =>
-    group.type === FilterLogicalOperator.And &&
-    group.values.every(
-        (value) =>
-            !(value && typeof value === 'object' && 'values' in value && Array.isArray(value.values)) ||
-            isAndOnlyGroup(value)
-    )
 
 /**
  * True when the filters express "sessions that visited page X". Those match pageview events from anywhere
@@ -137,52 +65,6 @@ const isAndOnlyGroup = (group: UniversalFiltersGroup): boolean =>
  */
 export const hasPageFilter = (filters: RecordingUniversalFilters): boolean =>
     filtersFromUniversalFilterGroups(filters).some((filter) => pagePropertiesOf(filter).some(isPagePropertyFilter))
-
-const isSwappableFilter = (filter: UniversalFilterValue): boolean =>
-    isSwappablePageFilter(filter) || isSwappablePageviewFilter(filter)
-
-/** Whether every page filter can be rewritten to `visited_page` without changing which recordings match. */
-export const canSwapPageFiltersForVisitedPage = (filters: RecordingUniversalFilters): boolean => {
-    const filterList = filtersFromUniversalFilterGroups(filters)
-    const pageFilters = filterList.filter((filter) => pagePropertiesOf(filter).some(isPagePropertyFilter))
-    // `deriveOperand` collapses the whole tree to a single operand: AND only when every group is AND,
-    // otherwise OR. Under a global OR the backend still routes `visited_page` into the always-AND'd
-    // HAVING, so any filter left behind in WHERE gets intersected with the swapped predicates rather
-    // than unioned with them. The union only survives when every flattened filter moves to HAVING,
-    // which means every filter must itself be swappable, not just the ones directly under the OR group.
-    const andOnly = isAndOnlyGroup(filters.filter_group)
-    return (
-        pageFilters.length > 0 &&
-        (andOnly || filterList.every(isSwappableFilter)) &&
-        pageFilters.every((filter) => isSwappableFilter(filter) && (andOnly || !usesNegatedPageOperator(filter)))
-    )
-}
-
-const toVisitedPageFilter = (property: { operator?: PropertyOperator; value?: any }): UniversalFilterValue =>
-    ({
-        type: PropertyFilterType.Recording,
-        key: 'visited_page',
-        operator: property.operator,
-        value: property.value,
-    }) as UniversalFilterValue
-
-/** Rewrites every swappable page filter to the equivalent `visited_page` one, at any nesting depth. */
-export const swapPageFiltersForVisitedPage = (group: UniversalFiltersGroup): UniversalFiltersGroup => ({
-    ...group,
-    values: group.values.map((value) => {
-        if (value && typeof value === 'object' && 'values' in value && Array.isArray(value.values)) {
-            return swapPageFiltersForVisitedPage(value)
-        }
-        const filter = value as UniversalFilterValue
-        if (isSwappablePageFilter(filter)) {
-            return toVisitedPageFilter(filter as EventPropertyFilter)
-        }
-        if (isSwappablePageviewFilter(filter)) {
-            return toVisitedPageFilter((filter as ActionFilter).properties![0])
-        }
-        return value
-    }),
-})
 
 export const getMaskingLevelFromConfig = (config: SessionRecordingMaskingConfig): SessionRecordingMaskingLevel => {
     if (config.maskTextSelector === '*' && config.maskAllInputs && config.blockSelector === 'img') {
