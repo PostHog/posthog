@@ -259,12 +259,16 @@ export const getFeatureFlagsStaffTeamConfigListUrl = (params: FeatureFlagsStaffT
 }
 
 /**
- * Staff-only, unscoped read/write for TeamFeatureFlagsConfig (currently just
- * minimal_flag_called_events).
+ * Staff-only, unscoped read/write for TeamFeatureFlagsConfig: the minimal_flag_called_events
+ * rollout gate and the per-team feature-flag count override.
  *
- * Single-team writes only, by design: this setting is meant to be flipped one team at a time
- * after staff manually verify that team's SDK versions support the slim $feature_flag_called
- * event shape, unlike the cache tools' bulk rebuild/clear.
+ * Single-team writes only, by design. minimal_flag_called_events is flipped one team at a time
+ * after staff verify that team's SDK versions support the slim $feature_flag_called event shape,
+ * and max_feature_flags_override is a per-customer capacity grant. Neither is a bulk operation,
+ * unlike the cache tools' rebuild and clear.
+ *
+ * set() takes partial updates: omit a setting to leave it unchanged, and send
+ * max_feature_flags_override as null to clear the override.
  *
  * Registered on the root router so it is not team-nested; staff act on teams they do not
  * belong to, same as staff_cache.py / staff_teams.py.
@@ -284,12 +288,16 @@ export const getFeatureFlagsStaffTeamConfigSetCreateUrl = () => {
 }
 
 /**
- * Staff-only, unscoped read/write for TeamFeatureFlagsConfig (currently just
- * minimal_flag_called_events).
+ * Staff-only, unscoped read/write for TeamFeatureFlagsConfig: the minimal_flag_called_events
+ * rollout gate and the per-team feature-flag count override.
  *
- * Single-team writes only, by design: this setting is meant to be flipped one team at a time
- * after staff manually verify that team's SDK versions support the slim $feature_flag_called
- * event shape, unlike the cache tools' bulk rebuild/clear.
+ * Single-team writes only, by design. minimal_flag_called_events is flipped one team at a time
+ * after staff verify that team's SDK versions support the slim $feature_flag_called event shape,
+ * and max_feature_flags_override is a per-customer capacity grant. Neither is a bulk operation,
+ * unlike the cache tools' rebuild and clear.
+ *
+ * set() takes partial updates: omit a setting to leave it unchanged, and send
+ * max_feature_flags_override as null to clear the override.
  *
  * Registered on the root router so it is not team-nested; staff act on teams they do not
  * belong to, same as staff_cache.py / staff_teams.py.

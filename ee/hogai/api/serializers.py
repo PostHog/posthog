@@ -1,4 +1,3 @@
-from dataclasses import dataclass
 from typing import Any
 
 import pydantic
@@ -9,6 +8,7 @@ from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.shared import UserBasicSerializer
+from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 
 from products.posthog_ai.backend.models.assistant import Conversation
@@ -49,7 +49,7 @@ CONVERSATION_TYPE_MAP: dict[
 }
 
 
-@dataclass(frozen=True, kw_only=True, slots=True)
+@frozen
 class ConversationStateResult:
     state: AssistantMaxGraphState | None
     has_unsupported_content: bool

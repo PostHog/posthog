@@ -121,6 +121,60 @@ class TestHogFlowDraftPublish(APIBaseTest):
         assert flow.name == "Renamed live"
         assert response.json()["draft"] is not None
 
+    def test_web_stage_draft_saves_incomplete_content_leniently(self):
+        # The builder auto-saves mid-edit, so a staged draft must accept a step whose required
+        # inputs aren't filled in yet; strict validation would 400 every auto-save while the
+        # user iterates. Publish still revalidates strictly (see the companion test below).
+        flow_id = self._create_active_flow()
+        live_actions_before = HogFlow.objects.get(pk=flow_id).actions
+
+        incomplete = _webhook_action()
+        incomplete["config"]["inputs"] = {}
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"actions": [_trigger_action(), incomplete], "stage_draft": True},
+        )
+        assert response.status_code == 200, response.json()
+
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.actions == live_actions_before
+        assert flow.draft is not None
+
+    def test_web_deploy_on_save_of_incomplete_content_stays_strict(self):
+        # Without stage_draft a web PATCH on an active workflow deploys immediately, so the
+        # lenient staged-draft path must not leak into it.
+        flow_id = self._create_active_flow()
+
+        incomplete = _webhook_action()
+        incomplete["config"]["inputs"] = {}
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"actions": [_trigger_action(), incomplete]},
+        )
+        assert response.status_code == 400, response.json()
+
+    def test_publish_of_incomplete_draft_is_rejected(self):
+        flow_id = self._create_active_flow()
+        incomplete = _webhook_action()
+        incomplete["config"]["inputs"] = {}
+        staged = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"actions": [_trigger_action(), incomplete], "stage_draft": True},
+        )
+        assert staged.status_code == 200, staged.json()
+
+        preview = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish", {"confirm": False})
+        assert preview.status_code == 200, preview.json()
+        confirm = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}/publish",
+            {"confirm": True, "confirm_token": preview.json()["confirm_token"]},
+        )
+        assert confirm.status_code == 400, confirm.json()
+        # The failed publish must leave both the live config and the draft untouched.
+        flow = HogFlow.objects.get(pk=flow_id)
+        assert flow.draft is not None
+        assert all(a["config"].get("inputs") for a in flow.actions if a["type"] == "function")
+
     def test_discard_bumps_live_stamp_so_stale_draft_saves_get_409(self):
         # Without the bump, a concurrent editor holding the discarded draft's stamp would pass the
         # staleness guard (which falls back to the live stamp once the draft is gone) and silently

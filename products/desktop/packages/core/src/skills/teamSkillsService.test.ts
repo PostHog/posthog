@@ -229,7 +229,7 @@ describe("TeamSkillsService.publishSkill", () => {
 });
 
 describe("TeamSkillsService.fetchSkillForInstall", () => {
-  it("fetches the body plus every companion file", async () => {
+  it("fetches the body plus every companion file, skipping ignored paths", async () => {
     const client = {
       getLlmSkillByName: vi.fn().mockResolvedValue({
         name: "pr-shepherd",
@@ -238,6 +238,7 @@ describe("TeamSkillsService.fetchSkillForInstall", () => {
         files: [
           { path: "references/guide.md", content_type: "text/plain" },
           { path: "scripts/run.sh", content_type: "text/plain" },
+          { path: ".venv/lib/mod.py", content_type: "text/plain" },
         ],
       }),
       getLlmSkillFile: vi
@@ -266,6 +267,7 @@ describe("TeamSkillsService.fetchSkillForInstall", () => {
         { path: "scripts/run.sh", content: "content of scripts/run.sh" },
       ],
     });
+    expect(client.getLlmSkillFile).toHaveBeenCalledTimes(2);
   });
 
   it("maps disable-model-invocation metadata onto the exported skill", async () => {

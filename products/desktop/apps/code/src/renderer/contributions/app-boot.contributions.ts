@@ -2,6 +2,7 @@ import type { Contribution } from "@posthog/di/contribution";
 import {
   initializePostHog,
   registerAppVersion,
+  registerHostInfo,
 } from "@posthog/ui/shell/posthogAnalyticsImpl";
 import { trpcClient } from "@renderer/trpc/client";
 import { logger } from "@utils/logger";
@@ -22,12 +23,16 @@ export class AnalyticsBootContribution implements Contribution {
         }
         initializePostHog(sessionId);
       }
-      trpcClient.os.getAppVersion
-        .query()
-        .then(registerAppVersion)
-        .catch((error) => {
-          log.warn("Failed to register app version super property", { error });
-        });
+      try {
+        registerAppVersion(await trpcClient.os.getAppVersion.query());
+      } catch (error) {
+        log.warn("Failed to register app version super property", { error });
+      }
+      try {
+        registerHostInfo(await trpcClient.os.getHostInfo.query());
+      } catch (error) {
+        log.warn("Failed to register host info super properties", { error });
+      }
     })();
   }
 }

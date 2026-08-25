@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
+import { MOCK_DEFAULT_BASIC_USER, MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER } from '~/lib/api.mock'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -23,12 +23,21 @@ import {
 } from '../generated/api'
 import type {
     GatewayMemberSummaryApi,
+    MCPAgentGrantScopeEnumApi,
     MCPGatewayServerApi,
     MCPServerInstallationApi,
     MCPServerTemplateApi,
     MCPServiceAccountApi,
+    UserBasicApi,
 } from '../generated/api.schemas'
-import { CONNECTED_SERVERS_FILTER, GATEWAY_MEMBERS_PAGE_SIZE, mcpGatewayLogic } from './mcpGatewayLogic'
+import { GATEWAY_MEMBERS_PAGE_SIZE, mcpGatewayLogic } from './mcpGatewayLogic'
+
+const YOU: UserBasicApi = {
+    id: MOCK_DEFAULT_USER.id,
+    uuid: MOCK_DEFAULT_USER.uuid,
+    email: MOCK_DEFAULT_USER.email,
+    hedgehog_config: null,
+}
 
 jest.mock('../generated/api', () => ({
     mcpGatewayConfigApplyPresetCreate: jest.fn(),
@@ -137,6 +146,33 @@ function serverTemplate(overrides: Partial<MCPServerTemplateApi>): MCPServerTemp
         icon_domain: '',
         category: 'dev',
         ...overrides,
+    }
+}
+
+function serviceAccountWithShare(scope: MCPAgentGrantScopeEnumApi): MCPServiceAccountApi {
+    return {
+        id: 'account-id',
+        name: 'Scout agent',
+        description: '',
+        handle: 'posthog-scout',
+        agent_key: 'scout',
+        status: 'active',
+        server_ids: ['server-id'],
+        servers: [
+            {
+                id: 'server-id',
+                shared_by: YOU,
+                scope,
+                name: 'Test server',
+                description: '',
+                icon_key: '',
+                icon_domain: '',
+                connection_state: 'ready',
+            },
+        ],
+        last_active_at: null,
+        created_at: '2026-01-01T00:00:00Z',
+        updated_at: '2026-01-01T00:00:00Z',
     }
 }
 
@@ -386,6 +422,8 @@ describe('mcpGatewayLogic', () => {
             servers: [
                 {
                     id: 'linear-id',
+                    shared_by: YOU,
+                    scope: 'personal' as const,
                     name: 'Linear',
                     description: '',
                     icon_key: '',
@@ -403,12 +441,13 @@ describe('mcpGatewayLogic', () => {
         mockServiceAccountAccess.mockResolvedValue(updatedAccount)
 
         await expectLogic(logic, () => {
-            logic.actions.setAgentServerAccess(account.id, 'linear-id', true, policies)
+            logic.actions.setAgentServerAccess(account.id, 'linear-id', true, 'personal', policies)
         }).toFinishAllListeners()
 
         expect(mockServiceAccountAccess).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), account.id, {
             gateway_server_id: 'linear-id',
             enabled: true,
+            scope: 'personal',
             policies,
         })
         expect(logic.values.agentServerAccessLoadingKeys).toEqual(new Set())
@@ -421,7 +460,22 @@ describe('mcpGatewayLogic', () => {
         const server = gatewayServer({ id: 'linear-id' })
         logic.actions.loadServiceAccountsSuccess([account])
         logic.actions.loadServersSuccess([server])
-        mockServiceAccountAccess.mockResolvedValue({ ...account, server_ids: ['linear-id'] })
+        mockServiceAccountAccess.mockResolvedValue({
+            ...account,
+            server_ids: ['linear-id'],
+            servers: [
+                {
+                    id: 'linear-id',
+                    shared_by: YOU,
+                    scope: 'personal' as const,
+                    name: 'Linear',
+                    description: '',
+                    icon_key: '',
+                    icon_domain: '',
+                    connection_state: 'ready' as const,
+                },
+            ],
+        })
         const pendingReload = deferred<Awaited<ReturnType<typeof mcpGatewayServersList>>>()
         mockServersList.mockClear()
         mockServersList.mockReturnValue(pendingReload.promise)
@@ -553,7 +607,7 @@ describe('mcpGatewayLogic', () => {
         expect(logic.values.recommendedTemplates).toEqual([freshTemplate])
     })
 
-    it('filters to servers with a connection, including connections that need attention', () => {
+    it('lists servers with a connection, including connections that need attention', () => {
         const connectedServer = gatewayServer({
             id: 'connected-server',
             your_connection: {
@@ -567,10 +621,7 @@ describe('mcpGatewayLogic', () => {
         const disconnectedServer = gatewayServer({ id: 'disconnected-server' })
         logic.actions.loadServersSuccess([connectedServer, disconnectedServer])
 
-        logic.actions.setCategoryFilter(CONNECTED_SERVERS_FILTER)
-
-        expect(logic.values.connectedServerCount).toBe(1)
-        expect(logic.values.filteredServers).toEqual([connectedServer])
+        expect(logic.values.connectedServers).toEqual([connectedServer])
     })
 
     it.each([
@@ -643,5 +694,24 @@ describe('mcpGatewayLogic', () => {
         })
         expect(logic.values.memberCount).toBe(101)
         expect(logic.values.members).toEqual([secondPageMember])
+    })
+
+    // The endpoint defaults an omitted scope back to personal, so a share sent without
+    // one silently demotes a team share. The action fills in 'team', the product default.
+    it.each([
+        ['personal' as const, 'personal'],
+        [undefined, 'team'],
+    ])('sends scope %s as %s when sharing a server with an agent', async (requested, expected) => {
+        mockServiceAccountAccess.mockResolvedValue(serviceAccountWithShare(expected as MCPAgentGrantScopeEnumApi))
+
+        await expectLogic(logic, () => {
+            logic.actions.setAgentServerAccess('account-id', 'server-id', true, requested)
+        }).toFinishAllListeners()
+
+        expect(mockServiceAccountAccess).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), 'account-id', {
+            gateway_server_id: 'server-id',
+            enabled: true,
+            scope: expected,
+        })
     })
 })

@@ -6,7 +6,7 @@ from rest_framework import status
 
 from posthog.hogql.database.database import Database
 
-from products.warehouse_sources.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
+from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
 
 
 @pytest.mark.ee

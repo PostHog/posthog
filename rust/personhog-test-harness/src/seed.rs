@@ -1,5 +1,3 @@
-use std::time::Duration;
-
 use anyhow::{bail, Context, Result};
 use metrics::{counter, histogram};
 use personhog_proto::personhog::identity::v1::GetOrCreatePersonEntry;
@@ -139,85 +137,6 @@ pub async fn cleanup_team(pool: &PgPool, table: &str, team_id: i64) -> Result<u6
         .await
         .with_context(|| format!("cleaning up {table}"))?
         .rows_affected();
-    Ok(deleted)
-}
-
-/// Re-stamp `created_at` on the given rows. The janitor's age guard
-/// reads `created_at` as a liveness stamp, so rows that live across
-/// epochs (the hostile pool) must be refreshed each epoch — otherwise a
-/// successor pod's janitor reaps them mid-use once their seeding time
-/// ages past the threshold, even though their owner is still running.
-pub async fn refresh_created_at(
-    pool: &PgPool,
-    table: &str,
-    team_id: i64,
-    ids: &[i64],
-) -> Result<()> {
-    validate_table_name(table)?;
-    if ids.is_empty() {
-        return Ok(());
-    }
-    let team: i32 = team_id.try_into().context("team_id out of i32 range")?;
-    sqlx::query(&format!(
-        "UPDATE {table} SET created_at = now() WHERE team_id = $1 AND id = ANY($2)"
-    ))
-    .bind(team)
-    .bind(ids)
-    .execute(pool)
-    .await
-    .with_context(|| format!("refreshing created_at in {table}"))?;
-    Ok(())
-}
-
-/// Reap a team's person rows older than `older_than` — the startup
-/// janitor for leftovers from crashed or killed instances. The age guard
-/// keeps it off a live sibling pod's fresh pool during a rolling-restart
-/// overlap, while dead instances' rows age into eligibility. Every
-/// delete is scoped to rows the harness's own write path produces:
-/// tables it never writes (the personless table) are never touched,
-/// however stray their contents look.
-pub async fn reap_stale_team_rows(
-    pool: &PgPool,
-    table: &str,
-    team_id: i64,
-    older_than: Duration,
-) -> Result<u64> {
-    validate_table_name(table)?;
-    let team: i32 = team_id.try_into().context("team_id out of i32 range")?;
-
-    // Mapping rows scoped to the person rows being reaped: the bed's
-    // identity-service seeding writes live mappings for its current
-    // pool, so a team-wide sweep here would tear them out from under a
-    // running sibling. Lifecycle deletes leave tombstoned mappings on
-    // aged rows, and those go with their persons.
-    for pdi_table in distinct_id_tables_for(table) {
-        sqlx::query(&format!(
-            "DELETE FROM {pdi_table} \
-             WHERE team_id = $1 AND person_id IN ( \
-                 SELECT id FROM {table} \
-                 WHERE team_id = $1 AND created_at < now() - make_interval(secs => $2))"
-        ))
-        .bind(team)
-        .bind(older_than.as_secs_f64())
-        .execute(pool)
-        .await
-        .with_context(|| format!("deleting distinct ids from {pdi_table}"))?;
-    }
-
-    // Age-guarded and deliberately blind to is_deleted: it purges both
-    // crashed-run leftovers and the tombstones lifecycle deletes leave
-    // behind, which would otherwise grow the table by one pool per
-    // epoch forever.
-    let deleted = sqlx::query(&format!(
-        "DELETE FROM {table} \
-         WHERE team_id = $1 AND created_at < now() - make_interval(secs => $2)"
-    ))
-    .bind(team)
-    .bind(older_than.as_secs_f64())
-    .execute(pool)
-    .await
-    .with_context(|| format!("reaping stale rows in {table}"))?
-    .rows_affected();
     Ok(deleted)
 }
 

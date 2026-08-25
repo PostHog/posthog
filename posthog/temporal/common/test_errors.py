@@ -1,10 +1,12 @@
 import pytest
 
+import temporalio.exceptions
 from temporalio.exceptions import ActivityError, ApplicationError, ChildWorkflowError
 
 from posthog.temporal.common.errors import (
     MAX_ERROR_MESSAGE_CHARS,
     MAX_ERROR_TRACE_CHARS,
+    resolve_failure_type,
     truncate_for_temporal_payload,
     unwrap_temporal_cause,
 )
@@ -82,3 +84,23 @@ class TestUnwrapTemporalCause:
 
     def test_returns_none_when_wrapper_chain_bottoms_out_on_non_application(self) -> None:
         assert unwrap_temporal_cause(_activity_error(ValueError("not an app error"))) is None
+
+
+@pytest.mark.parametrize(
+    "exc,expected",
+    [
+        (ApplicationError("boom", type="SandboxProvisionError"), "SandboxProvisionError"),
+        (ApplicationError("boom", type=""), "ApplicationError"),
+        (
+            temporalio.exceptions.TimeoutError(
+                "timed out", type=temporalio.exceptions.TimeoutType.START_TO_CLOSE, last_heartbeat_details=[]
+            ),
+            "TimeoutError",
+        ),
+        (ValueError("boom"), "ValueError"),
+    ],
+)
+def test_resolve_failure_type(exc: BaseException, expected: str) -> None:
+    resolved = resolve_failure_type(exc)
+    assert resolved == expected
+    assert isinstance(resolved, str)

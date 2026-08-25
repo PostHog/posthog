@@ -60,6 +60,8 @@ export class PosthogNodeAnalytics implements IAnalytics {
         team: "posthog-code",
         ...properties,
         app_version: getAppVersion(),
+        os_platform: process.platform,
+        os_arch: process.arch,
         $process_person_profile: !!this.currentUserId,
       },
     });
@@ -96,6 +98,8 @@ export class PosthogNodeAnalytics implements IAnalytics {
       ...additionalProperties,
       ...(this.sessionId ? { $session_id: this.sessionId } : {}),
       app_version: getAppVersion(),
+      os_platform: process.platform,
+      os_arch: process.arch,
     });
   }
 

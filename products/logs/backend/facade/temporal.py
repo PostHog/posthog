@@ -18,6 +18,21 @@ from products.logs.backend.temporal.metrics import (
     LOGS_ALERTING_LATENCY_HISTOGRAM_METRICS,
     LogsAlertingMetricsInterceptor,
 )
+from products.logs.backend.temporal.volume_tick import (
+    ACTIVITIES as VOLUME_TICK_ACTIVITIES,
+    WORKFLOWS as VOLUME_TICK_WORKFLOWS,
+)
+from products.logs.backend.temporal.volume_tick.activities import VolumeTickInput
+from products.logs.backend.temporal.volume_tick.constants import (
+    SCHEDULE_CRON as VOLUME_TICK_SCHEDULE_CRON,
+    SCHEDULE_ID as VOLUME_TICK_SCHEDULE_ID,
+    WORKFLOW_NAME as VOLUME_TICK_WORKFLOW_NAME,
+)
+from products.logs.backend.temporal.volume_tick.metrics import (
+    LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_BUCKETS,
+    LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_METRICS,
+)
+from products.logs.backend.temporal.volume_tick.schedule import create_logs_volume_tick_schedule
 
 __all__ = [
     "ACTIVITIES",
@@ -26,6 +41,15 @@ __all__ = [
     "SCHEDULE_CRON",
     "SCHEDULE_ID",
     "WORKFLOW_NAME",
+    "VOLUME_TICK_ACTIVITIES",
+    "VOLUME_TICK_WORKFLOWS",
+    "VOLUME_TICK_SCHEDULE_CRON",
+    "VOLUME_TICK_SCHEDULE_ID",
+    "VOLUME_TICK_WORKFLOW_NAME",
+    "LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_BUCKETS",
+    "LOGS_VOLUME_TICK_LATENCY_HISTOGRAM_METRICS",
+    "VolumeTickInput",
+    "create_logs_volume_tick_schedule",
     "LOGS_ALERTING_COUNT_HISTOGRAM_BUCKETS",
     "LOGS_ALERTING_COUNT_HISTOGRAM_METRICS",
     "LOGS_ALERTING_LATENCY_HISTOGRAM_BUCKETS",

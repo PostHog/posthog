@@ -9,7 +9,7 @@ use crate::aperture;
 use crate::debug_recorder::{
     record_if, DebugEventKind, DebugRecorder, DispatcherLoad, LoadEntry, RoutingDebug, SubBatchInfo,
 };
-use crate::order_sentinel::KeyOrderSentinel;
+use crate::order_sentinel::{KeyOrderSentinel, SendKind};
 use crate::routing::{Router, RoutingStrategy, WorkerLoad};
 use crate::stash::{DeferredGroup, Stash};
 use crate::types::SerializedKafkaMessage;
@@ -381,8 +381,11 @@ impl Dispatcher {
                     // ahead of it — honor it.
                     table.pins.get_mut(&group.routing_key).unwrap().ref_count += 1;
                     bump_load(&mut working_load, &worker, group.messages.len());
-                    self.key_sentinel
-                        .note_sent(&group.routing_key, &group.messages);
+                    self.key_sentinel.note_sent(
+                        &group.routing_key,
+                        &group.messages,
+                        SendKind::Fresh,
+                    );
                     assignments.add_group(worker, group);
                 }
                 Some(_) => {
@@ -482,7 +485,7 @@ impl Dispatcher {
                 },
             );
             self.key_sentinel
-                .note_sent(&group.routing_key, &group.messages);
+                .note_sent(&group.routing_key, &group.messages, SendKind::Fresh);
             assignments.add_group(worker, group);
         }
         drop(router);
@@ -559,9 +562,9 @@ impl Dispatcher {
     }
 
     /// Record a batch's arrival order for the stash. Must be called from the
-    /// consumer loop in true batch order, before the batch is processed —
-    /// per-batch assignment runs on spawned tasks and failed sends re-defer in
-    /// gather order, so no later call site can establish the order reliably.
+    /// consumer loop in true batch order, before `assign` — failed sends
+    /// re-defer in gather order, so no later call site can establish the
+    /// order reliably.
     pub fn register_batch(&self, batch_id: &str) {
         self.pin_table
             .lock()
@@ -763,7 +766,7 @@ impl Dispatcher {
                 }
             }
             self.key_sentinel
-                .note_sent(&group.routing_key, &group.messages);
+                .note_sent(&group.routing_key, &group.messages, SendKind::Resend);
             assignments.add_group(
                 worker,
                 MessageGroup {
@@ -972,7 +975,8 @@ impl Dispatcher {
                     );
                 }
             }
-            self.key_sentinel.note_sent(key, &messages);
+            self.key_sentinel
+                .note_sent(key, &messages, SendKind::Resend);
             let mut assignments = WorkerAssignments::new();
             assignments.add_group(
                 worker.clone(),

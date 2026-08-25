@@ -63,6 +63,14 @@ NOTEBOOKS_FRAME_STORE_S3_BUCKET = os.getenv("NOTEBOOKS_FRAME_STORE_S3_BUCKET") o
 # Query cache specific bucket - falls back to general object storage bucket if not set
 QUERY_CACHE_S3_BUCKET = os.getenv("QUERY_CACHE_S3_BUCKET") or OBJECT_STORAGE_BUCKET
 
+# Entries whose zstd-compressed form is at least this large go to S3 (with a Redis pointer) when
+# the query-cache-s3-writes flag allows; smaller ones always stay inline in Redis. The threshold
+# applies to compressed bytes because that is what an entry actually costs in Redis. Query results
+# compress roughly 3-15x, so the 128KB default corresponds to about 0.4-2MB of serialized JSON:
+# dashboard tiles, which almost never reach that size, stay on sub-millisecond Redis reads while
+# the byte-heavy tail of ad-hoc and API results moves off the cluster.
+QUERY_CACHE_S3_MIN_COMPRESSED_BYTES = get_from_env("QUERY_CACHE_S3_MIN_COMPRESSED_BYTES", 128 * 1024, type_cast=int)
+
 # Video segment clustering workflow bucket - should have a 24h lifecycle rule for automatic cleanup
 VIDEO_SEGMENT_CLUSTERING_S3_BUCKET = os.getenv("VIDEO_SEGMENT_CLUSTERING_S3_BUCKET") or OBJECT_STORAGE_BUCKET
 

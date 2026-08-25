@@ -2,11 +2,12 @@ import clsx from 'clsx'
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
+import * as starPng from '@posthog/brand/hoggies/png/star'
 import { IconChevronDown, IconExternal, IconTrending, IconUndo, IconWarning } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { getColorVar } from 'lib/colors'
-import { StarHog } from 'lib/components/hedgehogs'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -68,6 +69,7 @@ import {
     ProductKey,
     QuerySchema,
     WebAnalyticsOrderByFields,
+    WebAnalyticsPropertyFilters,
     WebStatsBreakdown,
     WebVitalsPathBreakdownQuery,
 } from '~/queries/schema/schema-general'
@@ -145,6 +147,8 @@ const buildOpenUrl = (
         return null
     }
 }
+
+const HedgehogStar = pngHoggie(starPng)
 
 const PathValueWithHoverLink = ({
     children,
@@ -675,6 +679,7 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
                 const dateRange = source?.dateRange
                 const breakdownBy = source?.breakdownBy
                 const value = record[0] ?? ''
+                const doPathCleaning = source?.doPathCleaning
 
                 return (
                     <div className="flex flex-row items-center justify-end">
@@ -685,9 +690,10 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
                             value={value}
                             properties={source?.properties}
                             filter_test_accounts={source?.filterTestAccounts}
+                            doPathCleaning={doPathCleaning}
                         />
                         <HeatmapButton breakdownBy={breakdownBy} value={value} />
-                        <ErrorTrackingButton breakdownBy={breakdownBy} value={value} />
+                        <ErrorTrackingButton breakdownBy={breakdownBy} value={value} doPathCleaning={doPathCleaning} />
                         <CreateSurveyButton value={value} />
                     </div>
                 )
@@ -1408,19 +1414,23 @@ interface HogQLTableTileProps {
     headerSlot?: React.ReactNode
 }
 
-// Bot tiles get their own variant so botAnalyticsLogic only mounts on the Bot Analytics tab —
-// `HogQLTableTile` is reused for any HogQLQuery DataTableNode and shouldn't depend on bot state.
-const BOT_HOGQL_TILES = new Set<TileId>([TileId.BOT_CRAWLERS, TileId.BOT_PATHS])
-
-const BotHogQLTableTile = ({ uniqueKey, attachTo, query, insightProps, tileId }: HogQLTableTileProps): JSX.Element => {
-    const { setBotAnalyticsFilters } = useActions(botAnalyticsLogic)
-    const { rawBotAnalyticsFilters } = useValues(botAnalyticsLogic)
-
-    const context = useMemo((): QueryContext => {
-        // Single-select toggle: clicking the same value clears it, any other click replaces.
+const useSingleSelectDrilldownContext = ({
+    insightProps,
+    filters,
+    setFilters,
+    filterKey,
+    filterType,
+}: {
+    insightProps: InsightLogicProps
+    filters: WebAnalyticsPropertyFilters
+    setFilters: (filters: WebAnalyticsPropertyFilters) => void
+    filterKey: string | undefined
+    filterType: PropertyFilterType.Event | PropertyFilterType.Session
+}): QueryContext =>
+    useMemo((): QueryContext => {
         const toggleFilter = (key: string, value: string): void => {
-            const existing = rawBotAnalyticsFilters.find((f) => 'key' in f && f.key === key)
-            const otherFilters = rawBotAnalyticsFilters.filter((f) => !('key' in f && f.key === key))
+            const existing = filters.find((f) => 'key' in f && f.key === key)
+            const otherFilters = filters.filter((f) => !('key' in f && f.key === key))
             const existingValues =
                 existing && 'value' in existing
                     ? Array.isArray(existing.value)
@@ -1428,28 +1438,19 @@ const BotHogQLTableTile = ({ uniqueKey, attachTo, query, insightProps, tileId }:
                         : [existing.value]
                     : []
             if (existingValues.length === 1 && existingValues[0] === value) {
-                setBotAnalyticsFilters(otherFilters)
+                setFilters(otherFilters)
                 return
             }
-            setBotAnalyticsFilters([
-                ...otherFilters,
-                {
-                    key,
-                    value: [value],
-                    operator: PropertyOperator.Exact,
-                    type: PropertyFilterType.Event,
-                },
-            ])
+            setFilters([...otherFilters, { key, value: [value], operator: PropertyOperator.Exact, type: filterType }])
         }
 
-        const filterKey = tileId === TileId.BOT_CRAWLERS ? '$virt_bot_name' : '$pathname'
         return {
             ...webAnalyticsDataTableQueryContext,
             insightProps,
             rowProps: (record: unknown) => {
                 const result = (record as { result?: unknown[] })?.result
                 const value = Array.isArray(result) ? (result[0] as string) : null
-                if (!value) {
+                if (!value || !filterKey) {
                     return {}
                 }
                 return {
@@ -1458,7 +1459,21 @@ const BotHogQLTableTile = ({ uniqueKey, attachTo, query, insightProps, tileId }:
                 }
             },
         }
-    }, [insightProps, tileId, rawBotAnalyticsFilters, setBotAnalyticsFilters])
+    }, [insightProps, filters, setFilters, filterKey, filterType])
+
+const BOT_HOGQL_TILES = new Set<TileId>([TileId.BOT_CRAWLERS, TileId.BOT_PATHS])
+
+const BotHogQLTableTile = ({ uniqueKey, attachTo, query, insightProps, tileId }: HogQLTableTileProps): JSX.Element => {
+    const { setBotAnalyticsFilters } = useActions(botAnalyticsLogic)
+    const { rawBotAnalyticsFilters } = useValues(botAnalyticsLogic)
+
+    const context = useSingleSelectDrilldownContext({
+        insightProps,
+        filters: rawBotAnalyticsFilters,
+        setFilters: setBotAnalyticsFilters,
+        filterKey: tileId === TileId.BOT_CRAWLERS ? '$virt_bot_name' : '$pathname',
+        filterType: PropertyFilterType.Event,
+    })
     const dataNodeLogicProps = buildDataTableTileDataNodeLogicProps({ query, insightProps, context, uniqueKey })
 
     return (
@@ -1719,7 +1734,7 @@ const FrustrationMetricsEmptyState = (
             <div className="flex items-center gap-8 w-full justify-center">
                 <div>
                     <div className="w-40 lg:w-50 mx-auto mb-4 hidden md:block">
-                        <StarHog />
+                        <HedgehogStar />
                     </div>
                     <p>No frustrating pages found! Keep up the great work!</p>
                 </div>

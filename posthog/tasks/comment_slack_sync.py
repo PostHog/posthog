@@ -11,6 +11,7 @@ from posthog.comment.formatting import slack_files_to_placeholder_lines, slack_t
 from posthog.helpers.slack_identity import resolve_posthog_user_for_slack, resolve_slack_user
 from posthog.helpers.slack_thread_mirror import post_comment_to_slack_thread, slack_author_from_user
 from posthog.models.comment import Comment, CommentSlackThread
+from posthog.models.comment.comment import COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API
 from posthog.models.comment.slack_thread import DISCUSSIONS_SLACK_SYNC_FLAG
 from posthog.models.integration import SlackIntegration
 from posthog.models.team import Team
@@ -120,6 +121,8 @@ def _mark_reply_synced(reply: Comment, ts: object) -> None:
 
 
 def _reply_skip_reason(reply: Comment) -> str | None:
+    if reply.scope in COMMENT_SCOPES_BLOCKED_FROM_GENERIC_API:
+        return "protected_scope"
     item_context = reply.item_context if isinstance(reply.item_context, dict) else {}
     if item_context.get("from_slack"):
         return "from_slack"  # came in from Slack — echoing it back would loop

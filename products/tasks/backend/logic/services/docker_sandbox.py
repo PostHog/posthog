@@ -17,6 +17,7 @@ import subprocess
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
+from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from django.conf import settings
@@ -805,12 +806,13 @@ class DockerSandbox(SandboxBase):
         github_token: str | None = "",
         shallow: bool = True,
         branch: str | None = None,
+        blobless: bool = False,
     ) -> ExecutionResult:
         mount_map = parse_sandbox_repo_mount_map()
         if repository.lower() in mount_map:
             logger.info(f"Repository {repository} is bind-mounted from host, skipping clone")
             return ExecutionResult(stdout="", stderr="", exit_code=0, error=None)
-        return super().clone_repository(repository, github_token, shallow, branch)
+        return super().clone_repository(repository, github_token, shallow, branch, blobless)
 
     def setup_repository(self, repository: str) -> ExecutionResult:
         """No-op: Repository setup is now handled by agent-server."""
@@ -877,6 +879,7 @@ class DockerSandbox(SandboxBase):
         event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         rtk_enabled: bool = True,
+        peer_messaging: bool = False,
         posthog_exec_permission_regex: str | None = None,
     ) -> str:
         # The host proxy URL (e.g. localhost:8003) is unreachable from inside the container;
@@ -899,6 +902,7 @@ class DockerSandbox(SandboxBase):
             event_ingest_url=event_ingest_url,
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             rtk_enabled=rtk_enabled,
+            peer_messaging=peer_messaging,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         # Only append when opted in: agent-server builds without the option reject unknown
@@ -992,6 +996,7 @@ class DockerSandbox(SandboxBase):
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
+        peer_messaging: bool = False,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -1069,6 +1074,7 @@ class DockerSandbox(SandboxBase):
             event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
             rtk_enabled=rtk_enabled,
+            peer_messaging=peer_messaging,
             posthog_exec_permission_regex=exec_permission_regex,
         )
 
@@ -1124,6 +1130,7 @@ class DockerSandbox(SandboxBase):
                 event_ingest_keep_stream_open=event_ingest_keep_stream_open,
                 repo_ready_file=repo_ready_file,
                 rtk_enabled=rtk_enabled,
+                peer_messaging=peer_messaging,
                 posthog_exec_permission_regex=exec_permission_regex,
             )
             if self._launch_and_check(command):
@@ -1214,6 +1221,15 @@ class DockerSandbox(SandboxBase):
     def read_agent_server_session_init_ms(self) -> int | None:
         return self._read_health_session_init_ms(AGENT_SERVER_PORT)
 
+    def read_agent_server_boot_phases_ms(self) -> dict[str, int]:
+        return self._read_health_boot_phases_ms(AGENT_SERVER_PORT)
+
+    def read_agent_server_boot_metrics(self) -> tuple[int | None, dict[str, int]]:
+        return self._read_health_boot_metrics(AGENT_SERVER_PORT)
+
+    def agent_server_health_url(self) -> str:
+        return f"http://127.0.0.1:{AGENT_SERVER_PORT}/health"
+
     def create_snapshot(self, *, timeout_seconds: int | None = None) -> str:
         # timeout_seconds bounds Modal's snapshot RPC; docker commits have no equivalent knob.
         if not self.is_running():
@@ -1291,6 +1307,17 @@ def _base_dockerfile_path() -> str:
     return os.path.join(settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-base")
 
 
+def _base_image_source_sha(dockerfile_path: str) -> str:
+    digest = hashlib.sha256()
+    for path in [
+        Path(dockerfile_path),
+        *sorted(Path(settings.BASE_DIR, "products/desktop/packages/agent-shadow").rglob("*")),
+    ]:
+        if path.is_file():
+            digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
 def _none_if_blank(value: str) -> str | None:
     """Normalize a docker inspect label value: a missing label prints as ``<no value>``."""
     value = value.strip()
@@ -1327,8 +1354,7 @@ def ensure_fresh_base_image(*, force: bool = False) -> None:
     This is the only place that reaches out to npm.
     """
     dockerfile_path = _base_dockerfile_path()
-    with open(dockerfile_path, "rb") as dockerfile:
-        current_dockerfile_sha = hashlib.sha256(dockerfile.read()).hexdigest()
+    current_dockerfile_sha = _base_image_source_sha(dockerfile_path)
 
     latest = _resolve_latest_agent_version()
 
@@ -1389,6 +1415,19 @@ def ensure_fresh_base_image(*, force: bool = False) -> None:
         DEFAULT_IMAGE_NAME,
         dockerfile_path,
         build_args={"COMMIT_HASH": cache_bust},
-        labels={_AGENT_VERSION_LABEL: latest or "unknown"},
+        labels={
+            _AGENT_VERSION_LABEL: latest or "unknown",
+            _DOCKERFILE_SHA_LABEL: current_dockerfile_sha,
+        },
         force=True,
     )
+
+
+def ensure_template_image(template: SandboxTemplate) -> str:
+    """Build ``template``'s image if it is missing, and return its name.
+
+    Sandbox creation does this itself, but a cold build can take minutes — longer than
+    the budget of whatever is provisioning the sandbox. Callers that know a template is
+    coming can pay that cost up front instead. A present image returns immediately.
+    """
+    return DockerSandbox._ensure_image_exists(template)

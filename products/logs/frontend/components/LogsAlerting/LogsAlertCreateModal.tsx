@@ -28,7 +28,7 @@ export function LogsAlertCreateModal({ isOpen, onClose }: LogsAlertCreateModalPr
 }
 
 function LogsAlertCreateModalContent({ onClose }: { onClose: () => void }): JSX.Element {
-    const formLogicProps = { alert: null, onCreateSuccess: onClose }
+    const formLogicProps = { alert: null, onSubmitSuccess: onClose }
     const { isAlertFormSubmitting, alertFormChanged, alertForm } = useValues(logsAlertFormLogic(formLogicProps))
     const { touchAlertFormField } = useActions(logsAlertFormLogic(formLogicProps))
     const { pendingNotifications } = useValues(logsAlertNotificationLogic({}))

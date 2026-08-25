@@ -1,5 +1,6 @@
+import json
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from uuid import UUID
 
@@ -33,6 +34,46 @@ logger = structlog.get_logger(__name__)
 # free-tier org; self-hosted deployments raise it via the env var.
 MONTHLY_CREDIT_QUOTA = get_from_env("REPLAY_VISION_MONTHLY_CREDIT_QUOTA", FREE_TIER_MONTHLY_CREDITS, type_cast=int)
 
+
+def _parse_org_credit_limit_overrides(raw: str) -> dict[str, int]:
+    """JSON org-id -> monthly credit cap; malformed config fails toward no override, never toward a crash.
+
+    Keys are normalized through `UUID`, so an id written in uppercase or without hyphens still caps the
+    org it names. Matching the raw string would leave the cap silently unapplied, which is the state
+    this setting exists to prevent. A bad entry is dropped on its own rather than voiding the rest.
+    """
+    try:
+        parsed = json.loads(raw)
+        if not isinstance(parsed, dict):
+            raise ValueError(f"expected an object, got {type(parsed).__name__}")
+    except (ValueError, TypeError):
+        logger.exception("replay_vision.malformed_org_credit_limit_overrides")
+        return {}
+
+    overrides: dict[str, int] = {}
+    for org_id, limit in parsed.items():
+        try:
+            key = str(UUID(str(org_id)))
+            # `int(True)` is 1, which would cap an org at a single credit. Billing's own limit parser
+            # rejects bools for the same reason.
+            if isinstance(limit, bool):
+                raise ValueError(f"credit limit must be a number, got {limit!r}")
+            # A negative cap would read as "already over", so the worst a typo can do is block the org.
+            overrides[key] = max(0, int(limit))
+        except (ValueError, TypeError):
+            logger.exception("replay_vision.invalid_org_credit_limit_override", org_id=str(org_id))
+    if overrides:
+        logger.info("replay_vision.org_credit_limit_overrides_applied", org_ids=sorted(overrides))
+    return overrides
+
+
+# Per-org monthly credit caps applied on top of billing's limit (the tighter one wins). For internal
+# orgs on unlimited plans, where billing correctly syncs no limit but dogfooding spend still needs a
+# ceiling. Enforcement and every spend surface treat it exactly like a billing limit.
+ORG_CREDIT_LIMIT_OVERRIDES: dict[str, int] = get_from_env(
+    "REPLAY_VISION_ORG_CREDIT_LIMIT_OVERRIDES", {}, type_cast=_parse_org_credit_limit_overrides
+)
+
 # Billing's usage_key for this product; see ee/billing/quota_limiting.QuotaResource.REPLAY_VISION_CREDITS.
 USAGE_KEY = "replay_vision_credits"
 
@@ -46,7 +87,7 @@ class QuotaState:
     extra queries no enforcement path should pay for.
     """
 
-    # None means billing synced the product with no spend limit set: uncapped.
+    # None means no limit applies: an org billing synced with no spend limit, or a scanner with no cap set.
     credit_limit: int | None
     credits_used: int
     period_start: datetime
@@ -115,6 +156,10 @@ class BillingPeriod:
     start: datetime
     end: datetime
 
+    def __post_init__(self) -> None:
+        if self.start >= self.end:
+            raise ValueError(f"BillingPeriod start must be before end: start={self.start}, end={self.end}")
+
 
 def _current_month_bounds(now: datetime) -> BillingPeriod:
     return BillingPeriod(start=start_of_month(now), end=next_month_start(now))
@@ -129,9 +174,11 @@ def _current_period_bounds(organization: Organization | None, now: datetime) -> 
     """The org's active billing period when synced and current, else the calendar month containing `now`."""
     billing_period = organization.current_billing_period if organization else None
     if billing_period:
-        synced = BillingPeriod(start=_as_utc(billing_period.start), end=_as_utc(billing_period.end))
-        if synced.start <= now < synced.end:
-            return synced
+        start = _as_utc(billing_period.start)
+        end = _as_utc(billing_period.end)
+        # Gate before constructing so a malformed synced period falls back to the calendar month
+        if start <= now < end:
+            return BillingPeriod(start=start, end=end)
     return _current_month_bounds(now)
 
 
@@ -149,6 +196,11 @@ class ScannerSpend:
 
 def credits_used_by_scanner(organization_id: UUID, scanner_ids: list[UUID]) -> dict[UUID, ScannerSpend]:
     """Credits and observation counts for each scanner's succeeded observations in the current billing period.
+
+    This is the displayed figure, deliberately read from observation rows rather than the receipt ledger:
+    it is what the scanner list column and the `credits_this_month` sort both show, and receipts carry no
+    `scanner_id` before that column existed. `compute_scanner_budgets` is the delete-proof figure the
+    limit is enforced against.
 
     Priced at current rates from each observation's frozen snapshot model. Receipts freeze prices
     at success time, so these totals can drift from the billed ledger after a mid-period price
@@ -174,6 +226,137 @@ def credits_used_by_scanner(organization_id: UUID, scanner_ids: list[UUID]) -> d
             observations=prev.observations + count,
         )
     return totals
+
+
+@dataclass(frozen=True)
+class ScannerBudget(QuotaState):
+    """A scanner's own allowance, carrying what one more observation costs.
+
+    `credits_used` is the full draw: settled receipts plus live reservations. `settled_credits` is
+    only what has actually posted to the ledger. Defaults exist only to satisfy the dataclass
+    field-order rule, as `QuotaSnapshot` does; every constructor passes both.
+    """
+
+    credits_per_observation: int = 0
+    settled_credits: int = 0
+
+    @property
+    def blocked(self) -> bool:
+        """Whether this scanner is out of budget: the one answer every caller uses.
+
+        `exhausted` and `would_exceed` disagree for a scanner with less than one observation of
+        headroom left, which is exactly the state a capped scanner ends a period in. Gates and the
+        API both read this so they cannot report different things about the same scanner.
+        """
+        return self.would_exceed(self.credits_per_observation)
+
+    @property
+    def blocked_by_settled_spend(self) -> bool:
+        """`blocked` counting only credits that have posted.
+
+        A reservation can release without ever writing a receipt (a failed observation), so an
+        irreversible reaction to a cap must not fire on a transient in-flight spike.
+        """
+        return replace(self, credits_used=self.settled_credits).blocked
+
+
+def _scanner_in_flight_credits(
+    organization_id: UUID, scanner_ids: list[UUID], period: BillingPeriod
+) -> dict[UUID, int]:
+    """Credits reserved by each scanner's in-flight rows, priced from the frozen snapshot model."""
+    pairs = Counter(
+        ReplayObservation.objects.filter(
+            team__organization_id=organization_id,
+            scanner_id__in=scanner_ids,
+            status__in=IN_FLIGHT_STATUSES,
+            created_at__gte=period.start,
+            created_at__lt=period.end,
+        ).values_list("scanner_id", "scanner_snapshot__model")
+    )
+    totals: dict[UUID, int] = {}
+    for (scanner_id, model), count in pairs.items():
+        totals[scanner_id] = totals.get(scanner_id, 0) + observation_credits_for_model(model or "") * count
+    return totals
+
+
+def compute_scanner_budgets(
+    organization_id: UUID, scanner_ids: list[UUID], period: BillingPeriod | None = None
+) -> dict[UUID, ScannerBudget]:
+    """Per-scanner budgets for the org's current billing period, with an entry for every requested scanner.
+
+    Settled credits come from the immutable receipt ledger, so deleting observations cannot refund a
+    scanner's limit. In-flight observations and running prompt evaluations are reserved live from their
+    frozen snapshot model, exactly as the org snapshot does, because a sweep tick admits many
+    observations concurrently against one read. Receipts written before `scanner_id` existed were
+    backfilled from their observation rows (0070); only receipts whose observation was deleted
+    before the backfill remain unattributed.
+
+    Uncapped scanners skip the aggregates entirely and report zero usage: gates read `blocked`,
+    which is always False without a limit, and the spend UI only renders for capped scanners.
+
+    Pass `period` to bill against a window the caller already resolved, so an org snapshot and the
+    scanner budgets taken alongside it cannot straddle a period boundary.
+    """
+    # Deferred: breaks the quota -> prompt_evaluation -> temporal -> quota import cycle.
+    from products.replay_vision.backend.prompt_evaluation import (  # noqa: PLC0415
+        in_flight_evaluation_credits_by_scanner,
+    )
+
+    if not scanner_ids:
+        return {}
+    if period is None:
+        period = current_period_bounds(organization_id)
+    # Limits are read here, not passed in: a caller that forgot them would silently disable enforcement.
+    # nosemgrep: idor-lookup-without-team (org-level aggregation, the pk__in list is co-filtered by team__organization_id, so a scanner id outside this org matches nothing)
+    scanner_rows = ReplayScanner.objects.filter(team__organization_id=organization_id, pk__in=scanner_ids).values_list(
+        "id", "credit_limit", "model"
+    )
+    configs = {scanner_id: (limit, model) for scanner_id, limit, model in scanner_rows}
+    # Almost every scanner is uncapped, so the spend aggregates run only for the capped ones; the
+    # rest report zero usage, and `blocked` is always False without a limit.
+    capped_ids = [scanner_id for scanner_id in scanner_ids if (configs.get(scanner_id) or (None,))[0] is not None]
+    in_flight: dict[UUID, int] = {}
+    in_flight_evaluations: dict[UUID, int] = {}
+    settled: dict[UUID, int] = {}
+    if capped_ids:
+        # Reservations are read BEFORE the receipt ledger: an observation settling between the two reads
+        # is then counted by both (a transient over-count that fails toward capped), never by neither.
+        in_flight = _scanner_in_flight_credits(organization_id, capped_ids, period)
+        # Evaluations write receipts directly, never observation rows, so a running test would otherwise
+        # drain the cap invisibly. Not period-filtered: a live run charges whichever period it settles in.
+        in_flight_evaluations = in_flight_evaluation_credits_by_scanner(organization_id, capped_ids)
+        settled = {
+            row["scanner_id"]: row["total_credits"] or 0
+            for row in ReplayObservationUsage.objects.filter(
+                organization_id=organization_id,
+                scanner_id__in=capped_ids,
+                observation_created_at__gte=period.start,
+                observation_created_at__lt=period.end,
+            )
+            .values("scanner_id")
+            .annotate(total_credits=Coalesce(Sum("credits"), Value(0), output_field=IntegerField()))
+        }
+    result: dict[UUID, ScannerBudget] = {}
+    for scanner_id in scanner_ids:
+        config = configs.get(scanner_id)
+        settled_credits = settled.get(scanner_id, 0)
+        reserved = in_flight.get(scanner_id, 0) + in_flight_evaluations.get(scanner_id, 0)
+        result[scanner_id] = ScannerBudget(
+            credit_limit=config[0] if config else None,
+            credits_used=settled_credits + reserved,
+            period_start=period.start,
+            period_end=period.end,
+            # A scanner outside this org or deleted mid-read has no model; pricing "" would log a warning.
+            credits_per_observation=observation_credits_for_model(config[1]) if config else 0,
+            settled_credits=settled_credits,
+        )
+    return result
+
+
+def compute_scanner_budget(scanner: ReplayScanner, period: BillingPeriod | None = None) -> ScannerBudget:
+    """This scanner's own credit allowance and draw for the org's current billing period."""
+    budgets = compute_scanner_budgets(scanner.team.organization_id, [scanner.id], period)
+    return budgets[scanner.id]
 
 
 def _sum_enabled_scanner_estimated_credits(organization_id: UUID, exclude_scanner_id: UUID | None = None) -> int:
@@ -267,6 +450,11 @@ def quota_state(organization_id: UUID) -> QuotaState:
     synced, credit_limit = _billing_synced_limit(organization)
     if not synced:
         credit_limit = MONTHLY_CREDIT_QUOTA
+    # The tighter of billing's limit and the override, so a config mistake can only reduce credits;
+    # this is how an internal org on an unlimited plan still gets a spend ceiling.
+    override = ORG_CREDIT_LIMIT_OVERRIDES.get(str(organization_id))
+    if override is not None:
+        credit_limit = override if credit_limit is None else min(credit_limit, override)
     return QuotaState(
         credit_limit=credit_limit,
         credits_used=usage,

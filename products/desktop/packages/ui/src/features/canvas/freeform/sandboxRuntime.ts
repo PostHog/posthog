@@ -13,7 +13,7 @@ import {
 
 // Builds the HTML document loaded into the freeform-canvas sandbox iframe.
 //
-// Security notes (see docs/canvas-freeform-react-plan.md):
+// Security notes (see docs/CANVAS-FREEFORM-REACT-PLAN.md):
 //   - The iframe is mounted with sandbox="allow-scripts" and NO
 //     allow-same-origin, so this document runs at a null origin: it cannot read
 //     the host's cookies/storage or touch the host DOM. That is also why all
@@ -21,12 +21,15 @@ import {
 //   - The user's canvas code is NEVER interpolated into this HTML. It arrives
 //     later as a postMessage `init` frame and is run from a Blob module URL, so
 //     there is no string-injection path through the document itself.
-//   - The CSP is the third isolation layer. Edit mode allows the esm.sh CDN (for
-//     Babel + whitelisted packages). View/published mode (Phase 2) self-hosts
-//     and forbids third-party egress entirely.
-export type SandboxMode = "edit" | "view";
+//   - The CSP is the third isolation layer. It allows the esm.sh CDN, because
+//     this document transpiles and resolves imports in the browser.
+//
+// This is the AUTHORING surface only: it renders a canvas whose build hasn't
+// succeeded yet, and card previews. A published canvas is a compiled artifact
+// rendered by BuiltCanvas, which self-hosts its assets behind its own CSP and
+// gates `ph.*` on the build's capability manifest.
 
-// Which in-browser Tailwind engine the EDIT-mode sandbox runs. "v4" matches the
+// Which in-browser Tailwind engine the sandbox runs. "v4" matches the
 // Quill version we ship (Quill is authored for Tailwind v4) and lets us drop the
 // v3 Play CDN's preflight-off hack, the `not-disabled` variant shim, the manual
 // `@layer base` reset, and the hand-mirrored color map — v4's layered preflight
@@ -177,35 +180,28 @@ export function isInteractiveCanvasCommentTarget(target: unknown): boolean {
 }
 
 export function buildSandboxDocument(
-  mode: SandboxMode,
   // The PostHog host, when in-iframe analytics/replay is enabled. Opens CSP for
   // posthog-js to load its recorder and POST events/replay to ingest.
   analyticsApiHost?: string,
 ): string {
   const importMap = JSON.stringify(buildImportMap());
-  const csp = contentSecurityPolicy(mode, analyticsApiHost);
+  const csp = contentSecurityPolicy(analyticsApiHost);
 
   // Quill components emit Tailwind utility classes (layout — `inline-flex`,
   // `items-center` — AND token colors like `bg-card`, `text-muted-foreground`)
   // ALONGSIDE their `.quill-*` BEM classes. The linked Quill stylesheets style
   // the BEM half; the utilities are dead without Tailwind, so the sandbox runs a
-  // JIT-in-browser Tailwind in EDIT mode (View/published mode forbids the CDN —
-  // that tier self-hosts a compiled stylesheet, Phase 2). Quill is authored for
-  // Tailwind v4, so we run the v4 browser engine: its preflight is properly
-  // `@layer base` (sorts BELOW Quill's `@layer components`, so it can't clobber
-  // them — no preflight-off hack, no hand-rolled reset), it has native `not-*`
-  // variants (no `not-disabled` shim), and `@theme inline` maps Quill's tokens
-  // straight to v4 color keys. The whole hand-mirrored color map + reset the v3
-  // Play CDN forced us into collapses to the token block below.
-  const tailwind =
-    mode === "edit"
-      ? TAILWIND_ENGINE === "v4"
-        ? TAILWIND_V4
-        : TAILWIND_V3
-      : "";
+  // JIT-in-browser Tailwind. Quill is authored for Tailwind v4, so we run the v4
+  // browser engine: its preflight is properly `@layer base` (sorts BELOW Quill's
+  // `@layer components`, so it can't clobber them — no preflight-off hack, no
+  // hand-rolled reset), it has native `not-*` variants (no `not-disabled` shim),
+  // and `@theme inline` maps Quill's tokens straight to v4 color keys. The whole
+  // hand-mirrored color map + reset the v3 Play CDN forced us into collapses to
+  // the token block below.
+  const tailwind = TAILWIND_ENGINE === "v4" ? TAILWIND_V4 : TAILWIND_V3;
   // v4 preflight is the layered reset; only the legacy v3 path needs the manual
   // `@layer base` reset (v3's Play CDN preflight is unlayered, so it's off).
-  const reset = mode === "edit" && TAILWIND_ENGINE === "v3" ? LEGACY_RESET : "";
+  const reset = TAILWIND_ENGINE === "v3" ? LEGACY_RESET : "";
 
   // The bootstrap module. It is static (no user input) so it can be inlined
   // safely. It waits for `init`, transpiles the canvas with Babel, runs it from
@@ -230,7 +226,8 @@ export function buildSandboxDocument(
     // back to the host-mediated path.
     let phClient = null;
     window.ph = {
-      // Run a named, server-stored query (the only shape allowed in view mode).
+      // Run a named, server-stored query — the published tier's model. The host
+      // still rejects it (Phase 3).
       run: (name, params) => call("run", { name, params: params ?? {} }),
       // PREFERRED data path: load a SAVED, validated insight by its short id and
       // render its STORED result from the insights endpoint (not a fresh /query/
@@ -247,16 +244,17 @@ export function buildSandboxDocument(
           shortId,
           dateRange: opts && opts.dateRange,
           variables: opts && opts.variables,
+          refresh: opts && opts.refresh,
         }),
       // Run a query. Pass a TYPED query node (\`{ kind: "TrendsQuery", … }\`) for
       // UI-matching numbers (preferred), or an inline HogQL string (escape hatch).
-      // Edit mode only; rejected by the host in view mode.
-      query: (queryOrHogql, params) =>
+      // A built canvas needs \`capabilities.posthog.inlineQueries\` for this.
+      query: (queryOrHogql, params, opts) =>
         call(
           "query",
           typeof queryOrHogql === "string"
-            ? { hogql: queryOrHogql, params: params ?? {} }
-            : { query: queryOrHogql, params: params ?? {} },
+            ? { hogql: queryOrHogql, params: params ?? {}, refresh: opts && opts.refresh }
+            : { query: queryOrHogql, params: params ?? {}, refresh: opts && opts.refresh },
         ),
       // Send an analytics event. Prefer in-iframe posthog-js (so it shares the
       // session/replay); otherwise host-mediated (no replay, still captured).
@@ -266,6 +264,30 @@ export function buildSandboxDocument(
           return Promise.resolve({ ok: true });
         }
         return call("capture", { event, properties: properties ?? {}, distinctId });
+      },
+      // Durable key-value memory, declared in capabilities.posthog.state.
+      // Scope "user" (default) is private to this viewer; "shared" is one
+      // value per canvas, visible to the whole team. Values are JSON, capped
+      // at 64 KB serialized and 256 keys per scope; setting null deletes:
+      // \`ph.state.set("board", { columns: 3 }, { scope: "shared" })\`.
+      state: {
+        get: (key, opts) => call("stateGet", { key, scope: (opts && opts.scope) || "user" }),
+        set: (key, value, opts) =>
+          call("stateSet", { key, value: value === undefined ? null : value, scope: (opts && opts.scope) || "user" }),
+        list: (opts) => call("stateList", { scope: opts && opts.scope }),
+      },
+      // Write into PostHog as the viewer. Every verb must be declared in
+      // capabilities.posthog.actions; wire invocations to explicit user
+      // gestures (a button), never to load or render:
+      // \`ph.actions.invoke("tasks.create", { title, description })\`.
+      actions: {
+        invoke: (verb, payload) => call("actionInvoke", { verb, payload: payload ?? {} }),
+      },
+      // Ask the authoring agent for a change; the host shows the exact prompt
+      // and asks the viewer to approve before anything is dispatched:
+      // \`ph.agent.request("Make the square blue")\`.
+      agent: {
+        request: (prompt) => call("agentRequest", { prompt }),
       },
       // Brokered by the host: PostHog-only https URLs, rate-limited, and
       // ignored while the canvas is unfocused (no auto-opens on load).
@@ -489,6 +511,19 @@ export function buildSandboxDocument(
     const applyTheme = (theme) =>
       document.documentElement.classList.toggle("dark", theme === "dark");
 
+    window.addEventListener("keydown", (e) => {
+      if (!e.isTrusted || (!e.metaKey && !e.ctrlKey)) return;
+      post({
+        type: "keydown",
+        key: e.key,
+        code: e.code,
+        metaKey: e.metaKey,
+        ctrlKey: e.ctrlKey,
+        shiftKey: e.shiftKey,
+        altKey: e.altKey,
+      });
+    });
+
     // --- error reporting (feeds the host's self-repair loop) ---
     const reportError = (message, stack) =>
       post({ type: "error", message: String(message ?? "Unknown error"), stack });
@@ -591,7 +626,16 @@ export function buildSandboxDocument(
       } catch (err) {
         // Only the latest snapshot reports — a superseded partial's parse error
         // must not surface as the canvas's error or flicker the host banner.
-        if (seq === mountSeq) reportError(err && err.message, err && err.stack);
+        if (seq !== mountSeq) return;
+        let message = err && err.message;
+        // Chrome reports a failed CDN fetch of the code's imports as an opaque
+        // error naming the blob module; name the real dependency instead.
+        if (message && message.indexOf("Failed to fetch dynamically imported module") !== -1) {
+          message = "Couldn't load the canvas libraries from esm.sh. " +
+            "Previewing an unbuilt canvas needs network access to https://esm.sh; " +
+            "published canvases are unaffected.";
+        }
+        reportError(message, err && err.stack);
       }
     };
 
@@ -659,15 +703,12 @@ ${FREEFORM_QUILL_CSS_URLS.map(
 </html>`;
 }
 
-// The iframe CSP (third isolation layer). `connect-src` matters most: in view
-// mode it is otherwise locked down so a published canvas can't phone home. When
-// analytics/replay is on we open ONLY the PostHog ingest + assets hosts (so
-// posthog-js can load its recorder and POST events/replay) — never arbitrary
-// egress.
-function contentSecurityPolicy(
-  mode: SandboxMode,
-  analyticsApiHost?: string,
-): string {
+// The iframe CSP (third isolation layer). This document only ever renders a
+// canvas its own author is editing, so it trusts the CDNs it has to fetch from
+// to transpile and resolve imports. A published canvas is not served from here —
+// it is a compiled artifact in BuiltCanvas, whose host document carries its own,
+// far tighter policy. Do not widen this one on a published canvas's behalf.
+function contentSecurityPolicy(analyticsApiHost?: string): string {
   const esm = FREEFORM_ESM_HOST;
   // posthog-js posts events to the api host and loads the recorder from the
   // region assets host; allow both. Wildcards cover PostHog Cloud regions; the
@@ -675,41 +716,27 @@ function contentSecurityPolicy(
   const ph = analyticsApiHost
     ? `${analyticsApiHost} https://*.posthog.com https://*.i.posthog.com`
     : "";
-
-  if (mode === "edit") {
-    // Only the ACTIVE Tailwind engine's CDN is trusted (not both), and the v4
-    // build is path-scoped to the @tailwindcss namespace on jsdelivr rather than
-    // the whole origin — both narrow the code-execution sandbox's egress to
-    // exactly what it fetches. v3's Play CDN loads from arbitrary sub-paths, so
-    // it stays origin-scoped (it's only the fallback, off by default).
-    const twCdn =
-      TAILWIND_ENGINE === "v4"
-        ? "https://cdn.jsdelivr.net/npm/@tailwindcss/"
-        : "https://cdn.tailwindcss.com";
-    return [
-      "default-src 'none'",
-      // Inline bootstrap + esm.sh modules + the transpiled Blob module + the
-      // posthog-js recorder script + the in-browser Tailwind engine (JIT-compiles,
-      // so 'unsafe-eval' is required). Edit-mode ONLY — view mode keeps egress
-      // locked and self-hosts styles instead.
-      `script-src 'unsafe-inline' 'unsafe-eval' blob: ${twCdn} ${esm} ${ph}`,
-      `style-src 'unsafe-inline' ${esm}`,
-      `font-src data: ${esm}`,
-      "img-src data: blob: https:",
-      `worker-src blob:`,
-      // esm.sh + Tailwind CDN sub-fetches; canvas DATA goes over postMessage (not
-      // connect), but posthog-js events/replay DO use connect to the PostHog hosts.
-      `connect-src ${esm} ${twCdn} ${ph}`,
-    ].join("; ");
-  }
-  // view / published: self-hosted, frozen. Only egress is PostHog analytics.
+  // Only the ACTIVE Tailwind engine's CDN is trusted (not both), and the v4
+  // build is path-scoped to the @tailwindcss namespace on jsdelivr rather than
+  // the whole origin — both narrow the code-execution sandbox's egress to
+  // exactly what it fetches. v3's Play CDN loads from arbitrary sub-paths, so
+  // it stays origin-scoped (it's only the fallback, off by default).
+  const twCdn =
+    TAILWIND_ENGINE === "v4"
+      ? "https://cdn.jsdelivr.net/npm/@tailwindcss/"
+      : "https://cdn.tailwindcss.com";
   return [
     "default-src 'none'",
-    `script-src 'unsafe-inline' blob: 'self' ${ph}`,
-    "style-src 'unsafe-inline' 'self'",
-    "font-src data: 'self'",
-    "img-src data: blob: 'self'",
+    // Inline bootstrap + esm.sh modules + the transpiled Blob module + the
+    // posthog-js recorder script + the in-browser Tailwind engine (JIT-compiles,
+    // so 'unsafe-eval' is required).
+    `script-src 'unsafe-inline' 'unsafe-eval' blob: ${twCdn} ${esm} ${ph}`,
+    `style-src 'unsafe-inline' ${esm}`,
+    `font-src data: ${esm}`,
+    "img-src data: blob: https:",
     `worker-src blob:`,
-    `connect-src 'self' ${ph}`,
+    // esm.sh + Tailwind CDN sub-fetches; canvas DATA goes over postMessage (not
+    // connect), but posthog-js events/replay DO use connect to the PostHog hosts.
+    `connect-src ${esm} ${twCdn} ${ph}`,
   ].join("; ");
 }

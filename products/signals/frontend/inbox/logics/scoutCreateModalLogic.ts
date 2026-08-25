@@ -26,7 +26,10 @@ import {
 import { MAX_SCOUT_TAG_LENGTH, MAX_SCOUT_TAGS, normalizeScoutTag } from '../utils/scoutTags'
 
 type ScoutCreateConfigFormValues = Required<
-    Pick<SignalScoutConfigOptionsApi, 'enabled' | 'emit' | 'run_interval_minutes' | 'run_cron_schedule' | 'tags'>
+    Pick<
+        SignalScoutConfigOptionsApi,
+        'enabled' | 'emit' | 'run_interval_minutes' | 'run_cron_schedule' | 'tags' | 'mcp_gateway_server_ids'
+    >
 > &
     Pick<SignalScoutConfigOptionsApi, 'output_destinations'>
 
@@ -57,6 +60,7 @@ export const DEFAULT_SCOUT_CREATE_FORM_VALUES: ScoutCreateFormValues = {
         run_interval_minutes: 1440,
         run_cron_schedule: null,
         tags: [],
+        mcp_gateway_server_ids: [],
     },
 }
 

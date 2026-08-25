@@ -3,21 +3,7 @@ import bigDecimal from 'js-big-decimal'
 import path from 'path'
 
 import { normalizeProviderKey } from '~/ingestion/pipelines/ai/costs/provider-matching'
-
-interface ModelCost {
-    prompt_token: number
-    completion_token: number
-    cache_read_token?: number
-    cache_write_token?: number
-    request?: number
-    web_search?: number
-    image?: number
-    image_output?: number
-    audio?: number
-    audio_output?: number
-    input_audio_cache?: number
-    internal_reasoning?: number
-}
+import type { ModelCost } from '~/ingestion/pipelines/ai/costs/providers/types'
 
 interface ModelRow {
     model: string
@@ -56,6 +42,29 @@ const parsePricingNumber = (value: unknown): number | undefined => {
         return undefined
     }
 }
+
+/** Carried at the served price: the live feed corroborates this for `web_search`,
+ * where promotional routes serve the same fee as their undiscounted siblings. It
+ * corroborates neither `request` (no model in the feed carries a non-zero fee)
+ * nor a markup route (a negative rate has no sibling); both stay flat by policy. */
+export const FLAT_FEE_FIELDS: ReadonlySet<keyof ModelCost> = new Set(['request', 'web_search'])
+
+/** A field added here and not to `FLAT_FEE_FIELDS` is de-discounted by default.
+ * `cache_write_1h_token` has no pair on purpose: OpenRouter serves no 1h write
+ * rate. Book-priced events fall back to 2x `prompt_token` (input-costs.ts); only
+ * the custom-pricing path reads it from event properties. */
+export const OPTIONAL_PRICING_FIELDS: ReadonlyArray<[keyof ModelCost, string]> = [
+    ['cache_read_token', 'input_cache_read'],
+    ['cache_write_token', 'input_cache_write'],
+    ['request', 'request'],
+    ['web_search', 'web_search'],
+    ['image', 'image'],
+    ['image_output', 'image_output'],
+    ['audio', 'audio'],
+    ['audio_output', 'audio_output'],
+    ['input_audio_cache', 'input_audio_cache'],
+    ['internal_reasoning', 'internal_reasoning'],
+]
 
 /** A provider key means what that provider charges a direct caller, so whatever
  * OpenRouter applied is divided back out. A negative `discount_to_user` is a
@@ -109,8 +118,6 @@ export const buildModelCost = (pricing: Record<string, unknown> | undefined, con
         return null
     }
 
-    // The rate applies to every field, flat fees included: a 50%-off route serves
-    // web_search at 0.005 against 0.01 on its undiscounted sibling.
     const discount = parseDiscountRate(pricing, context)
     const toListPrice = (value: number): number =>
         discount === 0 ? value : parseFloat((value / (1 - discount)).toPrecision(10))
@@ -120,23 +127,10 @@ export const buildModelCost = (pricing: Record<string, unknown> | undefined, con
         completion_token: toListPrice(completionToken),
     }
 
-    const optionalPricingFields: Array<[keyof ModelCost, string]> = [
-        ['cache_read_token', 'input_cache_read'],
-        ['cache_write_token', 'input_cache_write'],
-        ['request', 'request'],
-        ['web_search', 'web_search'],
-        ['image', 'image'],
-        ['image_output', 'image_output'],
-        ['audio', 'audio'],
-        ['audio_output', 'audio_output'],
-        ['input_audio_cache', 'input_audio_cache'],
-        ['internal_reasoning', 'internal_reasoning'],
-    ]
-
-    for (const [targetField, sourceField] of optionalPricingFields) {
+    for (const [targetField, sourceField] of OPTIONAL_PRICING_FIELDS) {
         const parsedValue = parsePricingNumber(pricing[sourceField])
         if (parsedValue !== undefined && parsedValue !== 0) {
-            cost[targetField] = toListPrice(parsedValue)
+            cost[targetField] = FLAT_FEE_FIELDS.has(targetField) ? parsedValue : toListPrice(parsedValue)
         }
     }
 
@@ -215,12 +209,20 @@ export const renderDiscountReport = (entries: DiscountReportEntry[], uncheckedMo
     const checkable = verdicts.filter((v) => v.some((c) => c !== 'not-checkable')).length
     const endpointCount = rows.reduce((total, row) => total + row.endpoints.length, 0)
 
+    const flatFeeList = [...FLAT_FEE_FIELDS]
+        .sort()
+        .map((field) => `\`${field}\``)
+        .join(', ')
+
     const lines = [
         '## Discounts',
         '',
         `OpenRouter is running a promotion on **${endpointCount} endpoint(s)** across **${rows.length} model(s)**.`,
         'Per-provider keys below are stored at list rate, with the promotion divided back',
         'out, so a provider key keeps meaning what that provider charges a direct caller.',
+        `Per-call fees (${flatFeeList}) carry across untouched: promotional routes in`,
+        'the feed serve `web_search` at the same fee as their undiscounted siblings,',
+        'and every other per-call fee follows the same policy.',
         'The `default` key is left as OpenRouter serves it.',
         '',
         `Independently confirmed against an undiscounted sibling route: ${confirmed}/${checkable} checkable model(s).`,

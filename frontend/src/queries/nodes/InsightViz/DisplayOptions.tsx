@@ -34,6 +34,7 @@ import { ShowTrendLinesFilter } from 'scenes/insights/EditorFilters/ShowTrendLin
 import { SliceNamesFilter } from 'scenes/insights/EditorFilters/SliceNamesFilter'
 import { StackBreakdownFilter } from 'scenes/insights/EditorFilters/StackBreakdownFilter'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
+import { YAxisRangeFilter } from 'scenes/insights/EditorFilters/YAxisRangeFilter'
 import { RetentionCohortLabelStartIndexPicker } from 'scenes/insights/filters/RetentionCohortLabelStartIndexPicker'
 import { RetentionDashboardDisplayPicker } from 'scenes/insights/filters/RetentionDashboardDisplayPicker'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -45,30 +46,7 @@ import { trendsDataLogic } from 'scenes/trends/trendsDataLogic'
 import { isTrendsQuery } from '~/queries/utils'
 import { ChartDisplayType } from '~/types'
 
-export const LINE_DISPLAYS = [
-    ChartDisplayType.ActionsLineGraph,
-    ChartDisplayType.ActionsLineGraphCumulative,
-    ChartDisplayType.ActionsAreaGraph,
-] as const
-export const BAR_DISPLAYS = [
-    ChartDisplayType.ActionsBar,
-    ChartDisplayType.ActionsUnstackedBar,
-    ChartDisplayType.ActionsBarValue,
-] as const
-
-export function displayMatches(
-    display: ChartDisplayType | null | undefined,
-    displays: readonly ChartDisplayType[]
-): boolean {
-    return !!display && displays.includes(display)
-}
-
-export function isDefaultTrendsLineDisplay(
-    display: ChartDisplayType | null | undefined,
-    querySource: Parameters<typeof isTrendsQuery>[0]
-): boolean {
-    return !display && isTrendsQuery(querySource)
-}
+import { displayMatches, isDefaultTrendsLineDisplay, LINE_DISPLAYS } from './displayTypes'
 
 function useLineGraphState(): { isLineGraph: boolean; isLinearScale: boolean } {
     const { insightProps } = useValues(insightLogic)
@@ -259,6 +237,7 @@ export const DisplayOptions = {
     ResultCustomizationBy: { label: () => <ResultCustomizationByPicker /> },
     Unit: { label: () => <UnitPicker /> },
     Scale: { label: () => <ScalePicker /> },
+    YAxisRange: { label: () => <YAxisRangeFilter /> },
     LineStyle: { label: () => <LineStylePicker /> },
     ConfidenceInterval: { label: () => <ConfidenceInterval /> },
     ConfidenceLevel: { label: () => <ConfidenceLevelInput /> },

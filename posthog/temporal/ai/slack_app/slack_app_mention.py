@@ -27,11 +27,12 @@ SLACK_APP_MENTION_IDLE_TIMEOUT_SECONDS = 30
 SLACK_APP_MENTION_MAX_PROCESSED_KEYS = 200
 # Temporal runs buffered signal handlers before run() starts, so dedup state seeded in
 # run() arrived too late: a redelivered Slack event signalled into the first workflow task
-# missed the dedup keys and started a duplicate child workflow. Seeding moved to __init__,
-# which runs first. That changes which child workflows an execution starts, so executions
-# that already recorded the old order keep replaying it through this patch. The patch can
-# be deleted once no pre-patch executions remain, which takes minutes because these
-# workflows complete after a 30 second idle timeout.
+# missed the dedup keys and started a duplicate child workflow. Seeding happens in
+# __init__, which runs first. Pre-patch histories drained long ago — these workflows
+# complete after a 30 second idle timeout — so only `deprecate_patch` remains, keeping the
+# recorded marker compatible for executions in flight across the deploy that removes the
+# gate. Standard two-step Temporal patch lifecycle: the call comes out once the histories
+# that recorded a plain marker have drained in turn.
 SLACK_APP_MENTION_SEED_IN_INIT_PATCH = "slack-app-mention-seed-in-init"
 
 # The queue awaits each child serially, so a child that never completes stalls every
@@ -40,8 +41,10 @@ SLACK_APP_MENTION_SEED_IN_INIT_PATCH = "slack-app-mention-seed-in-init"
 # (15 minutes for the repo picker) plus its 10-minute activity timeouts stay well
 # inside an hour.
 SLACK_APP_MENTION_CHILD_EXECUTION_TIMEOUT = timedelta(hours=1)
-# Bounding the child and telling the user when it dies both add workflow commands, so
-# executions started before this shipped keep replaying the unbounded, silent path.
+# Bounding the child and telling the user when it dies both add workflow commands. The
+# executions that replayed the unbounded, silent path are long gone; `deprecate_patch`
+# only keeps their marker compatible across the deploy that removes the gate, and comes
+# out on the same lifecycle as the seeding patch above.
 SLACK_APP_MENTION_CHILD_TIMEOUT_PATCH = "slack-app-mention-child-timeout"
 
 
@@ -95,8 +98,8 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
         # iteration order stays deterministic for the continue_as_new carry-over.
         self._seen_keys: dict[str, None] = {}
         self._queue: list[PostHogCodeSlackMentionWorkflowInputs] = []
-        if workflow.patched(SLACK_APP_MENTION_SEED_IN_INIT_PATCH):
-            self._seed(inputs)
+        workflow.deprecate_patch(SLACK_APP_MENTION_SEED_IN_INIT_PATCH)
+        self._seed(inputs)
 
     def _seed(self, inputs: SlackAppMentionWorkflowInputs) -> None:
         for key in inputs.processed_event_keys:
@@ -185,7 +188,7 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
         ALLOW_DUPLICATE mirrors the standalone dispatch's reuse policy for
         retries that outlive this instance's dedup keys.
         """
-        bounded = workflow.patched(SLACK_APP_MENTION_CHILD_TIMEOUT_PATCH)
+        workflow.deprecate_patch(SLACK_APP_MENTION_CHILD_TIMEOUT_PATCH)
         try:
             # The default parent close policy (terminate) is deliberate: an
             # operator killing this queue means "stop this conversation", so
@@ -197,7 +200,7 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
                 message,
                 id=derive_mention_workflow_id(message),
                 id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
-                execution_timeout=SLACK_APP_MENTION_CHILD_EXECUTION_TIMEOUT if bounded else None,
+                execution_timeout=SLACK_APP_MENTION_CHILD_EXECUTION_TIMEOUT,
             )
         except exceptions.WorkflowAlreadyStartedError:
             # A standalone execution for this exact message is already
@@ -209,15 +212,11 @@ class SlackAppMentionWorkflow(PostHogWorkflow):
             # expected to fail; this backstop keeps one poisoned message from
             # wedging the conversation's queue.
             workflow.logger.exception("slack_app_mention_child_failed")
-            if bounded:
-                await self._notify_child_failed(message)
+            await self._notify_child_failed(message)
 
     @workflow.run
     async def run(self, inputs: SlackAppMentionWorkflowInputs) -> None:
-        # Executions that predate the patch recorded their seeding here, so they keep it.
-        if not workflow.patched(SLACK_APP_MENTION_SEED_IN_INIT_PATCH):
-            self._seed(inputs)
-
+        # Seeding happens in __init__ — see _seed's call site for why.
         while True:
             try:
                 await workflow.wait_condition(

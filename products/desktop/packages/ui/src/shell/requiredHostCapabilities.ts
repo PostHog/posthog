@@ -1,11 +1,17 @@
 import { REPORT_MODEL_RESOLVER } from "@posthog/core/inbox/identifiers";
+import {
+  SPEECH_SETTINGS_PROVIDER,
+  SPEECH_USER_NAME_PROVIDER,
+} from "@posthog/core/speech/identifiers";
 import type { HostCapabilityRequirement } from "@posthog/di/hostCapabilities";
 import { HOST_CAPABILITIES } from "@posthog/platform/host-capabilities";
+import { SPEECH_SERVICE } from "@posthog/platform/speech";
 import { AUTH_SIDE_EFFECTS } from "@posthog/ui/features/auth/identifiers";
 import { REVIEW_HOST } from "@posthog/ui/features/code-review/reviewHost";
 import { CONNECTIVITY_CLIENT } from "@posthog/ui/features/connectivity/connectivityClient";
 import { FEATURE_FLAGS } from "@posthog/ui/features/feature-flags/identifiers";
 import { GIT_CACHE_KEY_PROVIDER } from "@posthog/ui/features/git-interaction/gitCacheProvider";
+import { SPEECH_NOTIFY_SETTINGS } from "@posthog/ui/features/notifications/identifiers";
 import { UPDATES_CLIENT } from "@posthog/ui/features/updates/updatesClient";
 import { DIFF_WORKER_FACTORY } from "@posthog/ui/shell/diffWorkerHost";
 
@@ -68,5 +74,21 @@ export const REQUIRED_HOST_CAPABILITIES: readonly HostCapabilityRequirement[] =
     {
       token: REPORT_MODEL_RESOLVER,
       description: "default cloud-run model resolution (canvas/home/inbox)",
+    },
+    {
+      token: SPEECH_SERVICE,
+      description: "text-to-speech playback for agent narration",
+    },
+    {
+      token: SPEECH_SETTINGS_PROVIDER,
+      description: "spoken-narration enablement and voice",
+    },
+    {
+      token: SPEECH_USER_NAME_PROVIDER,
+      description: "signed-in user's first name for spoken greetings",
+    },
+    {
+      token: SPEECH_NOTIFY_SETTINGS,
+      description: "per-kind gating for spoken notifications",
     },
   ];

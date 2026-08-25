@@ -269,6 +269,35 @@ class TestUpdateExternalJobStatus:
         expected_error = "first error" if first_status == ExternalDataJob.Status.FAILED else None
         assert db_job.latest_error == expected_error
 
+    def test_terminal_error_not_clobbered_by_later_cancelled_finalization(self):
+        # A schema auto-disable force-fails a still-running sibling job with the real reason, then
+        # cancels its workflow; Temporal re-finalizes that job as FAILED with a bare "Cancelled".
+        # That later same-status write must not overwrite the actionable error on the job or schema.
+        team, _source, schema, job = _create_org_team_source_schema_job()
+
+        with patch("products.data_warehouse.backend.logic.external_data_source.jobs.emit_data_import_app_metrics"):
+            update_external_job_status(
+                job_id=str(job.id),
+                team_id=team.pk,
+                status=ExternalDataJob.Status.FAILED,
+                logger=MagicMock(),
+                latest_error="Tenant or user not found",
+            )
+
+            updated = update_external_job_status(
+                job_id=str(job.id),
+                team_id=team.pk,
+                status=ExternalDataJob.Status.FAILED,
+                logger=MagicMock(),
+                latest_error="Cancelled",
+            )
+
+        assert updated.latest_error == "Tenant or user not found"
+        db_job = ExternalDataJob.objects.get(id=job.id)
+        assert db_job.latest_error == "Tenant or user not found"
+        schema.refresh_from_db()
+        assert schema.latest_error == "Tenant or user not found"
+
     def test_completed_after_lock_takeover_failure_is_allowed(self):
         # A job force-failed by lock takeover while the loader was still working its run
         # must accept the loader's completion instead of rejecting Failed -> Completed.

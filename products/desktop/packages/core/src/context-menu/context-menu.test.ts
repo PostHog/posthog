@@ -152,6 +152,23 @@ describe("ContextMenuService.showTaskContextMenu", () => {
     );
   });
 
+  it("offers Hand off only to callers that mark it available", async () => {
+    // The API 404s a non-owner's handoff, so the item must stay hidden from one.
+    const owner = new FakeContextMenu();
+    const handedOff = makeService(owner).showTaskContextMenu({
+      ...baseTask,
+      canHandoff: true,
+    });
+    await owner.shown;
+    findItem(owner.lastItems, "Hand off…").click();
+    expect(await handedOff).toEqual({ action: { type: "handoff" } });
+
+    const viewer = new FakeContextMenu();
+    makeService(viewer).showTaskContextMenu(baseTask);
+    await viewer.shown;
+    expect(labels(viewer.lastItems)).not.toContain("Hand off…");
+  });
+
   it("can hide Archive prior tasks for task lists without that action", async () => {
     const menu = new FakeContextMenu();
     makeService(menu).showTaskContextMenu({
@@ -161,6 +178,38 @@ describe("ContextMenuService.showTaskContextMenu", () => {
     await menu.shown;
     expect(labels(menu.lastItems)).not.toContain("Archive prior tasks");
     expect(labels(menu.lastItems)).toContain("Archive");
+  });
+
+  it("lists starred channels first under File to…", async () => {
+    const menu = new FakeContextMenu();
+    const result = makeService(menu).showTaskContextMenu({
+      ...baseTask,
+      channels: [
+        {
+          id: "0",
+          name: "personal",
+          channelType: "personal",
+          starred: true,
+        },
+        { id: "1", name: "alpha" },
+        { id: "2", name: "beta", starred: true },
+        { id: "3", name: "gamma" },
+        { id: "4", name: "delta", starred: true },
+      ],
+    });
+    await menu.shown;
+    const submenu = findItem(menu.lastItems, "File to…").submenu ?? [];
+    expect(labels(submenu)).toEqual([
+      "personal",
+      "#beta",
+      "#delta",
+      "#alpha",
+      "#gamma",
+    ]);
+    findSubmenuItem(menu.lastItems, "File to…", "#delta").click();
+    expect(await result).toEqual({
+      action: { type: "file-to-channel", channelId: "4" },
+    });
   });
 
   it("resolves to null when the menu is dismissed", async () => {
@@ -242,6 +291,26 @@ describe("ContextMenuService.showBulkTaskContextMenu", () => {
     expect(await result).toEqual({
       action: { type: "file-to-channel", channelId: "c1" },
     });
+  });
+
+  it("lists starred channels first under File to…", async () => {
+    const menu = new FakeContextMenu();
+    makeService(menu).showBulkTaskContextMenu({
+      taskCount: 2,
+      channels: [
+        { id: "c1", name: "support" },
+        { id: "c2", name: "design", starred: true },
+        {
+          id: "c3",
+          name: "personal",
+          channelType: "personal",
+          starred: true,
+        },
+      ],
+    });
+    await menu.shown;
+    const submenu = findItem(menu.lastItems, "File to…").submenu ?? [];
+    expect(labels(submenu)).toEqual(["#design", "personal", "#support"]);
   });
 
   it("gates archive on confirmation", async () => {

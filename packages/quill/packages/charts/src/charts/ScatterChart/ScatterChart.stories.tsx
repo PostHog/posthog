@@ -72,6 +72,26 @@ export const MultipleSeries: Story = {
     },
 }
 
+/** A dashed least-squares fit per series, over the same clouds `MultipleSeries` plots. */
+export const BestFit: Story = {
+    render: function Render() {
+        const theme = useReactiveTheme()
+        const series: ScatterSeries[] = [
+            { key: 'enterprise', label: 'Enterprise', points: makeCloud(60, 3, 0.9, 200) },
+            { key: 'free', label: 'Free', points: makeCloud(60, 11, 0.2, 160), shape: 'cross' },
+        ]
+        return (
+            <Stage width={620} height={380}>
+                <ScatterChart
+                    series={series}
+                    theme={theme}
+                    config={{ ...AXES, showBestFit: true, legend: { show: true } }}
+                />
+            </Stage>
+        )
+    },
+}
+
 /** Heavy-tailed data — the reason both axes take a log scale. */
 export const LogScales: Story = {
     render: function Render() {

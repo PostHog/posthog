@@ -7,6 +7,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.replay_vision.backend.facade.api import fetch_page_session_observations
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -14,11 +15,6 @@ from products.replay_vision.backend.models.replay_observation import (
     ReplayObservation,
 )
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
 
 
 class TestFetchPageSessionObservations(APIBaseTest):
@@ -28,7 +24,7 @@ class TestFetchPageSessionObservations(APIBaseTest):
             name=name,
             scanner_type=scanner_type,
             scanner_config={"prompt": "summarize the session"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
     def _observation(self, scanner: ReplayScanner, session_id: str, model_output: dict) -> ReplayObservation:

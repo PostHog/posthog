@@ -1693,12 +1693,15 @@ export function defineStatelessProtocolTests(
         const METHOD_HEADER = 'Mcp-Method'
         const NAME_HEADER = 'Mcp-Name'
 
-        function statelessParams(params: Record<string, unknown> = {}): Record<string, unknown> {
+        function statelessParams(
+            params: Record<string, unknown> = {},
+            clientName = 'stateless-suite'
+        ): Record<string, unknown> {
             return {
                 ...params,
                 _meta: {
                     [META_VERSION_KEY]: STATELESS_VERSION,
-                    [META_CLIENT_INFO_KEY]: { name: 'stateless-suite', version: '0.0.1' },
+                    [META_CLIENT_INFO_KEY]: { name: clientName, version: '0.0.1' },
                     [META_CLIENT_CAPABILITIES_KEY]: {},
                 },
             }
@@ -1985,6 +1988,49 @@ export function defineStatelessProtocolTests(
             expect(json.error?.code).toBe(-32601)
             // Modern initialize must not mint a session either.
             expect(response.headers.get('mcp-session-id')).toBeNull()
+        })
+
+        // The headerless variant is how stdio bridges (mcp-remote) forward the
+        // probe. HTTP 200 in both, not the spec's 404: mcp-remote's transport
+        // treats any non-2xx as fatal instead of falling back.
+        it.each([
+            ['with SEP-2243 headers', {}],
+            ['without SEP-2243 headers', { [VERSION_HEADER]: null, [METHOD_HEADER]: null }],
+        ] as Array<[string, Record<string, string | null>]>)(
+            'answers server/discover with method-not-found for a legacy-dialect-only client %s',
+            async (_label, extraHeaders) => {
+                const harness = await getHarness()
+                const { response, json } = await postSingle(
+                    harness,
+                    'server/discover',
+                    statelessParams({}, 'antigravity-client'),
+                    'legacy-only',
+                    extraHeaders
+                )
+
+                expect(response.status).toBe(200)
+                expect(json.error?.code).toBe(-32601)
+                expect(response.headers.get('mcp-session-id')).toBeNull()
+            }
+        )
+
+        it('keeps legacy initialize working for a legacy-dialect-only client', async () => {
+            const harness = await getHarness()
+            const { response, json } = await postSingle(
+                harness,
+                'initialize',
+                {
+                    protocolVersion: '2025-06-18',
+                    capabilities: {},
+                    clientInfo: { name: 'antigravity-client', version: 'v1.0.0' },
+                },
+                'legacy-only-init',
+                { [VERSION_HEADER]: '2025-06-18' }
+            )
+
+            expect(response.status).toBe(200)
+            expect(json.error).toBeUndefined()
+            expect(json.result?.protocolVersion).toBe('2025-06-18')
         })
 
         it('leaves legacy initialize untouched when it carries a legacy MCP-Protocol-Version header', async () => {

@@ -9,6 +9,8 @@ from posthog.test.base import (
 )
 from unittest.case import skip
 
+from django.test import override_settings
+
 from posthog.schema import (
     CompareFilter,
     DateRange,
@@ -643,6 +645,7 @@ class TestFunnelTimeToConvert(ClickhouseTestMixin, APIBaseTest):
         )
 
 
+@override_settings(IN_UNIT_TESTING=True)
 class TestFunnelTimeToConvertCompare(ClickhouseTestMixin, APIBaseTest):
     """Compare-to-previous on funnel TIME_TO_CONVERT viz: two histograms on shared bin boundaries."""
 

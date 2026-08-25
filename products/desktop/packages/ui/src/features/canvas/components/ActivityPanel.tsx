@@ -1,5 +1,4 @@
 import {
-  ArrowDownIcon,
   ArrowSquareOutIcon,
   CaretRightIcon,
   XIcon,
@@ -7,31 +6,19 @@ import {
 import { Button, Tabs, TabsList, TabsTrigger } from "@posthog/quill";
 import { ANALYTICS_EVENTS } from "@posthog/shared/analytics-events";
 import type { Task } from "@posthog/shared/domain-types";
-import { ActivityTimeline } from "@posthog/ui/features/canvas/components/ActivityTimeline";
-import { ActivityLoadingState } from "@posthog/ui/features/canvas/components/activityRows";
-import { TaskCard } from "@posthog/ui/features/canvas/components/ChannelFeedView";
-import { TaskArtifactsList } from "@posthog/ui/features/canvas/components/TaskArtifactsList";
-import { TaskCommentsList } from "@posthog/ui/features/canvas/components/TaskCommentsList";
 import {
-  AgentStatusLine,
-  ThreadLoadingState,
-} from "@posthog/ui/features/canvas/components/ThreadPanel";
-import { useTaskCommentActivity } from "@posthog/ui/features/canvas/hooks/useTaskCommentActivity";
+  ActivityPanelBody,
+  type ActivityTab,
+} from "@posthog/ui/features/canvas/components/ActivityPanelBody";
+import { TaskSummaryRow } from "@posthog/ui/features/canvas/components/ChannelFeedView";
+import { ThreadLoadingState } from "@posthog/ui/features/canvas/components/ThreadPanel";
 import { useTaskThread } from "@posthog/ui/features/canvas/hooks/useTaskThread";
-import { useThreadConversation } from "@posthog/ui/features/canvas/hooks/useThreadConversation";
-import { useCommentNavigationStore } from "@posthog/ui/features/sessions/commentNavigationStore";
-import { buildConversationItems } from "@posthog/ui/features/sessions/components/buildConversationItems";
-import { mergeConversationItems } from "@posthog/ui/features/sessions/components/mergeConversationItems";
-import {
-  useOptimisticItemsForTask,
-  useSessionIsCloud,
-} from "@posthog/ui/features/sessions/sessionStore";
+import { useThreadPanelStore } from "@posthog/ui/features/canvas/stores/threadPanelStore";
+import { useCommentFocusRequest } from "@posthog/ui/features/sessions/useCommentFocusRequest";
 import { taskDetailQuery } from "@posthog/ui/features/tasks/queries";
 import { track } from "@posthog/ui/shell/analytics";
 import { useQuery } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
-type ActivityTab = "timeline" | "artifacts" | "comments";
+import { useCallback, useEffect, useState } from "react";
 
 const ACTIVITY_TABS: readonly { key: ActivityTab; label: string }[] = [
   { key: "timeline", label: "Timeline" },
@@ -136,16 +123,6 @@ function ActivityConversation({
   canOpenInPlace?: boolean;
 }) {
   const taskId = task.id;
-  const {
-    timeline,
-    messages,
-    agentStatus,
-    events,
-    isPromptPending,
-    hasLoadedThread,
-    currentUser,
-  } = useThreadConversation(task, { surface: "activity_panel" });
-
   const [tab, setTab] = useState<ActivityTab>("timeline");
   const handleTabChange = useCallback(
     (next: ActivityTab) => {
@@ -160,138 +137,24 @@ function ActivityConversation({
     [taskId],
   );
 
-  // Runs for the whole panel, not just the tab that draws it, so leaving the timeline
-  // doesn't discard a fetch already in flight.
-  const { threads: commentThreads, hasLoaded: hasLoadedComments } =
-    useTaskCommentActivity(taskId);
-  // Draw once both durable sources have answered, and never take the timeline away again.
-  // Drawing on the thread alone paints sooner but in two waves, with comment rows pushing in
-  // among rows already on screen; gating on the live session (`isReady`) blinks a loader over
-  // drawn rows while it connects. The latch is set on commit, because Strict Mode and
-  // concurrent rendering abandon renders that would otherwise set it.
-  const hasDrawnTimeline = useRef(false);
-  const timelineReady =
-    hasDrawnTimeline.current || (hasLoadedThread && hasLoadedComments);
-  useEffect(() => {
-    if (hasLoadedThread && hasLoadedComments) hasDrawnTimeline.current = true;
-  }, [hasLoadedThread, hasLoadedComments]);
+  // Not handleTabChange: a programmatic switch isn't a user tab change.
+  useCommentFocusRequest(taskId, () => setTab("comments"));
 
-  // Merged exactly as the transcript merges it, because "Show in chat" hands the transcript
-  // one of these item ids. A prompt still waiting on its echo is an optimistic item there and
-  // the server copy is dropped, so raw events alone would name a row it does not render.
-  const optimisticItems = useOptimisticItemsForTask(taskId);
-  const isCloudSession = useSessionIsCloud(taskId);
-  const conversationItems = useMemo(
-    () =>
-      tab === "timeline"
-        ? mergeConversationItems({
-            conversationItems: buildConversationItems(events, isPromptPending)
-              .items,
-            optimisticItems,
-            isCloud: isCloudSession,
-          })
-        : [],
-    [tab, events, isPromptPending, optimisticItems, isCloudSession],
+  // A caller can open the panel pointed at a tab (the feed's comment chip
+  // lands on Comments, its "+N files" rows on Artifacts). Applied once, then
+  // consumed in the store — a local ref would reset when the panel remounts
+  // (collapse/expand) and replay the stale request over the user's tab pick.
+  const tabRequest = useThreadPanelStore(
+    (state) => state.tabRequestByTask[taskId],
   );
-
-  // A thread picked on the artifact itself lives in the Comments tab, so the
-  // pick has to bring the tab with it. Only a fresh request switches tabs: a
-  // focus left over from an earlier visit must not hijack the panel on mount.
-  const focusByTask = useCommentNavigationStore((state) => state.focusByTask);
-  const commentFocus = focusByTask[taskId];
-  const acknowledgeCommentsTabOpen = useCommentNavigationStore(
-    (state) => state.acknowledgeCommentsTabOpen,
-  );
-  // Seed requests that predate this panel, but leave later requests for other tasks pending
-  // until the reused panel switches to that task.
-  const seenFocus = useRef(
-    new Map(
-      Object.entries(focusByTask).map(([focusTaskId, focus]) => [
-        focusTaskId,
-        focus?.nonce ?? null,
-      ]),
-    ),
+  const consumeTabRequest = useThreadPanelStore(
+    (state) => state.consumeTabRequest,
   );
   useEffect(() => {
-    if (
-      commentFocus?.openCommentsTab &&
-      commentFocus.nonce !== seenFocus.current.get(taskId)
-    ) {
-      seenFocus.current.set(taskId, commentFocus.nonce);
-      // Not handleTabChange: a programmatic switch isn't a user tab change.
-      setTab("comments");
-    }
-  }, [commentFocus, taskId]);
-  useEffect(() => {
-    if (tab === "comments" && commentFocus?.openCommentsTab) {
-      acknowledgeCommentsTabOpen(taskId, commentFocus.nonce);
-    }
-  }, [acknowledgeCommentsTabOpen, commentFocus, tab, taskId]);
-
-  const scrollRef = useRef<HTMLDivElement>(null);
-  // Within this much of the bottom still counts as watching the end, so a row arriving
-  // mid-poll keeps following. Wide enough to survive a partially scrolled last row.
-  const AT_BOTTOM_SLACK_PX = 48;
-  const [hasNewerBelow, setHasNewerBelow] = useState(false);
-  const scrollToLatest = useCallback(() => {
-    const node = scrollRef.current;
-    if (!node) return;
-    node.scrollTo({ top: node.scrollHeight });
-    setHasNewerBelow(false);
-  }, []);
-  const onScroll = useCallback(() => {
-    const node = scrollRef.current;
-    if (!node) return;
-    const atBottom =
-      node.scrollHeight - node.scrollTop - node.clientHeight <=
-      AT_BOTTOM_SLACK_PX;
-    if (atBottom) setHasNewerBelow(false);
-  }, []);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: follow the end when rendered content changes
-  useEffect(() => {
-    // Only the timeline reads bottom-up; the other tabs put what matters on top.
-    if (tab !== "timeline") return;
-    const node = scrollRef.current;
-    if (!node) return;
-    // Following unconditionally yanks the panel to the bottom on every refetch while someone
-    // is reading further up, so follow only for a reader already at the end.
-    const atBottom =
-      node.scrollHeight - node.scrollTop - node.clientHeight <=
-      AT_BOTTOM_SLACK_PX;
-    if (atBottom) {
-      node.scrollTo({ top: node.scrollHeight });
-      setHasNewerBelow(false);
-      return;
-    }
-    setHasNewerBelow(true);
-  }, [timeline, events.length, agentStatus?.phase, tab]);
-
-  const body = () => {
-    if (tab === "comments") {
-      return <TaskCommentsList task={task} timeline={timeline} />;
-    }
-    if (tab === "artifacts") {
-      return (
-        <TaskArtifactsList
-          task={task}
-          timeline={timeline}
-          canOpenInPlace={canOpenInPlace}
-        />
-      );
-    }
-    if (!timelineReady) return <ActivityLoadingState />;
-    return (
-      <ActivityTimeline
-        task={task}
-        timeline={timeline}
-        messages={messages}
-        conversationItems={conversationItems}
-        commentThreads={commentThreads}
-        currentUserId={currentUser?.id}
-        canOpenInPlace={canOpenInPlace}
-      />
-    );
-  };
+    if (!tabRequest) return;
+    setTab(tabRequest.tab);
+    consumeTabRequest(taskId, tabRequest.nonce);
+  }, [tabRequest, consumeTabRequest, taskId]);
 
   return (
     <div className="flex h-full min-w-0 flex-col bg-gray-1">
@@ -303,36 +166,16 @@ function ActivityConversation({
         onClose={onClose}
       />
 
-      {showTaskSummary && (
-        <div className="z-10 px-2">
-          <TaskCard task={task} channelId={channelId} inThread />
-        </div>
-      )}
-      <div className="relative flex min-h-0 flex-1 flex-col">
-        <div
-          ref={scrollRef}
-          onScroll={onScroll}
-          aria-busy={!timelineReady}
-          className="flex-1 overflow-y-auto"
-        >
-          {body()}
-        </div>
-        {tab === "timeline" && hasNewerBelow && (
-          <Button
-            variant="default"
-            size="sm"
-            className="-translate-x-1/2 absolute bottom-2 left-1/2 z-20 shadow-md"
-            onClick={scrollToLatest}
-          >
-            <ArrowDownIcon size={12} />
-            New activity
-          </Button>
-        )}
-      </div>
-
-      {tab === "timeline" && agentStatus && (
-        <AgentStatusLine status={agentStatus} />
-      )}
+      {showTaskSummary && <TaskSummaryRow task={task} channelId={channelId} />}
+      {/* Keyed by session: the body latches "the timeline has drawn" so it
+          never blinks back to a loader, and the dock reuses one body across
+          tasks, which would carry that latch onto a session still loading. */}
+      <ActivityPanelBody
+        key={taskId}
+        task={task}
+        tab={tab}
+        canOpenInPlace={canOpenInPlace}
+      />
     </div>
   );
 }
@@ -364,10 +207,9 @@ export function ActivityPanel({
   });
   const task = taskProp ?? fetchedTask;
 
-  // Warmed from the id alone so they don't queue behind the task itself, which can take
-  // seconds to arrive. Same query keys as the panel's own hooks, so this shares one fetch.
+  // Warmed from the id alone so it doesn't queue behind the task itself, which can take
+  // seconds to arrive. Same query key as the panel's own hook, so this shares one fetch.
   useTaskThread(taskId, { enabled: !collapsed, markActivityRead: false });
-  useTaskCommentActivity(taskId, { enabled: !collapsed });
 
   if (collapsed) {
     return (

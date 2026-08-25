@@ -49,13 +49,28 @@ function cachedRead<T>(
   method: string,
   input: unknown,
   run: () => Promise<T>,
+  refreshSeconds?: number,
 ) {
   return queryClient.fetchQuery({
     queryKey: [CANVAS_QUERY_KEY, method, stableStringify(input)] as const,
     queryFn: run,
-    staleTime: 5 * 60_000,
-    gcTime: 10 * 60_000,
+    staleTime: (refreshSeconds ?? 5 * 60) * 1_000,
+    // At least the refresh interval, or GC would evict an inactive entry
+    // before it goes stale and force an early backend re-read.
+    gcTime: Math.max(refreshSeconds ?? 5 * 60, 10 * 60) * 1_000,
   });
+}
+
+function refreshSeconds(value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  if (
+    !Number.isInteger(value) ||
+    (value as number) < 30 ||
+    (value as number) > 86_400
+  ) {
+    throw new Error("refresh must be an integer between 30 and 86400 seconds");
+  }
+  return value as number;
 }
 
 // Resolves a `ph.*` data-request from a freeform canvas (edit mode). The host
@@ -68,7 +83,16 @@ export async function handleFreeformDataRequest(
   method: string,
   payload: unknown,
   queryClient: QueryClient,
+  // State and actions are canvas-scoped, unlike the content-keyed reads above,
+  // so the caller passes the canvas identity in.
+  context?: { dashboardId?: string },
 ): Promise<unknown> {
+  const requireDashboardId = (): string => {
+    if (!context?.dashboardId) {
+      throw new Error(`${method} requires a canvas context`);
+    }
+    return context.dashboardId;
+  };
   switch (method) {
     case "query": {
       const input = payload as CanvasDataQueryInput;
@@ -85,8 +109,12 @@ export async function handleFreeformDataRequest(
         hogql: input.hogql,
         params: input.params,
       };
-      return cachedRead(queryClient, "query", args, () =>
-        hostClient().canvasData.query.mutate(args),
+      return cachedRead(
+        queryClient,
+        "query",
+        args,
+        () => hostClient().canvasData.query.mutate(args),
+        refreshSeconds(input.refresh),
       );
     }
     case "loadInsight": {
@@ -102,8 +130,12 @@ export async function handleFreeformDataRequest(
         dateRange: input.dateRange,
         variables: input.variables,
       };
-      return cachedRead(queryClient, "loadInsight", args, () =>
-        hostClient().canvasData.loadInsight.mutate(args),
+      return cachedRead(
+        queryClient,
+        "loadInsight",
+        args,
+        () => hostClient().canvasData.loadInsight.mutate(args),
+        refreshSeconds(input.refresh),
       );
     }
     case "capture": {
@@ -116,6 +148,58 @@ export async function handleFreeformDataRequest(
         event: input.event,
         distinctId: input.distinctId,
         properties: input.properties,
+      });
+    }
+    case "stateGet": {
+      const input = payload as { key?: string; scope?: "user" | "shared" };
+      if (!input?.key || typeof input.key !== "string") {
+        throw new Error("ph.state.get(key) requires a key");
+      }
+      // Never cached: state is the canvas's live memory, and a stale read
+      // would undo the write the canvas just made.
+      const entries = await hostClient().dashboards.listState.query({
+        id: requireDashboardId(),
+        scope: input.scope ?? "user",
+      });
+      return entries.find((entry) => entry.key === input.key)?.value ?? null;
+    }
+    case "stateSet": {
+      const input = payload as {
+        key?: string;
+        value?: unknown;
+        scope?: "user" | "shared";
+      };
+      if (!input?.key || typeof input.key !== "string") {
+        throw new Error("ph.state.set(key, value) requires a key");
+      }
+      await hostClient().dashboards.setState.mutate({
+        id: requireDashboardId(),
+        scope: input.scope ?? "user",
+        key: input.key,
+        value: input.value ?? null,
+      });
+      return { ok: true };
+    }
+    case "stateList": {
+      const input = payload as { scope?: "user" | "shared" };
+      return hostClient().dashboards.listState.query({
+        id: requireDashboardId(),
+        scope: input?.scope,
+      });
+    }
+    case "actionInvoke": {
+      const input = payload as {
+        verb?: string;
+        payload?: Record<string, unknown>;
+      };
+      if (!input?.verb || typeof input.verb !== "string") {
+        throw new Error("ph.actions.invoke(verb, payload) requires a verb");
+      }
+      // A write into PostHog, never cached.
+      return hostClient().dashboards.invokeAction.mutate({
+        id: requireDashboardId(),
+        verb: input.verb,
+        payload: input.payload ?? {},
       });
     }
     case "run":

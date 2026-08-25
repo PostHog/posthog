@@ -17,9 +17,6 @@ export interface ViewRecordingsLinkabilityLogicProps {
 export const EXPOSURE_UNLINKABLE_REASON =
     "This experiment's exposure event is captured server-side without a session ID, so recordings can't be matched."
 
-export const EXPOSURE_FALLBACK_NOTICE =
-    "This experiment's exposure event is captured server-side without a session ID, so exact exposures can't be matched. Showing sessions where the feature flag was active instead."
-
 export const METRIC_UNLINKABLE_REASON =
     "This metric's events are captured server-side without a session ID, so recordings can't be matched."
 

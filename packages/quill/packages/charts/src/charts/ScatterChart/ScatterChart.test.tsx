@@ -78,6 +78,26 @@ describe('ScatterChart', () => {
         expect(tooltip.value('Writes')).toBe('80')
     })
 
+    it('names the y row after the series when the y axis is untitled, without repeating it as a header', async () => {
+        const { chart } = renderScatter({
+            series: [
+                {
+                    key: 'writes',
+                    label: 'Writes',
+                    points: [
+                        { x: 0, y: 0 },
+                        { x: 25, y: 80 },
+                        { x: 100, y: 100 },
+                    ],
+                },
+            ],
+            config: { margins: MARGINS, xAxis: { label: 'Reads' } },
+        })
+        const tooltip = createDefaultTooltipAccessor(await hoverPoint(chart.element, 25, 80))
+        expect(tooltip.value('Writes')).toBe('80')
+        expect(tooltip.label()).toBe('')
+    })
+
     it.each<[string, ScatterChartConfig, string, string[]]>([
         [
             'pins each axis to a caller domain',

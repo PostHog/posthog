@@ -197,10 +197,10 @@ class TestEventsPredicatePushdownExtractor:
         expr = parse_expr(expr_str)
 
         extractor = EventsPredicatePushdownExtractor(joined_aliases)
-        inner_where, outer_where = extractor.get_pushdown_predicates(expr)
+        split = extractor.get_pushdown_predicates(expr)
 
-        assert print_expr(inner_where) == expected_inner
-        assert print_expr(outer_where) == expected_outer
+        assert print_expr(split.inner_where) == expected_inner
+        assert print_expr(split.outer_where) == expected_outer
 
     def test_empty_joined_aliases_relies_on_type_system(self):
         """With empty joined_aliases, detection relies entirely on type system."""
@@ -217,11 +217,11 @@ class TestEventsPredicatePushdownExtractor:
         )
 
         extractor = EventsPredicatePushdownExtractor(set())
-        inner_where, outer_where = extractor.get_pushdown_predicates(comparison)
+        split = extractor.get_pushdown_predicates(comparison)
 
         # Should detect via type system even with empty joined_aliases
-        assert inner_where is None
-        assert outer_where is not None
+        assert split.inner_where is None
+        assert split.outer_where is not None
 
     def test_in_cohort_predicate_stays_outer(self):
         """An unresolved IN COHORT op (inCohortVia=LEFTJOIN) becomes a cohort LEFT JOIN after pushdown, so it
@@ -237,28 +237,33 @@ class TestEventsPredicatePushdownExtractor:
             right=ast.Constant(value=1),
         )
         extractor = EventsPredicatePushdownExtractor(set())
-        inner_where, outer_where = extractor.get_pushdown_predicates(ast.And(exprs=[timestamp, in_cohort]))
+        split = extractor.get_pushdown_predicates(ast.And(exprs=[timestamp, in_cohort]))
 
-        assert isinstance(inner_where, ast.CompareOperation) and inner_where.op == ast.CompareOperationOp.GtEq
-        assert isinstance(outer_where, ast.CompareOperation) and outer_where.op == ast.CompareOperationOp.InCohort
+        assert (
+            isinstance(split.inner_where, ast.CompareOperation) and split.inner_where.op == ast.CompareOperationOp.GtEq
+        )
+        assert (
+            isinstance(split.outer_where, ast.CompareOperation)
+            and split.outer_where.op == ast.CompareOperationOp.InCohort
+        )
 
     def test_in_cohort_only_predicate_not_pushable(self):
         """A standalone IN COHORT / NOT IN COHORT predicate is non-pushable (nothing left to push)."""
         for op in (ast.CompareOperationOp.InCohort, ast.CompareOperationOp.NotInCohort):
             in_cohort = ast.CompareOperation(op=op, left=ast.Field(chain=["person_id"]), right=ast.Constant(value=1))
             extractor = EventsPredicatePushdownExtractor(set())
-            inner_where, outer_where = extractor.get_pushdown_predicates(in_cohort)
+            split = extractor.get_pushdown_predicates(in_cohort)
 
-            assert inner_where is None, f"{op}: should not be pushable"
-            assert isinstance(outer_where, ast.CompareOperation) and outer_where.op == op
+            assert split.inner_where is None, f"{op}: should not be pushable"
+            assert isinstance(split.outer_where, ast.CompareOperation) and split.outer_where.op == op
 
     def test_subquery_predicate_stays_outer(self):
         """A predicate with a nested subquery (e.g. inCohortVia=SUBQUERY's IN (SELECT ...)) is not pushable;
         a plain events predicate alongside it still pushes."""
         expr = parse_expr("event = 'x' AND person_id IN (SELECT person_id FROM raw_cohortpeople)")
         extractor = EventsPredicatePushdownExtractor(set())
-        inner_where, outer_where = extractor.get_pushdown_predicates(expr)
+        split = extractor.get_pushdown_predicates(expr)
 
         # the bare `event = 'x'` pushes; the IN (SELECT ...) stays outer
-        assert inner_where is not None and not contains_subquery(inner_where)
-        assert outer_where is not None and contains_subquery(outer_where)
+        assert split.inner_where is not None and not contains_subquery(split.inner_where)
+        assert split.outer_where is not None and contains_subquery(split.outer_where)

@@ -100,3 +100,9 @@ Work top-down, stopping at `proposed` for everything (a human promotes later):
 
    The `refresh` parameter on `posthog:data-catalog-metric-run` is a query-cache mode, not a drift fix —
    it does not re-snapshot the linked insight.
+
+## Related
+
+Certifying a source says a human vouches for it. Proving it is _still_ correct is a separate job —
+see the `authoring-data-quality-checks` skill for null, uniqueness, referential-integrity, and
+freshness assertions on the same tables and views.

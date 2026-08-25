@@ -14,7 +14,7 @@ from uuid import UUID
 
 from posthog.schema_migrations.upgrade import upgrade
 
-from products.product_analytics.backend.models.insight import Insight
+from products.product_analytics.backend.facade.models import Insight
 
 from ..models import Metric
 

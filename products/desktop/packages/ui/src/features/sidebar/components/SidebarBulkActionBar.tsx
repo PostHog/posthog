@@ -6,6 +6,8 @@ import {
   SquaresFourIcon,
   XIcon,
 } from "@phosphor-icons/react";
+import { channelDisplayLabel } from "@posthog/core/canvas/channelName";
+import { sessionsLabel } from "@posthog/core/sidebar/selection";
 import {
   Button,
   DropdownMenu,
@@ -90,7 +92,7 @@ export function SidebarBulkActionBar({
     isFiling,
   } = actions;
 
-  const sessions = selectedCount === 1 ? "session" : "sessions";
+  const sessions = sessionsLabel(selectedCount);
 
   return (
     <>
@@ -98,7 +100,7 @@ export function SidebarBulkActionBar({
           A live region announces reliably only if it was in the DOM before its
           text arrived, so this one sits outside the bar and outlives it. */}
       <span aria-live="polite" className="sr-only">
-        {selectedCount > 0 ? `${selectedCount} ${sessions} selected` : ""}
+        {selectedCount > 0 ? `${sessions} selected` : ""}
       </span>
 
       {selectedCount > 0 && (
@@ -127,7 +129,7 @@ export function SidebarBulkActionBar({
             </ActionButton>
 
             <ActionButton
-              label={`Add ${selectedCount} ${sessions} to Command Center`}
+              label={`Add ${sessions} to Command Center`}
               disabledReason={commandCenterDisabledReason}
               onClick={actions.addSelectedToCommandCenter}
             >
@@ -137,7 +139,7 @@ export function SidebarBulkActionBar({
             {fileDisabledReason === null ? (
               <DropdownMenu>
                 <ActionButton
-                  label={`File ${selectedCount} ${sessions} to a channel`}
+                  label={`File ${sessions} to a channel`}
                   disabledReason={null}
                   loading={isFiling}
                   wrapTrigger={(button) => (
@@ -152,7 +154,7 @@ export function SidebarBulkActionBar({
                       key={channel.id}
                       onClick={() => void actions.fileSelectedTo(channel.id)}
                     >
-                      {`#${channel.name}`}
+                      {channelDisplayLabel(channel.name, channel.channelType)}
                     </DropdownMenuItem>
                   ))}
                 </DropdownMenuContent>
@@ -160,7 +162,7 @@ export function SidebarBulkActionBar({
             ) : null}
 
             <ActionButton
-              label={`Archive ${selectedCount} ${sessions}`}
+              label={`Archive ${sessions}`}
               disabledReason={archiveDisabledReason}
               loading={isArchiving}
               onClick={onArchive}

@@ -86,6 +86,20 @@ describe('VolumeSparkline', () => {
         })
     })
 
+    describe('bucket clicks', () => {
+        it('selects the clicked bucket using its start and end boundaries', () => {
+            const onRangeSelect = jest.fn()
+            const data = buildData({ 3: { date: new Date('2024-01-01T04:00:00.000Z') } })
+            const wrapper = renderChart({ data, onBucketClick: onRangeSelect })
+
+            hoverAtIndex(wrapper, 2, data.length)
+            fireEvent.click(wrapper)
+
+            expect(onRangeSelect).toHaveBeenCalledWith(data[2].date, data[3].date)
+            expect(wrapper.classList.contains('cursor-pointer')).toBe(true)
+        })
+    })
+
     describe('spike clicks', () => {
         it('fires onSpikeClick with the viewport cursor position when a flagged bucket is clicked', () => {
             const onSpikeClick = jest.fn()
@@ -109,6 +123,31 @@ describe('VolumeSparkline', () => {
 
             expect(onSpikeClick).toHaveBeenCalledTimes(1)
             expect(onSpikeClick).toHaveBeenCalledWith(data[2], 123, 45)
+        })
+
+        it('prefers onSpikeClick over onBucketClick when a flagged bucket is clicked', () => {
+            const onBucketClick = jest.fn()
+            const onSpikeClick = jest.fn()
+            const data = buildData({ 2: { isSpike: true, color: 'var(--brand-red)' } })
+            const { container } = render(
+                <VolumeSparkline
+                    sparklineKey={SPARKLINE_KEY}
+                    data={data}
+                    layout="detailed"
+                    xAxis="full"
+                    onBucketClick={onBucketClick}
+                    onSpikeClick={onSpikeClick}
+                />
+            )
+            const wrapper = getHogChart(container).element
+
+            hoverAtIndex(wrapper, 2, data.length)
+            fireEvent.mouseMove(container.firstElementChild as HTMLElement, { clientX: 123, clientY: 45 })
+            fireEvent.click(wrapper)
+
+            expect(onSpikeClick).toHaveBeenCalledTimes(1)
+            expect(onSpikeClick).toHaveBeenCalledWith(data[2], 123, 45)
+            expect(onBucketClick).not.toHaveBeenCalled()
         })
 
         it('does not fire onSpikeClick for an ordinary (non-spike) bucket', () => {

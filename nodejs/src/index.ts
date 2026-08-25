@@ -12,6 +12,7 @@ import { IngestionApiServer } from '~/servers/ingestion-api-server'
 import { IngestionGeneralServer } from '~/servers/ingestion-general-server'
 import { IngestionLogsServer } from '~/servers/ingestion-logs-server'
 import { IngestionMetricsServer } from '~/servers/ingestion-metrics-server'
+import { IngestionSessionReplayMlImageFetchRetryServer } from '~/servers/ingestion-session-replay-ml-image-fetch-retry-server'
 import { IngestionSessionReplayMlImageFetchServer } from '~/servers/ingestion-session-replay-ml-image-fetch-server'
 import { IngestionSessionReplayMlImageScrubDlqReplayServer } from '~/servers/ingestion-session-replay-ml-image-scrub-dlq-replay-server'
 import { IngestionSessionReplayMlImageScrubServer } from '~/servers/ingestion-session-replay-ml-image-scrub-server'
@@ -51,6 +52,9 @@ function createServer(): NodeServer {
 
         case PluginServerMode.recordings_blob_ingestion_v2_ml_image_fetch:
             return new IngestionSessionReplayMlImageFetchServer()
+
+        case PluginServerMode.recordings_blob_ingestion_v2_ml_image_fetch_retry:
+            return new IngestionSessionReplayMlImageFetchRetryServer()
 
         case PluginServerMode.recording_api:
             return new RecordingApiServer()

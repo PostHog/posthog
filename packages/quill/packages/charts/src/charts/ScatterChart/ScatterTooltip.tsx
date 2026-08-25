@@ -36,10 +36,14 @@ export function ScatterTooltip<Meta = unknown>({
     xValue,
     yValue,
 }: ScatterTooltipProps<Meta>): React.ReactElement {
+    // The y row names the measure, so the series label serves when the axis is untitled — a chart
+    // whose y axis holds one column per series has that name nowhere else.
+    const yRowLabel = yLabel || point.seriesLabel || 'Y'
     const title = header ?? point.label ?? point.seriesLabel
+    const showTitle = Boolean(title) && title !== yRowLabel
     return (
         <TooltipSurface>
-            {title ? (
+            {showTitle ? (
                 <div
                     data-attr="hog-chart-tooltip-label"
                     className="flex items-center gap-2 min-w-0 font-semibold mb-1 opacity-60"
@@ -49,7 +53,7 @@ export function ScatterTooltip<Meta = unknown>({
                 </div>
             ) : null}
             <Row label={xLabel || 'X'} value={xValue ?? point.x.toLocaleString()} />
-            <Row label={yLabel || 'Y'} value={yValue ?? point.y.toLocaleString()} />
+            <Row label={yRowLabel} value={yValue ?? point.y.toLocaleString()} />
         </TooltipSurface>
     )
 }

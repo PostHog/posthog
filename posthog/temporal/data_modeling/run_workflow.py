@@ -663,9 +663,7 @@ async def materialize_model(
             await logger.ainfo("Query exceeded timeout limit for model %s", model_label)
             await mark_job_as_failed(job, error_message, logger)
 
-            should_pause, count = await database_sync_to_async(should_pause_schedule_for_timeout)(
-                saved_query.id, job.id
-            )
+            should_pause, count = await database_sync_to_async(should_pause_schedule_for_timeout)(saved_query.id, job)
             if should_pause:
                 saved_query.sync_frequency_interval = None
                 await database_sync_to_async(saved_query.save)()
@@ -727,6 +725,11 @@ async def materialize_model(
         preserve_table_name_casing=True,
         existing_queryable_folder=saved_query_table.queryable_folder if saved_query_table else None,
         logger=logger,
+        # Reopen the table instead of reusing this snapshot: a concurrent compaction can advance the
+        # log after `delta_table` loaded, so the retry needs the listing that log now holds.
+        refresh_file_uris=lambda: asyncio.to_thread(
+            lambda: deltalake.DeltaTable(table_uri, storage_options=storage_options).file_uris()
+        ),
     )
 
     saved_query.is_materialized = True

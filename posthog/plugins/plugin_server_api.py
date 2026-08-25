@@ -1,15 +1,14 @@
 import json
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 from typing import Optional, Union
 
-from django.conf import settings
-
-import jwt
 import requests
 import structlog
 
+from posthog.jwt import PosthogJwtAudience
 from posthog.models.utils import UUIDT
 from posthog.redis import get_client
+from posthog.scoped_service_jwt import ScopedServiceJwtPurpose
 from posthog.security.outbound_proxy import internal_requests
 from posthog.settings import CDP_API_URL, INTERNAL_API_SECRET, PLUGINS_RELOAD_REDIS_URL
 
@@ -122,24 +121,21 @@ def get_hog_flow_in_flight_count(team_id: int, hog_flow_id: str) -> requests.Res
     )
 
 
+WORKFLOWS_RESCHEDULE_JWT_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.WORKFLOWS_RESCHEDULE_PARKED,
+    settings_name="WORKFLOWS_RESCHEDULE_JWT_SECRETS",
+    default_ttl=timedelta(minutes=2),
+)
+
+
 def _mint_reschedule_parked_jwt(team_id: int, hog_flow_id: str) -> str:
     """Short-lived scoped JWT for one reschedule_parked call — a leaked token can only sweep this
     one team + workflow. Signed with the dedicated key (never INTERNAL_API_SECRET / SECRET_KEY /
     JWT_SIGNING_KEY, per .agents/security.md); raises when unprovisioned so the sweep fails closed.
     Verified in the plugin server's CdpApi.postHogFlowRescheduleParked."""
-    secrets = settings.WORKFLOWS_RESCHEDULE_JWT_SECRETS
-    if not secrets:
+    if not WORKFLOWS_RESCHEDULE_JWT_PURPOSE.enabled():
         raise RuntimeError("WORKFLOWS_RESCHEDULE_JWT_SECRET is not configured — cannot call reschedule_parked")
-    return jwt.encode(
-        {
-            "team_id": team_id,
-            "hog_flow_id": hog_flow_id,
-            "aud": "posthog:workflows:reschedule_parked",
-            "exp": datetime.now(tz=UTC) + timedelta(minutes=2),
-        },
-        secrets[0],
-        algorithm="HS256",
-    )
+    return WORKFLOWS_RESCHEDULE_JWT_PURPOSE.mint({"team_id": team_id, "hog_flow_id": hog_flow_id})
 
 
 def reschedule_hog_flow_parked_jobs(
@@ -161,6 +157,72 @@ def reschedule_hog_flow_parked_jobs(
         CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/reschedule_parked",
         json=payload,
         headers={"Authorization": f"Bearer {_mint_reschedule_parked_jwt(team_id, hog_flow_id)}"},
+        timeout=30,
+    )
+
+
+# Dedicated cancel key, distinct from reschedule_parked's: the scoped-JWT rule is one key per
+# caller/callee surface, and cancel mints from the web tier while reschedule mints from the
+# worker, so a leak of one tier's key can't forge the other's calls. The distinct audience
+# still keeps a cancel-invocations token useless for cancel-batch (and vice versa).
+WORKFLOWS_CANCEL_INVOCATIONS_JWT_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.WORKFLOWS_CANCEL_INVOCATIONS,
+    settings_name="WORKFLOWS_CANCEL_JWT_SECRETS",
+    default_ttl=timedelta(minutes=2),
+)
+
+
+def _mint_cancel_invocations_jwt(team_id: int, hog_flow_id: str) -> str:
+    """Short-lived scoped JWT for one invocations/cancel call — a leaked token can only cancel runs
+    of this one team + workflow. Raises when unprovisioned so the call fails closed. Verified in
+    the plugin server's CdpApi.postHogFlowCancelInvocations."""
+    if not WORKFLOWS_CANCEL_INVOCATIONS_JWT_PURPOSE.enabled():
+        raise RuntimeError("WORKFLOWS_CANCEL_JWT_SECRET is not configured — cannot cancel invocations")
+    return WORKFLOWS_CANCEL_INVOCATIONS_JWT_PURPOSE.mint({"team_id": team_id, "hog_flow_id": hog_flow_id})
+
+
+# Same dedicated cancel key as cancel-invocations (both mint from the web tier), on its own audience.
+WORKFLOWS_CANCEL_BATCH_JWT_PURPOSE = ScopedServiceJwtPurpose(
+    audience=PosthogJwtAudience.WORKFLOWS_CANCEL_BATCH,
+    settings_name="WORKFLOWS_CANCEL_JWT_SECRETS",
+    default_ttl=timedelta(minutes=2),
+)
+
+
+def _mint_cancel_batch_jwt(team_id: int, hog_flow_id: str, batch_job_id: str) -> str:
+    """Short-lived scoped JWT for one batch_jobs/:id/cancel call — a leaked token can only stop
+    this one batch run of this one team + workflow. Raises when unprovisioned so the call fails
+    closed. Verified in the plugin server's CdpApi.postHogFlowCancelBatchJob."""
+    if not WORKFLOWS_CANCEL_BATCH_JWT_PURPOSE.enabled():
+        raise RuntimeError("WORKFLOWS_CANCEL_JWT_SECRET is not configured — cannot stop the batch run")
+    return WORKFLOWS_CANCEL_BATCH_JWT_PURPOSE.mint(
+        {"team_id": team_id, "hog_flow_id": hog_flow_id, "batch_job_id": batch_job_id}
+    )
+
+
+def cancel_hog_flow_batch_job(team_id: int, hog_flow_id: str, batch_job_id: str) -> requests.Response:
+    """Flag a batch run's resolver job and all its child runs for cancellation — they share
+    parent_run_id, so the CDP side sweeps both with one selector. Bounded like the invocation
+    cancel: `done: false` means another call is needed for the rest. The timeout covers the
+    endpoint's worst-case chunked sweep (chunk sleeps + UPDATEs)."""
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/batch_jobs/{batch_job_id}/cancel",
+        json={},
+        headers={"Authorization": f"Bearer {_mint_cancel_batch_jwt(team_id, hog_flow_id, batch_job_id)}"},
+        timeout=30,
+    )
+
+
+def cancel_hog_flow_invocations(team_id: int, hog_flow_id: str, payload: dict) -> requests.Response:
+    """Flag a workflow's in-flight invocations for cancellation. `payload` carries exactly one
+    selector: {"invocation_ids": [...]} or {"all": true}. The Node side only marks rows and wakes
+    parked ones — the workers terminate them with lifecycle rows and metrics — so a `done: false`
+    response just means another call is needed for the rest. The timeout covers the endpoint's
+    worst-case chunked sweep (chunk sleeps + UPDATEs)."""
+    return internal_requests.post(
+        CDP_API_URL + f"/api/projects/{team_id}/hog_flows/{hog_flow_id}/invocations/cancel",
+        json=payload,
+        headers={"Authorization": f"Bearer {_mint_cancel_invocations_jwt(team_id, hog_flow_id)}"},
         timeout=30,
     )
 

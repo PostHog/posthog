@@ -47,6 +47,7 @@ from products.exports.backend.temporal.subscriptions.types import (
     DeliverSubscriptionInputs,
     DeliverSubscriptionResult,
     DeliveryStatus,
+    DueSubscription,
     ExportAssetPreparationStatus,
     FetchDueSubscriptionsActivityInputs,
     GenerateAIReportInputs,
@@ -55,7 +56,6 @@ from products.exports.backend.temporal.subscriptions.types import (
     RecipientResult,
     ScheduleAllSubscriptionsWorkflowInputs,
     SnapshotInsightsInputs,
-    SubscriptionInfo,
     SubscriptionTriggerType,
     TrackedSubscriptionInputs,
     UpdateDeliveryRecordInputs,
@@ -115,7 +115,7 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
     @temporalio.workflow.run
     async def run(self, inputs: ScheduleAllSubscriptionsWorkflowInputs) -> None:
         fetch_inputs = FetchDueSubscriptionsActivityInputs(buffer_minutes=inputs.buffer_minutes)
-        subscription_infos: list[SubscriptionInfo] = await temporalio.workflow.execute_activity(
+        subscription_infos: list[DueSubscription] = await temporalio.workflow.execute_activity(
             fetch_due_subscriptions_activity,
             fetch_inputs,
             start_to_close_timeout=dt.timedelta(minutes=5),

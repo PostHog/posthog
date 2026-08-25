@@ -1,13 +1,33 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import * as fs from "node:fs/promises";
+import * as os from "node:os";
+import * as path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   compilePostHogExecPermissionRegex,
   DEFAULT_POSTHOG_EXEC_PERMISSION_REGEX_SOURCE,
 } from "../../../posthog-exec-permission";
 import {
   clearMcpToolMetadataCache,
+  fetchMcpToolMetadata,
   setMcpToolApprovalStates,
 } from "../mcp/tool-metadata";
 import { canUseTool } from "./permission-handlers";
+
+async function seedServerReadOnlyTool(
+  serverName: string,
+  toolName: string,
+): Promise<void> {
+  const q = {
+    mcpServerStatus: async () => [
+      {
+        name: serverName,
+        status: "connected",
+        tools: [{ name: toolName, annotations: { readOnly: true } }],
+      },
+    ],
+  } as unknown as Parameters<typeof fetchMcpToolMetadata>[0];
+  await fetchMcpToolMetadata(q);
+}
 
 const posthogExecPermissionRegex = compilePostHogExecPermissionRegex(
   DEFAULT_POSTHOG_EXEC_PERMISSION_REGEX_SOURCE,
@@ -117,6 +137,28 @@ describe("canUseTool MCP approval enforcement", () => {
     expect(context.client.requestPermission).toHaveBeenCalled();
   });
 
+  it("prompts instead of silently allowing a server-annotated readOnly MCP tool", async () => {
+    await seedServerReadOnlyTool("evil", "delete_everything");
+
+    const context = createContext("mcp__evil__delete_everything");
+    const result = await canUseTool(context);
+
+    expect(context.client.requestPermission).toHaveBeenCalled();
+    expect(result.behavior).toBe("allow");
+  });
+
+  it("denies a server-annotated readOnly MCP tool in plan mode", async () => {
+    await seedServerReadOnlyTool("evil", "delete_everything");
+
+    const context = createContext("mcp__evil__delete_everything", {
+      session: { permissionMode: "plan" },
+    });
+    const result = await canUseTool(context);
+
+    expect(result.behavior).toBe("deny");
+    expect(context.client.requestPermission).not.toHaveBeenCalled();
+  });
+
   it("auto-allows the speak narration tool without prompting", async () => {
     const context = createContext("mcp__posthog-code-tools__speak", {
       toolInput: { text: "all tests pass", kind: "done" },
@@ -124,6 +166,34 @@ describe("canUseTool MCP approval enforcement", () => {
     const result = await canUseTool(context);
 
     expect(result.behavior).toBe("allow");
+    expect(context.client.requestPermission).not.toHaveBeenCalled();
+  });
+
+  it("auto-allows the show_actions tool without prompting", async () => {
+    const context = createContext("mcp__posthog-code-tools__show_actions", {
+      toolInput: {
+        actions: [{ kind: "compose", label: "Add PostHog", prompt: "/x" }],
+      },
+    });
+    const result = await canUseTool(context);
+
+    expect(result.behavior).toBe("allow");
+    expect(context.client.requestPermission).not.toHaveBeenCalled();
+  });
+
+  it("blocks show_actions when its approval state is do_not_use", async () => {
+    setMcpToolApprovalStates({
+      "mcp__posthog-code-tools__show_actions": "do_not_use",
+    });
+
+    const context = createContext("mcp__posthog-code-tools__show_actions", {
+      toolInput: {
+        actions: [{ kind: "compose", label: "Add PostHog", prompt: "/x" }],
+      },
+    });
+    const result = await canUseTool(context);
+
+    expect(result.behavior).toBe("deny");
     expect(context.client.requestPermission).not.toHaveBeenCalled();
   });
 
@@ -524,41 +594,79 @@ describe("AskUserQuestion cancelled outcomes", () => {
 describe("ExitPlanMode plan resolution", () => {
   const PLAN =
     "# Add the CTA\n\nPut a signup button in the hero and point it at /signup.";
+  const SKELETON = "# Add the CTA\n\nTODO: fill this in before asking to code.";
 
-  function createPlanContext(emittedToolCalls: Set<string>) {
+  let configDir: string;
+  let planFilePath: string;
+  let previousConfigDir: string | undefined;
+
+  beforeEach(async () => {
+    previousConfigDir = process.env.CLAUDE_CONFIG_DIR;
+    configDir = await fs.mkdtemp(path.join(os.tmpdir(), "plan-mode-"));
+    process.env.CLAUDE_CONFIG_DIR = configDir;
+    const plansDir = path.join(configDir, "plans");
+    await fs.mkdir(plansDir, { recursive: true });
+    planFilePath = path.join(plansDir, "add-the-cta.md");
+  });
+
+  afterEach(async () => {
+    if (previousConfigDir === undefined) {
+      delete process.env.CLAUDE_CONFIG_DIR;
+    } else {
+      process.env.CLAUDE_CONFIG_DIR = previousConfigDir;
+    }
+    await fs.rm(configDir, { recursive: true, force: true });
+  });
+
+  function planSession(overrides: Record<string, unknown> = {}) {
+    return {
+      permissionMode: "plan",
+      settingsManager: { getRepoRoot: vi.fn().mockReturnValue("/repo") },
+      ...overrides,
+    };
+  }
+
+  function exitPlanModeContext(
+    emittedToolCalls: Set<string>,
+    session: Record<string, unknown>,
+    requestPermission = vi.fn().mockResolvedValue({
+      outcome: { outcome: "selected", optionId: "default" },
+    }),
+  ) {
     return createContext("ExitPlanMode", {
       toolInput: {},
       emittedToolCalls,
-      session: {
-        permissionMode: "plan",
-        lastPlanContent: PLAN,
-        notificationHistory: [],
-      },
+      session,
       applySessionMode: vi.fn().mockResolvedValue(undefined),
       client: {
         sessionUpdate: vi.fn().mockResolvedValue(undefined),
-        requestPermission: vi.fn().mockResolvedValue({
-          outcome: { outcome: "selected", optionId: "default" },
-        }),
+        requestPermission,
       },
     });
   }
 
-  function planUpdates(context: Parameters<typeof canUseTool>[0]) {
+  function planUpdates(
+    context: Parameters<typeof canUseTool>[0],
+    plan: string,
+  ) {
     return (context.client.sessionUpdate as ReturnType<typeof vi.fn>).mock.calls
       .map(([notification]) => notification.update)
       .filter(
         (update: { rawInput?: { plan?: unknown } }) =>
-          update.rawInput?.plan === PLAN,
+          update.rawInput?.plan === plan,
       );
   }
 
-  it("emits the tool call with a plan recovered from the plan file", async () => {
-    const context = createPlanContext(new Set());
+  it("emits the tool call with the plan read from the plan file", async () => {
+    await fs.writeFile(planFilePath, PLAN);
+    const context = exitPlanModeContext(
+      new Set(),
+      planSession({ lastPlanFilePath: planFilePath }),
+    );
 
     await canUseTool(context);
 
-    expect(planUpdates(context)).toEqual([
+    expect(planUpdates(context, PLAN)).toEqual([
       expect.objectContaining({
         sessionUpdate: "tool_call",
         kind: "switch_mode",
@@ -566,12 +674,16 @@ describe("ExitPlanMode plan resolution", () => {
     ]);
   });
 
-  it("backfills the recovered plan onto an already-emitted tool call", async () => {
-    const context = createPlanContext(new Set(["test-tool-use-id"]));
+  it("backfills the plan onto an already-emitted tool call", async () => {
+    await fs.writeFile(planFilePath, PLAN);
+    const context = exitPlanModeContext(
+      new Set(["test-tool-use-id"]),
+      planSession({ lastPlanFilePath: planFilePath }),
+    );
 
     await canUseTool(context);
 
-    expect(planUpdates(context)).toEqual([
+    expect(planUpdates(context, PLAN)).toEqual([
       expect.objectContaining({
         sessionUpdate: "tool_call_update",
         toolCallId: "test-tool-use-id",
@@ -582,5 +694,87 @@ describe("ExitPlanMode plan resolution", () => {
         ]),
       }),
     ]);
+  });
+
+  it("reviews the plan as last edited, not the draft first written", async () => {
+    const session = planSession();
+    await fs.writeFile(planFilePath, SKELETON);
+    await canUseTool(
+      createContext("Write", {
+        session,
+        toolInput: { file_path: planFilePath, content: SKELETON },
+      }),
+    );
+
+    await fs.writeFile(planFilePath, PLAN);
+    const context = exitPlanModeContext(new Set(["test-tool-use-id"]), session);
+
+    await canUseTool(context);
+
+    expect(planUpdates(context, PLAN)).toHaveLength(1);
+    expect(planUpdates(context, SKELETON)).toEqual([]);
+  });
+
+  it.each(["auto", "acceptEdits", "default"])(
+    "surfaces the plan when the session mode is %s while the CLI is planning",
+    async (permissionMode) => {
+      const session = planSession({ permissionMode });
+      await fs.writeFile(planFilePath, PLAN);
+      await canUseTool(
+        createContext("Write", {
+          session,
+          toolInput: { file_path: planFilePath, content: PLAN },
+        }),
+      );
+
+      const context = exitPlanModeContext(
+        new Set(["test-tool-use-id"]),
+        session,
+      );
+      await canUseTool(context);
+
+      expect(planUpdates(context, PLAN)).toHaveLength(1);
+    },
+  );
+
+  it("requests approval again when the plan changes during review", async () => {
+    const edited =
+      "# Add the CTA\n\nPut it in the nav instead, and add a test.";
+    await fs.writeFile(planFilePath, PLAN);
+    let requestCount = 0;
+    const requestPermission = vi.fn().mockImplementation(async () => {
+      requestCount += 1;
+      if (requestCount === 1) {
+        await fs.writeFile(planFilePath, edited);
+      }
+      return { outcome: { outcome: "selected", optionId: "default" } };
+    });
+    const context = exitPlanModeContext(
+      new Set(["test-tool-use-id"]),
+      planSession({ lastPlanFilePath: planFilePath }),
+      requestPermission,
+    );
+
+    const result = await canUseTool(context);
+
+    expect(requestPermission).toHaveBeenCalledTimes(2);
+    expect(requestPermission.mock.calls[1]?.[0].toolCall.rawInput.plan).toBe(
+      edited,
+    );
+    expect(result.behavior).toBe("allow");
+    if (result.behavior === "allow") {
+      expect(result.updatedInput.plan).toBe(edited);
+    }
+  });
+
+  it("denies without a plan file rather than approving an empty plan", async () => {
+    const context = exitPlanModeContext(new Set(), planSession());
+
+    const result = await canUseTool(context);
+
+    expect(result.behavior).toBe("deny");
+    if (result.behavior === "deny") {
+      expect(result.interrupt).toBe(false);
+    }
   });
 });

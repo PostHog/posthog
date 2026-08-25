@@ -61,6 +61,7 @@ export interface subscriptionSceneLogicValues {
     deliveryStatusFilter: SubscriptionsDeliveriesListStatus | null
     recentlyThankedDeliveries: Record<string, true>
     subscription: SubscriptionApi | null
+    subscriptionAccessDenied: boolean
     subscriptionLoading: boolean
 }
 
@@ -181,6 +182,13 @@ export const subscriptionSceneLogic = kea<subscriptionSceneLogicType>([
                 deliverSubscription: (_, { id }) => id,
                 deliverSubscriptionSuccess: () => null,
                 deliverSubscriptionFailure: () => null,
+            },
+        ],
+        subscriptionAccessDenied: [
+            false,
+            {
+                loadSubscription: () => false,
+                loadSubscriptionFailure: (_, { errorObject }) => errorObject?.status === 403,
             },
         ],
         deliveryStatusFilter: [

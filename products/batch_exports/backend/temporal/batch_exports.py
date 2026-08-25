@@ -375,6 +375,10 @@ class DataInterval:
     start: dt.datetime
     end: dt.datetime
 
+    def __post_init__(self) -> None:
+        if self.start > self.end:
+            raise ValueError(f"DataInterval start must not be after end: start={self.start}, end={self.end}")
+
 
 def get_data_interval(interval: str, data_interval_end: str | None, timezone: str | None = None) -> DataInterval:
     """Return the start and end of an export's data interval.
@@ -444,7 +448,7 @@ def get_data_interval(interval: str, data_interval_end: str | None, timezone: st
     return DataInterval(start=data_interval_start_dt, end=data_interval_end_dt)
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class StartBatchExportRunInputs:
     """Inputs to the 'start_batch_export_run' activity.
 
@@ -593,7 +597,7 @@ async def check_is_over_limit(team_id: int) -> bool:
     return False
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class FinishBatchExportRunInputs:
     """Inputs to the 'finish_batch_export_run' activity.
 

@@ -2,7 +2,7 @@
 
 This explains how to exercise the real auto-update flow (check, download, install, relaunch) on your own machine, against a local feed, without cutting a GitHub release. For how releases and versioning actually work in production, see [UPDATES.md](./UPDATES.md).
 
-The same harness runs nightly in CI (`.github/workflows/code-update-e2e.yml`) on a signed macOS build.
+The same harness runs nightly in CI (`.github/workflows/desktop-update-e2e.yml`) on a signed macOS build.
 
 ## What this covers
 
@@ -157,10 +157,10 @@ Needs `gh` authenticated and the installed PostHog app quit. The CI job uploads 
 
 ## CI
 
-`code-update-e2e.yml` runs both specs nightly on `macos-15` with the real signing secrets, and on demand:
+`desktop-update-e2e.yml` runs both specs nightly on `macos-15` with the real signing secrets, and on demand:
 
 ```bash
-gh workflow run "Code Update E2E (macOS)"
+gh workflow run "Desktop Update E2E (macOS)"
 ```
 
 It builds the `2.0.0` feed and the baseline `1.0.0` app, runs the baseline spec via `playwright.update.config.ts`, then builds the old Forge `1.0.0` app and runs the Forge spec via `playwright.update-forge.config.ts`. Each leg asserts exactly one test actually ran, so a missing feed or a silent skip fails the job. The Forge leg runs after the baseline so a flake in the (riskier) old-build step can never mask the baseline result.

@@ -27,7 +27,7 @@ class _ImpactTestCase(APIBaseTest):
             name=f"impact-{scanner_type}-{ReplayScanner.objects.count()}",
             scanner_type=scanner_type,
             scanner_config={"prompt": "p"},
-            model=ScannerModel.GEMINI_3_6_FLASH,
+            model=ScannerModel.GEMINI_3_7_FLASH,
         )
 
     def _make_observation(

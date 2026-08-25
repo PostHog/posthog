@@ -24,7 +24,7 @@ describe('newScanner', () => {
         expect(newScanner(input)).toMatchObject({
             scanner_type: 'monitor',
             scanner_config: { prompt: '' },
-            name: '',
+            name: 'New monitor',
         })
     })
 
@@ -32,8 +32,11 @@ describe('newScanner', () => {
         expect(newScanner(null)).toMatchObject({
             id: 'new',
             enabled: true,
-            sampling_rate: 1,
+            // Narrow by default so the budget step's first estimate isn't a whole-project number.
+            sampling_rate: 0.2,
+            sampling_mode: 'balanced',
             description: '',
+            tags: [],
         })
     })
 

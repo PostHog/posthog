@@ -149,15 +149,31 @@ describe("activity timeline", () => {
     expect(rows.filter((row) => row.kind === "event")).toHaveLength(1);
   });
 
-  it("ignores events it doesn't know, so the backend can ship first", () => {
-    const rows = build({
-      messages: [
-        eventMessage("m1", "checks_failed_someday", {}, "2026-08-01T10:30:00Z"),
-      ],
-    });
+  it.each([
+    ["an agent", "agent" as const],
+    ["a human", "human" as const],
+    ["an unattributed author", undefined],
+  ])(
+    "ignores an unknown event from %s, so the backend can ship first",
+    (_name, authorKind) => {
+      // A human-authored announcement the client can't parse must not surface as a reply
+      // typed by that person; the content is a fixed server string.
+      const rows = build({
+        messages: [
+          {
+            id: "m1",
+            content: "Commented",
+            created_at: "2026-08-01T10:30:00Z",
+            ...(authorKind ? { author_kind: authorKind } : {}),
+            event: "checks_failed_someday",
+            payload: {},
+          },
+        ],
+      });
 
-    expect(rows.map((row) => row.kind)).toEqual(["task_created"]);
-  });
+      expect(rows.map((row) => row.kind)).toEqual(["task_created"]);
+    },
+  );
 
   it("numbers runs over the feed, since the backend cannot number them", () => {
     // Counting runs server-side races two concurrent creations onto one number; the ordered
@@ -301,6 +317,60 @@ describe("activity events", () => {
         name: "Artifact",
         artifactType: "",
         version: 1,
+        runId: null,
+        referenceType: null,
+        objectKind: null,
+      },
+    });
+  });
+
+  it.each([
+    "plan",
+    "context",
+    "reference",
+    "artifact",
+    "tree_snapshot",
+    "user_attachment",
+    "skill_bundle",
+  ])(
+    "drops non-output %s artifacts from historical timelines",
+    (artifactType) => {
+      expect(
+        parseActivityEvent({
+          event: "artifact_created",
+          payload: {
+            artifact_id: "internal-1",
+            name: "checkpoint.index",
+            artifact_type: artifactType,
+          },
+        }),
+      ).toBeNull();
+    },
+  );
+
+  it("keeps PostHog reference artifacts in the timeline", () => {
+    expect(
+      parseActivityEvent({
+        event: "artifact_created",
+        payload: {
+          artifact_id: "phref-1",
+          name: "Checkout funnel",
+          artifact_type: "reference",
+          reference_type: "posthog_object",
+          object_kind: "insight",
+          run_id: "run-1",
+        },
+      }),
+    ).toEqual({
+      kind: "artifact_created",
+      payload: {
+        artifactId: "phref-1",
+        name: "Checkout funnel",
+        artifactType: "reference",
+        version: 1,
+        runId: "run-1",
+        referenceType: "posthog_object",
+        objectKind: "insight",
       },
     });
   });
@@ -395,6 +465,55 @@ describe("commits pushed", () => {
       parseActivityEvent({
         event: "commits_pushed",
         payload: { run_id: "run-1", commits: [{ subject: "no sha" }] },
+      }),
+    ).toBeNull();
+  });
+});
+
+describe("comment events", () => {
+  it("reads identity-only comment events, and drops one with no thread to open", () => {
+    expect(
+      parseActivityEvent({
+        event: "comment_added",
+        payload: {
+          comment_id: "c-1",
+          root_comment_id: "c-1",
+          scope: "task_artifact",
+          item_id: "artifact-1",
+        },
+      }),
+    ).toEqual({
+      kind: "comment_added",
+      payload: {
+        commentId: "c-1",
+        rootCommentId: "c-1",
+        scope: "task_artifact",
+        itemId: "artifact-1",
+        targetName: null,
+      },
+    });
+    expect(
+      parseActivityEvent({
+        event: "comment_state_changed",
+        payload: {
+          comment_id: "c-2",
+          root_comment_id: "c-1",
+          scope: "task",
+          item_id: "task-1",
+          state: "resolved",
+        },
+      }),
+    ).toMatchObject({
+      kind: "comment_state_changed",
+      payload: { rootCommentId: "c-1", state: "resolved" },
+    });
+    expect(
+      parseActivityEvent({ event: "comment_added", payload: {} }),
+    ).toBeNull();
+    expect(
+      parseActivityEvent({
+        event: "comment_state_changed",
+        payload: { root_comment_id: "c-1", state: "archived" },
       }),
     ).toBeNull();
   });

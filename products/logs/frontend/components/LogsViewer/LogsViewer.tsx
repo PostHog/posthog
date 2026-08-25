@@ -2,7 +2,6 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useCallback, useEffect, useRef } from 'react'
 
 import { TZLabelProps } from 'lib/components/TZLabel'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
@@ -26,6 +25,7 @@ import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
 import { LogsDisplayBar } from './LogsDisplayBar'
 import { logsViewerLogic } from './logsViewerLogic'
 import { LogsSparkline } from './LogsViewerSparkline'
+import type { LogsViewerSparklineProps } from './LogsViewerSparkline'
 
 const SCROLL_INTERVAL_MS = 16 // ~60fps
 const SCROLL_AMOUNT_PX = 8
@@ -80,6 +80,14 @@ export function LogsViewer({
     )
 }
 
+/** `visibleRowDateRange` changes on every scroll tick, so it is subscribed here rather than in
+ *  `LogsViewerContent`, where it would re-render the row list and facet rail on each one.
+ *  `LogsSparkline` stays prop-driven so it can render in a story without the keyed logic. */
+function ConnectedLogsSparkline(props: Omit<LogsViewerSparklineProps, 'visibleRowDateRange'>): JSX.Element | null {
+    const { visibleRowDateRange } = useValues(logsViewerLogic)
+    return <LogsSparkline {...props} visibleRowDateRange={visibleRowDateRange} />
+}
+
 function LogsViewerContent({
     showFullScreenButton,
     showSavedViewsButton,
@@ -127,8 +135,6 @@ function LogsViewerContent({
     } = useValues(logsViewerDataLogic)
     const { runQuery, fetchNextLogsPage } = useActions(logsViewerDataLogic)
     const { setDateRange, zoomDateRange } = useActions(logsViewerFiltersLogic)
-    const showPatternsView = useFeatureFlag('LOGS_PATTERNS_VIEW')
-    const showGroupBy = useFeatureFlag('LOGS_GROUP_BY')
     const { cellScrollLefts } = useValues(virtualizedLogsListLogic({ id }))
     const { setCellScrollLeft } = useActions(virtualizedLogsListLogic({ id }))
     const messageScrollLeft = cellScrollLefts['message'] ?? 0
@@ -226,10 +232,10 @@ function LogsViewerContent({
 
     useKeyboardHotkeys(
         {
-            arrowdown: { action: handleMoveDown, disabled: !keyboardNavEnabled },
-            j: { action: handleMoveDown, disabled: !keyboardNavEnabled },
-            arrowup: { action: handleMoveUp, disabled: !keyboardNavEnabled },
-            k: { action: handleMoveUp, disabled: !keyboardNavEnabled },
+            arrowdown: { action: handleMoveDown, disabled: !keyboardNavEnabled, allowRepeat: true },
+            j: { action: handleMoveDown, disabled: !keyboardNavEnabled, allowRepeat: true },
+            arrowup: { action: handleMoveUp, disabled: !keyboardNavEnabled, allowRepeat: true },
+            k: { action: handleMoveUp, disabled: !keyboardNavEnabled, allowRepeat: true },
             // arrowleft, arrowright, h, l handled by native keydown/keyup for smooth 60fps scrolling
             enter: {
                 action: () => {
@@ -298,7 +304,7 @@ function LogsViewerContent({
 
     const sparklineSection = (
         <>
-            <LogsSparkline
+            <ConnectedLogsSparkline
                 sparklineData={sparklineData}
                 sparklineLoading={sparklineLoading}
                 onDateRangeChange={setDateRange}
@@ -354,10 +360,10 @@ function LogsViewerContent({
 
     // Patterns and Group are modes of the Viewer, not separate tabs: they swap only the results
     // region and reuse the same filter bar / FacetRail / date range (shared via
-    // logsViewerFiltersLogic). Each gates on its flag too, so its query stays unreachable when
-    // the flag is off regardless of the (non-persisted) viewMode state.
-    const inPatternsMode = showPatternsView && viewMode === 'patterns'
-    const inGroupByMode = showGroupBy && viewMode === 'group'
+    // logsViewerFiltersLogic). Each is reachable only in its viewMode, so its query stays down
+    // otherwise.
+    const inPatternsMode = viewMode === 'patterns'
+    const inGroupByMode = viewMode === 'group'
     const resultsRegion = inPatternsMode ? (
         <LogsPatterns id={id} />
     ) : inGroupByMode ? (

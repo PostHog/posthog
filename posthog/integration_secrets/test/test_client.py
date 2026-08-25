@@ -1,3 +1,4 @@
+import os
 from typing import Any
 
 import pytest
@@ -15,7 +16,13 @@ from posthog.integration_secrets.client import (
     integration_service_enabled,
     integration_service_signing_keys,
 )
-from posthog.integration_secrets.errors import SecretInRecoveryError, SecretMissingError
+from posthog.integration_secrets.errors import (
+    IntegrationSecretsFailure,
+    IntegrationServiceMisconfiguredError,
+    IntegrationServiceUnreachableError,
+    SecretInRecoveryError,
+    SecretMissingError,
+)
 from posthog.jwt import PosthogJwtAudience
 
 SERVICE_SETTINGS: dict[str, Any] = {
@@ -97,12 +104,15 @@ class TestIntegrationSecretsClient(SimpleTestCase):
             with pytest.raises(SecretInRecoveryError):
                 self.secrets.get(KEY, CALLER)
 
-    def test_get_with_previous_exposes_the_outgoing_value_during_a_rotation(self) -> None:
-        rotating = {"state": "rotating", "value": "new", "previous": "old", "version_id": "v1", "fetched_at": "now"}
+    def test_get_with_incoming_exposes_the_staged_value_during_a_rotation(self) -> None:
+        # The wire still calls it `previous`; it carries the value a rotation has STAGED, which the
+        # service accepts but has not made live. A caller retries with it when the provider has
+        # already been rotated — not to reach an older value, which is not served at all.
+        rotating = {"state": "rotating", "value": "live", "previous": "staged", "version_id": "v1", "fetched_at": "now"}
         with patch(POST, return_value=FakeResponse(body({KEY: rotating}))):
-            secret = self.secrets.get_with_previous(KEY, CALLER)
-        assert secret.current == "new"
-        assert secret.previous == "old"
+            secret = self.secrets.get_with_incoming(KEY, CALLER)
+        assert secret.current == "live"
+        assert secret.incoming == "staged"
 
     # The 503 contract: the service answers 503 rather than all-missing on a cold start,
     # and only raise_for_status keeps that from surfacing as SecretMissingError, which
@@ -116,7 +126,52 @@ class TestIntegrationSecretsClient(SimpleTestCase):
                 return {"error": "Secret store unavailable"}
 
         with patch(POST, return_value=ErrorResponse()):
-            with pytest.raises(requests.HTTPError):
+            with pytest.raises(IntegrationServiceUnreachableError):
+                self.secrets.get(KEY, CALLER)
+
+    # No `requests` exception may escape, whatever the status. A caller is mid-conversation with
+    # some third party, so a bare HTTPError from here is indistinguishable from one that API
+    # raised — and callers act on that difference. The 404 is the case that bites: a misrouted
+    # INTEGRATION_SERVICE_URL is our deploy error, but a caller seeing a raw 404 reads it as the
+    # user's endpoint being gone and can stop their work over it.
+    @parameterized.expand(
+        [
+            ("404 misrouted url", requests.HTTPError("404 Client Error", response=requests.Response())),
+            ("401 unaccepted signing key", requests.HTTPError("401 Unauthorized", response=requests.Response())),
+            ("connection refused", requests.ConnectionError("connection refused")),
+            ("read timeout", requests.Timeout("timed out")),
+        ]
+    )
+    def test_transport_failure_wears_this_clients_type_for(self, _name: str, raised: Exception) -> None:
+        class ErrorResponse:
+            def raise_for_status(self) -> None:
+                raise raised
+
+            def json(self) -> dict[str, Any]:
+                return {}
+
+        # Raised from the call itself for a connection failure, from raise_for_status for a status.
+        side_effect = raised if isinstance(raised, requests.ConnectionError | requests.Timeout) else None
+        patched = patch(POST, side_effect=side_effect) if side_effect else patch(POST, return_value=ErrorResponse())
+        with patched:
+            with pytest.raises(IntegrationServiceUnreachableError) as exc_info:
+                self.secrets.get(KEY, CALLER)
+        # The cause is kept so error tracking and logs still show what actually went wrong.
+        assert exc_info.value.__cause__ is raised
+        assert not isinstance(exc_info.value, requests.RequestException)
+
+    # A body that isn't JSON is the same class of failure as no answer at all: something is
+    # between us and the service, or the service is broken. It must not surface as a missing key.
+    def test_an_unparseable_body_is_unreachable_not_missing(self) -> None:
+        class HtmlResponse:
+            def raise_for_status(self) -> None:
+                pass
+
+            def json(self) -> dict[str, Any]:
+                raise ValueError("Expecting value: line 1 column 1 (char 0)")
+
+        with patch(POST, return_value=HtmlResponse()):
+            with pytest.raises(IntegrationServiceUnreachableError):
                 self.secrets.get(KEY, CALLER)
 
     # With no cache there is no last known good, so an outage is an outage. This is the
@@ -126,17 +181,33 @@ class TestIntegrationSecretsClient(SimpleTestCase):
         with patch(POST, return_value=FakeResponse(body({KEY: steady("sec")}))):
             self.secrets.get(KEY, CALLER)
 
-        with patch(POST, side_effect=ConnectionError("integration service is down")):
-            with pytest.raises(ConnectionError):
+        with patch(POST, side_effect=requests.ConnectionError("integration service is down")):
+            with pytest.raises(IntegrationServiceUnreachableError):
                 self.secrets.get(KEY, CALLER)
 
     def test_does_not_fall_back_to_the_environment_when_the_service_is_down(self) -> None:
         with (
-            patch(POST, side_effect=ConnectionError("integration service is down")),
+            patch(POST, side_effect=requests.ConnectionError("integration service is down")),
             patch.dict("os.environ", {KEY: "from-env"}),
         ):
-            with pytest.raises(ConnectionError):
+            with pytest.raises(IntegrationServiceUnreachableError):
                 self.secrets.get(KEY, CALLER)
+
+    # The base type is the whole contract a caller depends on: catch one thing, and a subclass
+    # added later is covered without every call site being revisited.
+    @parameterized.expand(
+        [
+            ("missing", SecretMissingError(KEY), True),
+            ("in recovery", SecretInRecoveryError(KEY), False),
+            ("half-configured", IntegrationServiceMisconfiguredError("INTEGRATION_SERVICE_URL"), True),
+            ("unreachable", IntegrationServiceUnreachableError("no answer"), False),
+        ]
+    )
+    def test_every_failure_shares_the_base_type_and_declares_reportability(
+        self, _name: str, error: Exception, reportable: bool
+    ) -> None:
+        assert isinstance(error, IntegrationSecretsFailure)
+        assert error.reportable is reportable
 
 
 @override_settings(**SERVICE_SETTINGS)
@@ -190,6 +261,53 @@ class TestUnconfigured(SimpleTestCase):
     def test_raises_when_unconfigured_and_the_environment_has_nothing_either(self) -> None:
         with pytest.raises(SecretMissingError):
             IntegrationSecretsClient().get("A_KEY_NOBODY_SET", CALLER)
+
+    @override_settings(INTEGRATION_SERVICE_URL="", INTEGRATION_SERVICE_JWT_SECRET="")
+    def test_the_error_says_the_service_was_never_called(self) -> None:
+        # "not available from the integration service" sends the reader to look for a key that is
+        # sitting in the service already. The reason it did not resolve is that nothing asked.
+        with pytest.raises(SecretMissingError) as excinfo:
+            IntegrationSecretsClient().get("A_KEY_NOBODY_SET", CALLER)
+        assert "was not called" in str(excinfo.value)
+        assert "unconfigured" in str(excinfo.value)
+
+
+class TestHalfConfigured(SimpleTestCase):
+    """One variable without the other: refuse, rather than silently reading the environment."""
+
+    @parameterized.expand(
+        [
+            ("url without a signing key", "http://svc", "", "INTEGRATION_SERVICE_JWT_SECRET"),
+            ("signing key without a url", "", "signing-key", "INTEGRATION_SERVICE_URL"),
+        ]
+    )
+    def test_raises_naming_the_variable_still_needed(self, _name: str, url: str, key: str, missing: str) -> None:
+        with (
+            override_settings(INTEGRATION_SERVICE_URL=url, INTEGRATION_SERVICE_JWT_SECRET=key),
+            patch(POST) as post,
+            patch(FLAG, return_value=True),
+        ):
+            with pytest.raises(IntegrationServiceMisconfiguredError) as excinfo:
+                IntegrationSecretsClient().get(KEY, CALLER)
+            assert missing in str(excinfo.value)
+            post.assert_not_called()
+
+    @override_settings(INTEGRATION_SERVICE_URL="http://svc", INTEGRATION_SERVICE_JWT_SECRET="")
+    def test_a_mounted_environment_variable_does_not_paper_over_it(self) -> None:
+        # The failure this exists to catch. Half-configured, the fallback would have returned the
+        # value from the pod's environment and the deployment would look wired up — until someone
+        # asks for a credential that only exists in the service.
+        with patch.dict(os.environ, {KEY: "still-mounted-on-the-pod"}):
+            with pytest.raises(IntegrationServiceMisconfiguredError):
+                IntegrationSecretsClient().get(KEY, CALLER)
+
+    @override_settings(INTEGRATION_SERVICE_URL="http://svc", INTEGRATION_SERVICE_JWT_SECRET="")
+    def test_the_flag_does_not_rescue_a_half_configured_deployment(self) -> None:
+        # Turning the flag off is how you disable the client deliberately; it is not a way to make
+        # a misconfiguration legal, or the rollout gate would hide it.
+        with patch(FLAG, return_value=False):
+            with pytest.raises(IntegrationServiceMisconfiguredError):
+                IntegrationSecretsClient().get(KEY, CALLER)
 
 
 @override_settings(**SERVICE_SETTINGS)

@@ -116,7 +116,7 @@ class TrpcPiSession implements PiSession {
   ): () => void {
     const subscription = this.hostClient.piSession.onEvent.subscribe(
       { taskId: this.taskId },
-      { onData: onEvent, onError },
+      { onData: (event) => onEvent(event, { isLive: true }), onError },
     );
 
     return () => subscription.unsubscribe();

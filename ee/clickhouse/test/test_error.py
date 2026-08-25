@@ -3,8 +3,14 @@ import pytest
 from clickhouse_driver.errors import ServerException
 
 from posthog.clickhouse.client import sync_execute
-from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
-from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded
+from posthog.errors import (
+    CH_TRANSIENT_ERRORS,
+    QueryErrorCategory,
+    classify_query_error,
+    clickhouse_error_type,
+    wrap_clickhouse_query_error,
+)
+from posthog.exceptions import ClickHouseClusterMemoryLimitExceeded, ClickHouseQueryMemoryLimitExceeded
 
 
 @pytest.mark.parametrize(
@@ -224,3 +230,30 @@ def test_per_query_memory_limit_phrasing_matches_real_clickhouse():
             settings={"max_memory_usage": 1_000_000},
         )
     assert ctx.value.is_per_query_limit
+    assert not isinstance(ctx.value, ClickHouseClusterMemoryLimitExceeded)
+
+
+@pytest.mark.parametrize(
+    "message,expected_per_query",
+    [
+        ("DB::Exception: Memory limit (for query) exceeded: would use 1.00 GiB, maximum: 900.00 MiB.", True),
+        ("DB::Exception: Query memory limit exceeded: would use 1.00 GiB, maximum: 900.00 MiB.", True),
+        (
+            "DB::Exception: (total) memory limit exceeded: would use 270.76 GiB, maximum: 660.53 GiB. : While executing Remote.",
+            False,
+        ),
+        ("DB::Exception: Memory limit (for user) exceeded: would use 1.00 GiB, maximum: 900.00 MiB.", False),
+    ],
+)
+def test_memory_limit_wraps_by_which_ceiling_was_hit(message, expected_per_query):
+    wrapped = wrap_clickhouse_query_error(ServerException(message, code=241))
+    assert isinstance(wrapped, ClickHouseQueryMemoryLimitExceeded)
+    assert wrapped.is_per_query_limit is expected_per_query
+
+    # A ceiling the query did not set is cluster pressure: it lands on the class every retry path
+    # keys off, and classifies as rate-limited capacity rather than a query-performance problem.
+    is_cluster = isinstance(wrapped, ClickHouseClusterMemoryLimitExceeded)
+    assert is_cluster is (not expected_per_query)
+    if is_cluster:
+        assert isinstance(wrapped, CH_TRANSIENT_ERRORS)
+        assert classify_query_error(wrapped) == QueryErrorCategory.RATE_LIMITED

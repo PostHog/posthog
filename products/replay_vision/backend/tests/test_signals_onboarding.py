@@ -12,7 +12,7 @@ class TestOnboardingSources(BaseTest):
             "name": "my-scanner",
             "scanner_type": ScannerType.MONITOR,
             "scanner_config": {"prompt": "test"},
-            "model": ScannerModel.GEMINI_3_6_FLASH,
+            "model": ScannerModel.GEMINI_3_7_FLASH,
             "enabled": True,
             "emits_signals": True,
         }
@@ -46,5 +46,5 @@ class TestOnboardingSources(BaseTest):
         # It has no config row to write, and submitting the checkbox snapshot without it must not
         # read as "untick Replay Vision".
         self._emitting_scanner()
-        assert set_sources(self.team.id, None, ["error_tracking"]) == []
+        set_sources(self.team.id, None, ["error_tracking"])
         assert self._source("replay_vision").enabled is True

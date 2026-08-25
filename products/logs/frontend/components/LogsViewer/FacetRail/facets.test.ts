@@ -4,7 +4,9 @@ import { FacetOption } from './Facet'
 import {
     FACETS as CONFIGURED_FACETS,
     FacetConfig,
+    FacetScope,
     cycleResourceAttributeFilter,
+    facetScopeSignature,
     filterFacetsByName,
     logFilterExclusions,
     mergeSelectedIntoOptions,
@@ -239,6 +241,169 @@ describe('facets', () => {
                     logFilter(PropertyOperator.IsNot, ['info']),
                 ])
             })
+        })
+    })
+
+    describe('facetScopeSignature', () => {
+        const configured = (key: string): FacetConfig => CONFIGURED_FACETS.find((f) => f.key === key)!
+        const LEVEL = configured('level')
+        const SERVICE = configured('service')
+        const NAMESPACE = configured('namespace')
+
+        const group = (...filters: Record<string, unknown>[]): UniversalFiltersGroup => ({
+            type: FilterLogicalOperator.And,
+            values: [{ type: FilterLogicalOperator.And, values: filters as UniversalFiltersGroup['values'] }],
+        })
+        const filter = (
+            type: PropertyFilterType,
+            key: string,
+            operator: PropertyOperator,
+            value: unknown
+        ): Record<string, unknown> => ({ type, key, operator, value })
+
+        const BASE: FacetScope = {
+            currentTeamId: 1,
+            utcDateRange: { date_from: '-1h', date_to: null, explicitDate: false },
+            searchTerm: undefined,
+            severityLevels: [],
+            serviceNames: [],
+            queryFilterGroup: group(),
+            personId: undefined,
+        }
+        const signature = (facet: FacetConfig, scope: Partial<FacetScope> = {}): string =>
+            facetScopeSignature(facet, { ...BASE, ...scope })
+
+        // A facet that reacts to its own selection refetches a list the backend guarantees is
+        // unchanged; one that ignores a filter it should see serves stale counts. Both are silent.
+        it.each<[string, FacetConfig, Partial<FacetScope>, boolean]>([
+            ['level ignores its own included levels', LEVEL, { severityLevels: ['error'] }, false],
+            [
+                'level ignores its own excluded levels',
+                LEVEL,
+                {
+                    queryFilterGroup: group(
+                        filter(PropertyFilterType.Log, 'severity_level', PropertyOperator.IsNot, ['info'])
+                    ),
+                },
+                false,
+            ],
+            [
+                'level ignores a severity_level chip at any operator, matching the backend strip',
+                LEVEL,
+                {
+                    queryFilterGroup: group(
+                        filter(PropertyFilterType.Log, 'severity_level', PropertyOperator.IContains, 'err')
+                    ),
+                },
+                false,
+            ],
+            [
+                'level sees a log_attribute filter under the same key, which the backend keeps',
+                LEVEL,
+                {
+                    queryFilterGroup: group(
+                        filter(PropertyFilterType.LogAttribute, 'severity_level', PropertyOperator.Exact, ['error'])
+                    ),
+                },
+                true,
+            ],
+            ['level sees the service selection', LEVEL, { serviceNames: ['api'] }, true],
+            [
+                'level sees a service exclusion',
+                LEVEL,
+                {
+                    queryFilterGroup: group(
+                        filter(PropertyFilterType.Log, 'service_name', PropertyOperator.IsNot, ['api'])
+                    ),
+                },
+                true,
+            ],
+            ['level sees the body search', LEVEL, { searchTerm: 'timeout' }, true],
+            ['level sees the date range', LEVEL, { utcDateRange: { date_from: '-7d', date_to: null } }, true],
+            ['level sees the person scope', LEVEL, { personId: 'abc' }, true],
+            ['service ignores its own included services', SERVICE, { serviceNames: ['api'] }, false],
+            [
+                'service ignores its own excluded services',
+                SERVICE,
+                {
+                    queryFilterGroup: group(
+                        filter(PropertyFilterType.Log, 'service_name', PropertyOperator.IsNot, ['api'])
+                    ),
+                },
+                false,
+            ],
+            ['service sees the level selection', SERVICE, { severityLevels: ['error'] }, true],
+            [
+                'namespace ignores its own included values',
+                NAMESPACE,
+                {
+                    queryFilterGroup: group(
+                        filter(PropertyFilterType.LogResourceAttribute, 'k8s.namespace.name', PropertyOperator.Exact, [
+                            'argocd',
+                        ])
+                    ),
+                },
+                false,
+            ],
+            [
+                'namespace ignores its own excluded values',
+                NAMESPACE,
+                {
+                    queryFilterGroup: group(
+                        filter(PropertyFilterType.LogResourceAttribute, 'k8s.namespace.name', PropertyOperator.IsNot, [
+                            'argocd',
+                        ])
+                    ),
+                },
+                false,
+            ],
+            [
+                'namespace sees another resource attribute',
+                NAMESPACE,
+                {
+                    queryFilterGroup: group(
+                        filter(PropertyFilterType.LogResourceAttribute, 'host.name', PropertyOperator.Exact, ['node-1'])
+                    ),
+                },
+                true,
+            ],
+            [
+                'namespace sees a nested filter group',
+                NAMESPACE,
+                {
+                    queryFilterGroup: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [
+                                    {
+                                        type: FilterLogicalOperator.Or,
+                                        values: [
+                                            filter(PropertyFilterType.LogAttribute, 'user_id', PropertyOperator.Exact, [
+                                                '7',
+                                            ]),
+                                        ],
+                                    },
+                                ] as UniversalFiltersGroup['values'],
+                            },
+                        ],
+                    },
+                },
+                true,
+            ],
+        ])('%s', (_, facet, scope, expectedToChange) => {
+            expect(signature(facet, scope) !== signature(facet)).toBe(expectedToChange)
+        })
+
+        it('is identical for structurally equal filter groups', () => {
+            // The signature is what the rail subscribes on: if it carried object identity rather than
+            // content, every unrelated filter edit would refetch every facet again.
+            const chip = (): Record<string, unknown> =>
+                filter(PropertyFilterType.LogResourceAttribute, 'host.name', PropertyOperator.Exact, ['node-1'])
+            expect(signature(NAMESPACE, { queryFilterGroup: group(chip()) })).toEqual(
+                signature(NAMESPACE, { queryFilterGroup: group(chip()) })
+            )
         })
     })
 

@@ -32,6 +32,7 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
         useSingleExec: true,
         toolFeatureFlags: undefined,
         apiKeyScopes: [],
+        oauthClientId: undefined,
         clientProfile: {} as any,
         requestContext: {
             authMethod: 'personal_api_key',
@@ -66,6 +67,7 @@ function makeState(overrides: Partial<ResolvedState> = {}): ResolvedState {
         distinctId: 'distinct-id',
         renderUiEnabled: false,
         metadata: undefined,
+        metadataCompact: undefined,
         groupTypes: undefined,
         ...overrides,
     }
@@ -109,6 +111,23 @@ describe('Hono MCP analytics contexts', () => {
             mcp_session_consumer: 'session-consumer',
             mcp_session_vendor_client: 'ClaudeCode',
         })
+    })
+
+    it('stamps the surface as `source` so MCP events join product events', async () => {
+        // Without it, $mcp_* events carry no `source` at all and sit outside the breakdown
+        // that measures MCP adoption. The resolution matrix itself is covered in
+        // tests/event-source.test.ts — this only proves the property reaches the event.
+        await trackToolCall(
+            'user-get',
+            12,
+            false,
+            makeState({
+                apiKeyScopes: ['insight:read', 'internal_run:read'],
+                requestContext: { ...makeState().requestContext, mcpConsumer: 'slack' },
+            })
+        )
+
+        expect(mockCaptureToolCall.mock.calls[0]![0].properties.source).toBe('slack')
     })
 
     it('omits session properties when there is no MCP session context', async () => {
@@ -420,6 +439,42 @@ describe('Hono MCP analytics contexts', () => {
                 payload: { client_secret: '[redacted]' },
             })
             expect(JSON.parse($ai_output_state)).toEqual({ id: 1, api_key: '[redacted]' })
+        })
+
+        // Redaction is key-name based, so a source whose credential field the
+        // pattern does not name ships that credential verbatim. Cloudflare's
+        // `api_token` did exactly that. These are real field names from
+        // products/warehouse_sources/.../sources/*/source.py, paired with the
+        // metadata and token-count fields the pattern must keep readable.
+        it.each([
+            ['api_token', true],
+            ['database_token', true],
+            ['consumer_key', true],
+            ['signing_key', true],
+            ['key_file', true],
+            ['keypair', true],
+            ['token', true],
+            ['client_secret', true],
+            ['connection_string', true],
+            ['client_certificate', true],
+            ['app_id', true],
+            ['api_id', true],
+            ['basic_auth_username', true],
+            ['username', true],
+            ['server_client_root_ca', false],
+            ['token_id', false],
+            ['token_url', false],
+            ['app_tokens', false],
+            ['input_tokens', false],
+        ])('redacts %s: %s', async (field, redacted) => {
+            await trackToolSpan('external-data-sources-create', makeState(), {
+                durationMs: 100,
+                isError: false,
+                input: { payload: { [field]: 'sensitive-value' } },
+            })
+
+            const { $ai_input_state } = mockCapture.mock.calls[0]![0].properties
+            expect(JSON.parse($ai_input_state).payload[field]).toBe(redacted ? '[redacted]' : 'sensitive-value')
         })
     })
 })
