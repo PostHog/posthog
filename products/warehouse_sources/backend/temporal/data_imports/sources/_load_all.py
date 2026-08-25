@@ -1049,6 +1049,7 @@ from .sevenshifts.source import SevenShiftsSource
 from .sftp.source import SFTPSource
 from .sharepoint.source import SharePointSource
 from .sharetribe.source import SharetribeSource
+from .shipmail.source import ShipmailSource
 from .shippo.source import ShippoSource
 from .shipstation.source import ShipStationSource
 from .shopify.source import ShopifySource
