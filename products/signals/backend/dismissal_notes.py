@@ -36,8 +36,8 @@ from rest_framework.request import Request
 
 from posthog.models import Team, User
 from posthog.permissions import get_authenticator_scoped_team_ids
-from posthog.rbac.user_access_control import UserAccessControl
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.models import SignalReport, SignalScoutNote, SignalScoutRun
 from products.signals.backend.scout_harness.tools.notes import leave_note
 from products.skills.backend.models.skills import LLMSkill
