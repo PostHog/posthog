@@ -84,8 +84,9 @@ class TestQueryAiEvents:
         assert mock_execute.call_count == 2
         assert mock_execute.call_args.kwargs["context"].use_new_events_schema is True
 
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.use_new_events_schema", return_value=True)
     @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
-    def test_raises_expired_when_ai_events_empty_but_events_has_rows(self, mock_execute):
+    def test_raises_expired_when_ai_events_empty_but_events_has_rows(self, mock_execute, _mock_use_new_events_schema):
         # ai_events empty, events probe finds the row -> the data aged past the TTL.
         mock_execute.side_effect = [self._make_result([]), self._make_result([[1]])]
 
@@ -99,8 +100,9 @@ class TestQueryAiEvents:
             )
         assert mock_execute.call_count == 2
 
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.use_new_events_schema", return_value=True)
     @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
-    def test_raises_not_found_when_empty_in_both_tables(self, mock_execute):
+    def test_raises_not_found_when_empty_in_both_tables(self, mock_execute, _mock_use_new_events_schema):
         mock_execute.side_effect = [self._make_result([]), self._make_result([])]
 
         team = Mock(id=1, organization_id="org")
@@ -132,8 +134,9 @@ class TestQueryAiEvents:
         assert isinstance(rewritten, ast.Field)
         assert rewritten.chain == ["trace_id"]
 
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.use_new_events_schema", return_value=True)
     @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
-    def test_rewrites_placeholders_for_events_fallback(self, mock_execute):
+    def test_rewrites_placeholders_for_events_fallback(self, mock_execute, _mock_use_new_events_schema):
         mock_execute.side_effect = [self._make_result([]), self._make_result([["found"]])]
 
         team = Mock(id=1, organization_id="org")
@@ -153,8 +156,9 @@ class TestQueryAiEvents:
         assert isinstance(rewritten, ast.Field)
         assert rewritten.chain == ["properties", "$ai_trace_id"]
 
+    @patch("posthog.hogql_queries.ai.ai_table_resolver.use_new_events_schema", return_value=True)
     @patch("posthog.hogql_queries.ai.ai_table_resolver.execute_hogql_query")
-    def test_rewrites_query_from_clause_for_events_fallback(self, mock_execute):
+    def test_rewrites_query_from_clause_for_events_fallback(self, mock_execute, _mock_use_new_events_schema):
         mock_execute.side_effect = [self._make_result([]), self._make_result([])]
 
         team = Mock(id=1, organization_id="org")
