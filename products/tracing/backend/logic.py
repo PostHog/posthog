@@ -397,7 +397,7 @@ class TraceSpansQueryRunner(TraceSpansQueryRunnerMixin, AnalyticsQueryRunner[Tra
     paginator: HogQLHasMorePaginator
 
     def validate_query_runner_access(self, user: "User") -> bool:
-        from posthog.rbac.user_access_control import UserAccessControlError
+        from products.access_control.backend.facade.user_access_control import UserAccessControlError
 
         raise UserAccessControlError("tracing", "viewer")
 
