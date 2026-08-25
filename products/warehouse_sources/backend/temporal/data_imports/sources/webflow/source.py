@@ -87,11 +87,11 @@ class WebflowSource(
             # the site has unpublished changes. Both are deterministic state/config issues
             # that retrying can't resolve, so stop retrying and tell the user how to fix it.
             "409 Client Error: Conflict": "Webflow returned a 409 Conflict. For the Products and Orders tables this means the connected site does not have ecommerce enabled — enable ecommerce in Webflow or remove those tables from the sync. For other resources it can mean the site has unpublished changes; publish your Webflow site, then try again.",
-            # Webflow returns 406 Not Acceptable when it refuses to serve the CMS collections
-            # list for the connected site, even though PostHog asks for JSON. This is a
-            # deterministic site-level rejection retrying can't resolve, so stop retrying and
-            # tell the user how to fix it.
-            "406 Client Error: Not Acceptable": "Webflow returned a 406 Not Acceptable when listing your CMS collections. This is a deterministic rejection that retrying won't fix. Check that the connected site's plan includes the CMS and that no site security setting blocks API access, then try again. Contact PostHog support if it continues.",
+            # Webflow returns 406 Not Acceptable when it refuses to serve a site's data, even
+            # though PostHog asks for JSON. This can come from any endpoint, so match on status
+            # alone like the keys above. It is a deterministic site-level rejection that retrying
+            # can't resolve, so stop retrying and tell the user how to fix it.
+            "406 Client Error: Not Acceptable": "Webflow returned a 406 Not Acceptable for this site. This is a deterministic rejection that retrying won't fix. Check that the site's plan includes the CMS and that no site security setting blocks API access, then try again. Contact PostHog support if it continues.",
             # A CMS collection discovered when the table was set up can later be deleted or have its
             # slug renamed in Webflow, so at sync time the slug no longer resolves to a collection.
             # That's a deterministic upstream state change retrying can't fix. Match the stable
