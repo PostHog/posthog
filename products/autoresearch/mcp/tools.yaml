@@ -59,7 +59,6 @@ tools:
     autoresearch-list:
         operation: autoresearch_list
         enabled: true
-        mcp_version: 1
         scopes:
             - autoresearch:read
         annotations:
@@ -107,7 +106,6 @@ tools:
     autoresearch-models-list:
         operation: autoresearch_models_list
         enabled: true
-        mcp_version: 1
         scopes:
             - autoresearch:read
         annotations:
@@ -138,7 +136,6 @@ tools:
     autoresearch-models-retrieve:
         operation: autoresearch_models_retrieve
         enabled: true
-        mcp_version: 1
         scopes:
             - autoresearch:read
         annotations:
@@ -209,7 +206,6 @@ tools:
     autoresearch-retrieve:
         operation: autoresearch_retrieve
         enabled: true
-        mcp_version: 1
         scopes:
             - autoresearch:read
         annotations:
@@ -225,7 +221,6 @@ tools:
     autoresearch-runs-list:
         operation: autoresearch_runs_list
         enabled: true
-        mcp_version: 1
         scopes:
             - autoresearch:read
         annotations:
@@ -301,7 +296,6 @@ tools:
     autoresearch-suggestions-list:
         operation: autoresearch_suggestions_list
         enabled: true
-        mcp_version: 1
         scopes:
             - autoresearch:read
         annotations:
@@ -329,7 +323,6 @@ tools:
     autoresearch-suggestions-retrieve:
         operation: autoresearch_suggestions_retrieve
         enabled: true
-        mcp_version: 1
         scopes:
             - autoresearch:read
         annotations:
@@ -544,7 +537,6 @@ tools:
     autoresearch-training-runs-list:
         operation: autoresearch_training_runs_list
         enabled: true
-        mcp_version: 1
         scopes:
             - autoresearch:read
         annotations:
