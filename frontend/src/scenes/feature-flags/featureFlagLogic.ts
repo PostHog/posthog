@@ -334,6 +334,10 @@ export const PAIRED_PRESETS: Record<Exclude<PairedPresetKey, 'custom_pair'>, Pai
     },
 }
 
+/** Resolution state of the schedule creation form: unknown while schedules first load,
+ * then collapsed behind a button when the flag already has a plan to read. */
+export type ScheduleFormState = 'loading' | 'collapsed' | 'expanded'
+
 export type ScheduleFlagPayload = Pick<FeatureFlagType, 'filters' | 'active'> & {
     variants?: MultivariateFlagVariant[]
     payloads?: Record<string, any>
@@ -910,6 +914,8 @@ export interface featureFlagLogicValues {
     roleBasedAccessEnabled: boolean
     scheduleDateMarker: any
     scheduleDefaultsAppliedFromFlag: boolean
+    scheduleFormManuallyExpanded: boolean | null
+    scheduleFormState: ScheduleFormState
     schedulePayload: ScheduleFlagPayload
     schedulePayloadErrors: any
     schedulePreset: PairedPresetKey | null
@@ -918,6 +924,7 @@ export interface featureFlagLogicValues {
     scheduledChangeLoading: boolean
     scheduledChangeOperation: ScheduledChangeOperationType
     scheduledChanges: ScheduledChangeType[]
+    scheduledChangesLoaded: boolean
     scheduledChangesLoading: boolean
     selectedTab: FeatureFlagsTab
     showFeatureFlagErrors: boolean
@@ -1547,6 +1554,9 @@ export interface featureFlagLogicActions {
     setScheduleDateMarker: (dateMarker: any) => {
         dateMarker: any
     }
+    setScheduleFormExpanded: (expanded: boolean) => {
+        expanded: boolean
+    }
     setSchedulePayload: (
         filters: FeatureFlagType['filters'] | null,
         active: FeatureFlagType['active'] | null,
@@ -1949,6 +1959,12 @@ export interface featureFlagLogicMeta {
             activeSchedules: ScheduledChangeType[],
             featureFlag: FeatureFlagType
         ) => ScheduleOccurrence[]
+        scheduleFormState: (
+            scheduleFormManuallyExpanded: boolean | null,
+            activeSchedules: ScheduledChangeType[],
+            scheduledChangesLoading: boolean,
+            scheduledChangesLoaded: boolean
+        ) => ScheduleFormState
         emailDomain: (user: UserType | null) => string
         templates: (emailDomain: string) => Array<{
             description: string
@@ -2038,6 +2054,7 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ) => ({ copyDependencyRequirements }),
         loadCopyDependencyRequirementsFailure: (error: string, errorObject?: unknown) => ({ error, errorObject }),
         setScheduleDateMarker: (dateMarker: any) => ({ dateMarker }),
+        setScheduleFormExpanded: (expanded: boolean) => ({ expanded }),
         setSchedulePayload: (
             filters: FeatureFlagType['filters'] | null,
             active: FeatureFlagType['active'] | null,
@@ -2462,6 +2479,23 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             null as any,
             {
                 setScheduleDateMarker: (_, { dateMarker }) => dateMarker,
+            },
+        ],
+        // Null until the user opens or closes the form; the default is derived from
+        // whether the flag already has active schedules (see scheduleFormState).
+        scheduleFormManuallyExpanded: [
+            null as boolean | null,
+            {
+                setScheduleFormExpanded: (_, { expanded }) => expanded,
+            },
+        ],
+        // Distinguishes the first load from refetches, so the schedule header only
+        // shows a skeleton once per mount instead of on every reload after a mutation.
+        scheduledChangesLoaded: [
+            false,
+            {
+                loadScheduledChangesSuccess: () => true,
+                loadScheduledChangesFailure: () => true,
             },
         ],
         schedulePayload: [
@@ -4492,6 +4526,28 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             (s) => [s.activeSchedules, s.featureFlag],
             (activeSchedules: ScheduledChangeType[], featureFlag: FeatureFlagType): ScheduleOccurrence[] =>
                 expandScheduleOccurrences(activeSchedules, featureFlag, dayjs()),
+        ],
+        scheduleFormState: [
+            (s) => [
+                s.scheduleFormManuallyExpanded,
+                s.activeSchedules,
+                s.scheduledChangesLoading,
+                s.scheduledChangesLoaded,
+            ],
+            (
+                scheduleFormManuallyExpanded: boolean | null,
+                activeSchedules: ScheduledChangeType[],
+                scheduledChangesLoading: boolean,
+                scheduledChangesLoaded: boolean
+            ): ScheduleFormState => {
+                if (scheduleFormManuallyExpanded !== null) {
+                    return scheduleFormManuallyExpanded ? 'expanded' : 'collapsed'
+                }
+                if (scheduledChangesLoading && !scheduledChangesLoaded) {
+                    return 'loading'
+                }
+                return activeSchedules.length > 0 ? 'collapsed' : 'expanded'
+            },
         ],
         emailDomain: [
             (s) => [s.user],

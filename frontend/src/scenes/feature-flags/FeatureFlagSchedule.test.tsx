@@ -159,45 +159,61 @@ describe('FeatureFlagSchedule', () => {
         expect(screen.getByText(new RegExp(expectedText))).toBeInTheDocument()
     })
 
+    const makeScheduledChange = (overrides: Partial<ScheduledChangeType>): ScheduledChangeType => ({
+        id: 1,
+        team_id: MOCK_DEFAULT_PROJECT.id,
+        record_id: 1,
+        model_name: ScheduledChangeModels.FeatureFlag,
+        payload: { operation: ScheduledChangeOperationType.UpdateStatus, value: true },
+        scheduled_at: '2030-01-01T00:00:00Z',
+        executed_at: null,
+        failure_reason: null,
+        created_at: '2026-01-01T00:00:00Z',
+        created_by: MOCK_DEFAULT_BASIC_USER,
+        is_recurring: false,
+        recurrence_interval: null,
+        cron_expression: null,
+        last_executed_at: null,
+        end_date: null,
+        change_request: null,
+        ...overrides,
+    })
+
+    // useMocks trips the hooks naming lint inside named helpers, so each test registers
+    // its own mock before calling this.
+    const renderWithSchedules = (): void => {
+        renderSchedule(
+            buildFeatureFlag({ active: false, rolloutPercentage: 100 }),
+            ScheduledChangeOperationType.UpdateStatus
+        )
+        act(() => {
+            featureFlagLogic(logicProps).actions.loadScheduledChanges()
+        })
+    }
+
+    const schedulesMock = (
+        schedules: ScheduledChangeType[]
+    ): Record<string, () => [number, { results: ScheduledChangeType[] }]> => ({
+        [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/scheduled_changes`]: () => [200, { results: schedules }],
+    })
+
+    it('collapses the creation form behind a button when schedules exist, and toggles via the button and close', async () => {
+        useMocks({ get: schedulesMock([makeScheduledChange({})]) })
+        renderWithSchedules()
+
+        const formHint = 'Automatically change flag properties at a future point in time.'
+        await screen.findByText('Active & upcoming')
+        expect(screen.queryByText(formHint)).not.toBeInTheDocument()
+
+        fireEvent.click(document.querySelector('[data-attr="feature-flag-open-schedule-form"]')!)
+        expect(screen.getByText(formHint)).toBeInTheDocument()
+
+        fireEvent.click(document.querySelector('[data-attr="feature-flag-close-schedule-form"]')!)
+        expect(screen.queryByText(formHint)).not.toBeInTheDocument()
+        expect(document.querySelector('[data-attr="feature-flag-open-schedule-form"]')).toBeInTheDocument()
+    })
+
     describe('approval visibility', () => {
-        const makeScheduledChange = (overrides: Partial<ScheduledChangeType>): ScheduledChangeType => ({
-            id: 1,
-            team_id: MOCK_DEFAULT_PROJECT.id,
-            record_id: 1,
-            model_name: ScheduledChangeModels.FeatureFlag,
-            payload: { operation: ScheduledChangeOperationType.UpdateStatus, value: true },
-            scheduled_at: '2030-01-01T00:00:00Z',
-            executed_at: null,
-            failure_reason: null,
-            created_at: '2026-01-01T00:00:00Z',
-            created_by: MOCK_DEFAULT_BASIC_USER,
-            is_recurring: false,
-            recurrence_interval: null,
-            cron_expression: null,
-            last_executed_at: null,
-            end_date: null,
-            change_request: null,
-            ...overrides,
-        })
-
-        // useMocks trips the hooks naming lint inside named helpers, so each test registers
-        // its own mock before calling this.
-        const renderWithSchedules = (): void => {
-            renderSchedule(
-                buildFeatureFlag({ active: false, rolloutPercentage: 100 }),
-                ScheduledChangeOperationType.UpdateStatus
-            )
-            act(() => {
-                featureFlagLogic(logicProps).actions.loadScheduledChanges()
-            })
-        }
-
-        const schedulesMock = (
-            schedules: ScheduledChangeType[]
-        ): Record<string, () => [number, { results: ScheduledChangeType[] }]> => ({
-            [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/scheduled_changes`]: () => [200, { results: schedules }],
-        })
-
         it('shows the Needs approval tag and an approval link for a pending gated schedule', async () => {
             useMocks({
                 get: schedulesMock([

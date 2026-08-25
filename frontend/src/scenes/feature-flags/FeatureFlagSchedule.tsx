@@ -7,8 +7,10 @@ import {
     IconPause,
     IconPencil,
     IconPlay,
+    IconPlus,
     IconToggle,
     IconTrash,
+    IconX,
 } from '@posthog/icons'
 import {
     LemonBanner,
@@ -18,6 +20,7 @@ import {
     LemonInput,
     LemonModal,
     LemonSelect,
+    LemonSkeleton,
     LemonSwitch,
     LemonTag,
     LemonTagType,
@@ -460,6 +463,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
         canCreatePairedSchedule,
         hasEarlyAccessFeatures,
         scheduleTimelineOccurrences,
+        scheduleFormState,
     } = useValues(featureFlagLogic)
     const {
         deleteScheduledChange,
@@ -475,6 +479,7 @@ export default function FeatureFlagSchedule(): JSX.Element {
         setSchedulePreset,
         setCustomPairCron,
         createPairedSchedule,
+        setScheduleFormExpanded,
     } = useActions(featureFlagLogic)
     const {
         isEditOpen,
@@ -555,16 +560,61 @@ export default function FeatureFlagSchedule(): JSX.Element {
         (opt) => opt.value !== ScheduledChangeOperationType.UpdateVariants || featureFlag.filters.multivariate
     )
 
+    const showCollapsedFormButton = featureFlag.can_edit && scheduleFormState === 'collapsed'
+
     return (
         <div className="flex flex-col gap-4">
+            {/* Plan header: what-happens-next timeline, plus the schedule action while the form is collapsed */}
+            {scheduleFormState === 'loading' ? (
+                <LemonSkeleton className="h-10" />
+            ) : (
+                (scheduleTimelineOccurrences.length > 0 || showCollapsedFormButton) && (
+                    <div className="flex flex-col gap-1">
+                        <div className="flex items-center justify-between gap-4 min-h-8">
+                            {scheduleTimelineOccurrences.length > 0 ? (
+                                <h3 className="font-semibold text-base m-0">What happens next</h3>
+                            ) : (
+                                <span />
+                            )}
+                            {showCollapsedFormButton && (
+                                <LemonButton
+                                    type="secondary"
+                                    icon={<IconPlus />}
+                                    onClick={() => setScheduleFormExpanded(true)}
+                                    data-attr="feature-flag-open-schedule-form"
+                                >
+                                    Schedule a change
+                                </LemonButton>
+                            )}
+                        </div>
+                        <ScheduleTimeline
+                            occurrences={scheduleTimelineOccurrences}
+                            currentRolloutPercentage={maxRolloutPercentage(featureFlag.filters.groups)}
+                            timezone={scheduleTimezone}
+                        />
+                    </div>
+                )
+            )}
+
             {/* Creation form */}
-            {featureFlag.can_edit ? (
+            {featureFlag.can_edit && scheduleFormState === 'expanded' ? (
                 <div className="rounded border p-4 bg-bg-light flex flex-col gap-4">
-                    <div>
-                        <h3 className="font-semibold text-base mb-1">Schedule a change</h3>
-                        <span className="text-sm text-muted">
-                            Automatically change flag properties at a future point in time.
-                        </span>
+                    <div className="flex items-start justify-between gap-2">
+                        <div>
+                            <h3 className="font-semibold text-base mb-1">Schedule a change</h3>
+                            <span className="text-sm text-muted">
+                                Automatically change flag properties at a future point in time.
+                            </span>
+                        </div>
+                        {activeSchedules.length > 0 && (
+                            <LemonButton
+                                size="small"
+                                icon={<IconX />}
+                                tooltip="Close"
+                                onClick={() => setScheduleFormExpanded(false)}
+                                data-attr="feature-flag-close-schedule-form"
+                            />
+                        )}
                     </div>
 
                     {/* Row 1: Change type + Date/Repeat controls */}
@@ -989,18 +1039,12 @@ export default function FeatureFlagSchedule(): JSX.Element {
                         )}
                     </div>
                 </div>
-            ) : (
+            ) : !featureFlag.can_edit ? (
                 <LemonBanner type="info">
                     You don't have the necessary permissions to schedule changes to this flag. Contact your
                     administrator to request editing rights.
                 </LemonBanner>
-            )}
-
-            <ScheduleTimeline
-                occurrences={scheduleTimelineOccurrences}
-                currentRolloutPercentage={maxRolloutPercentage(featureFlag.filters.groups)}
-                timezone={scheduleTimezone}
-            />
+            ) : null}
 
             {/* Schedule list */}
             {activeSchedules.length > 0 && (

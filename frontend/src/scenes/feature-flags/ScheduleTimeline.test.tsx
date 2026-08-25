@@ -2,7 +2,7 @@ import { MOCK_DEFAULT_BASIC_USER } from 'lib/api.mock'
 
 import '@testing-library/jest-dom'
 
-import { render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 
 import { ScheduledChangeModels, ScheduledChangeOperationType, ScheduledChangeType } from '~/types'
 
@@ -39,6 +39,10 @@ function occurrence(overrides: Partial<ScheduleOccurrence> = {}): ScheduleOccurr
 }
 
 describe('ScheduleTimeline', () => {
+    afterEach(() => {
+        cleanup()
+    })
+
     it('renders nothing for zero occurrences', () => {
         const { container } = render(<ScheduleTimeline occurrences={[]} currentRolloutPercentage={10} timezone="UTC" />)
 
@@ -70,7 +74,7 @@ describe('ScheduleTimeline', () => {
             />
         )
 
-        expect(screen.getByText('What happens next')).toBeInTheDocument()
         expect(container.querySelector('svg')).toBeInTheDocument()
+        expect(screen.queryByText(/^Next:/)).not.toBeInTheDocument()
     })
 })

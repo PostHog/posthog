@@ -121,7 +121,6 @@ export function ScheduleTimeline({
 
     return (
         <div className="flex flex-col gap-1" data-attr="feature-flag-schedule-timeline">
-            <h3 className="font-semibold text-base m-0">What happens next</h3>
             <svg
                 viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
                 className="w-full max-w-3xl"
