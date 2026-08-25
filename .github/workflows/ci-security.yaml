@@ -442,8 +442,18 @@ jobs:
             # --baseline-commit diffs against the PR base (first parent of the
             # merge commit), so the pass-1 backlog is grandfathered while new
             # violations block. See .semgrep/rules/devex/README.md.
+            # trunk-merge/** heads are skipped: every constituent PR already ran
+            # this ratchet on its own head, where the branch ruleset enforces it.
+            # In the queue it re-judges in-flight PRs with rules added after
+            # their green run, so each new devex rule kicked whole batches of
+            # unrelated PRs. The skip is scoped to same-repo heads so a fork
+            # cannot opt out by naming its branch trunk-merge/**.
             - name: New warnings (blocking)
-              if: github.event_name == 'pull_request'
+              if: |
+                  github.event_name == 'pull_request' && !(
+                      github.event.pull_request.head.repo.full_name == github.repository &&
+                      startsWith(github.head_ref, 'trunk-merge/')
+                  )
               run: |
                   docker run --rm -v "${{ github.workspace }}:/src" -w /src \
                     -e SEMGREP_ENABLE_VERSION_CHECK=false \
