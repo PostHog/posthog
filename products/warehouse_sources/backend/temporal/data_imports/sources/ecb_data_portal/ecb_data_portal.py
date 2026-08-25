@@ -52,16 +52,24 @@ def _coerce_start_period(value: Any) -> Optional[date]:
         return None
 
 
-def _daterange_chunks(
-    start: Optional[date], end: date, chunk_years: Optional[int]
-) -> Iterator[tuple[Optional[date], Optional[date]]]:
+@frozen
+class _DateWindow:
+    """One request window. Both ends are dates, so named fields keep a call site from
+    reading them in the wrong order."""
+
+    start: Optional[date]
+    end: Optional[date]
+
+
+def _daterange_chunks(start: Optional[date], end: date, chunk_years: Optional[int]) -> Iterator[_DateWindow]:
     """Split [start, end] into ascending chunk_years-sized windows.
 
-    chunk_years=None (or no start date to anchor from) yields a single (start, None) window —
-    the vendor returns all remaining history in one response, which is fine for small flows.
+    chunk_years=None (or no start date to anchor from) yields a single window that ends at
+    None — the vendor returns all remaining history in one response, which is fine for
+    small flows.
     """
     if chunk_years is None or start is None:
-        yield start, None
+        yield _DateWindow(start=start, end=None)
         return
 
     cur = start
@@ -72,7 +80,7 @@ def _daterange_chunks(
             # Anchor date is Feb 29 and cur.year + chunk_years isn't a leap year.
             window_end = cur.replace(year=cur.year + chunk_years, day=28) - timedelta(days=1)
         chunk_end = min(window_end, end)
-        yield cur, chunk_end
+        yield _DateWindow(start=cur, end=chunk_end)
         cur = chunk_end + timedelta(days=1)
 
 
@@ -139,17 +147,17 @@ def ecb_data_portal_source(
 
     def _items() -> Iterator[dict[str, str]]:
         session = make_tracked_session()
-        for chunk_start, chunk_end in _daterange_chunks(start, today, endpoint_config.chunk_years):
-            rows = _request_csv_rows(session, endpoint_config.flow, endpoint_config.key, chunk_start, chunk_end)
+        for window in _daterange_chunks(start, today, endpoint_config.chunk_years):
+            rows = _request_csv_rows(session, endpoint_config.flow, endpoint_config.key, window.start, window.end)
             # Multi-series (wildcarded) responses are grouped per series, each ascending by
             # TIME_PERIOD within its own block — not globally ordered. Sort so the pipeline's
             # sort_mode="asc" checkpointing sees a genuinely ascending stream.
             rows.sort(key=lambda row: row.get("TIME_PERIOD", ""))
             yield from rows
 
-            if chunk_end is not None and chunk_end < today:
+            if window.end is not None and window.end < today:
                 resumable_source_manager.save_state(
-                    ECBResumeConfig(next_start_period=(chunk_end + timedelta(days=1)).isoformat())
+                    ECBResumeConfig(next_start_period=(window.end + timedelta(days=1)).isoformat())
                 )
             else:
                 resumable_source_manager.clear_state()
