@@ -1,4 +1,5 @@
 import { canCreateImplementationPr } from "@posthog/core/inbox/reportActions";
+import { parsePrUrl } from "@posthog/core/inbox/reportPresentation";
 import type { SignalReport } from "@posthog/shared/domain-types";
 
 export type ReportVerdictAction =
@@ -15,10 +16,17 @@ export function isReportAwaitingInput(report: SignalReport): boolean {
   );
 }
 
-/** The implementation PR to link to, or null. A merged PR is history, not live work. */
+/**
+ * The implementation PR to link to, or null. A merged PR is history, not live
+ * work. `implementation_pr_url` flows in from task-run output, so it is only
+ * trusted as a canonical GitHub PR URL — anything else is not presented as
+ * "View PR".
+ */
 function liveImplementationPrUrl(report: SignalReport): string | null {
   if (report.implementation_pr_merged) return null;
-  return report.implementation_pr_url ?? null;
+  const url = report.implementation_pr_url;
+  if (!url || !parsePrUrl(url)) return null;
+  return url;
 }
 
 /**

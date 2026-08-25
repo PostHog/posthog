@@ -73,6 +73,15 @@ describe("resolveReportVerdictAction", () => {
       expected: { kind: "start", label: "Start task", awaitingInput: false },
     },
     {
+      name: "non-GitHub PR url is not trusted: no action, not presented as a PR",
+      overrides: {
+        status: "ready",
+        actionability: "immediately_actionable",
+        implementation_pr_url: "https://attacker.example/pull/1",
+      },
+      expected: null,
+    },
+    {
       name: "already addressed → no action",
       overrides: {
         status: "ready",
