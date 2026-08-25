@@ -43,20 +43,28 @@ export function createTestAccountFilterWarningLabels(
     if (!currentTeam) {
         return null
     }
-    const positiveFilterOperators = [
-        PropertyOperator.Exact,
-        PropertyOperator.IContains,
-        PropertyOperator.Regex,
-        PropertyOperator.IsSet,
-        PropertyOperator.In,
-    ]
+    // Negative operators keep the events that do not match, so they exclude traffic as expected.
+    // Every other operator keeps only matching events, which is what the warning is about, so we
+    // classify by the short negative list instead of trying to enumerate every positive operator.
+    const negativeFilterOperators = new Set<PropertyOperator>([
+        PropertyOperator.IsNot,
+        PropertyOperator.NotIContains,
+        PropertyOperator.NotStartsWith,
+        PropertyOperator.NotEndsWith,
+        PropertyOperator.NotRegex,
+        PropertyOperator.IsNotSet,
+        PropertyOperator.NotBetween,
+        PropertyOperator.NotIn,
+        PropertyOperator.SemverNeq,
+        PropertyOperator.NotIContainsMulti,
+    ])
     const positiveFilters = []
     for (const filter of currentTeam.test_account_filters || []) {
         if (
             isFilterComplete(filter) &&
             'operator' in filter &&
             !!filter.operator &&
-            positiveFilterOperators.includes(filter.operator)
+            !negativeFilterOperators.has(filter.operator)
         ) {
             positiveFilters.push(filter)
         }
