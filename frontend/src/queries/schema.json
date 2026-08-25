@@ -26408,7 +26408,12 @@
                 "Clarify",
                 "DatoCMS",
                 "WPSOffice",
-                "TeraBox"
+                "TeraBox",
+                "SimonData",
+                "CommissionJunction",
+                "Liveblocks",
+                "NationBuilder",
+                "Tana"
             ],
             "type": "string"
         },
