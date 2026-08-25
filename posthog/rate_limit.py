@@ -898,6 +898,18 @@ class PersonalSpendDailyThrottle(PersonalApiKeyOrUserRateThrottle):
     rate = "200/day"
 
 
+class AIGatewaySpendLimitBurstThrottle(PersonalApiKeyOrUserRateThrottle):
+    # Each call holds a web worker for a synchronous gateway round trip, and the
+    # desktop app calls with session auth, so the throttle covers every auth kind.
+    scope = "ai_gateway_spend_limit_burst"
+    rate = "30/minute"
+
+
+class AIGatewaySpendLimitSustainedThrottle(PersonalApiKeyOrUserRateThrottle):
+    scope = "ai_gateway_spend_limit_sustained"
+    rate = "300/hour"
+
+
 class LLMPromptPublishBurstRateThrottle(PersonalApiKeyOrUserRateThrottle):
     # Stricter burst limit for publishing prompt versions.
     # This protects against accidental loops or scripted abuse while allowing normal usage.

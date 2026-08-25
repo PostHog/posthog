@@ -12,9 +12,9 @@ from rest_framework.response import Response
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.user import User
+from posthog.rate_limit import AIGatewaySpendLimitBurstThrottle, AIGatewaySpendLimitSustainedThrottle
 
 from ..facade import api
-from .permissions import ScopedTokenPermission
 from .serializers import SpendLimitErrorSerializer, SpendLimitSerializer, SpendLimitWriteSerializer
 
 _GATEWAY_ERROR = {502: OpenApiResponse(response=SpendLimitErrorSerializer)}
@@ -34,6 +34,12 @@ class _SpendLimitsUnavailable(exceptions.APIException):
     default_code = "spend_limits_unavailable"
 
 
+class _SpendLimitsRejected(exceptions.APIException):
+    status_code = status.HTTP_502_BAD_GATEWAY
+    default_detail = "The spend limit service rejected the request. Contact support if this keeps happening."
+    default_code = "spend_limits_rejected"
+
+
 class SingletonSchema(AutoSchema):
     """Stops drf-spectacular treating `list` as returning an array; this resource is one object per person."""
 
@@ -42,16 +48,18 @@ class SingletonSchema(AutoSchema):
 
 
 class UserSpendLimitViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
-    # The limit belongs to the person, not to the team's data, so it rides the
-    # same scope as /api/users/@me/ rather than a team resource scope.
-    scope_object = "user"
+    # Product-scoped rather than riding `user`: a write moves a money control, so
+    # it must not come for free with a broad `user:write` key. A named scope also
+    # keeps the platform's team/org token scoping and the org's personal-API-key
+    # ban in force, both of which `scope_object = "user"` is exempt from.
+    scope_object = "ai_gateway"
     # `list` on a plain ViewSet and a custom @action match none of
     # ScopeBasePermission's default action lists, so personal-API-key requests
     # 403 without these spelled out.
     scope_object_read_actions = ["list"]
     scope_object_write_actions = ["create", "clear"]
     serializer_class = SpendLimitSerializer
-    permission_classes = [ScopedTokenPermission]
+    throttle_classes = [AIGatewaySpendLimitBurstThrottle, AIGatewaySpendLimitSustainedThrottle]
     schema = SingletonSchema()
 
     @extend_schema(
@@ -100,5 +108,7 @@ def _spend_limit_errors() -> Iterator[None]:
         yield
     except api.SpendLimitsUnsupported as exc:
         raise _SpendLimitsUnsupported from exc
+    except api.SpendLimitsRejected as exc:
+        raise _SpendLimitsRejected from exc
     except api.SpendLimitsUnavailable as exc:
         raise _SpendLimitsUnavailable from exc

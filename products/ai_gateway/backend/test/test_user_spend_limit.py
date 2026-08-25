@@ -39,25 +39,25 @@ class TestUserSpendLimit(APIBaseTest):
     def test_reports_no_limit_but_enforceable(self, get_user_budget):
         response = self.client.get(self._url())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"limit_usd": None, "window_seconds": None, "enforced": True})
+        self.assertEqual(response.json(), {"limit_usd": None, "window_seconds": None, "enforceable": True})
         get_user_budget.assert_called_once_with(self.team.id, self._node)
 
     @patch(f"{LOGIC}.get_user_budget", return_value=BUDGET)
     def test_reads_the_limit(self, _get_user_budget):
         response = self.client.get(self._url())
-        self.assertEqual(response.json(), {"limit_usd": "500.000000", "window_seconds": 2592000, "enforced": True})
+        self.assertEqual(response.json(), {"limit_usd": "500.000000", "window_seconds": 2592000, "enforceable": True})
 
     @parameterized.expand(NO_BUDGET_SUPPORT)
     def test_reads_as_unenforced_where_the_gateway_holds_no_limits(self, _name, error):
         with patch(f"{LOGIC}.get_user_budget", side_effect=error):
             response = self.client.get(self._url())
-        self.assertEqual(response.json(), {"limit_usd": None, "window_seconds": None, "enforced": False})
+        self.assertEqual(response.json(), {"limit_usd": None, "window_seconds": None, "enforceable": False})
 
     @patch(f"{LOGIC}.set_user_budget", return_value=BUDGET)
     def test_sets_the_limit_against_the_asserted_user_node(self, set_user_budget):
         response = self.client.post(self._url(), {"limit_usd": "500", "window_seconds": 2592000})
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json(), {"limit_usd": "500.000000", "window_seconds": 2592000, "enforced": True})
+        self.assertEqual(response.json(), {"limit_usd": "500.000000", "window_seconds": 2592000, "enforceable": True})
         # The scope value has to be the node a run's token pins and the desktop
         # asserts, or the gateway counts spend against a node this never
         # configured and the limit silently does nothing.
@@ -66,7 +66,7 @@ class TestUserSpendLimit(APIBaseTest):
     @patch(f"{LOGIC}.clear_user_budget", return_value=None)
     def test_clears_the_limit(self, clear_user_budget):
         response = self.client.delete(self._url("clear/"))
-        self.assertEqual(response.json(), {"limit_usd": None, "window_seconds": None, "enforced": True})
+        self.assertEqual(response.json(), {"limit_usd": None, "window_seconds": None, "enforceable": True})
         clear_user_budget.assert_called_once_with(self.team.id, self._node)
 
     @parameterized.expand(
@@ -85,10 +85,17 @@ class TestUserSpendLimit(APIBaseTest):
             response = self.client.post(self._url(), {"limit_usd": "500", "window_seconds": 2592000})
         self.assertEqual(response.status_code, status.HTTP_503_SERVICE_UNAVAILABLE)
 
-    @patch(f"{LOGIC}.set_user_budget", side_effect=AIGatewayInternalError("boom", status_code=500))
-    def test_write_surfaces_a_gateway_failure(self, _set_user_budget):
-        response = self.client.post(self._url(), {"limit_usd": "500", "window_seconds": 2592000})
+    @parameterized.expand(
+        [
+            ("gateway_down", 500, "spend_limits_unavailable"),
+            ("request_refused", 422, "spend_limits_rejected"),
+        ]
+    )
+    def test_write_surfaces_a_gateway_failure_with_its_kind(self, _name, gateway_status, expected_code):
+        with patch(f"{LOGIC}.set_user_budget", side_effect=AIGatewayInternalError("boom", status_code=gateway_status)):
+            response = self.client.post(self._url(), {"limit_usd": "500", "window_seconds": 2592000})
         self.assertEqual(response.status_code, status.HTTP_502_BAD_GATEWAY)
+        self.assertEqual(response.json()["code"], expected_code)
 
     def test_rejects_a_personal_api_key_scoped_to_another_project(self):
         token = generate_random_token_personal()
@@ -103,6 +110,33 @@ class TestUserSpendLimit(APIBaseTest):
 
         response = self.client.get(self._url(), headers={"authorization": f"Bearer {token}"})
 
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_rejects_a_personal_api_key_where_the_organization_bans_them(self):
+        self.organization.available_product_features = [
+            {"key": "organization_security_settings", "name": "Organization security settings"}
+        ]
+        self.organization.members_can_use_personal_api_keys = False
+        self.organization.save()
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Banned key", user=self.user, secure_value=hash_key_value(token), scopes=["*"]
+        )
+
+        response = self.client.get(self._url(), headers={"authorization": f"Bearer {token}"})
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    @patch(f"{LOGIC}.get_user_budget", return_value=None)
+    def test_writes_need_the_ai_gateway_write_scope(self, _get_user_budget):
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Read key", user=self.user, secure_value=hash_key_value(token), scopes=["ai_gateway:read"]
+        )
+        headers = {"authorization": f"Bearer {token}"}
+
+        self.assertEqual(self.client.get(self._url(), headers=headers).status_code, status.HTTP_200_OK)
+        response = self.client.post(self._url(), {"limit_usd": "500", "window_seconds": 2592000}, headers=headers)
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_rejects_an_oauth_token_scoped_to_another_organization(self):

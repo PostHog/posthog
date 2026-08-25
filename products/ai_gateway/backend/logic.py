@@ -31,7 +31,11 @@ class SpendLimitsUnsupported(Exception):
 
 
 class SpendLimitsUnavailable(Exception):
-    """The gateway holds limits but the call failed, so nothing was read or changed."""
+    """The gateway call failed before completing, so nothing was read or changed."""
+
+
+class SpendLimitsRejected(Exception):
+    """The gateway refused the request as invalid, so nothing changed."""
 
 
 def read_spend_limit(team_id: int, user: User) -> SpendLimit:
@@ -43,13 +47,13 @@ def read_spend_limit(team_id: int, user: User) -> SpendLimit:
         return _unenforceable()
     if budget is None:
         return _no_limit()
-    return SpendLimit(limit_usd=budget.limit_usd, window_seconds=budget.window_seconds, enforced=True)
+    return SpendLimit(limit_usd=budget.limit_usd, window_seconds=budget.window_seconds, enforceable=True)
 
 
 def write_spend_limit(team_id: int, user: User, *, limit_usd: str, window_seconds: int) -> SpendLimit:
     with _gateway_call("write", team_id):
         budget = set_user_budget(team_id, _spend_node(user), limit_usd, window_seconds)
-    return SpendLimit(limit_usd=budget.limit_usd, window_seconds=budget.window_seconds, enforced=True)
+    return SpendLimit(limit_usd=budget.limit_usd, window_seconds=budget.window_seconds, enforceable=True)
 
 
 def remove_spend_limit(team_id: int, user: User) -> SpendLimit:
@@ -59,11 +63,11 @@ def remove_spend_limit(team_id: int, user: User) -> SpendLimit:
 
 
 def _no_limit() -> SpendLimit:
-    return SpendLimit(limit_usd=None, window_seconds=None, enforced=True)
+    return SpendLimit(limit_usd=None, window_seconds=None, enforceable=True)
 
 
 def _unenforceable() -> SpendLimit:
-    return SpendLimit(limit_usd=None, window_seconds=None, enforced=False)
+    return SpendLimit(limit_usd=None, window_seconds=None, enforceable=False)
 
 
 def _spend_node(user: User) -> str:
@@ -89,6 +93,12 @@ def _gateway_call(operation: str, team_id: int) -> Iterator[None]:
             "ai_gateway_user_spend_limit_gateway_error",
             operation=operation,
             team_id=team_id,
+            status_code=exc.status_code,
             error=str(exc),
         )
+        # A 4xx means the gateway understood and refused the request, which points
+        # at drift between its validation and ours; anything else means the call
+        # never completed cleanly.
+        if exc.status_code is not None and 400 <= exc.status_code < 500:
+            raise SpendLimitsRejected from exc
         raise SpendLimitsUnavailable from exc

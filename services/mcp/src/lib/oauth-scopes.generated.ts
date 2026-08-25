@@ -19,6 +19,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'account:write',
     'activity_log:read',
     'activity_log:write',
+    'ai_gateway:read',
+    'ai_gateway:write',
     'alert:read',
     'alert:write',
     'annotation:read',

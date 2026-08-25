@@ -78673,8 +78673,8 @@ export namespace Schemas {
          * @nullable
          */
       window_seconds: number | null;
-      /** Whether the gateway can hold spend for this deployment. False means no limit can be set here, so any limit shown in the app informs only. */
-      enforced: boolean;
+      /** Whether this deployment's gateway can hold and enforce a spend limit for this person. False means no limit can be set here, so any limit shown in the app informs only. */
+      enforceable: boolean;
     }
 
     export interface SpendLimitError {

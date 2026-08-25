@@ -32,6 +32,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'access_control', objectName: 'Access control', objectPlural: 'access controls' },
     { key: 'account', objectName: 'Account', objectPlural: 'accounts' },
     { key: 'activity_log', objectName: 'Activity log', objectPlural: 'activity logs' },
+    { key: 'ai_gateway', objectName: 'AI gateway spend limit', objectPlural: 'AI gateway spend limits' },
     { key: 'alert', objectName: 'Alert', objectPlural: 'alerts' },
     { key: 'annotation', objectName: 'Annotation', objectPlural: 'annotations' },
     { key: 'approvals', objectName: 'Approvals', objectPlural: 'approvals' },

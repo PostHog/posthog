@@ -29,10 +29,10 @@ class SpendLimitSerializer(serializers.Serializer):
         allow_null=True,
         help_text=f"{_WINDOW_HELP_TEXT} Null when no limit is set.",
     )
-    enforced = serializers.BooleanField(
+    enforceable = serializers.BooleanField(
         help_text=(
-            "Whether the gateway can hold spend for this deployment. False means no limit can be set here, so any "
-            "limit shown in the app informs only."
+            "Whether this deployment's gateway can hold and enforce a spend limit for this person. False means no "
+            "limit can be set here, so any limit shown in the app informs only."
         ),
     )
 

@@ -9,11 +9,12 @@ request or response shapes, so the gateway can change behind it.
 from posthog.models.user import User
 
 from .. import logic
-from ..logic import SpendLimitsUnavailable, SpendLimitsUnsupported
+from ..logic import SpendLimitsRejected, SpendLimitsUnavailable, SpendLimitsUnsupported
 from .contracts import SpendLimit
 
 __all__ = [
     "SpendLimit",
+    "SpendLimitsRejected",
     "SpendLimitsUnavailable",
     "SpendLimitsUnsupported",
     "clear_spend_limit",
