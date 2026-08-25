@@ -3,9 +3,18 @@
 #
 # This is the CI move of the terminal bake in
 # products/tasks/management/commands/bake_hogland_snapshot.py: instead of an
-# engineer running the bake from a laptop, a runner joins the hogland tailnet,
-# builds the seed box from setup-golden.sh, smoke-tests the candidate, and only
-# then re-points the live alias — with a dated archive alias for rollback.
+# engineer running the bake from a laptop, a runner renders the agent skills,
+# joins the hogland tailnet, builds the seed box from box primitives + a delivered
+# payload, smoke-tests the candidate, and only then re-points the live alias —
+# with a dated archive alias for rollback.
+#
+# Skills delivery (the crux): the golden must ship the SAME merged, rendered skills
+# the Modal image ships, but WITHOUT depending on the sandbox-base image. So a
+# `render_skills` job renders them itself with a database — the same
+# `hogli build:skills` mechanism the image build uses — and merges in the
+# context-mill skills, exactly as cd-sandbox-base-image.yml's build_skills job does.
+# The bake job streams that rendered set into the seed box over the box's own SSH
+# (see bake-golden.sh). No GHCR image, no public artifact host.
 #
 # Modal / Dockerfile.sandbox-base is deliberately untouched: this bakes the same
 # contents into a hogland snapshot, it does not change the container image path.
@@ -38,8 +47,8 @@ on:
                 description: 'Only bake this cluster (blank = all armed clusters)'
                 required: false
                 default: ''
-            image_tag:
-                description: 'posthog-sandbox-base image tag to source skills + @posthog/agent from (blank = master)'
+            ref:
+                description: 'PostHog ref/SHA to render the skills from (blank = this workflow''s checkout ref, i.e. master on schedule)'
                 required: false
                 default: ''
     schedule:
@@ -60,11 +69,132 @@ concurrency:
     cancel-in-progress: false
 
 jobs:
+    # Render the agent skills the golden ships, the same way the sandbox-base image
+    # build does (cd-sandbox-base-image.yml's build_skills job): stand up a DB,
+    # uv sync, migrate, `hogli build:skills` to render the .md.j2 templates, then
+    # merge in the context-mill skills. Upload the merged set as an artifact the
+    # bake job delivers into the box. Rendered once here, reused by every cluster.
+    #
+    # Shares the master arm gate so an unarmed nightly does not pay for a full DB
+    # render; when it skips, the bake job (needs) skips too, keeping the no-op.
+    render_skills:
+        if: vars.HOG_TASKS_GOLDEN_ENABLED == 'true'
+        name: Render agent skills from source
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+        permissions:
+            contents: read
+
+        steps:
+            - name: Check out posthog
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event.inputs.ref || github.sha }}
+
+            - name: Start Docker services
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+              run: bin/ci-wait-for-docker launch
+
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version-file: 'pyproject.toml'
+                  token: ${{ github.token }}
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.28'
+                  enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+
+            - name: Install python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@3c5f7ea28cd621ae0bf5283f0e981fb97b8a7af9
+              with:
+                  toolchain: stable
+                  components: cargo
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+              with:
+                  shared-key: 'v2-rust-skills'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
+
+            - name: Install sqlx-cli
+              uses: ./.github/actions/setup-sqlx-cli
+
+            - name: Wait for Docker services
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+              run: bin/ci-wait-for-docker wait
+
+            - name: Run migrations
+              env:
+                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+                  REDIS_URL: 'redis://localhost'
+                  OBJECT_STORAGE_ENABLED: 'False'
+                  TEST: 1
+                  DEBUG: 1
+              run: |
+                  DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
+                    sqlx database create
+                  DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
+                    sqlx migrate run --source rust/persons_migrations/
+                  python manage.py migrate --noinput
+                  python manage.py setup_dev --no-data
+
+            - name: Build skills
+              env:
+                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+                  REDIS_URL: 'redis://localhost'
+                  OBJECT_STORAGE_ENABLED: 'False'
+                  TEST: 1
+                  DEBUG: 1
+              run: ./bin/hogli build:skills
+
+            - name: Download context-mill skills
+              run: |
+                  CONTEXT_MILL_ZIP_URL="https://github.com/PostHog/context-mill/releases/latest/download/skills-mcp-resources.zip"
+                  TARGET_DIR="products/posthog_ai/dist/skills"
+                  tmp_dir=$(mktemp -d)
+                  trap 'rm -rf "$tmp_dir"' EXIT
+                  echo "Downloading context-mill skills from ${CONTEXT_MILL_ZIP_URL}..."
+                  curl -fsSL --retry 2 --retry-delay 3 -o "$tmp_dir/cm.zip" "$CONTEXT_MILL_ZIP_URL"
+                  unzip -q -o "$tmp_dir/cm.zip" -d "$tmp_dir/outer"
+                  mkdir -p "$TARGET_DIR"
+                  count=0
+                  while read -r inner_zip; do
+                      skill_name="$(basename "$inner_zip" .zip)"
+                      skill_name="${skill_name#omnibus-}"
+                      skill_dir="$TARGET_DIR/$skill_name"
+                      mkdir -p "$skill_dir"
+                      unzip -q -o "$inner_zip" -d "$skill_dir"
+                      find "$skill_dir" -name 'SKILL.md' -type f -exec sed -i 's/^\(name: *\)omnibus-/\1/' {} +
+                      count=$((count + 1))
+                  done < <(find "$tmp_dir/outer" -name 'omnibus-*.zip' -type f)
+                  echo "Installed ${count} context-mill skills into ${TARGET_DIR}"
+
+            - name: Upload rendered skills
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: tasks-golden-skills
+                  path: products/posthog_ai/dist/skills/
+                  retention-days: 1
+
     bake:
         # Arming gate: stay a deliberate no-op until the operator provisions the
         # service-account principal + github_oidc TrustMapping + tailnet reach
         # and sets HOG_TASKS_GOLDEN_ENABLED=true. Mirrors golden-snapshots.yml's
-        # HOG_GOLDEN_ENABLED gate.
+        # HOG_GOLDEN_ENABLED gate. `needs: render_skills` — when render skips
+        # (unarmed), this skips too.
+        needs: render_skills
         if: vars.HOG_TASKS_GOLDEN_ENABLED == 'true'
         name: Bake and promote the tasks golden snapshot
         runs-on: depot-ubuntu-24.04
@@ -96,6 +226,8 @@ jobs:
         steps:
             - name: Check out posthog
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event.inputs.ref || github.sha }}
 
             # Skip clusters not requested when running manually with the input set.
             - name: Filter cluster
@@ -111,6 +243,28 @@ jobs:
               run: |
                   echo "::notice::${{ matrix.cluster }} tasks golden bake skipped — set HOG_TASKS_GOLDEN_PROD_ENABLED=true once the ${{ matrix.cluster }} principal + TrustMapping exist"
                   echo "skip=true" >> "$GITHUB_ENV"
+
+            # The rendered skills the golden ships, produced by render_skills. Land
+            # them where build_skills / install-skills.sh expect, then tar the set
+            # for bake-golden.sh to stream into the box.
+            - name: Download rendered skills
+              if: env.skip != 'true'
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: tasks-golden-skills
+                  path: products/posthog_ai/dist/skills/
+
+            - name: Tar rendered skills
+              if: env.skip != 'true'
+              run: |
+                  set -euo pipefail
+                  SRC=products/posthog_ai/dist/skills
+                  if [ -z "$(find "$SRC" -mindepth 1 -maxdepth 1 -type d 2>/dev/null)" ]; then
+                    echo "no rendered skills found under $SRC" >&2
+                    exit 1
+                  fi
+                  tar -czf "$RUNNER_TEMP/golden-skills.tar.gz" -C "$SRC" .
+                  echo "SKILLS_TARBALL=$RUNNER_TEMP/golden-skills.tar.gz" >> "$GITHUB_ENV"
 
             # The hogland CLI lives in the private PostHog/hogland repo. Check it
             # out with a scoped App token and build it, mirroring
@@ -159,9 +313,9 @@ jobs:
                   audience: ${{ vars.TS_HOGLAND_CI_AUDIENCE }}
                   tags: tag:hogland-ci
 
-            # Ephemeral keypair for this run. snapshot-build bakes the PUBLIC half
-            # into the seed box and SSH-polls the success marker with the PRIVATE
-            # half; the smoke box is reached with the same key.
+            # Ephemeral keypair for this run. bake-golden.sh bakes the PUBLIC half
+            # into the seed box on create and reaches it with the PRIVATE half; the
+            # smoke box is reached with the same key.
             - name: Generate ephemeral ssh key
               if: env.skip != 'true'
               run: |
@@ -169,44 +323,42 @@ jobs:
                   ssh-keygen -t ed25519 -f "$RUNNER_TEMP/tasks_golden_key" -N "" -C tasks-golden-ci
                   echo "GOLDEN_SSH_KEY=$RUNNER_TEMP/tasks_golden_key" >> "$GITHUB_ENV"
 
-            # Build into the CANDIDATE alias — no live consumer points at this
-            # name, so a bad build can't poison task runs. The guards + cpu
-            # sampler ride in as --inline-file (small, fixed); the rendered skills
-            # and the pinned @posthog/agent are copied out of the sandbox-base
-            # image by setup-golden.sh. snapshot-build has no --env, so the one
-            # knob (which image tag to source) is templated into a rendered copy
-            # of the setup script here. Golden shape is the task sandbox shape:
-            # 4 CPU / 16 GiB / 64 GiB.
-            - name: snapshot-build (candidate)
+            # Resolve the published @posthog/agent version so the golden pins an
+            # exact, reproducible agent-server — decoupled from any image. Mirrors
+            # cd-sandbox-base-image.yml's agent-version resolve.
+            - name: Resolve published agent version
               if: env.skip != 'true'
-              env:
-                  # Untrusted dispatch input reaches the shell only through env,
-                  # never ${{ }} interpolation into run: (semgrep shell-injection).
-                  IMAGE_TAG: ${{ github.event.inputs.image_tag }}
+              id: agent-version
               run: |
                   set -euo pipefail
-                  IMG=products/tasks/backend/sandbox/images
-                  TAG="${IMAGE_TAG:-master}"
-                  # Constrain the tag to characters a valid ghcr tag/ref uses, so
-                  # it cannot smuggle sed metacharacters into the substitution.
-                  if ! printf '%s' "$TAG" | grep -Eq '^[A-Za-z0-9._/-]+$'; then
-                    echo "invalid image_tag: $TAG" >&2
+                  version=$(curl -fsSL --retry 3 https://registry.npmjs.org/@posthog%2fagent/latest | jq -r '.version')
+                  if [[ -z "$version" || "$version" == "null" ]]; then
+                    echo "Could not resolve the latest @posthog/agent version" >&2
                     exit 1
                   fi
-                  RENDERED="$RUNNER_TEMP/setup-golden.rendered.sh"
-                  sed "s|__SANDBOX_IMAGE_TAG__|${TAG}|g" \
-                    "$IMG/hogland/setup-golden.sh" > "$RENDERED"
-                  hogland snapshot-build \
-                    --alias posthog-tasks-candidate \
-                    --setup-script "$RENDERED" \
-                    --inline-file "$IMG/git-guard.sh:/opt/posthog/bin/git:0755" \
-                    --inline-file "$IMG/gh-guard.sh:/opt/posthog/bin/gh:0755" \
-                    --inline-file "$IMG/cpu_billing_sampler.py:/usr/local/bin/posthog-cpu-billing-sampler:0755" \
-                    --ssh-key "$GOLDEN_SSH_KEY.pub" \
-                    --cpus 4 \
-                    --memory-mib 16384 \
-                    --disk-gib 64 \
-                    --timeout 90m
+                  echo "version=$version" >> "$GITHUB_OUTPUT"
+
+            # Build into the CANDIDATE alias — no live consumer points at this
+            # name, so a bad build can't poison task runs. bake-golden.sh boots a
+            # bare seed box from box primitives, streams the payload (guards + cpu
+            # sampler + the rendered-skills tarball + install-skills.sh +
+            # setup-golden.sh) in over the box's SSH, runs setup-golden.sh, then
+            # snapshots and points the candidate alias at it. Golden shape is the
+            # task sandbox shape: 4 CPU / 16 GiB / 64 GiB.
+            - name: Bake candidate snapshot (box primitives)
+              if: env.skip != 'true'
+              env:
+                  ALIAS: posthog-tasks-candidate
+                  SSH_KEY: ${{ env.GOLDEN_SSH_KEY }}
+                  IMAGES_DIR: products/tasks/backend/sandbox/images
+                  SKILLS_TARBALL: ${{ env.SKILLS_TARBALL }}
+                  AGENT_VERSION: ${{ steps.agent-version.outputs.version }}
+                  BOX_CPUS: '4'
+                  BOX_MEM_MIB: '16384'
+                  BOX_DISK_GIB: '64'
+              run: |
+                  set -euo pipefail
+                  bash products/tasks/backend/sandbox/images/hogland/bake-golden.sh
 
             # Boot a smoke box from the candidate, run the tasks readiness
             # contract, delete. Non-zero => DO NOT promote, so the live alias

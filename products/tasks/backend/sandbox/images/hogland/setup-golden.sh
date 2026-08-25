@@ -1,44 +1,45 @@
 #!/usr/bin/env bash
 # First-boot setup for the PostHog *tasks* golden snapshot.
 #
-# `hogland snapshot-build --setup-script` runs this once as root inside a fresh
-# seed box, then snapshots the result and points an alias at it.
+# `bake-golden.sh` runs this once as root inside a fresh seed box (over SSH),
+# then `box snapshot`s the result and points an alias at it.
 # `HoglandSandbox.create` restores every task sandbox from that alias, so a
 # rebuild here is the hogland equivalent of publishing a new base image tag.
-#
-#   hogland snapshot-build \
-#     --alias posthog-tasks-candidate \
-#     --setup-script products/tasks/backend/sandbox/images/hogland/setup-golden.sh \
-#     --inline-file products/tasks/backend/sandbox/images/git-guard.sh:/opt/posthog/bin/git:0755 \
-#     --inline-file products/tasks/backend/sandbox/images/gh-guard.sh:/opt/posthog/bin/gh:0755 \
-#     --inline-file products/tasks/backend/sandbox/images/cpu_billing_sampler.py:/usr/local/bin/posthog-cpu-billing-sampler:0755 \
-#     --cpus 4 --memory-mib 16384 --disk-gib 64 --timeout 90m
 #
 # The steps here reconstruct products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
 # over exec. That Dockerfile stays the source of truth for what a task sandbox
 # contains; keep the pins below in sync with its ARGs.
 #
-# Content delivery (the crux): snapshot-build has no file-push or exec API, only
-# --inline-file (a heredoc capped at 256 KiB of bootstrap) and this script, which
-# runs *inside* the box. So content arrives two ways:
-#   * small, fixed posthog-owned files (the git/gh guards, the cpu sampler) ride
-#     in as --inline-file, the way the devbox persona lays down its overlay units.
-#   * the rendered skills and the @posthog/agent build both come from the already
-#     published ghcr.io/posthog/posthog-sandbox-base image. The CD image build
-#     renders the skill .md.j2 templates with a database (build:skills), merges in
-#     the context-mill skills, and bakes the result at fixed paths; it also pins a
-#     resolved @posthog/agent version. We `docker pull` that image inside the box
-#     and `docker cp` those artifacts straight out, so the golden ships the SAME
-#     rendered skills + agent the image ships. The image tag (templated in by the
-#     workflow, default master) is the single knob for what the golden tracks.
+# Content delivery (the crux): the CI runner renders the skills itself with a
+# database (the same `hogli build:skills` mechanism the Modal image build uses)
+# and merges in the context-mill skills, then `bake-golden.sh` delivers the whole
+# set into the box over SSH. Nothing is fished out of a published image. Content
+# arrives two ways, both from `bake-golden.sh` before this script runs:
+#   * small, fixed posthog-owned files (the git/gh guards, the cpu sampler) are
+#     streamed to their target paths with mode 0755; this script only verifies
+#     them (`test -x`), so they are ready before the checks below.
+#   * the rendered skills tarball (SKILLS_TARBALL) and the shared installer
+#     (INSTALL_SKILLS, the same install-skills.sh the image uses) are streamed in
+#     too. This script extracts the tarball and runs the installer, so the golden
+#     lands the SAME merged, rendered skills at the SAME paths the image uses.
+# `@posthog/agent` is npm-installed here at AGENT_VERSION (default latest; the
+# workflow resolves and pins an exact version), decoupled from any image.
 #
-# Do NOT write a success sentinel here: `hogland snapshot-build` appends
-# `touch /var/lib/hog/snapshot-build-ok` as the final action and SSH-polls for it
-# before snapshotting. `set -e` below is what makes that marker mean "every step
-# passed" — a failing step aborts before the marker is written.
+# Success detection is the caller's: `bake-golden.sh` runs this over SSH and
+# checks its exit code before snapshotting. `set -e` below makes a failing step
+# abort with non-zero, so a broken bake never reaches `box snapshot`.
+#
+# Required env (set by bake-golden.sh over SSH):
+#   SKILLS_TARBALL — path in the box to the rendered-skills tarball (.tar.gz)
+#   INSTALL_SKILLS — path in the box to install-skills.sh
+#   AGENT_VERSION  — @posthog/agent version to install (default: latest)
 
 set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
+
+: "${SKILLS_TARBALL:?SKILLS_TARBALL is required (path in-box to the rendered-skills tarball)}"
+: "${INSTALL_SKILLS:?INSTALL_SKILLS is required (path in-box to install-skills.sh)}"
+AGENT_VERSION="${AGENT_VERSION:-latest}"
 
 # --- Version pins, mirrored from Dockerfile.sandbox-base ARGs -----------------
 GIT_VERSION=2.49.1
@@ -53,22 +54,6 @@ AGENTSH_SHA256_ARM64=d1393a27943d207442ea077b1d36d9561a8af5613e7b67d9f7d4fafd006
 RTK_VERSION=0.43.0
 RTK_SHA256_AMD64=ff8a1e7766496e175291a85aeca1dc97c9ff6df33e51e5893d1fbc78fea2a609
 RTK_SHA256_ARM64=5519f7ca12e5c143a609f0d28a0a77b97413a8dce31c2681f1a41c24519a8731
-
-# Which posthog-sandbox-base image to source the rendered skills + the pinned
-# @posthog/agent from. The workflow substitutes the tag at assembly time (default
-# master; a workflow_dispatch input can override it); a hand run leaves the
-# placeholder untouched and falls back to master. This tag is the single knob for
-# what the golden tracks — bump it to move the golden to a different image build.
-IMAGE_TAG="__SANDBOX_IMAGE_TAG__"
-# Detect the un-substituted placeholder (a hand run that skipped the workflow's
-# sed) and fall back to master. The sentinel is split so the workflow's global
-# sed — which matches the contiguous token — replaces only the assignment above,
-# never this comparison; bash concatenates the two literals back at runtime.
-placeholder='__SANDBOX''_IMAGE_TAG__'
-if [ -z "$IMAGE_TAG" ] || [ "$IMAGE_TAG" = "$placeholder" ]; then
-    IMAGE_TAG="master"
-fi
-IMAGE_REF="ghcr.io/posthog/posthog-sandbox-base:${IMAGE_TAG}"
 
 APT_PACKAGES="curl wget git vim nano tree htop unzip zip jq \
 build-essential pkg-config musl \
@@ -172,65 +157,44 @@ tar -xzf /tmp/rtk.tar.gz -C /usr/local/bin rtk
 rm /tmp/rtk.tar.gz
 rtk --version
 
-# --- Image-sourced content: rendered skills + pinned @posthog/agent -----------
-# The rendered skills need a database to expand their .md.j2 templates, which is
-# only available in the CD image build. Rather than reproduce that here, pull the
-# published image and copy the already-rendered artifacts straight out of it, so
-# the golden is content-equivalent to the image. The image is public on ghcr.io,
-# so an anonymous `docker pull` works — no registry login is needed in the box.
-log "sandbox-base image: pull ${IMAGE_REF}"
-command -v docker >/dev/null 2>&1 || {
-    echo "docker is required in the seed box to source skills + agent from ${IMAGE_REF}" >&2
-    exit 1
-}
-docker pull "$IMAGE_REF"
-img_cid="$(docker create "$IMAGE_REF")"
-cleanup_img_cid() { [ -n "${img_cid:-}" ] && docker rm -f "$img_cid" >/dev/null 2>&1 || true; }
-trap cleanup_img_cid EXIT
-
-log "@posthog/agent in /scripts (version pinned to ${IMAGE_REF})"
-# Pin to the exact @posthog/agent the image baked so the golden's agent-server
-# matches it. Reading the version from the image keeps the image tag the one knob
-# rather than resolving @latest independently (which could drift from the image).
-agent_pkg_dir="$(mktemp -d)"
-docker cp "$img_cid:/scripts/node_modules/@posthog/agent/package.json" "$agent_pkg_dir/package.json"
-AGENT_VERSION="$(jq -r '.version // empty' "$agent_pkg_dir/package.json")"
-rm -rf "$agent_pkg_dir"
-[ -n "$AGENT_VERSION" ] || { echo "could not read @posthog/agent version from ${IMAGE_REF}" >&2; exit 1; }
+# --- Agent SDK: @posthog/agent, npm-installed at AGENT_VERSION ----------------
+# Mirrors Dockerfile.sandbox-base's `npm install @posthog/agent@${AGENT_VERSION}`
+# into /scripts. The workflow resolves and pins an exact published version so the
+# golden's agent-server is reproducible; a hand run defaults to latest.
 log "@posthog/agent@${AGENT_VERSION} in /scripts"
 mkdir -p /scripts
 (cd /scripts && npm init -y && npm install "@posthog/agent@${AGENT_VERSION}")
 test -x /scripts/node_modules/.bin/agent-server
 
-log "skills: copy rendered skills out of ${IMAGE_REF}"
-# The image was built with the same install-skills.sh, which lands the rendered
-# skills at these exact paths (running as root, so HOME=/root). Copy them
-# byte-for-byte into the same paths here. This replaces both the old sparse-clone
-# of the skill sources and the context-mill zip fetch: the image already merges
-# PostHog + context-mill skills, rendered.
-mkdir -p /scripts/plugins /root/.agents /root/.claude
-docker cp "$img_cid:/scripts/plugins/posthog" /scripts/plugins/
-docker cp "$img_cid:/root/.agents/skills" /root/.agents/
-docker cp "$img_cid:/root/.claude/skills" /root/.claude/
-docker rm -f "$img_cid" >/dev/null
-img_cid=""
-trap - EXIT
-# Drop the pulled image so it does not bloat the snapshot; the box never runs it.
-docker rmi -f "$IMAGE_REF" >/dev/null 2>&1 || true
+# --- Skills: install the runner-rendered set from the delivered tarball -------
+# The CI runner renders the skills with a database (hogli build:skills) and merges
+# in the context-mill skills, exactly as the Modal image build does, then delivers
+# the result as SKILLS_TARBALL. Extract it and run the SAME install-skills.sh the
+# image uses (delivered as INSTALL_SKILLS), so the golden lands the merged, rendered
+# skills at the SAME paths: /scripts/plugins/posthog/skills, /root/.agents/skills,
+# /root/.claude/skills, plus /scripts/plugins/posthog/plugin.json. install-skills.sh
+# keys off $HOME, so pin it to /root (this script runs as root in the box).
+log "skills: install runner-rendered set from ${SKILLS_TARBALL}"
+test -f "$SKILLS_TARBALL" || { echo "SKILLS_TARBALL ${SKILLS_TARBALL} not found in box" >&2; exit 1; }
+test -f "$INSTALL_SKILLS" || { echo "INSTALL_SKILLS ${INSTALL_SKILLS} not found in box" >&2; exit 1; }
+skills_extract_dir="$(mktemp -d)"
+tar -xzf "$SKILLS_TARBALL" -C "$skills_extract_dir"
+HOME=/root bash "$INSTALL_SKILLS" "$skills_extract_dir"
+rm -rf "$skills_extract_dir"
 
-# Fail closed: a broken pull or an empty skills copy must not ship a golden that
+# Fail closed: an empty tarball or a broken install must not ship a golden that
 # silently lost its skills.
 for skills_target in /scripts/plugins/posthog/skills /root/.agents/skills /root/.claude/skills; do
     find "$skills_target" -name 'SKILL.md' -type f 2>/dev/null | grep -q . || {
-        echo "no SKILL.md found under ${skills_target} after copying from ${IMAGE_REF}" >&2
+        echo "no SKILL.md found under ${skills_target} after installing ${SKILLS_TARBALL}" >&2
         exit 1
     }
 done
 
-log "guards + cpu sampler (delivered as --inline-file)"
-# The git/gh guards and the cpu sampler arrive as --inline-file (see the header),
-# so they already exist at their target paths with mode 0755. The final verify
-# below fails the bake if a hand run omitted those flags.
+log "guards + cpu sampler (delivered over ssh by bake-golden.sh)"
+# The git/gh guards and the cpu sampler are streamed to their target paths with
+# mode 0755 by bake-golden.sh before this script runs. The final verify below
+# fails the bake if a hand run omitted them.
 test -x /opt/posthog/bin/git
 test -x /opt/posthog/bin/gh
 test -x /usr/local/bin/posthog-cpu-billing-sampler

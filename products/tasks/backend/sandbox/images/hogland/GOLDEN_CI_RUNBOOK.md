@@ -16,27 +16,36 @@ same contents into a hogland snapshot, it does not change the container image.
 
 ## What the workflow does
 
-1. Joins the hogland tailnet as `tag:hogland-ci` (the tag whose ACL reaches the
+1. `render_skills` job — renders the agent skills the golden ships, the same way
+   the sandbox-base image build does (`cd-sandbox-base-image.yml`'s `build_skills`
+   job): stands up a DB, `uv sync`s, migrates, runs `hogli build:skills` to expand
+   the skill `.md.j2` templates, then merges in the context-mill skills. Uploads
+   the merged set as the `tasks-golden-skills` artifact. Rendered once, reused by
+   every cluster. It shares the master arm gate, so an unarmed nightly does not
+   pay for a full DB render.
+2. Joins the hogland tailnet as `tag:hogland-ci` (the tag whose ACL reaches the
    `tag:hogplane` device serving the API).
-2. Authenticates to hogplane as a per-cluster `svc-ci-*` service-account
+3. Authenticates to hogplane as a per-cluster `svc-ci-*` service-account
    principal via GitHub OIDC — no stored bearer. The CLI mints the token from the
    Actions OIDC endpoint and re-mints on any mid-bake 401 via `HOG_TOKEN_COMMAND`,
    because a golden bake runs ~90 min while an OIDC token lives ~5 min.
-3. Builds the `hogland` CLI from a scoped checkout of `PostHog/hogland`.
-4. `hogland snapshot-build --alias posthog-tasks-candidate --setup-script
-setup-golden.sh` — builds a seed box, runs the setup script inside it,
-   snapshots it, and points the candidate alias at the snapshot. Inside the box,
-   `setup-golden.sh` `docker pull`s `ghcr.io/posthog/posthog-sandbox-base` and
-   copies the rendered skills and the pinned `@posthog/agent` out of it, so the
-   golden is content-equivalent to the image. The image tag is templated into the
-   setup script at assembly time (default `master`; the `image_tag`
-   `workflow_dispatch` input overrides it).
-5. Boots a smoke box from `posthog-tasks-candidate`, runs `smoke-golden.sh`
+4. Builds the `hogland` CLI from a scoped checkout of `PostHog/hogland`.
+5. `bake-golden.sh` — decomposes the bake into box primitives instead of
+   `hogland snapshot-build` (whose <=256 KiB bootstrap cannot carry the multi-MB
+   skills set). It `box create`s a bare seed box (cold boot, `--no-connect`),
+   streams the payload into the box over the box's own SSH (`cat >` — the git/gh
+   guards, the cpu sampler, the rendered-skills tarball, `install-skills.sh`, and
+   `setup-golden.sh`), runs `setup-golden.sh` in the box, then `box snapshot`s the
+   result and points the candidate alias at it. `setup-golden.sh` installs
+   node/uv/tools/agentsh fresh, npm-installs `@posthog/agent` at the version the
+   workflow resolved, and installs the delivered skills. No GHCR image and no
+   public artifact host are involved — delivery rides the box's SSH.
+6. Boots a smoke box from `posthog-tasks-candidate`, runs `smoke-golden.sh`
    (agent-server starts; a trivial clone + exec works; the hogpanion exec daemon
    is running with the container-style env), and deletes it. A smoke failure
    skips promotion, leaving `posthog-tasks-default` on the previous known-good
    snapshot.
-6. On success, re-points `posthog-tasks-default` at the candidate's snapshot and
+7. On success, re-points `posthog-tasks-default` at the candidate's snapshot and
    stamps a dated archive alias `posthog-tasks-default-YYYYMMDD` for rollback.
 
 The matrix covers **dev** and **prod-us**. **prod-eu is deferred** to the EU
@@ -90,7 +99,10 @@ For **each** cluster the workflow targets (dev, then prod-us):
 
 - Manual: Actions → "Tasks Golden Snapshot CD" → Run workflow. Leave `cluster`
   blank to bake every armed cluster, or set it to `dev` / `prod-us` to bake one.
-- Nightly: the `schedule` cron fires daily but only bakes armed clusters.
+  Leave `ref` blank to render the skills from the workflow's checkout ref, or set
+  it to a branch or SHA to bake a reproducible golden from that ref.
+- Nightly: the `schedule` cron fires daily but only bakes armed clusters,
+  rendering from `master`.
 
 ## Rollback
 
@@ -130,12 +142,14 @@ hogland snapshot alias <snapshot_id> posthog-tasks-default
 - **No quiet-deploy-window guard.** hogland's own golden workflow waits for a
   quiet hogd rollout window; this workflow does not (that needs cross-repo API
   access to hogland's deploy runs). A hogd rollout racing the bake orphans the
-  seed box, which just times out `snapshot-build` and skips promotion — safe, but
-  a wasted run. Consider adding the guard in a later phase.
-- **The golden tracks the sandbox-base image tag (default `master`).**
-  `setup-golden.sh` sources the rendered skills and the pinned `@posthog/agent`
-  from `ghcr.io/posthog/posthog-sandbox-base:<tag>`, so the image tag is the one
-  knob for what the golden tracks. It defaults to `master`; pass the `image_tag`
-  `workflow_dispatch` input to bake against a specific `:sha` build for a
-  reproducible golden. The image is public on ghcr.io, so the in-box `docker pull`
-  needs no registry login.
+  seed box, which fails the in-box SSH steps and skips promotion — safe, but a
+  wasted run. Consider adding the guard in a later phase.
+- **The golden tracks the render ref (default this workflow's checkout ref).**
+  The `render_skills` job checks out PostHog at that ref and renders the skills
+  from it, and `setup-golden.sh` reconstructs `Dockerfile.sandbox-base` from the
+  same checkout — so the ref is the one knob for what the golden tracks. On the
+  nightly schedule this is `master`; pass the `ref` `workflow_dispatch` input to
+  bake from a specific branch or SHA for a reproducible golden. `@posthog/agent`
+  is decoupled from the ref: the workflow resolves the latest published version
+  and pins it into the bake, so the golden's agent-server is reproducible without
+  depending on any image.
