@@ -229,6 +229,7 @@ class TestCreateTableFromUpload(APIBaseTest):
             == f"https://warehouse.posthog.test/file_uploads/team_{self.team.pk}/{upload_id}/orders.csv"
         )
         assert table.columns == FAKE_COLUMNS
+        assert table.created_via == DataWarehouseTable.CreatedVia.WEB
         # No pipeline source is created — this is the whole point of the self-managed shape.
         assert ExternalDataSource.objects.count() == 0
 

@@ -65,6 +65,7 @@ from products.data_warehouse.backend.facade.backfill_status import BackfillOutco
 from products.managed_warehouse.backend.facade.api import EARLIEST_BACKFILL_DATE, NO_HISTORY_SENTINEL
 from products.managed_warehouse.backend.facade.client import ServiceCredential, ServiceCredentialUnavailable
 from products.managed_warehouse.backend.facade.contracts import (
+    DucklingTables,
     ManagedWarehouseTableNames,
     ManagedWarehouseTeamMembership,
     ServiceCredentialConnect,
@@ -179,14 +180,14 @@ class TestResolveTableNames:
     def test_passes_through_resolved_names(self):
         with patch(
             "posthog.dags.events_backfill_to_duckling.resolve_events_persons_tables",
-            return_value=("events_alpha", "persons_alpha"),
+            return_value=DucklingTables(events_table="events_alpha", persons_table="persons_alpha"),
         ):
             assert _resolve_table_names(1) == ("events_alpha", "persons_alpha")
 
     def test_unsafe_resolved_name_is_rejected(self):
         with patch(
             "posthog.dags.events_backfill_to_duckling.resolve_events_persons_tables",
-            return_value=("events_a-b; DROP", "persons"),
+            return_value=DucklingTables(events_table="events_a-b; DROP", persons_table="persons"),
         ):
             with pytest.raises(ValueError):
                 _resolve_table_names(1)

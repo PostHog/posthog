@@ -329,7 +329,9 @@ function usePiSubmit(
       );
       void controller
         .submit(taskId, message, isStreaming, messagingMode, pendingConfig)
-        .then(() => onSuccess(action))
+        .then(() => {
+          onSuccess(action);
+        })
         .catch((error) => {
           handleControllerError(
             error,
@@ -739,7 +741,9 @@ export function PiSessionView({ task, isCloud }: PiSessionViewProps) {
         ) : (
           <PromptInput
             sessionId={taskId}
-            toolbarEndSlot={<ContextUsageIndicator usage={contextUsage} />}
+            toolbarEndSlot={
+              <ContextUsageIndicator usage={contextUsage} taskId={taskId} />
+            }
             taskId={taskId}
             repoPath={repoPath}
             placeholder="Type a message..."

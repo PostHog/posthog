@@ -14,7 +14,9 @@ semantic layers — fetched lazily only when these tables are queried.
 """
 
 import json
+import uuid
 import hashlib
+from collections import defaultdict
 from typing import TYPE_CHECKING, Any, NamedTuple, Optional
 
 from django.db.models import Q
@@ -22,6 +24,7 @@ from django.db.models import Q
 import structlog
 
 from posthog.hogql import ast
+from posthog.hogql.database.data_catalog_metrics import record_catalog_read, record_catalog_read_failure
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DANGEROUS_NoTeamIdCheckTable,
@@ -51,6 +54,8 @@ from posthog.hogql.database.models import (
 )
 from posthog.hogql.database.schema.table_descriptions import TableDescriptions
 from posthog.hogql.errors import BaseHogQLError
+
+from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
     from posthog.hogql.context import HogQLContext
@@ -169,9 +174,11 @@ def _classify_table(name: str, table: Table, warehouse: set[str], views: set[str
         return "information_schema", "information_schema"
     if name.startswith("system."):
         return "system", "system"
+    if isinstance(table, SavedQuery):
+        return "view", "views"
     if name in warehouse:
         return "data_warehouse", "warehouse"
-    if name in views or isinstance(table, SavedQuery):
+    if name in views:
         return "view", "views"
     return "posthog", "public"
 
@@ -203,35 +210,34 @@ class _CollectedRelationship(NamedTuple):
 class _WarehouseMetadata(NamedTuple):
     row_counts: dict[str, Optional[int]]
     view_row_counts: dict[str, Optional[int]]
-    materialized_view_ids: dict[str, str]
+    saved_query_ids_by_name: dict[str, str]
     column_stats: dict[tuple[str, str], _ColumnStats]
 
 
 def _warehouse_metadata(team_id: Optional[int]) -> _WarehouseMetadata:
     """Lazily load warehouse row counts and column statistics for the team.
 
-    Returns `(row_counts, view_row_counts, materialized_view_ids, column_stats)`. The view IDs retain
-    saved-query identity when a materialized view resolves to its backing warehouse table. Only runs
-    when an information_schema table is actually queried, so it never touches the hot
-    `create_hogql_database` path. Mirrors how `serialize_database` sources counts so the catalog and
-    the SQL-editor schema agree.
+    Returns `(row_counts, view_row_counts, saved_query_ids_by_name, column_stats)`. The name→id map
+    covers every live saved query, so a view keeps its saved-query identity even when the catalog
+    object resolves to something else (a materialized backing table, or a revenue-analytics view
+    whose `id` is not a saved-query id). Only runs when an information_schema table is actually
+    queried, so it never touches the hot `create_hogql_database` path. Mirrors how
+    `serialize_database` sources counts so the catalog and the SQL-editor schema agree.
     """
     row_counts: dict[str, Optional[int]] = {}
     view_row_counts: dict[str, Optional[int]] = {}
-    materialized_view_ids: dict[str, str] = {}
+    saved_query_ids_by_name: dict[str, str] = {}
     column_stats: dict[tuple[str, str], _ColumnStats] = {}
     if team_id is None:
-        return _WarehouseMetadata(row_counts, view_row_counts, materialized_view_ids, column_stats)
+        return _WarehouseMetadata(row_counts, view_row_counts, saved_query_ids_by_name, column_stats)
 
     # Inline imports: keeps the products dependency off the hogql import path (avoids an import
     # cycle, since products import hogql) and off every non-information_schema query.
     from posthog.models.scoping import team_scope  # noqa: PLC0415
 
     from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
-    from products.warehouse_sources.backend.facade.models import (  # noqa: PLC0415
-        DataWarehouseTable,
-        WarehouseColumnStatistics,
-    )
+    from products.warehouse_sources.backend.facade.api import list_column_statistics  # noqa: PLC0415
+    from products.warehouse_sources.backend.facade.models import DataWarehouseTable  # noqa: PLC0415
 
     try:
         with team_scope(team_id):
@@ -249,32 +255,30 @@ def _warehouse_metadata(team_id: Optional[int]) -> _WarehouseMetadata:
             ):
                 row_counts[table_name] = row_count
             # Views carry their row count on the materialized backing table (`saved_query.table`).
-            for view_id, view_name, row_count in (
+            for view_id, view_name, table_id, row_count in (
                 DataWarehouseSavedQuery.objects.exclude(deleted=True)
-                .filter(team_id=team_id, table__isnull=False)
-                .values_list("id", "name", "table__row_count")
+                .filter(team_id=team_id)
+                .order_by("created_at")
+                .values_list("id", "name", "table_id", "table__row_count")
             ):
-                view_row_counts[view_name] = row_count
-                materialized_view_ids[view_name] = str(view_id)
+                if table_id is not None:
+                    view_row_counts[view_name] = row_count
+                saved_query_ids_by_name[view_name] = str(view_id)
             # Per-column profiling stats (keyed by table UUID + column). Only the columns that have been
             # profiled appear; everything else stays absent (NULL in the catalog).
-            for (
-                table_id,
-                column_name,
-                null_fraction,
-                min_value,
-                max_value,
-            ) in WarehouseColumnStatistics.objects.values_list(
-                "table_id", "column_name", "null_fraction", "min_value", "max_value"
-            ):
-                column_stats[(str(table_id), column_name)] = (null_fraction, min_value, max_value)
+            for stats in list_column_statistics(team_id):
+                column_stats[(str(stats.table_id), stats.column_name)] = (
+                    stats.null_fraction,
+                    stats.min_value,
+                    stats.max_value,
+                )
     except Exception:
         # Schema discovery must never fail a query because the warehouse metadata could not be read,
         # but log so a transient DB error can be told apart from a real bug in the fetch loop.
         logger.exception("information_schema: failed to load warehouse metadata", team_id=team_id)
         return _WarehouseMetadata({}, {}, {}, {})
 
-    return _WarehouseMetadata(row_counts, view_row_counts, materialized_view_ids, column_stats)
+    return _WarehouseMetadata(row_counts, view_row_counts, saved_query_ids_by_name, column_stats)
 
 
 def _unwrap(expr: ast.Expr) -> ast.Expr:
@@ -449,6 +453,13 @@ def _rows_select(
     )
 
 
+@frozen
+class _CollectedCatalog:
+    table_rows: list[list[Any]]
+    column_rows: list[list[Any]]
+    relationships: list[_CollectedRelationship]
+
+
 class _Introspection:
     """Walks the live database once and produces the rows for every information_schema table."""
 
@@ -463,10 +474,10 @@ class _Introspection:
         warehouse_metadata = _warehouse_metadata(context.team_id)
         self.row_counts = warehouse_metadata.row_counts
         self.view_row_counts = warehouse_metadata.view_row_counts
-        self.materialized_view_ids = warehouse_metadata.materialized_view_ids
+        self.saved_query_ids_by_name = warehouse_metadata.saved_query_ids_by_name
         self.column_stats = warehouse_metadata.column_stats
         self.table_descriptions = TableDescriptions.load(context.team_id)
-        self._collected: Optional[tuple[list[list[Any]], list[list[Any]], list[_CollectedRelationship]]] = None
+        self._collected: Optional[_CollectedCatalog] = None
         self._data_catalog_enriched_table_rows: Optional[list[list[Any]]] = None
         self._data_catalog_enriched_relationship_rows: Optional[list[list[Any]]] = None
         # Per-table certification lookup key `(table_type, resource_id)`, parallel to the table rows.
@@ -542,7 +553,7 @@ class _Introspection:
                 return self.column_stats.get((str(table_id), column_name), (None, None, None))
         return (None, None, None)
 
-    def collect(self) -> tuple[list[list[Any]], list[list[Any]], list[_CollectedRelationship]]:
+    def collect(self) -> _CollectedCatalog:
         if self._collected is not None:
             return self._collected
 
@@ -565,7 +576,7 @@ class _Introspection:
             table_type, table_schema = _classify_table(name, table, self.warehouse, self.views)
             row_count = self._row_count(name, table, table_type)
             table_rows.append([name, table_schema, name, table_type, self._table_description(table), row_count])
-            certification_keys.append(_certification_key(name, table, table_type, self.materialized_view_ids))
+            certification_keys.append(_certification_key(name, table, table_type, self.saved_query_ids_by_name))
 
             self._collect_fields(
                 name,
@@ -578,19 +589,20 @@ class _Introspection:
             )
 
         self._table_certification_keys = certification_keys
-        self._collected = (table_rows, column_rows, relationship_rows)
+        self._collected = _CollectedCatalog(
+            table_rows=table_rows, column_rows=column_rows, relationships=relationship_rows
+        )
         return self._collected
 
     def table_rows(self) -> list[list[Any]]:
-        table_rows, _, _ = self.collect()
-        return table_rows
+        return self.collect().table_rows
 
     def data_catalog_enriched_table_rows(self) -> list[list[Any]]:
         if self._data_catalog_enriched_table_rows is not None:
             return self._data_catalog_enriched_table_rows
 
         table_rows = self.table_rows()
-        certifications = _catalog_certifications(self.context, self.allowed_tables)
+        certifications = _catalog_certifications(self.context, self._table_certification_keys)
         # Match each certification to the introspected row by that resource's own id (warehouse table
         # id / saved-query id), not its name: warehouse table names are not unique per team, so a
         # name-keyed lookup could show one table's certification on a same-named sibling.
@@ -601,21 +613,18 @@ class _Introspection:
         return self._data_catalog_enriched_table_rows
 
     def column_rows(self) -> list[list[Any]]:
-        _, column_rows, _ = self.collect()
-        return column_rows
+        return self.collect().column_rows
 
     def relationship_rows(self) -> list[list[Any]]:
-        _, _, relationship_rows = self.collect()
-        return [relationship.values for relationship in relationship_rows]
+        return [relationship.values for relationship in self.collect().relationships]
 
     def data_catalog_enriched_relationship_rows(self) -> list[list[Any]]:
         if self._data_catalog_enriched_relationship_rows is not None:
             return self._data_catalog_enriched_relationship_rows
 
-        _, _, relationships = self.collect()
         accepted_relationships = _catalog_accepted_relationships(self.context, self.allowed_tables)
         enriched_rows: list[list[Any]] = []
-        for relationship in relationships:
+        for relationship in self.collect().relationships:
             confidence, reasoning = (
                 accepted_relationships.get(relationship.provenance_key, (None, None))
                 if relationship.provenance_key is not None
@@ -854,6 +863,54 @@ _METRICS_COLUMNS: list[tuple[str, str]] = [
     ("created_at", _STRING),
 ]
 
+_DATA_QUALITY_CHECKS_COLUMNS: list[tuple[str, str]] = [
+    ("id", _STRING),
+    ("name", _NULLABLE_STRING),
+    ("subject_type", _STRING),
+    ("subject_uuid", _NULLABLE_STRING),
+    ("subject_name", _STRING),
+    ("subject_status", _STRING),
+    ("column_name", _NULLABLE_STRING),
+    ("check_type", _STRING),
+    ("config", _NULLABLE_STRING),
+    ("severity", _STRING),
+    ("enabled", _BOOLEAN),
+    ("last_status", _NULLABLE_STRING),
+    ("last_run_at", _NULLABLE_STRING),
+    ("created_at", _STRING),
+]
+
+_DATA_QUALITY_CHECK_RUNS_COLUMNS: list[tuple[str, str]] = [
+    ("id", _STRING),
+    ("check_id", _NULLABLE_STRING),
+    ("suite_run_id", _STRING),
+    ("subject_type", _STRING),
+    ("subject_uuid", _STRING),
+    ("subject_name", _STRING),
+    ("check_type", _STRING),
+    ("column_name", _NULLABLE_STRING),
+    ("status", _STRING),
+    ("failed_row_count", _NULLABLE_INTEGER),
+    ("observed_value", _NULLABLE_FLOAT),
+    ("error", _NULLABLE_STRING),
+    ("duration_ms", _NULLABLE_INTEGER),
+    ("created_at", _STRING),
+]
+
+_DATA_QUALITY_HEALTH_COLUMNS: list[tuple[str, str]] = [
+    ("subject_type", _STRING),
+    ("subject_uuid", _STRING),
+    ("subject_name", _STRING),
+    ("health", _STRING),
+    ("checks_total", _INTEGER),
+    ("checks_failing", _INTEGER),
+    ("checks_erroring", _INTEGER),
+    ("last_run_at", _NULLABLE_STRING),
+]
+
+# Bounded so a chatty project cannot turn one information_schema query into a full history scan.
+_CHECK_RUNS_WINDOW = 500
+
 _CERTIFICATIONS_COLUMNS: list[tuple[str, str]] = [
     ("id", _STRING),
     ("target_name", _STRING),
@@ -946,6 +1003,7 @@ def _catalog_metrics(context: "HogQLContext", allowed: Optional[frozenset[str]])
     from products.data_catalog.backend.facade.api import compute_drift  # noqa: PLC0415
     from products.data_catalog.backend.facade.models import Metric  # noqa: PLC0415
 
+    record_catalog_read("metrics")
     try:
         denied = context.database._denied_tables if context.database is not None else set()
         queryset = (
@@ -980,12 +1038,174 @@ def _catalog_metrics(context: "HogQLContext", allowed: Optional[frozenset[str]])
             )
         return rows
     except Exception:
+        record_catalog_read_failure("metrics")
         logger.exception("information_schema: failed to load catalog metrics", team_id=team_id)
         return []
 
 
+def _can_read_data_quality(context: "HogQLContext") -> bool:
+    """Whether the caller can read warehouse metadata, mirroring the REST viewsets' resource gate.
+
+    Check rows are derived warehouse metadata -- they name columns and carry compiled queries -- so
+    reading them is warehouse read access (either resource resolves through warehouse_objects).
+    Fails closed with no access-control context (service tokens, shared links).
+    """
+    access_control = context.database.user_access_control if context.database is not None else None
+    if access_control is None:
+        access_control = context.user_access_control
+    if access_control is None:
+        return False
+    return access_control.check_access_level_for_resource(
+        "warehouse_view", "viewer"
+    ) or access_control.check_access_level_for_resource("warehouse_table", "viewer")
+
+
+def _data_quality_checks(context: "HogQLContext", allowed: Optional[frozenset[str]]) -> list[list[Any]]:
+    """Load the team's data quality check definitions as information_schema rows (fail-soft).
+
+    Hides checks whose subject table or view the caller is denied: the row carries the compiled
+    ``config`` and the denormalized subject name, so leaking it leaks the shape of a table the member
+    cannot read. Mirrors the metric loader's ``_references_denied_table`` pass.
+    """
+    team_id = context.team_id
+    if team_id is None or not _can_read_data_quality(context):
+        return []
+    from products.data_quality.backend.facade.models import DataQualityCheck  # noqa: PLC0415
+
+    try:
+        denied = context.database._denied_tables if context.database is not None else set()
+        queryset = DataQualityCheck.objects.for_team(team_id).filter(deleted=False).order_by("-created_at")
+        if allowed is not None:
+            queryset = queryset.filter(name__in=allowed)
+        return [
+            [
+                str(check.id),
+                check.name or None,
+                check.subject_type,
+                str(check.subject_uuid) if check.subject_uuid else None,
+                check.subject_name,
+                check.subject_status,
+                check.column_name or None,
+                check.check_type,
+                json.dumps(check.config) if check.config else None,
+                check.severity,
+                check.enabled,
+                check.last_status or None,
+                check.last_run_at.isoformat() if check.last_run_at else None,
+                check.created_at.isoformat(),
+            ]
+            for check in queryset
+            if not _references_denied_table([check.subject_name], denied)
+        ]
+    except Exception:
+        logger.exception("information_schema: failed to load data quality checks", team_id=team_id)
+        return []
+
+
+def _data_quality_check_runs(context: "HogQLContext", allowed: Optional[frozenset[str]]) -> list[list[Any]]:
+    """Load the team's most recent check executions as information_schema rows (fail-soft).
+
+    Runs outlive their definitions on purpose: a deleted check's history stays queryable so a
+    regression can still be dated. Rows for a denied subject are dropped *before* the window is
+    applied, so a member cannot read the leaked counts nor infer their number from a short page.
+    """
+    team_id = context.team_id
+    if team_id is None or not _can_read_data_quality(context):
+        return []
+    from products.data_quality.backend.facade.models import DataQualityCheckRun  # noqa: PLC0415
+
+    try:
+        denied = context.database._denied_tables if context.database is not None else set()
+        base = DataQualityCheckRun.objects.for_team(team_id)
+        if allowed is not None:
+            base = base.filter(subject_name__in=allowed)
+        # Drop denied subjects in SQL (not by scanning rows in Python) so the window is a bounded
+        # LIMIT rather than a full-history scan that skips denied rows one by one. The distinct set of
+        # subject names is small, so resolving which are denied is cheap; excluding them before the
+        # window still drops denied rows before it applies.
+        if denied:
+            blocked = {
+                name
+                for name in base.values_list("subject_name", flat=True).distinct()
+                if _references_denied_table([name], denied)
+            }
+            if blocked:
+                base = base.exclude(subject_name__in=blocked)
+        return [
+            [
+                str(run.id),
+                str(run.quality_check_id) if run.quality_check_id else None,
+                str(run.suite_run_id),
+                run.subject_type,
+                str(run.subject_uuid),
+                run.subject_name,
+                run.check_type,
+                run.column_name or None,
+                run.status,
+                run.failed_row_count,
+                run.observed_value,
+                run.error or None,
+                run.duration_ms,
+                run.created_at.isoformat(),
+            ]
+            for run in base.order_by("-created_at")[:_CHECK_RUNS_WINDOW]
+        ]
+    except Exception:
+        logger.exception("information_schema: failed to load data quality check runs", team_id=team_id)
+        return []
+
+
+def _data_quality_health(context: "HogQLContext", allowed: Optional[frozenset[str]]) -> list[list[Any]]:
+    """Roll the team's checks up per subject (fail-soft), using the same rule as the REST endpoint.
+
+    Subjects the caller is denied never surface: the rollup counts (total/failing/erroring) are a
+    count oracle over rows the member cannot read otherwise.
+    """
+    team_id = context.team_id
+    if team_id is None or not _can_read_data_quality(context):
+        return []
+    from products.data_quality.backend.facade.api import CheckStatusRow, roll_up_health  # noqa: PLC0415
+    from products.data_quality.backend.facade.models import DataQualityCheck  # noqa: PLC0415
+
+    try:
+        denied = context.database._denied_tables if context.database is not None else set()
+        checks_qs = DataQualityCheck.objects.for_team(team_id).filter(deleted=False, enabled=True)
+        if allowed is not None:
+            checks_qs = checks_qs.filter(subject_name__in=allowed)
+        by_subject: dict[tuple[str, str], list[Any]] = defaultdict(list)
+        for check in checks_qs:
+            if _references_denied_table([check.subject_name], denied):
+                continue
+            # A hard-deleted subject has no id to key a rollup on, and its checks only skip.
+            if check.subject_uuid is None:
+                continue
+            by_subject[(check.subject_type, str(check.subject_uuid))].append(check)
+
+        rows: list[list[Any]] = []
+        for (subject_type, subject_uuid), checks in by_subject.items():
+            last_runs = [check.last_run_at for check in checks if check.last_run_at]
+            rows.append(
+                [
+                    subject_type,
+                    subject_uuid,
+                    checks[0].subject_name,
+                    roll_up_health(
+                        CheckStatusRow(severity=check.severity, last_status=check.last_status) for check in checks
+                    ),
+                    len(checks),
+                    sum(1 for check in checks if check.last_status == "failed"),
+                    sum(1 for check in checks if check.last_status == "errored"),
+                    max(last_runs).isoformat() if last_runs else None,
+                ]
+            )
+        return rows
+    except Exception:
+        logger.exception("information_schema: failed to roll up data quality health", team_id=team_id)
+        return []
+
+
 def _certification_key(
-    table_name: str, table: Table, table_type: str, materialized_view_ids: dict[str, str]
+    table_name: str, table: Table, table_type: str, saved_query_ids_by_name: dict[str, str]
 ) -> Optional[_CertificationKey]:
     """Certification lookup key `(table_type, resource_id)` for an introspected table, or None.
 
@@ -998,20 +1218,31 @@ def _certification_key(
         table_id = getattr(table, "table_id", None)
         return ("data_warehouse", str(table_id)) if table_id else None
     if table_type == "view":
-        saved_query_id = getattr(table, "id", None) or materialized_view_ids.get(table_name)
-        return ("view", str(saved_query_id)) if saved_query_id else None
+        saved_query_id = saved_query_ids_by_name.get(table_name) or getattr(table, "id", None)
+        return ("view", str(saved_query_id)) if saved_query_id and _is_uuid(str(saved_query_id)) else None
     return None
 
 
-def _catalog_certifications(context: "HogQLContext", allowed: Optional[frozenset[str]]) -> dict[tuple[str, str], str]:
+def _is_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(value)
+        return True
+    except ValueError:
+        return False
+
+
+def _catalog_certifications(
+    context: "HogQLContext", keys: Optional[list[Optional[_CertificationKey]]]
+) -> dict[_CertificationKey, str]:
     """Map each certified/deprecated resource to its certification status (fail-soft).
 
     Keyed by `(table_type, resource_id)` — a warehouse table cert keys on `("data_warehouse",
     str(table_id))`, a view cert on `("view", str(saved_query_id))`. Keying by the resource's own id
     (not its name) is required because `(team, name)` is not unique on `DataWarehouseTable`: two live
     tables can share a name yet each carry its own certification, and a name-keyed lookup would let one
-    clobber the other. Soft-deleted targets are excluded (their marks read as absent). `allowed` still
-    filters by name to trim the query to the pushed-down set.
+    clobber the other. `keys` — the certification keys of the introspected rows — bounds the query to
+    the exact resources being returned; a name-based bound would miss certs behind the dotted catalog
+    aliases. `None` means unbounded. Soft-deleted targets are excluded (their marks read as absent).
     """
     team_id = context.team_id
     if team_id is None or not _can_read_catalog(context):
@@ -1019,8 +1250,17 @@ def _catalog_certifications(context: "HogQLContext", allowed: Optional[frozenset
     from products.data_catalog.backend.facade.enums import CertificationStatus  # noqa: PLC0415
     from products.data_catalog.backend.facade.models import TableCertification  # noqa: PLC0415
 
+    table_ids: Optional[set[str]] = None
+    view_ids: Optional[set[str]] = None
+    if keys is not None:
+        table_ids = {key[1] for key in keys if key is not None and key[0] == "data_warehouse"}
+        view_ids = {key[1] for key in keys if key is not None and key[0] == "view"}
+        if not table_ids and not view_ids:
+            return {}
+
+    record_catalog_read("tables")
     try:
-        result: dict[tuple[str, str], str] = {}
+        result: dict[_CertificationKey, str] = {}
         certs = TableCertification.objects.for_team(team_id).filter(
             status__in=(CertificationStatus.CERTIFIED, CertificationStatus.DEPRECATED)
         )
@@ -1030,15 +1270,17 @@ def _catalog_certifications(context: "HogQLContext", allowed: Optional[frozenset
             .exclude(table__external_data_source__deleted=True)
         )
         view_certs = certs.filter(saved_query__isnull=False).exclude(saved_query__deleted=True)
-        if allowed is not None:
-            table_certs = table_certs.filter(table__name__in=allowed)
-            view_certs = view_certs.filter(saved_query__name__in=allowed)
+        if table_ids is not None:
+            table_certs = table_certs.filter(table_id__in=table_ids)
+        if view_ids is not None:
+            view_certs = view_certs.filter(saved_query_id__in=view_ids)
         for table_id, status in table_certs.values_list("table_id", "status"):
             result[("data_warehouse", str(table_id))] = status
         for saved_query_id, status in view_certs.values_list("saved_query_id", "status"):
             result[("view", str(saved_query_id))] = status
         return result
     except Exception:
+        record_catalog_read_failure("tables")
         logger.exception("information_schema: failed to load certifications", team_id=team_id)
         return {}
 
@@ -1047,9 +1289,16 @@ def _catalog_table_visible(context: "HogQLContext", table_name: str) -> bool:
     database = context.database
     if database is None or _references_denied_table([table_name], database._denied_tables):
         return False
+    record_catalog_read("table_visibility")
     try:
         return database.has_table(table_name) and database.get_table(table_name) is not None
     except Exception:
+        record_catalog_read_failure("table_visibility")
+        logger.exception(
+            "information_schema: failed to resolve catalog table visibility",
+            table_name=table_name,
+            team_id=context.team_id,
+        )
         return False
 
 
@@ -1072,6 +1321,7 @@ def _catalog_accepted_relationships(
     from products.data_catalog.backend.facade.enums import RelationshipStatus  # noqa: PLC0415
     from products.data_catalog.backend.facade.models import RelationshipProposal  # noqa: PLC0415
 
+    record_catalog_read("relationships")
     try:
         accepted = RelationshipProposal.objects.for_team(team_id).filter(
             status=RelationshipStatus.ACCEPTED,
@@ -1131,6 +1381,7 @@ def _catalog_accepted_relationships(
             )
         return result
     except Exception:
+        record_catalog_read_failure("relationships")
         logger.exception("information_schema: failed to load accepted relationships", team_id=team_id)
         return {}
 
@@ -1149,6 +1400,7 @@ def _catalog_relationship_proposals(context: "HogQLContext", allowed: Optional[f
     from products.data_catalog.backend.facade.enums import RelationshipStatus  # noqa: PLC0415
     from products.data_catalog.backend.facade.models import RelationshipProposal  # noqa: PLC0415
 
+    record_catalog_read("relationship_proposals")
     try:
         proposals = RelationshipProposal.objects.for_team(team_id).filter(status=RelationshipStatus.PROPOSED)
         if allowed is not None:
@@ -1176,6 +1428,7 @@ def _catalog_relationship_proposals(context: "HogQLContext", allowed: Optional[f
             )
         return rows
     except Exception:
+        record_catalog_read_failure("relationship_proposals")
         logger.exception("information_schema: failed to load relationship proposals", team_id=team_id)
         return []
 
@@ -1193,6 +1446,7 @@ def _catalog_certification_rows(context: "HogQLContext", allowed: Optional[froze
         return []
     from products.data_catalog.backend.facade.models import TableCertification  # noqa: PLC0415
 
+    record_catalog_read("certifications")
     try:
         certs = (
             TableCertification.objects.for_team(team_id)
@@ -1232,6 +1486,7 @@ def _catalog_certification_rows(context: "HogQLContext", allowed: Optional[froze
             )
         return rows
     except Exception:
+        record_catalog_read_failure("certifications")
         logger.exception("information_schema: failed to load certifications table", team_id=team_id)
         return []
 
@@ -1645,6 +1900,163 @@ class InformationSchemaRelationshipProposalsTable(InformationSchemaTable):
         return "system__information_schema__relationship_proposals"
 
 
+class InformationSchemaDataQualityChecksTable(LazyTable):
+    description: str = (
+        "Data quality checks defined on the project's warehouse tables and views (dbt-test style); one row "
+        "per check. Query this before authoring a check so you extend the existing coverage instead of "
+        "duplicating it. A check passes when its assertion finds zero failing rows; see "
+        "information_schema.data_quality_check_runs for outcomes and data_quality_health for the per-subject "
+        "rollup. An empty result means the subject has no checks yet."
+    )
+    fields: dict[str, FieldOrTable] = {
+        "id": _string_field("id", description="Stable UUID of the check (pass to the run/update/delete tools)."),
+        "name": _string_field("name", nullable=True, description="Optional handle; NULL when addressed by id."),
+        "subject_type": _string_field("subject_type", description="'table' (synced source) or 'view' (saved query)."),
+        "subject_uuid": _string_field(
+            "subject_uuid", nullable=True, description="UUID of the checked table or view; NULL once hard-deleted."
+        ),
+        "subject_name": _string_field("subject_name", description="Queryable name of the checked table or view."),
+        "subject_status": _string_field(
+            "subject_status", description="'active', or 'orphaned' once the subject stops resolving."
+        ),
+        "column_name": _string_field(
+            "column_name", nullable=True, description="Checked column; NULL for table-scoped types like row_count."
+        ),
+        "check_type": _string_field(
+            "check_type",
+            description="not_null, unique, accepted_values, relationships, row_count, freshness, or custom_sql.",
+        ),
+        "config": _string_field("config", nullable=True, description="Type-specific configuration, as JSON."),
+        "severity": _string_field(
+            "severity", description="'error' (failure marks the subject failing) or 'warn' (surfaces only)."
+        ),
+        "enabled": BooleanDatabaseField(name="enabled", description="Disabled checks are never run."),
+        "last_status": _string_field(
+            "last_status",
+            nullable=True,
+            description="Newest outcome: passed, failed, errored, or skipped. NULL when never run.",
+        ),
+        "last_run_at": _string_field("last_run_at", nullable=True, description="ISO timestamp of the newest run."),
+        "created_at": _string_field("created_at", description="ISO timestamp when the check was created."),
+    }
+
+    def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
+        allowed = _pushdown_table_filter(node, "name")
+        return _rows_select(
+            context,
+            "data_quality_checks",
+            _DATA_QUALITY_CHECKS_COLUMNS,
+            _data_quality_checks(context, allowed),
+            allowed,
+        )
+
+    def to_printed_clickhouse(self, context: "HogQLContext") -> str:
+        return "information_schema.data_quality_checks"
+
+    def to_printed_hogql(self) -> str:
+        return "system__information_schema__data_quality_checks"
+
+
+class InformationSchemaDataQualityCheckRunsTable(LazyTable):
+    description: str = (
+        "Recent data quality check executions; one row per run, newest first, bounded to the latest few hundred. "
+        "failed_row_count is how many rows violated the assertion (0 is a pass); observed_value is the check's "
+        "headline number and is recorded on passes too, so it reads as a time series. Failing rows are never "
+        "stored -- re-run the check's compiled query via the REST API to see them. Runs for deleted checks stay "
+        "queryable, with check_id NULL."
+    )
+    fields: dict[str, FieldOrTable] = {
+        "id": _string_field("id", description="Stable UUID of this execution."),
+        "check_id": _string_field(
+            "check_id", nullable=True, description="UUID of the check definition; NULL once it is deleted."
+        ),
+        "suite_run_id": _string_field("suite_run_id", description="UUID of the batch this execution belonged to."),
+        "subject_type": _string_field("subject_type", description="'table' or 'view'."),
+        "subject_uuid": _string_field("subject_uuid", description="UUID of the checked table or view."),
+        "subject_name": _string_field("subject_name", description="Name of the subject at the time of the run."),
+        "check_type": _string_field("check_type", description="Which assertion ran."),
+        "column_name": _string_field("column_name", nullable=True, description="Checked column, when applicable."),
+        "status": _string_field(
+            "status",
+            description="'passed', 'failed' (assertion violated), 'errored' (could not run), or 'skipped'.",
+        ),
+        "failed_row_count": IntegerDatabaseField(
+            name="failed_row_count",
+            nullable=True,
+            description="Rows violating the assertion. NULL for bounds checks like row_count.",
+        ),
+        "observed_value": FloatDatabaseField(
+            name="observed_value",
+            nullable=True,
+            description="The check's headline number (row count, staleness in seconds, ...).",
+        ),
+        "error": _string_field("error", nullable=True, description="Why the run errored, when status='errored'."),
+        "duration_ms": IntegerDatabaseField(name="duration_ms", nullable=True, description="How long the run took."),
+        "created_at": _string_field("created_at", description="ISO timestamp of the run."),
+    }
+
+    def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
+        allowed = _pushdown_table_filter(node, "subject_name")
+        return _rows_select(
+            context,
+            "data_quality_check_runs",
+            _DATA_QUALITY_CHECK_RUNS_COLUMNS,
+            _data_quality_check_runs(context, allowed),
+            allowed,
+        )
+
+    def to_printed_clickhouse(self, context: "HogQLContext") -> str:
+        return "information_schema.data_quality_check_runs"
+
+    def to_printed_hogql(self) -> str:
+        return "system__information_schema__data_quality_check_runs"
+
+
+class InformationSchemaDataQualityHealthTable(LazyTable):
+    description: str = (
+        "One row per warehouse table or view that has data quality checks, rolled up to a single verdict. "
+        "Check this before trusting a source in an analysis: 'failing' means an error-severity check found bad "
+        "data, 'erroring' means a check could not run at all, 'warn' means only warn-severity checks failed, "
+        "'unknown' means nothing has run yet. Subjects with no checks do not appear."
+    )
+    fields: dict[str, FieldOrTable] = {
+        "subject_type": _string_field("subject_type", description="'table' or 'view'."),
+        "subject_uuid": _string_field("subject_uuid", description="UUID of the table or view."),
+        "subject_name": _string_field("subject_name", description="Queryable name of the table or view."),
+        "health": _string_field(
+            "health", description="'failing', 'erroring', 'warn', 'healthy', or 'unknown'. Worst outcome wins."
+        ),
+        "checks_total": IntegerDatabaseField(
+            name="checks_total", description="Enabled, non-deleted checks covering this subject."
+        ),
+        "checks_failing": IntegerDatabaseField(
+            name="checks_failing", description="How many of those last reported a failure."
+        ),
+        "checks_erroring": IntegerDatabaseField(
+            name="checks_erroring", description="How many of those last failed to run at all."
+        ),
+        "last_run_at": _string_field(
+            "last_run_at", nullable=True, description="ISO timestamp of the most recent run on this subject."
+        ),
+    }
+
+    def lazy_select(self, table_to_add: LazyTableToAdd, context: "HogQLContext", node: Any) -> ast.SelectQuery:
+        allowed = _pushdown_table_filter(node, "subject_name")
+        return _rows_select(
+            context,
+            "data_quality_health",
+            _DATA_QUALITY_HEALTH_COLUMNS,
+            _data_quality_health(context, allowed),
+            allowed,
+        )
+
+    def to_printed_clickhouse(self, context: "HogQLContext") -> str:
+        return "information_schema.data_quality_health"
+
+    def to_printed_hogql(self) -> str:
+        return "system__information_schema__data_quality_health"
+
+
 def information_schema_node() -> TableNode:
     """The `information_schema` namespace, mounted under `system` (see `SystemTables.children`)."""
     return TableNode(
@@ -1658,6 +2070,15 @@ def information_schema_node() -> TableNode:
             "certifications": TableNode(name="certifications", table=InformationSchemaCertificationsTable()),
             "relationship_proposals": TableNode(
                 name="relationship_proposals", table=InformationSchemaRelationshipProposalsTable()
+            ),
+            "data_quality_checks": TableNode(
+                name="data_quality_checks", table=InformationSchemaDataQualityChecksTable()
+            ),
+            "data_quality_check_runs": TableNode(
+                name="data_quality_check_runs", table=InformationSchemaDataQualityCheckRunsTable()
+            ),
+            "data_quality_health": TableNode(
+                name="data_quality_health", table=InformationSchemaDataQualityHealthTable()
             ),
         },
     )
@@ -1697,3 +2118,9 @@ def disable_data_catalog(info_schema: TableNode) -> None:
         relationships.table.fields.pop("confidence", None)
         relationships.table.fields.pop("reasoning", None)
         relationships.table.description = _RELATIONSHIPS_DESCRIPTION
+
+
+def disable_data_quality(info_schema: TableNode) -> None:
+    info_schema.children.pop("data_quality_checks", None)
+    info_schema.children.pop("data_quality_check_runs", None)
+    info_schema.children.pop("data_quality_health", None)

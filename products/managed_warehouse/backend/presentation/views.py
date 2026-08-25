@@ -12,7 +12,7 @@ per organization (not per team).
 
 import re
 from datetime import date
-from typing import TypedDict
+from typing import Literal, TypedDict
 from uuid import UUID
 
 from django.conf import settings
@@ -25,9 +25,9 @@ from rest_framework.response import Response
 
 from posthog.security.outbound_proxy import internal_requests
 
-logger = structlog.get_logger(__name__)
+from products.managed_warehouse.backend.facade.feature_flags import DATA_WAREHOUSE_SCENE_FLAG
 
-DATA_WAREHOUSE_SCENE_FLAG = "data-warehouse-scene"
+logger = structlog.get_logger(__name__)
 
 # The Postgres database to connect to is always "ducklake"; the user-chosen warehouse
 # name becomes the SNI subdomain (e.g. my-warehouse.dw.us.postwh.com) and the DNS zone
@@ -52,6 +52,21 @@ class PresentedConnection(TypedDict):
     port: int
     database: str
     username: str
+
+
+ManagedWarehouseMonitoringMetric = Literal[
+    "query_rate",
+    "error_ratio",
+    "duration_p50",
+    "duration_p95",
+    "sessions_active",
+    "s3_bytes_rate",
+    "acquire_p95",
+    "acquire_by_source",
+    "storage_bytes",
+    "worker_crash_rate",
+]
+ManagedWarehouseMonitoringWindow = Literal["1h", "6h", "24h", "7d", "30d"]
 
 
 def managed_warehouse_domain() -> str:
@@ -251,6 +266,7 @@ def provision(
     schema_name_error = _validate_schema_name(schema_name)
     if schema_name_error or schema_name is None:
         return Response({"error": schema_name_error or "schema_name is required"}, status=status.HTTP_400_BAD_REQUEST)
+    source_generation = _managed_source_generation(organization_id)
     resp = _request(
         "POST",
         organization_id,
@@ -270,12 +286,23 @@ def provision(
         require_enabled=require_enabled,
     )
     if status.is_success(resp.status_code) and isinstance(resp.data, dict):
+        activated_generation = _activate_managed_source_lifecycle(
+            organization_id,
+            expected_generation=source_generation,
+        )
+        if activated_generation is None:
+            logger.warning(
+                "Skipping stale managed warehouse provision completion",
+                organization_id=str(organization_id),
+                expected_generation=source_generation,
+            )
+            return resp
         _invalidate_team_state_cache(organization_id)
         _persist_duckgres_server(organization_id, database_name, resp.data)
         # Complete the row BEFORE registering the team: registration kicks off the
         # SQL-editor query-source setup and discovery against this row's warehouse.
         _complete_provisioning_team_row(organization_id, team_id, schema_name, require_enabled=require_enabled)
-        _register_provisioning_team(organization_id, team_id)
+        _register_provisioning_team(organization_id, team_id, activated_generation)
         # The bucket is internal infra detail, persisted above and consumed by the
         # backfill via cp_bucket_for — not part of the UI-facing ProvisionWarehouseResponse
         # schema. Strip it so the response matches its OpenAPI contract.
@@ -335,39 +362,95 @@ def team_backfill_state(team_id: int) -> dict[str, object]:
     return {"has_backfill": state.has_backfill, "table_suffix": state.table_suffix}
 
 
-def _register_provisioning_team(organization_id: UUID | str, team_id: int) -> None:
+def _register_provisioning_team(organization_id: UUID | str, team_id: int, source_generation: int) -> None:
     """Finish the provisioning (calling) team's onboarding after its row exists.
 
     duckgres creates the provisioning team's row from the provision request itself (and
     `_complete_provisioning_team_row` pins its legacy table names), so nothing is written
-    here — the team just gets its SQL-editor query connection and its earliest-event-date
-    sync kicked off, the same tail `onboard_team` runs for later teams.
+    here. The team gets its managed SQL-editor source and starts its earliest-event-date
+    sync, matching the tail that `onboard_team` runs later.
 
     Best-effort, mirroring `_persist_duckgres_server`: a failure is logged, not raised, so
     the one-time provision password is never lost to it.
     """
     try:
-        _ensure_direct_source(team_id, organization_id)
+        _ensure_direct_source(team_id, organization_id, source_generation)
         _schedule_earliest_event_date_sync(team_id)
     except Exception:
         logger.exception("Failed to register provisioning team after provision", team_id=team_id)
 
 
-def _ensure_direct_source(team_id: int, organization_id: UUID | str) -> None:
-    """Best-effort: register the org's managed warehouse as the team's query connection.
+def _active_managed_source_generation(organization_id: UUID | str) -> int | None:
+    from products.managed_warehouse.backend.facade.connection import (  # noqa: PLC0415
+        get_active_managed_warehouse_source_generation,
+    )
 
-    A managed warehouse speaks the Postgres wire protocol, so each member team gets an
-    ExternalDataSource pointed at the org server and authenticated with its org root
-    credential. A failure here must never block onboarding.
-    """
+    return get_active_managed_warehouse_source_generation(organization_id=organization_id)
+
+
+def _managed_source_generation(organization_id: UUID | str) -> int:
+    from products.managed_warehouse.backend.facade.connection import (  # noqa: PLC0415
+        get_managed_warehouse_source_generation,
+    )
+
+    return get_managed_warehouse_source_generation(organization_id=organization_id)
+
+
+def _activate_managed_source_lifecycle(
+    organization_id: UUID | str,
+    *,
+    expected_generation: int,
+) -> int | None:
+    from products.managed_warehouse.backend.facade.connection import (  # noqa: PLC0415
+        activate_managed_warehouse_source_lifecycle,
+    )
+
+    return activate_managed_warehouse_source_lifecycle(
+        organization_id=organization_id,
+        expected_generation=expected_generation,
+    )
+
+
+def _deactivate_managed_source_lifecycle(
+    organization_id: UUID | str,
+    *,
+    expected_generation: int,
+) -> int | None:
+    from products.managed_warehouse.backend.facade.connection import (  # noqa: PLC0415
+        deactivate_managed_warehouse_source_lifecycle,
+    )
+
+    return deactivate_managed_warehouse_source_lifecycle(
+        organization_id=organization_id,
+        expected_generation=expected_generation,
+    )
+
+
+def _ensure_direct_source(team_id: int, organization_id: UUID | str, source_generation: int) -> None:
     try:
         from products.managed_warehouse.backend.facade.connection import (  # noqa: PLC0415
             ensure_managed_warehouse_direct_source,
         )
 
-        ensure_managed_warehouse_direct_source(team_id=team_id, organization_id=organization_id)
+        ensure_managed_warehouse_direct_source(
+            team_id=team_id,
+            organization_id=organization_id,
+            expected_generation=source_generation,
+        )
     except Exception:
         logger.exception("Failed to register managed warehouse query source", team_id=team_id)
+        try:
+            from products.data_warehouse.backend.facade.api import (  # noqa: PLC0415
+                schedule_managed_warehouse_direct_source_ensure,
+            )
+
+            schedule_managed_warehouse_direct_source_ensure(
+                team_id=team_id,
+                organization_id=organization_id,
+                expected_generation=source_generation,
+            )
+        except Exception:
+            logger.exception("Failed to schedule managed warehouse query source recovery", team_id=team_id)
 
 
 def _persist_duckgres_server(organization_id: UUID | str, database_name: str | None, body: dict) -> None:
@@ -582,6 +665,13 @@ def onboard_team(
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    source_generation = _active_managed_source_generation(organization_id)
+    if source_generation is None:
+        return Response(
+            {"error": "No managed warehouse is provisioned for this organization. Provision one first."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
     try:
         existing = _get_project_team_row(organization_id=organization_id, team_id=team_id)
     except RuntimeError:
@@ -624,7 +714,7 @@ def onboard_team(
         if not status.is_success(resp.status_code):
             return resp
 
-    _ensure_direct_source(team_id, organization_id)
+    _ensure_direct_source(team_id, organization_id, source_generation)
     _schedule_earliest_event_date_sync(team_id)
     return Response({"onboarded": True, "schema_name": schema_name}, status=status.HTTP_200_OK)
 
@@ -748,29 +838,67 @@ def block_team_deletion(team_id: int, organization_id: UUID | str) -> str | None
 
 
 def deprovision(organization_id: UUID | str, require_enabled: bool = True) -> Response:
+    expected_generation = _active_managed_source_generation(organization_id)
+    inactive_cleanup_generation = _managed_source_generation(organization_id) if expected_generation is None else None
     resp = _request("POST", organization_id, "/deprovision", require_enabled=require_enabled)
-    if status.is_success(resp.status_code):
-        _invalidate_team_state_cache(organization_id)
-        # Deprovision is not re-POSTable (Duckgres 409s once the org leaves a deprovisionable
-        # state), so a failed local cleanup must converge via the retrying task, not the operator.
+    control_plane_converged = status.is_success(resp.status_code) or resp.status_code == status.HTTP_404_NOT_FOUND
+    if not control_plane_converged and (
+        resp.status_code == status.HTTP_409_CONFLICT or resp.status_code >= status.HTTP_500_INTERNAL_SERVER_ERROR
+    ):
+        status_response = _request(
+            "GET",
+            organization_id,
+            "/warehouse/status",
+            require_enabled=False,
+        )
+        control_plane_converged = status_response.status_code == status.HTTP_404_NOT_FOUND or (
+            status_response.status_code == status.HTTP_200_OK
+            and isinstance(status_response.data, dict)
+            and status_response.data.get("state") in {"deleting", "deleted"}
+        )
+    if not control_plane_converged:
+        return resp
+    converged_response = (
+        resp
+        if status.is_success(resp.status_code)
+        else Response({"status": "deprovisioning started"}, status=status.HTTP_202_ACCEPTED)
+    )
+    _invalidate_team_state_cache(organization_id)
+    cleanup_generation = inactive_cleanup_generation
+    if expected_generation is not None:
         try:
-            _remove_direct_connection_sources(organization_id)
+            cleanup_generation = _deactivate_managed_source_lifecycle(
+                organization_id,
+                expected_generation=expected_generation,
+            )
         except Exception:
-            logger.exception("Failed to remove managed warehouse query sources", organization_id=str(organization_id))
-            try:
-                _schedule_remove_direct_connection_sources(organization_id)
-            except Exception:
-                logger.exception(
-                    "Failed to schedule managed warehouse query source removal",
-                    organization_id=str(organization_id),
-                )
-                return Response(
-                    {
-                        "error": "The warehouse was deprovisioned but its SQL connections could not be removed or scheduled for removal. They must be cleaned up manually."
-                    },
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                )
-    return resp
+            logger.exception("Failed to record managed warehouse deprovision", organization_id=str(organization_id))
+            return Response(
+                {
+                    "error": "The warehouse accepted deprovisioning, but its local SQL connection state was not updated. Retry deprovisioning."
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+    if cleanup_generation is None:
+        return converged_response
+    try:
+        _remove_direct_connection_sources(organization_id, cleanup_generation)
+    except Exception:
+        logger.exception("Failed to remove managed warehouse query sources", organization_id=str(organization_id))
+        try:
+            _schedule_remove_direct_connection_sources(organization_id, cleanup_generation)
+        except Exception:
+            logger.exception(
+                "Failed to schedule managed warehouse query source removal",
+                organization_id=str(organization_id),
+            )
+            return Response(
+                {
+                    "error": "The warehouse was deprovisioned but its SQL connections could not be removed or scheduled for removal. They must be cleaned up manually."
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+    return converged_response
 
 
 def deprovision_for_org_deletion(organization_id: UUID | str) -> None:
@@ -784,8 +912,8 @@ def deprovision_for_org_deletion(organization_id: UUID | str) -> None:
 
     No-op for orgs without a managed warehouse (mirrors ``block_team_deletion``'s gating,
     so unrelated org deletions never touch the control plane). Idempotent against
-    duckgres: 404 (warehouse unknown to the control plane) and 409 (teardown already
-    started or finished — deprovision is not re-POSTable) are treated as converged. Any
+    duckgres: 404 means the warehouse is absent. A repeated deprovision that returns 409
+    is normalized to 202 only after status reports ``deleting`` or ``deleted``. Any
     other failure raises so the Temporal activity retries: the org-record deletion (whose
     cascade drops the ``DuckgresServer`` pointer) is conditional on this call being
     accepted, so a persistent duckgres outage stalls the deletion workflow — visibly, and
@@ -807,7 +935,7 @@ def deprovision_for_org_deletion(organization_id: UUID | str) -> None:
             organization_id=org_id,
         )
         return
-    if resp.status_code in (status.HTTP_404_NOT_FOUND, status.HTTP_409_CONFLICT):
+    if resp.status_code == status.HTTP_404_NOT_FOUND:
         logger.info(
             "Managed warehouse already deprovisioned or unknown to duckgres; continuing organization deletion",
             organization_id=org_id,
@@ -828,23 +956,29 @@ def deprovision_for_org_deletion(organization_id: UUID | str) -> None:
     )
 
 
-def _remove_direct_connection_sources(organization_id: UUID | str) -> None:
+def _remove_direct_connection_sources(organization_id: UUID | str, expected_generation: int) -> None:
     """Soft-delete the org's auto-created Postgres query connections after deprovisioning."""
     from products.managed_warehouse.backend.facade.connection import (
         soft_delete_managed_warehouse_sources,  # noqa: PLC0415
     )
 
-    soft_delete_managed_warehouse_sources(organization_id=organization_id)
+    soft_delete_managed_warehouse_sources(
+        organization_id=organization_id,
+        expected_generation=expected_generation,
+    )
 
 
-def _schedule_remove_direct_connection_sources(organization_id: UUID | str) -> None:
+def _schedule_remove_direct_connection_sources(organization_id: UUID | str, expected_generation: int) -> None:
     """Queue the retrying cleanup task when the inline soft-delete failed."""
     # Keep the Celery task stack off this adapter's import path.
     from products.data_warehouse.backend.facade.api import (  # noqa: PLC0415
         schedule_soft_delete_managed_warehouse_sources,
     )
 
-    schedule_soft_delete_managed_warehouse_sources(organization_id=organization_id)
+    schedule_soft_delete_managed_warehouse_sources(
+        organization_id=organization_id,
+        expected_generation=expected_generation,
+    )
 
 
 def ensure_direct_connection_tables(team_id: int, organization_id: UUID | str) -> None:
@@ -894,6 +1028,26 @@ def status_for(organization_id: UUID | str) -> Response:
         # WarehouseStatusResponse schema. Backend callers use cp_bucket_for instead.
         _strip_bucket_fields(resp.data)
     return resp
+
+
+def monitoring_snapshot_for(organization_id: UUID | str) -> Response:
+    """Fetch tenant-safe live monitoring data for one organization."""
+    return _request("GET", organization_id, "/monitoring/snapshot", timeout=10)
+
+
+def monitoring_series_for(
+    organization_id: UUID | str,
+    metric: ManagedWarehouseMonitoringMetric,
+    window: ManagedWarehouseMonitoringWindow,
+) -> Response:
+    """Fetch one allow-listed monitoring series for one organization."""
+    return _request(
+        "GET",
+        organization_id,
+        "/monitoring/series",
+        params={"metric": metric, "window": window},
+        timeout=10,
+    )
 
 
 def cp_bucket_for(organization_id: UUID | str) -> str | None:

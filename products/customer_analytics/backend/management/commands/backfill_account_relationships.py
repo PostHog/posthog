@@ -107,7 +107,12 @@ class Command(BaseCommand):
                 if _has_active_holder(team_id, account, definition):
                     continue
                 relationships_logic.assign(
-                    team_id=team_id, account=account, definition=definition, user=user, created_by=None
+                    team_id=team_id,
+                    account=account,
+                    definition=definition,
+                    user=user,
+                    created_by=None,
+                    emit_event=False,
                 )
             assigned += 1
         return assigned

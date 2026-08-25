@@ -9,4 +9,4 @@ export interface ScrubJob {
 export type ScrubReply =
     | { ready: true }
     | { id: number; out: Uint8Array; timings: StageTimings }
-    | { id: number; failure: { message: string; undecodable: boolean } }
+    | { id: number; failure: { message: string; kind: 'undecodable' | 'opt-out' | 'failed' } }

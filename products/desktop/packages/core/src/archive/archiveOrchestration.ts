@@ -134,6 +134,10 @@ export async function archiveTask(
 
     deps.cache.setArchivedTaskIds((old) => removeArchivedTaskId(old, taskId));
     deps.cache.setArchiveList((old) => removeArchivedTask(old, taskId));
+    // The rollback above assumes the failure left the task unarchived, which is
+    // a guess — the host may have stored the archive and failed afterwards. Ask
+    // it, so a task that is archived stays out of the sidebar either way.
+    deps.cache.invalidatePathFilter();
     if (wasPinned) {
       try {
         await deps.togglePin(taskId);
@@ -163,17 +167,14 @@ export async function archiveTasks(
 ): Promise<ArchiveTasksResult> {
   if (taskIds.length === 0) return { archived: 0, failed: 0 };
 
-  let archived = 0;
-  let failed = 0;
-  for (const id of taskIds) {
-    try {
-      await archiveTask(id, deps, { skipNavigate: true });
-      archived++;
-    } catch {
-      failed++;
-    }
-  }
-  return { archived, failed };
+  const results = await Promise.allSettled(
+    taskIds.map((id) => archiveTask(id, deps, { skipNavigate: true })),
+  );
+  const archived = results.filter((result) => result.status === "fulfilled");
+  return {
+    archived: archived.length,
+    failed: results.length - archived.length,
+  };
 }
 
 export function shouldNavigateAwayForBulkArchive(

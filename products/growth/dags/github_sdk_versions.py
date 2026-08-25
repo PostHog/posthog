@@ -1,5 +1,6 @@
 import re
 import json
+import time
 from collections.abc import Callable
 from typing import Any, Optional, cast
 
@@ -14,14 +15,13 @@ from posthog.egress.github.transport import github_request
 from posthog.exceptions_capture import capture_exception
 
 from products.growth.backend.constants import SDK_CACHE_EXPIRY, SDK_TYPES, SdkTypes, github_sdk_versions_key
+from products.growth.backend.sdk_health import SemanticVersion, try_parse_version
 
 # Re-exported for backward compatibility with callers that still import from here.
 __all__ = ["SDK_CACHE_EXPIRY", "SDK_TYPES", "SdkTypes", "github_sdk_versions_key"]
 
 logger = structlog.get_logger(__name__)
 
-MAX_REQUEST_RETRIES = 3
-INITIAL_RETRIES_BACKOFF = 1  # in seconds
 UNPREFIXED_SEMVER_TAG = re.compile(r"\d+\.\d+(?:\.\d+)*$")
 
 
@@ -58,6 +58,12 @@ def prefixed_or_unprefixed_semver_tags(*prefixes: str) -> list[str | re.Pattern]
     return [*prefixes, UNPREFIXED_SEMVER_TAG]
 
 
+# nosemgrep: tuple-return-prefer-dataclass -- opaque sort key, only ever compared whole
+def _semver_order_key(version: SemanticVersion) -> tuple[int, int, int, bool]:
+    # Stable releases sort above prereleases with the same core version
+    return (version.major, version.minor or 0, version.patch or 0, version.extra is None)
+
+
 def fetch_sdk_data_from_releases(repo: str, tag_prefixes: list[str | re.Pattern] | None = None) -> dict[str, Any]:
     """Helper function to fetch SDK data from GitHub releases API."""
 
@@ -70,6 +76,7 @@ def fetch_sdk_data_from_releases(repo: str, tag_prefixes: list[str | re.Pattern]
         return {}
 
     latest_version = None
+    latest_parsed: Optional[SemanticVersion] = None
     release_dates = {}
 
     for release in releases:
@@ -94,9 +101,16 @@ def fetch_sdk_data_from_releases(repo: str, tag_prefixes: list[str | re.Pattern]
         if not version:
             continue
 
-        # Latest version is always the first one we find because we go in order
-        if latest_version is None:
+        # GitHub orders /releases by creation date, not by version, so the first match is
+        # wrong whenever a hotfix ships on an older release line (or a release is backfilled).
+        # Pick the highest version that parses instead; a non-parseable "latest" would make
+        # the assessor drop the SDK from every report.
+        parsed = try_parse_version(version)
+        if parsed is not None and (
+            latest_parsed is None or _semver_order_key(parsed) > _semver_order_key(latest_parsed)
+        ):
             latest_version = version
+            latest_parsed = parsed
 
         # Unintuitively we need to use `created_at` rather than `published_at`
         # because the former represents when the tag was created while the latter is when the release was created
@@ -110,13 +124,21 @@ def fetch_sdk_data_from_releases(repo: str, tag_prefixes: list[str | re.Pattern]
     return {"latestVersion": latest_version, "releaseDates": release_dates}
 
 
-# This is used to avoid hitting the GitHub API too often
-# for requests coming from the same pod, this doesn't happen often but it's good to have it anyway
-local_releases_cache: dict[str, list[Any]] = {}
+# Dedupes fetches within a run for repos shared by several fetchers (PostHog/posthog-js serves
+# web, node, and react-native). Entries must expire well before the next hourly run: this module
+# lives in a long-running process, so an eternal cache would re-write Redis with the same
+# snapshot every run and freeze "latest version" until a redeploy.
+LOCAL_RELEASES_CACHE_TTL_SECONDS = 30 * 60
+local_releases_cache: dict[str, tuple[float, list[Any]]] = {}
 
 
 def fetch_releases_from_repo(repo: str, skip_cache: bool = False) -> list[Any]:
-    """Fetch releases from a GitHub repository"""
+    """Fetch releases from a GitHub repository.
+
+    Returns [] when any page fails, so callers skip the Redis write and the last known-good
+    data keeps serving. A partial page set must never be treated as the full release list:
+    it can miss versions entirely and gets a stale "latest" cached for days.
+    """
     global local_releases_cache
 
     # We don't wanna have to fight against the local cache when running tests
@@ -125,9 +147,11 @@ def fetch_releases_from_repo(repo: str, skip_cache: bool = False) -> list[Any]:
     if settings.TEST:
         skip_cache = True
 
-    if repo in local_releases_cache and not skip_cache:
-        logger.info(f"[SDK Health] Returning cached releases for {repo}")
-        return local_releases_cache[repo]
+    if not skip_cache:
+        cached = local_releases_cache.get(repo)
+        if cached is not None and time.monotonic() - cached[0] < LOCAL_RELEASES_CACHE_TTL_SECONDS:
+            logger.info(f"[SDK Health] Returning cached releases for {repo}")
+            return cached[1]
 
     releases = []
     page = 1
@@ -142,16 +166,16 @@ def fetch_releases_from_repo(repo: str, skip_cache: bool = False) -> list[Any]:
 
             if not response.ok:
                 logger.error(f"[SDK Health] Failed to fetch releases for {repo}", status_code=response.status_code)
-                break
+                return []
 
             releases_json = response.json()
             if releases_json is None:
                 logger.error(f"[SDK Health] Expected list of releases, got empty response", repo=repo)
-                break
+                return []
 
             if not isinstance(releases_json, list):
                 logger.error(f"[SDK Health] Expected list of releases, got {type(releases_json)}", repo=repo)
-                break
+                return []
 
             if len(releases_json) == 0:
                 break
@@ -161,11 +185,11 @@ def fetch_releases_from_repo(repo: str, skip_cache: bool = False) -> list[Any]:
         except Exception as e:
             logger.exception(f"[SDK Health] Failed to fetch releases for {repo}", repo=repo)
             capture_exception(e, additional_properties={"repo": repo, "page": page, "url": url})
-            break
+            return []
 
-    # Cache for later use and return
-    local_releases_cache[repo] = releases
-    return local_releases_cache[repo]
+    # Only complete fetches are cached; a failed fetch must be retried, not served for 30 minutes
+    local_releases_cache[repo] = (time.monotonic(), releases)
+    return releases
 
 
 def fetch_web_sdk_data() -> dict[str, Any]:
@@ -178,7 +202,12 @@ def fetch_web_sdk_data() -> dict[str, Any]:
 
 def fetch_python_sdk_data() -> dict[str, Any]:
     """Fetch Python SDK data from GitHub releases API"""
-    return fetch_sdk_data_from_releases("PostHog/posthog-python", tag_prefixes=prefixed_or_unprefixed_semver_tags("v"))
+
+    # The repo now tags monorepo-style (`posthog-v7.38.0`), with sibling packages like
+    # `openfeature-provider-posthog-v*` that must not match; `v`-prefixed and bare tags are historical
+    return fetch_sdk_data_from_releases(
+        "PostHog/posthog-python", tag_prefixes=prefixed_or_unprefixed_semver_tags("posthog-v", "v")
+    )
 
 
 def fetch_node_sdk_data() -> dict[str, Any]:
@@ -193,12 +222,13 @@ def fetch_node_sdk_data() -> dict[str, Any]:
     if not posthog_js:
         return {}
 
-    # The latest date is always from `posthog-js` since this is the only active repo
+    # The latest date is always from `posthog-js` since this is the only active repo,
+    # so its dates win if a version somehow exists in both repos
     return {
         "latestVersion": posthog_js["latestVersion"],
         "releaseDates": {
-            **posthog_js["releaseDates"],
             **posthog_js_lite.get("releaseDates", {}),
+            **posthog_js["releaseDates"],
         },
     }
 
@@ -215,12 +245,13 @@ def fetch_react_native_sdk_data() -> dict[str, Any]:
     if not posthog_js:
         return {}
 
-    # The latest date is always from `posthog-js` since this is the only active repo
+    # The latest date is always from `posthog-js` since this is the only active repo,
+    # so its dates win if a version somehow exists in both repos
     return {
         "latestVersion": posthog_js["latestVersion"],
         "releaseDates": {
-            **posthog_js["releaseDates"],
             **posthog_js_lite.get("releaseDates", {}),
+            **posthog_js["releaseDates"],
         },
     }
 
@@ -238,7 +269,9 @@ def fetch_ios_sdk_data() -> dict[str, Any]:
 
 def fetch_kmp_sdk_data() -> dict[str, Any]:
     """Fetch Kotlin Multiplatform SDK data from GitHub releases API"""
-    return fetch_sdk_data_from_releases("PostHog/posthog-kmp", tag_prefixes=["v"])
+
+    # Early releases were tagged `v0.1.0`; the repo has since moved to bare tags like `0.2.2`
+    return fetch_sdk_data_from_releases("PostHog/posthog-kmp", tag_prefixes=prefixed_or_unprefixed_semver_tags("v"))
 
 
 def fetch_android_sdk_data() -> dict[str, Any]:
@@ -264,23 +297,34 @@ def fetch_go_sdk_data() -> dict[str, Any]:
 
 
 def fetch_php_sdk_data() -> dict[str, Any]:
-    """Fetch PHP SDK data from History.md with release dates"""
+    """Fetch PHP SDK data from GitHub releases API"""
     return fetch_sdk_data_from_releases("PostHog/posthog-php")
 
 
 def fetch_ruby_sdk_data() -> dict[str, Any]:
-    """Fetch Ruby SDK data from CHANGELOG.md with release dates"""
-    return fetch_sdk_data_from_releases("PostHog/posthog-ruby")
+    """Fetch Ruby SDK data from GitHub releases API"""
+
+    # The repo now tags monorepo-style, releasing both `posthog-ruby-v*` and `posthog-rails-v*`;
+    # only the former is this SDK. `v`-prefixed and bare tags are historical
+    return fetch_sdk_data_from_releases(
+        "PostHog/posthog-ruby", tag_prefixes=prefixed_or_unprefixed_semver_tags("posthog-ruby-v", "v")
+    )
 
 
 def fetch_elixir_sdk_data() -> dict[str, Any]:
-    """Fetch Elixir SDK data from CHANGELOG.md with release dates"""
+    """Fetch Elixir SDK data from GitHub releases API"""
     return fetch_sdk_data_from_releases("PostHog/posthog-elixir", tag_prefixes=prefixed_or_unprefixed_semver_tags("v"))
 
 
 def fetch_dotnet_sdk_data() -> dict[str, Any]:
     """Fetch .NET SDK data from GitHub releases API"""
-    return fetch_sdk_data_from_releases("PostHog/posthog-dotnet", tag_prefixes=prefixed_or_unprefixed_semver_tags("v"))
+
+    # The repo now tags monorepo-style (`PostHog-v2.13.0`), with sibling packages
+    # `PostHog.AspNetCore-v*` and `PostHog.AI-v*` that must not match; `v`-prefixed and
+    # bare tags are historical
+    return fetch_sdk_data_from_releases(
+        "PostHog/posthog-dotnet", tag_prefixes=prefixed_or_unprefixed_semver_tags("PostHog-v", "v")
+    )
 
 
 # ---- Dagster defs

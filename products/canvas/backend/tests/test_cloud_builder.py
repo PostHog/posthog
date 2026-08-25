@@ -12,6 +12,7 @@ from django.test import SimpleTestCase
 from parameterized import parameterized
 
 from products.canvas.backend.build_service import node_executable, run_cloud_builder, validate_builder_output
+from products.canvas.backend.contract import allowed_import_specifiers, platform_dependencies
 from products.canvas.backend.presentation.serializers import CanvasSourceProjectSerializer
 from products.canvas.backend.source import synthetic_source_project, validate_source_project
 
@@ -88,6 +89,24 @@ class TestCanvasCloudBuilder(SimpleTestCase):
         self.assertEqual(manifest["entryHtml"], "index.html")
         self.assertFalse(manifest["capabilities"]["posthog"]["inlineQueries"])
         self.assertTrue(any(file["path"].endswith(".js") for file in files))
+
+    def test_bundles_every_allowlisted_platform_library(self) -> None:
+        # Transitive versions are not pinned, so a caret range can drift onto a
+        # dependency that dropped an export and break every canvas importing the
+        # library, while source validation still passes because the specifier is
+        # allowlisted. Namespace imports keep the whole module graph reachable,
+        # so a missing deep export fails here instead of in a user's publish.
+        imports: list[str] = []
+        for index, specifier in enumerate(sorted(allowed_import_specifiers())):
+            imports.append(f'import * as library{index} from "{specifier}"')
+            imports.append(f"void library{index}")
+
+        project = self._project("\n".join(imports))
+        project["dependencies"] = platform_dependencies()
+        result = run_cloud_builder(project)
+
+        self.assertEqual(result["status"], "ready", result["diagnostics"])
+        validate_builder_output(result)
 
     def test_runtime_uses_the_document_bound_message_port(self) -> None:
         result = run_cloud_builder(self._project('document.body.textContent = "Hello"'))
@@ -413,12 +432,14 @@ bridge.port1.close();
         project = self._project('document.body.textContent = "Hello"')
         project["capabilities"] = {
             "posthog": {"insights": ["abc"], "inlineQueries": False, "captureEvents": ["canvas viewed"]},
-            "network": {"origins": []},
+            "network": {"origins": ["https://api.example.com"]},
         }
 
-        _, manifest, _ = validate_builder_output(run_cloud_builder(project))
+        files, manifest, _ = validate_builder_output(run_cloud_builder(project))
 
         self.assertEqual(manifest["capabilities"], project["capabilities"])
+        html = next(file["content"] for file in files if file["path"] == "index.html")
+        self.assertIn("connect-src https://api.example.com", html)
 
     def test_rejects_unbounded_capabilities(self) -> None:
         project = self._project("")

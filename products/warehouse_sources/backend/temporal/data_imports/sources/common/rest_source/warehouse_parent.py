@@ -1,11 +1,15 @@
 import uuid
 import datetime as dt
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from dataclasses import dataclass
 from typing import Any
 
+import pyarrow as pa
 import deltalake
 import structlog
+import pyarrow.compute as pc
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import get_schema_if_exists
@@ -18,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.del
     build_delta_table_uri,
     delta_storage_options,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.typing import ParentRowFilter
 
 # Upper bound on rows held in memory per page. Source configs drive page_size for API paging
 # semantics; a misconfigured or future large value must not turn into a whole-table page.
@@ -72,8 +77,69 @@ def _physical_columns_by_api_name(
     return physical_by_api_name
 
 
+@frozen
+class _ResolvedRowFilter:
+    """A row filter resolved against a Delta table's actual column type."""
+
+    scan_filter: pc.Expression | None
+    row_passes: Callable[[dict[str, Any]], bool]
+    physical_column: str
+
+
+def _row_filter_scan_and_predicate(
+    delta_table: "deltalake.DeltaTable", parent_name: str, row_filter: ParentRowFilter
+) -> _ResolvedRowFilter:
+    """Resolve a row filter into an optional parquet-scan pushdown and a matching row check.
+
+    The row check (applied to every materialized row regardless of whether a pushdown ran) is
+    the single source of truth for the filter's semantics, not just an optimization on top of
+    it: pyarrow's `greater_equal`/`array_filter` compute kernels have no implementation for its
+    canonical `string_view` type, and pyarrow's Parquet dataset scanner can materialize a
+    string/large_string column as `string_view` internally while evaluating a pushed-down
+    filter — regardless of the column's declared schema type — crashing the scan. So a string
+    field's cutoff is only ever checked here, in Python, after the value is materialized;
+    pushdown is built only for the timestamp type that isn't affected, as a pure I/O
+    optimization. NULLs are kept: a row without the filter field carries no recency signal, and
+    the tag-values iterator's per-row cutoff (the semantics this reproduces) keeps them too.
+
+    `physical_column` is the filter field's physical column name; the caller must ensure it's
+    projected, even if not requested as output, or the row check would see it as absent and
+    keep every row.
+    """
+    physical = _physical_columns_by_api_name(delta_table, parent_name, [row_filter.field])[row_filter.field]
+    field_type = pyarrow_schema_from_arrow_exportable(delta_table.schema()).field(physical).type
+    cutoff = row_filter.floor(dt.datetime.now(dt.UTC))
+
+    scan_filter: pc.Expression | None
+    floor: dt.datetime | str
+    if pa.types.is_timestamp(field_type):
+        floor = cutoff if field_type.tz is not None else cutoff.replace(tzinfo=None)
+        field_ref = pc.field(physical)
+        scan_filter = field_ref.is_null() | (field_ref >= pa.scalar(floor, type=field_type))
+    elif pa.types.is_string(field_type) or pa.types.is_large_string(field_type):
+        # ISO-8601 UTC strings order lexicographically, so a string floor compares correctly —
+        # just not through pyarrow's own kernel (see the missing-kernel note above).
+        floor = cutoff.strftime("%Y-%m-%dT%H:%M:%S")
+        scan_filter = None
+    else:
+        raise WarehouseParentTableNotFoundError(
+            f"Parent table '{parent_name}' stores filter field '{row_filter.field}' as {field_type}, "
+            f"which can't be compared against a time floor"
+        )
+
+    def _passes_floor(row: dict[str, Any]) -> bool:
+        value = row.get(physical)
+        return value is None or value >= floor
+
+    return _ResolvedRowFilter(scan_filter=scan_filter, row_passes=_passes_floor, physical_column=physical)
+
+
 def resolve_parent_table_ref(
-    team_id: int, source_id: str, parent_name: str, required_columns: list[str] | None = None
+    team_id: int,
+    source_id: str,
+    parent_name: str,
+    required_columns: list[str] | None = None,
+    row_filter: ParentRowFilter | None = None,
 ) -> ParentTableRef:
     """Locate the parent schema row, derive its Delta table URI, and pin the current version.
 
@@ -126,6 +192,10 @@ def resolve_parent_table_ref(
             # Validate eagerly: the reader is a generator, so a missing column would otherwise
             # surface deep inside the pipeline, past the caller's fall-back-to-the-API branch.
             _physical_columns_by_api_name(delta_table, parent_name, required_columns)
+        if row_filter is not None:
+            # Same eagerness for the filter: the reader rebuilds this, but a missing or
+            # unfilterable column must surface while the API fallback is still possible.
+            _row_filter_scan_and_predicate(delta_table, parent_name, row_filter)
         return ParentTableRef(uri=uri, version=delta_table.version())
     except WarehouseParentTableNotFoundError:
         raise
@@ -140,6 +210,7 @@ def try_resolve_parent_table(
     parent_name: str,
     required_columns: list[str],
     schema_name: str,
+    row_filter: ParentRowFilter | None = None,
 ) -> ParentTableRef | None:
     """Resolve the parent table, or None when this run must read the parent from the API.
 
@@ -149,7 +220,9 @@ def try_resolve_parent_table(
     behavior that only makes sense over a warehouse snapshot.
     """
     try:
-        return resolve_parent_table_ref(team_id, source_id, parent_name, required_columns=required_columns)
+        return resolve_parent_table_ref(
+            team_id, source_id, parent_name, required_columns=required_columns, row_filter=row_filter
+        )
     except WarehouseParentTableNotFoundError:
         # Same event name as the run-time gate's fallback log, so one stream covers every
         # fallback class.
@@ -161,6 +234,44 @@ def try_resolve_parent_table(
             exc_info=True,
         )
         return None
+
+
+def parent_snapshot_covers_through(team_id: int, source_id: str, parent_name: str) -> dt.datetime | None:
+    """How far the parent's data is guaranteed complete, or None if it has never completed a sync.
+
+    A child that derives its next scan floor from its own rows has to cap what it emits at this
+    value, or the floor advances past parent changes the snapshot could not show it yet and they
+    are never scanned again.
+
+    This is when the parent's last completed sync *started*, not when it finished. A sync reads
+    each row at some point between those two, so a row read early carries the state it had then,
+    and a parent change landing later in the same sync may be missing from the snapshot entirely.
+    Only changes from before the sync started are guaranteed to be in it. `finished_at` is the
+    right stamp for picking a Delta version (see `_snapshot_pin_as_of`) and the wrong one for
+    coverage; they are different quantities.
+
+    Call this BEFORE resolving the table, never after. A sync completing between the two reads
+    then leaves the cap on the older job while the pinned snapshot holds the newer one, which errs
+    toward emitting too little. Reversing the order errs toward emitting rows the snapshot never
+    covered, which is the bug this exists to prevent.
+    """
+    try:
+        parent_schema = get_schema_if_exists(parent_name, team_id, uuid.UUID(source_id))
+    except (ValueError, AttributeError):
+        return None
+    if parent_schema is None:
+        return None
+    return (
+        ExternalDataJob.objects.filter(
+            team_id=team_id,
+            schema_id=parent_schema.id,
+            status=ExternalDataJob.Status.COMPLETED,
+            finished_at__isnull=False,
+        )
+        .order_by("-finished_at")
+        .values_list("created_at", flat=True)
+        .first()
+    )
 
 
 def _snapshot_pin_as_of(team_id: int, parent_schema_id: uuid.UUID) -> dt.datetime | None:
@@ -228,6 +339,7 @@ def iter_parent_pages_from_warehouse(
     columns: list[str],
     page_size: int,
     schema_name: str,
+    row_filter: ParentRowFilter | None = None,
 ) -> Generator[list[dict[str, Any]]]:
     """Yield fan-out parent rows from the parent schema's already-synced Delta table.
 
@@ -258,15 +370,27 @@ def iter_parent_pages_from_warehouse(
     delta_table = deltalake.DeltaTable(table.uri, version=table.version, storage_options=delta_storage_options())
     physical_by_api_name = _physical_columns_by_api_name(delta_table, parent_name, columns)
 
+    resolved_row_filter: _ResolvedRowFilter | None = None
     projected = list(dict.fromkeys(physical_by_api_name.values()))
+    if row_filter is not None:
+        resolved_row_filter = _row_filter_scan_and_predicate(delta_table, parent_name, row_filter)
+        if resolved_row_filter.physical_column not in projected:
+            # The row check below needs the value even when the caller didn't ask for it as
+            # output — otherwise it reads as absent and every row would pass.
+            projected.append(resolved_row_filter.physical_column)
+
+    scan_filter = resolved_row_filter.scan_filter if resolved_row_filter is not None else None
+
     dataset = delta_table.to_pyarrow_dataset()
 
     rows_streamed = 0
     outcome = "failed"
     try:
         page: list[dict[str, Any]] = []
-        for batch in dataset.to_batches(columns=projected, batch_size=page_size):
+        for batch in dataset.to_batches(columns=projected, batch_size=page_size, filter=scan_filter):
             for row in batch.to_pylist():
+                if resolved_row_filter is not None and not resolved_row_filter.row_passes(row):
+                    continue
                 page.append({api_name: row.get(physical) for api_name, physical in physical_by_api_name.items()})
                 rows_streamed += 1
                 if len(page) >= page_size:
@@ -296,4 +420,5 @@ def iter_parent_pages_from_warehouse(
             rows=rows_streamed,
             version=table.version,
             outcome=outcome,
+            filtered=row_filter is not None,
         )

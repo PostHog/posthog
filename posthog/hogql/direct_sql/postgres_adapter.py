@@ -1,15 +1,19 @@
 from contextlib import ExitStack
-from datetime import date, datetime
 from typing import TYPE_CHECKING, TypedDict, cast
 
 import psycopg
 from opentelemetry import trace
-from psycopg.types.datetime import DateLoader
 from sshtunnel import BaseSSHTunnelForwarderError
 
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.direct_sql.adapter import DirectQueryRequest, DirectQueryResult
 from posthog.hogql.direct_sql.capability import is_direct_capable
+from posthog.hogql.direct_sql.pgwire import (
+    MANAGED_WAREHOUSE_CONNECTION_ERROR,
+    LenientDirectPostgresDateLoader,
+    postgres_error_to_message,
+    postgres_oid_to_clickhouse_type,
+)
 from posthog.hogql.direct_sql.raw_sql import ensure_single_direct_statement
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.escape_sql import escape_postgres_identifier
@@ -27,44 +31,6 @@ if TYPE_CHECKING:
 DIRECT_POSTGRES_CONNECT_TIMEOUT_SECONDS = 15
 DIRECT_POSTGRES_DEFAULT_STATEMENT_TIMEOUT_SECONDS = 600
 
-POSTGRES_OID_TO_CLICKHOUSE_TYPE: dict[int, str] = {
-    16: "Bool",
-    20: "Int64",
-    21: "Int16",
-    23: "Int32",
-    26: "UInt32",
-    700: "Float32",
-    701: "Float64",
-    1082: "Date",
-    1114: "DateTime",
-    1184: "DateTime64(6, 'UTC')",
-    1700: "Decimal",
-    17: "String",
-    19: "String",
-    25: "String",
-    1042: "String",
-    1043: "String",
-    114: "String",
-    3802: "String",
-    2950: "UUID",
-    1083: "String",
-    1266: "String",
-    1186: "String",
-    1000: "Array(Bool)",
-    1005: "Array(Int16)",
-    1007: "Array(Int32)",
-    1016: "Array(Int64)",
-    1021: "Array(Float32)",
-    1022: "Array(Float64)",
-    1115: "Array(DateTime)",
-    1185: "Array(DateTime64(6, 'UTC'))",
-    1182: "Array(Date)",
-    1231: "Array(Decimal)",
-    1009: "Array(String)",
-    1015: "Array(String)",
-    2951: "Array(UUID)",
-}
-
 
 class PostgresConnectionKwargs(TypedDict, total=False):
     host: str
@@ -78,29 +44,6 @@ class PostgresConnectionKwargs(TypedDict, total=False):
     sslcert: str
     sslkey: str
     sslrootcert: str
-
-
-def postgres_oid_to_clickhouse_type(oid: int | None) -> str:
-    if oid is None:
-        return "String"
-
-    return POSTGRES_OID_TO_CLICKHOUSE_TYPE.get(oid, "String")
-
-
-def postgres_error_to_message(error: Exception) -> str:
-    if isinstance(error, psycopg.Error):
-        diag = getattr(error, "diag", None)
-        message_primary = getattr(diag, "message_primary", None) if diag else None
-        message_detail = getattr(diag, "message_detail", None) if diag else None
-        if message_primary and message_detail:
-            return f"{message_primary} {message_detail}"
-        if message_primary:
-            return message_primary
-
-    message = str(error).strip()
-    if not message:
-        return "Postgres query failed."
-    return message.splitlines()[0]
 
 
 def is_postwh_host(host: str | None) -> bool:
@@ -134,39 +77,6 @@ def direct_postgres_session_setup_sql(
 
     quoted_schema = escape_postgres_identifier(normalized_schema)
     return f"SET search_path TO {quoted_schema}"
-
-
-def parse_lenient_direct_postgres_date(value: str) -> date:
-    trimmed = value.strip()
-
-    try:
-        return date.fromisoformat(trimmed)
-    except ValueError:
-        pass
-
-    normalized = trimmed[:-1] + "+00:00" if trimmed.endswith("Z") else trimmed
-    try:
-        return datetime.fromisoformat(normalized).date()
-    except ValueError:
-        pass
-
-    if len(trimmed) >= 10:
-        return date.fromisoformat(trimmed[:10])
-
-    raise ValueError(f"Unable to parse date value: {value!r}")
-
-
-class LenientDirectPostgresDateLoader(DateLoader):
-    """Handle non-standard DATE text values returned by DuckDB's Postgres wire."""
-
-    def load(self, data) -> date:
-        try:
-            return super().load(data)
-        except psycopg.DataError as exc:
-            try:
-                return parse_lenient_direct_postgres_date(bytes(data).decode("utf8", "replace"))
-            except ValueError:
-                raise exc from None
 
 
 def get_runtime_direct_postgres_connection_metadata(
@@ -292,7 +202,12 @@ class PostgresAdapter:
                         connection_kwargs["sslmode"] = "require"
 
                     with request.timings.measure("postgres_connect", emit_span=True):
-                        connection_context = psycopg.connect(**connection_kwargs)
+                        try:
+                            connection_context = psycopg.connect(**connection_kwargs)
+                        except (psycopg.Error, RuntimeError, ValueError) as error:
+                            if source.is_managed_warehouse_ready:
+                                raise ExposedHogQLError(MANAGED_WAREHOUSE_CONNECTION_ERROR) from error
+                            raise
                     with connection_context as connection:
                         runtime_connection_metadata = source.connection_metadata
                         if should_hydrate_runtime_direct_postgres_connection_metadata(

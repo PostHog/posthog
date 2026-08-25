@@ -21,7 +21,7 @@ from posthog.models.oauth import (
     revoke_oauth_session,
     revoke_oauth_token_session,
 )
-from posthog.models.oauth_provisioning import ProvisioningConfig
+from posthog.models.oauth_provisioning import UNLIMITED_OVERRIDE, ProvisioningConfig
 
 
 class TestOAuthModels(TestCase):
@@ -47,6 +47,28 @@ class TestOAuthModels(TestCase):
         self.assertEqual(app.scopes, [])
         app.refresh_from_db()
         self.assertEqual(app.scopes, [])
+
+    @parameterized.expand(
+        [
+            ("whole_token", "openid  llm_gateway:read query:read", True, True),
+            ("substring", "openid llm_gateway:reader query:read", True, False),
+            ("different_case", "openid LLM_GATEWAY:READ query:read", True, False),
+            ("no_application", "llm_gateway:read", False, False),
+        ]
+    )
+    def test_access_tokens_with_scope(
+        self, name: str, stored_scopes: str, application_bound: bool, expected: bool
+    ) -> None:
+        app = self._make_app(f"Scope lookup {name}", f"scope_lookup_{name}")
+        access_token = OAuthAccessToken.objects.create(
+            application=app if application_bound else None,
+            user=self.user,
+            token=f"scope_lookup_token_{name}",
+            expires=timezone.now() + timedelta(minutes=5),
+            scope=stored_scopes,
+        )
+
+        self.assertEqual(OAuthAccessToken.with_scope("llm_gateway:read").filter(pk=access_token.pk).exists(), expected)
 
     @parameterized.expand(
         [
@@ -483,8 +505,7 @@ class TestOAuthModels(TestCase):
 
         self.assertEqual(OAuthAccessToken.objects.filter(user=self.user, application=app).count(), 0)
         self.assertEqual(OAuthGrant.objects.filter(user=self.user, application=app).count(), 0)
-        refresh_token.refresh_from_db()
-        self.assertIsNotNone(refresh_token.revoked)
+        self.assertFalse(OAuthRefreshToken.objects.filter(pk=refresh_token.pk).exists())
 
     def test_revoke_oauth_session_with_null_user_still_revokes_specific_token(self):
         app = OAuthApplication.objects.create(
@@ -591,8 +612,7 @@ class TestOAuthModels(TestCase):
         self.assertFalse(OAuthAccessToken.objects.filter(id=first_access_token.id).exists())
         self.assertFalse(OAuthAccessToken.objects.filter(id=second_access_token.id).exists())
         self.assertFalse(OAuthGrant.objects.filter(id=grant.id).exists())
-        refresh_token.refresh_from_db()
-        self.assertIsNotNone(refresh_token.revoked)
+        self.assertFalse(OAuthRefreshToken.objects.filter(pk=refresh_token.pk).exists())
 
     @freeze_time("2026-01-01 00:00:00")
     def test_revoke_application_sessions_revokes_across_all_users_and_leaves_other_apps(self):
@@ -657,7 +677,7 @@ class TestCarriesProvisioningConfig(SimpleTestCase):
             ),
             (
                 "quota_recorded",
-                {"is_provisioning_partner": False, "config": ProvisioningConfig(rate_limit_source="admin")},
+                {"is_provisioning_partner": False, "config": ProvisioningConfig(rate_limits={"account_requests": 5})},
                 True,
             ),
         ]
@@ -668,6 +688,25 @@ class TestCarriesProvisioningConfig(SimpleTestCase):
             _provisioning_config=fields["config"].model_dump(mode="json"),
         )
         assert app.carries_provisioning_config is expected
+
+
+class TestNormalizeRateLimits(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # The old fixed-field shape stored these two for "no override" and "unlimited".
+            ("null_is_no_override", {"account_requests": None}, {}),
+            ("zero_becomes_unlimited", {"account_requests": 0}, {"account_requests": UNLIMITED_OVERRIDE}),
+            ("negative_stays_unlimited", {"account_requests": -1}, {"account_requests": UNLIMITED_OVERRIDE}),
+            ("value_is_kept", {"account_requests": 5}, {"account_requests": 5}),
+            # The config is re-parsed on every read, so a value the validator cannot coerce has
+            # to drop out rather than raise and fail every request for that partner.
+            ("unreadable_value_is_dropped", {"account_requests": {}}, {}),
+            ("unreadable_text_is_dropped", {"account_requests": "many"}, {}),
+            ("readable_value_survives_an_unreadable_sibling", {"a": [], "b": 5}, {"b": 5}),
+        ]
+    )
+    def test_normalize_rate_limits(self, _name: str, stored: dict, expected: dict) -> None:
+        assert ProvisioningConfig(rate_limits=stored).rate_limits == expected
 
 
 class TestNormalizeCimdUrl(SimpleTestCase):

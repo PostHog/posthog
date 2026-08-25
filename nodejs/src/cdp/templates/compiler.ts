@@ -11,7 +11,9 @@ import { HogBytecode } from '../types'
 import { Semaphore } from '../utils/sempahore'
 
 const ROOT_DIR = path.join(__dirname, '..', '..', '..', '..')
-const CACHE_FILE = path.join(__dirname, '.tmp/cache.json')
+// Outside src/, which turbo hashes as an input of this package's test task: a cache written
+// in there makes every run that compiles a new snippet change the hash of the task writing it.
+const CACHE_FILE = path.join(ROOT_DIR, 'nodejs', '.tmp', 'hog-bytecode.json')
 
 let CACHE: Record<string, HogBytecode> | null = null
 const CONCURRENT_WORKERS = 10

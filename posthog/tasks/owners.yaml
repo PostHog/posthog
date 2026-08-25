@@ -24,5 +24,5 @@ rules:
           - '/update_survey_adaptive_sampling.py'
           - '/update_survey_iteration.py'
       owners: team-surveys
-    - match: '/usage_report.py'
+    - match: ['/usage_report.py', '/test/test_usage_report.py']
       owners: team-billing

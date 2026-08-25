@@ -149,6 +149,10 @@ pub struct ProcessingContext {
     /// analytics path: skip the global rate limiter and drop any batch not
     /// flagged `historical_migration: true`.
     pub capture_mode: CaptureMode,
+    /// Largest AI-lane event this deployment accepts, from
+    /// `AI_MAX_EVENT_BYTES`. `0` disables the ceiling. See
+    /// [`exceeds_max_ai_event_bytes`].
+    pub ai_max_event_bytes: u64,
     /// SDK identity snapshotted from the batch's first event, for ingestion
     /// warning attribution. Captured at batch construction because the events
     /// are typed there; downstream stages hold serialized payloads and would
@@ -177,11 +181,10 @@ pub enum DataType {
     HeatmapMain,
     ExceptionErrorTracking,
     SnapshotMain,
-    /// Dedicated `$ai_*` lane, mirroring v1's `Destination::AiEvents`. Only
-    /// produced on deployments whose capture mode routes AI events (see
-    /// `CaptureMode::routes_ai_events`); the kafka sink maps it to
-    /// `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`. Like heatmaps and exceptions, AI events never
-    /// reroute historical.
+    /// Dedicated AI lane, mirroring v1's `Destination::AiEvents`. The
+    /// kafka sink maps it to `CAPTURE_ANALYTICS_AI_EVENTS_TOPIC`, so every
+    /// deployment that accepts AI traffic must configure that topic. Like
+    /// heatmaps and exceptions, AI events never reroute historical.
     AiEvents,
 }
 
@@ -211,30 +214,42 @@ pub fn is_ai_event(name: &str) -> bool {
     AI_EVENT_NAMES.contains(&name)
 }
 
+/// Whether an AI-lane event's body exceeds the deployment's per-event ceiling.
+///
+/// The ceiling exists because each deployment's AI topic sits on a broker with
+/// its own message limit, and the producer's own cap rejects an oversized event
+/// only after capture has read and processed the whole request. `0` disables
+/// the check.
+///
+/// `body_bytes` is whatever the calling path can measure cheaply, and the
+/// paths differ: v0, OTEL, and the multipart handler pass the serialized
+/// event, while v1 passes the properties blob, which dominates an AI event
+/// but omits the event name, distinct_id, uuid, timestamp, and their keys.
+/// The ceiling is sized with broker headroom well above that difference, so
+/// the looser measure still keeps an accepted event under the producer's cap.
+pub fn exceeds_max_ai_event_bytes(body_bytes: usize, max: u64) -> bool {
+    max != 0 && body_bytes as u64 > max
+}
+
 impl DataType {
     /// Classify an event by its name (and historical-migration flag) into a
     /// `DataType`. Used by both v0's `process_single_event` and v1's
     /// `apply_restrictions` so the analytics → exception → heatmap →
     /// ingestion-warning split stays in one place.
     ///
-    /// `route_ai_events` reflects the deployment's `CaptureMode::routes_ai_events`,
-    /// mirroring v1's `destination_for_event_name`: when set, AI events (per
-    /// [`is_ai_event`]) divert to `AiEvents`, winning over historical (in v1
-    /// the historical reroute only applies to the analytics-main destination).
-    /// When unset the mapping keeps AI events on the main/historical lanes.
+    /// AI events (per [`is_ai_event`]) divert to `AiEvents` on every
+    /// deployment, winning over historical (in v1 the historical reroute only
+    /// applies to the analytics-main destination). Mirrors v1's
+    /// `destination_for_event_name`.
     ///
     /// `SnapshotMain` is not produced here — replay events arrive on a
     /// separate endpoint and never flow through analytics processing.
-    pub fn from_event_name(
-        event_name: &str,
-        historical_migration: bool,
-        route_ai_events: bool,
-    ) -> Self {
+    pub fn from_event_name(event_name: &str, historical_migration: bool) -> Self {
         match event_name {
             "$$client_ingestion_warning" => Self::ClientIngestionWarning,
             "$exception" => Self::ExceptionErrorTracking,
             "$$heatmap" => Self::HeatmapMain,
-            _ if route_ai_events && is_ai_event(event_name) => Self::AiEvents,
+            _ if is_ai_event(event_name) => Self::AiEvents,
             _ if historical_migration => Self::AnalyticsHistorical,
             _ => Self::AnalyticsMain,
         }
@@ -245,11 +260,10 @@ impl DataType {
     /// don't share Redis-backed restriction config with any other pipeline,
     /// so they're not subject to `EventRestrictionService` lookups.
     ///
-    /// `AiEvents` maps to the `ai` restriction pipeline: an event diverted to
-    /// the AI lane is governed by ai-scoped restrictions, the same slice the
-    /// dedicated AI endpoints consult. Non-diverted `$ai_*` events classify
-    /// as `AnalyticsMain` and stay under analytics restrictions. v1 derives
-    /// the same mapping from `Destination::pipeline`.
+    /// `AiEvents` maps to the `ai` restriction pipeline: an event on the AI
+    /// lane is governed by ai-scoped restrictions, the same slice the
+    /// dedicated AI endpoints consult. v1 derives the same mapping from
+    /// `Destination::pipeline`.
     pub fn pipeline(self) -> Option<Pipeline> {
         match self {
             Self::AnalyticsMain | Self::AnalyticsHistorical => Some(Pipeline::Analytics),
@@ -358,55 +372,40 @@ mod tests {
     use super::{CaptureError, Compression, DataType, RawRequest};
 
     /// Mirrors v1's `destination_for_event_name` mapping tests: the
-    /// dedicated-name lanes always win, `$ai_*` diverts only when the route
-    /// flag is set (beating historical), and everything else falls through to
+    /// dedicated-name lanes always win, an allowlisted AI name diverts on every deployment
+    /// (beating historical), and everything else falls through to
     /// main/historical per the batch flag.
     #[rstest::rstest]
-    // Dedicated-name lanes are unaffected by both flags.
-    #[case("$exception", false, false, DataType::ExceptionErrorTracking)]
-    #[case("$exception", true, true, DataType::ExceptionErrorTracking)]
-    #[case("$$heatmap", false, false, DataType::HeatmapMain)]
-    #[case("$$heatmap", true, true, DataType::HeatmapMain)]
-    #[case(
-        "$$client_ingestion_warning",
-        false,
-        false,
-        DataType::ClientIngestionWarning
-    )]
-    #[case(
-        "$$client_ingestion_warning",
-        true,
-        true,
-        DataType::ClientIngestionWarning
-    )]
+    // Dedicated-name lanes are unaffected by the historical flag.
+    #[case("$exception", false, DataType::ExceptionErrorTracking)]
+    #[case("$exception", true, DataType::ExceptionErrorTracking)]
+    #[case("$$heatmap", false, DataType::HeatmapMain)]
+    #[case("$$heatmap", true, DataType::HeatmapMain)]
+    #[case("$$client_ingestion_warning", false, DataType::ClientIngestionWarning)]
+    #[case("$$client_ingestion_warning", true, DataType::ClientIngestionWarning)]
     // Non-AI events keep the main/historical split.
-    #[case("$pageview", false, false, DataType::AnalyticsMain)]
-    #[case("$pageview", false, true, DataType::AnalyticsMain)]
-    #[case("custom_event", false, true, DataType::AnalyticsMain)]
-    #[case("$pageview", true, false, DataType::AnalyticsHistorical)]
-    #[case("$pageview", true, true, DataType::AnalyticsHistorical)]
-    // Allowlisted AI events divert only when AI routing is enabled, and win over historical.
-    #[case("$ai_generation", false, true, DataType::AiEvents)]
-    #[case("$ai_span", false, true, DataType::AiEvents)]
-    #[case("$ai_trace", false, true, DataType::AiEvents)]
-    #[case("$ai_generation_summary", false, true, DataType::AiEvents)]
-    #[case("$ai_generation", true, true, DataType::AiEvents)]
-    #[case("$ai_generation", false, false, DataType::AnalyticsMain)]
-    #[case("$ai_generation", true, false, DataType::AnalyticsHistorical)]
+    #[case("$pageview", false, DataType::AnalyticsMain)]
+    #[case("custom_event", false, DataType::AnalyticsMain)]
+    #[case("$pageview", true, DataType::AnalyticsHistorical)]
+    // Allowlisted AI events divert, and win over historical.
+    #[case("$ai_generation", false, DataType::AiEvents)]
+    #[case("$ai_span", false, DataType::AiEvents)]
+    #[case("$ai_trace", false, DataType::AiEvents)]
+    #[case("$ai_generation_summary", false, DataType::AiEvents)]
+    #[case("$ai_generation", true, DataType::AiEvents)]
     // Names matching the $ai_ prefix but absent from the allowlist do NOT divert:
     // the ingestion AI pipeline would DLQ them, so they stay on the main lane.
-    #[case("$ai_call", false, true, DataType::AnalyticsMain)]
-    #[case("$ai_generation_enriched", false, true, DataType::AnalyticsMain)]
-    #[case("$ai_model_failover", false, true, DataType::AnalyticsMain)]
-    #[case("$ai_model_failover", true, true, DataType::AnalyticsHistorical)]
+    #[case("$ai_call", false, DataType::AnalyticsMain)]
+    #[case("$ai_generation_enriched", false, DataType::AnalyticsMain)]
+    #[case("$ai_model_failover", false, DataType::AnalyticsMain)]
+    #[case("$ai_model_failover", true, DataType::AnalyticsHistorical)]
     fn from_event_name_mapping(
         #[case] event_name: &str,
         #[case] historical_migration: bool,
-        #[case] route_ai_events: bool,
         #[case] expected: DataType,
     ) {
         assert_eq!(
-            DataType::from_event_name(event_name, historical_migration, route_ai_events),
+            DataType::from_event_name(event_name, historical_migration),
             expected
         );
     }

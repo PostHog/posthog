@@ -1,4 +1,4 @@
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from itertools import count
 from types import SimpleNamespace
 from typing import Any
@@ -35,6 +35,7 @@ from products.engineering_analytics.backend.tests._logic_helpers import (
     _EndpointsWarehouseMixin,
     _job_row,
     _resp,
+    _seed_now,
 )
 
 
@@ -98,7 +99,7 @@ class TestWorkflowEndpointMapping(BaseTest):
         ]
         # A -30d window buckets by day. Must land inside the window (relative to now). Columns:
         # owner, name, workflow, bucket_start, run_count, completed, successes, failures.
-        bucket_rows = [("PostHog", "posthog", "CI", datetime.now(tz=UTC) - timedelta(days=1), 10, 8, 7, 1)]
+        bucket_rows = [("PostHog", "posthog", "CI", _seed_now() - timedelta(days=1), 10, 8, 7, 1)]
         # Third response: the previous-window success rate (the Δ baseline); Deploy had no prior runs.
         prev_rows = [("PostHog", "posthog", "CI", 0.95)]
         with mock.patch(_RUN_QUERY, side_effect=[_resp(rows), _resp(bucket_rows), _resp(prev_rows)]):
@@ -519,8 +520,9 @@ class TestWorkflowEndpointsWarehouse(_EndpointsWarehouseMixin, BaseTest):
             [_job_row(95000, 9500, "build", "success", labels='["depot-ubuntu-22.04-4"]')],
         )
         ci = next(i for i in api.list_workflow_health(team=self.team, date_from="-30d") if i.workflow_name == "CI")
-        assert ci.estimated_cost_usd is not None and ci.estimated_cost_usd > 0
-        assert ci.billable_minutes is not None and ci.billable_minutes > 0
+        # One 120s job on a 4-vCPU tier: 2 min x $0.004 x 2.
+        assert ci.estimated_cost_usd == pytest.approx(0.016)
+        assert ci.billable_minutes == pytest.approx(2.0)
 
     def test_workflow_runner_costs_breaks_down_by_tier(self) -> None:
         # The single-workflow breakdown splits a workflow's spend across runner tiers.

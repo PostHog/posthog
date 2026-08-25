@@ -9,6 +9,7 @@ from rest_framework import status
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade.models import DAG, DataWarehouseSavedQuery, Edge, Node, NodeType
 from products.data_modeling.backend.logic.node_frequency import set_declared_target
 from products.data_tools.backend.models.datawarehouse_saved_query_folder import DataWarehouseSavedQueryFolder
@@ -18,13 +19,8 @@ from products.warehouse_sources.backend.facade.models import (
     ExternalDataSchema,
     ExternalDataSource,
 )
+from products.warehouse_sources.backend.facade.testing import WarehouseAccessControlTestMixin
 from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
-from products.warehouse_sources.backend.tests.api._access_control_base import WarehouseAccessControlTestMixin
-
-try:
-    from ee.models.rbac.access_control import AccessControl
-except ImportError:
-    pass
 
 
 @pytest.mark.ee

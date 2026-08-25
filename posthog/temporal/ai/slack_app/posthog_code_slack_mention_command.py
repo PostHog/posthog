@@ -52,12 +52,9 @@ class PostHogCodeSlackMentionCommandWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: PostHogCodeSlackMentionCommandWorkflowInputs) -> None:
-        # New starts carry ``user_id`` from routing-time resolution and skip the
-        # activity. Legacy histories started before the field existed deserialize
-        # with ``user_id=None`` and replay through the activity so the recorded
-        # command stream still matches. Drop this fallback (and make ``user_id``
-        # required on inputs) once the workflow history retention window has
-        # elapsed.
+        # The mention surface resolves the user at routing time and passes it in.
+        # The slash surface passes ``None`` on purpose so its webhook ack stays
+        # inside Slack's 3s budget, and resolution happens here instead.
         user_id = inputs.user_id
         if user_id is None:
             user_id = await workflow.execute_activity(
@@ -94,14 +91,15 @@ class PostHogCodeSlackMentionCommandWorkflow(PostHogWorkflow):
         # shape, but today they only read ``integration_id`` / ``slack_team_id``
         # / ``event`` from it. Synthesise a compatible record for the resolved
         # target so we can reuse the existing picker plumbing without
-        # duplicating it. Forward ``user_id`` so any future activity that reads
-        # it (e.g. for attribution) stays consistent with the surrounding
-        # command workflow's resolved user.
+        # duplicating it. Forward the resolved ``user_id`` so any activity that
+        # reads it (e.g. for attribution) sees the same actor as the surrounding
+        # command workflow — on the slash surface ``inputs.user_id`` is still None
+        # here, since that surface defers resolution to the activity above.
         picker_inputs = PostHogCodeSlackMentionWorkflowInputs(
             event=inputs.event,
             integration_id=target_integration_id,
             slack_team_id=inputs.slack_team_id,
-            user_id=inputs.user_id,
+            user_id=user_id,
         )
 
         blocked = await workflow.execute_activity(

@@ -307,9 +307,9 @@ BAA_SIGNED_AI_DISABLED_TEMPLATE = "baa_signed_ai_disabled"
 def apply_baa_signed_side_effects(document: LegalDocument) -> None:
     """
     When a BAA is signed, opt the organization out of AI data processing and
-    notify its owners. The BAA does not cover third-party AI subprocessors, so
-    we fail safe to opt-out — owners can re-enable from settings if they want
-    AI features for non-PHI workflows.
+    out of AI training, then notify its owners. The BAA does not cover
+    third-party AI subprocessors, so we fail safe to opt-out — owners can
+    re-enable from settings if they want AI features for non-PHI workflows.
 
     Best-effort: any failure here is logged but does not roll back the BAA
     signature itself (PandaDoc has already collected it).
@@ -319,9 +319,15 @@ def apply_baa_signed_side_effects(document: LegalDocument) -> None:
 
     organization = document.organization
     try:
+        updated_fields = []
         if organization.is_ai_data_processing_approved is not False:
             organization.is_ai_data_processing_approved = False
-            organization.save(update_fields=["is_ai_data_processing_approved"])
+            updated_fields.append("is_ai_data_processing_approved")
+        if organization.is_ai_training_opted_in is not False:
+            organization.is_ai_training_opted_in = False
+            updated_fields.append("is_ai_training_opted_in")
+        if updated_fields:
+            organization.save(update_fields=updated_fields)
     except Exception as exc:
         logger.exception("legal_document_baa_opt_out_failed", document_id=str(document.id), error=str(exc))
         capture_exception(exc, additional_properties={"legal_document_id": str(document.id)})

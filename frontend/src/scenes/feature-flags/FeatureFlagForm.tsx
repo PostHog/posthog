@@ -67,7 +67,12 @@ import { FeatureFlagBucketingIdentifier, FeatureFlagEvaluationRuntime, Multivari
 
 import { FeatureFlagCodeExample } from './FeatureFlagCodeExample'
 import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
-import { FeatureFlagLogicProps, featureFlagLogic, slugifyFeatureFlagKey } from './featureFlagLogic'
+import {
+    FeatureFlagLogicProps,
+    featureFlagLogic,
+    slugifyFeatureFlagKey,
+    validateVariantRolloutSum,
+} from './featureFlagLogic'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
 import { PercentageInput } from './PercentageInput'
 
@@ -296,6 +301,8 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
             resetEncryptedPayload()
         }
     }
+
+    const rolloutSumError = validateVariantRolloutSum(variants)
 
     const FLAG_TYPE_OPTIONS = [
         {
@@ -810,6 +817,10 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                             </div>
                                         </div>
 
+                                        {rolloutSumError && (
+                                            <span className="Field--error text-danger text-xs">{rolloutSumError}</span>
+                                        )}
+
                                         <DndContext
                                             sensors={sensors}
                                             onDragStart={handleDragStart}
@@ -858,17 +869,19 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                 )}
 
                                                                 <LemonLabel>Rollout percentage</LemonLabel>
-                                                                <PercentageInput
-                                                                    value={variant.rollout_percentage}
-                                                                    onChange={(value) =>
-                                                                        updateVariant(
-                                                                            index,
-                                                                            'rollout_percentage',
-                                                                            value
-                                                                        )
-                                                                    }
-                                                                    data-attr={`feature-flag-variant-rollout-${index}`}
-                                                                />
+                                                                <LemonField.Pure error={!!rolloutSumError}>
+                                                                    <PercentageInput
+                                                                        value={variant.rollout_percentage}
+                                                                        onChange={(value) =>
+                                                                            updateVariant(
+                                                                                index,
+                                                                                'rollout_percentage',
+                                                                                value
+                                                                            )
+                                                                        }
+                                                                        data-attr={`feature-flag-variant-rollout-${index}`}
+                                                                    />
+                                                                </LemonField.Pure>
 
                                                                 <LemonLabel>Description</LemonLabel>
                                                                 <LemonTextArea

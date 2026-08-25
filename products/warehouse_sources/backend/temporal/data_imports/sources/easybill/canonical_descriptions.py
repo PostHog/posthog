@@ -1,0 +1,133 @@
+"""Canonical, documentation-sourced descriptions for easybill endpoints and columns.
+
+Sourced from easybill's own OpenAPI spec, served at https://api.easybill.de/rest/v1/swagger.json
+and rendered at https://www.easybill.de/api/. Keyed by the resource names in `settings.py`
+`ENDPOINTS`, which match the `ExternalDataSchema.name` of a synced easybill table. Columns absent
+here fall back to LLM enrichment.
+"""
+
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
+    CanonicalDescriptions,
+)
+
+CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "Documents": {
+        "description": "An easybill document: an invoice, credit note, offer, delivery note, reminder, or one of the other document types distinguished by `type`.",
+        "docs_url": "https://www.easybill.de/api/",
+        "columns": {
+            "id": "Unique identifier for the document.",
+            "type": "Document type, e.g. INVOICE, CREDIT, OFFER, DELIVERY, REMINDER, STORNO.",
+            "number": "The document number shown to the customer.",
+            "title": "Title of the document.",
+            "customer_id": "ID of the customer the document was issued to.",
+            "project_id": "ID of the project the document is linked to, if any.",
+            "contact_id": "ID of the customer contact the document was issued to, if any.",
+            "amount": "Total amount in cents (e.g. 150 = 1.50 EUR).",
+            "amount_net": "Total net amount in cents (e.g. 150 = 1.50 EUR).",
+            "currency": "Currency of the document.",
+            "status": "Document status. Only meaningful for types that use one (DELIVERY, ORDER, CHARGE and similar).",
+            "is_draft": "Whether the document has not yet been finalized.",
+            "is_archive": "Whether the document has been archived.",
+            "document_date": "The date shown on the document. Defaults to today when omitted; can be null for drafts.",
+            "due_date": "Date payment is due.",
+            "paid_at": "Date the document was paid, if any.",
+            "paid_amount": "Amount already paid, in cents.",
+            "created_at": "Time the document was created.",
+            "edited_at": "Time the document was last edited.",
+            "ref_id": "ID of a related document this one references.",
+            "cancel_id": "ID of the cancellation (STORNO) document, if this document was cancelled.",
+            "root_id": "ID of the root document in a chain of related documents.",
+        },
+    },
+    "DocumentPayments": {
+        "description": "A payment recorded against an easybill document.",
+        "docs_url": "https://www.easybill.de/api/",
+        "columns": {
+            "id": "Unique identifier for the payment.",
+            "document_id": "ID of the document this payment is recorded against.",
+            "amount": "Payment amount in cents (e.g. 150 = 1.50 EUR).",
+            "payment_at": "Date the payment was made.",
+            "type": "Payment type.",
+            "provider": "Payment provider that processed the payment, if any.",
+            "reference": "Free-text reference for the payment.",
+            "is_overdue_fee": "Whether this payment covers an overdue fee rather than the document amount.",
+        },
+    },
+    "Customers": {
+        "description": "An easybill customer record.",
+        "docs_url": "https://www.easybill.de/api/",
+        "columns": {
+            "id": "Unique identifier for the customer.",
+            "number": "Customer number, generated automatically if left blank.",
+            "supplier_number": "Supplier number, used when the customer is also a supplier.",
+            "group_id": "ID of the customer's primary group.",
+            "additional_groups_ids": "IDs of any additional groups the customer belongs to.",
+            "company_name": "Company name, for business customers.",
+            "first_name": "First name, for individual customers.",
+            "last_name": "Last name, for individual customers.",
+            "display_name": "Display name shown for the customer.",
+            "emails": "Email addresses on file for the customer.",
+            "phone_1": "Primary phone number.",
+            "phone_2": "Secondary phone number.",
+            "mobile": "Mobile phone number.",
+            "vat_identifier": "VAT identification number.",
+            "tax_number": "Tax number.",
+            "country": "Country of the customer's billing address.",
+            "city": "City of the customer's billing address.",
+            "zip_code": "Postal code of the customer's billing address.",
+            "street": "Street of the customer's billing address.",
+            "created_at": "Date the customer record was created.",
+            "updated_at": "Time the customer record was last updated. Not filterable via the list API, so it can't be used as an incremental cursor.",
+            "archived": "Whether the customer has been archived.",
+            "due_in_days": "Default number of days until payment is due for this customer's documents.",
+        },
+    },
+    "Positions": {
+        "description": "An easybill position: an article or service in the catalogue, used as a line item template on documents.",
+        "docs_url": "https://www.easybill.de/api/",
+        "columns": {
+            "id": "Unique identifier for the position.",
+            "type": "Position type.",
+            "number": "Article/position number.",
+            "description": "The position's name or description.",
+            "note": "Internal-use note, not shown to customers.",
+            "unit": "Unit the position is sold in (e.g. piece, hour).",
+            "vat_percent": "VAT percentage applied to the position.",
+            "sale_price": "Default sale price in cents (e.g. 150 = 1.50 EUR).",
+            "cost_price": "Cost price in cents (e.g. 150 = 1.50 EUR).",
+            "quantity": "Default quantity used when adding this position to a document.",
+            "group_id": "ID of the position group this position belongs to.",
+            "stock": "Whether stock management is active for this position.",
+            "stock_count": "Current stock count.",
+            "archived": "Whether the position has been archived.",
+        },
+    },
+    "Projects": {
+        "description": "An easybill project, used to group time tracking and billing for a customer engagement.",
+        "docs_url": "https://www.easybill.de/api/",
+        "columns": {
+            "id": "Unique identifier for the project.",
+            "name": "Project name.",
+            "note": "Free-text note about the project.",
+            "customer_id": "ID of the customer this project is for.",
+            "status": "Project status.",
+            "hourly_rate": "Hourly rate in cents (e.g. 150 = 1.50 EUR).",
+            "budget_amount": "Project budget in cents (e.g. 150 = 1.50 EUR).",
+            "budget_time": "Time budget in minutes (e.g. 90 = 1 hour 30 minutes).",
+            "consumed_amount": "Amount consumed against the budget so far, in cents.",
+            "consumed_time": "Time consumed against the budget so far, in minutes.",
+            "due_at": "Project due date.",
+        },
+    },
+    "CustomerGroups": {
+        "description": "A group used to categorize customers, e.g. for group-specific pricing.",
+        "docs_url": "https://www.easybill.de/api/",
+        "columns": {
+            "id": "Unique identifier for the customer group.",
+            "name": "Group name.",
+            "display_name": "Display name shown for the group.",
+            "description": "Free-text description of the group.",
+            "number": "Group number, can be chosen freely.",
+        },
+    },
+}

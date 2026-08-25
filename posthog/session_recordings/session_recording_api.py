@@ -87,8 +87,6 @@ from posthog.rate_limit import (
     is_rate_limit_enabled,
     team_is_allowed_to_bypass_throttle,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.session_recordings.ai_data.ai_regex_prompts import AI_REGEX_PROMPTS
 from posthog.session_recordings.ai_data.ai_regex_schema import AiRegexSchema
 from posthog.session_recordings.models.session_recording import SessionRecording
@@ -111,6 +109,11 @@ from posthog.session_recordings.utils import (
     recordings_query_has_event_filters,
 )
 from posthog.settings.session_replay import SESSION_REPLAY_AI_REGEX_MODEL
+
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 
 from ..models.product_intent.product_intent import ProductIntent
 from .queries.combine_session_ids_for_filtering import combine_session_id_filters
@@ -1744,6 +1747,7 @@ class SessionRecordingViewSet(
             posthog_properties={
                 "ai_product": "session_replay",
                 "ai_feature": "ai_regex",
+                "team_id": self.team.id,
             },
         )
 

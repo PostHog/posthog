@@ -5,7 +5,7 @@ import { initKeaTests } from '~/test/init'
 
 import { signalSourcesLogic } from '../signalSourcesLogic'
 import { SOURCE_STEERING_MAX_LENGTH, SignalSourceConfig, SignalSourceProduct, SignalSourceType } from '../types'
-import { sourceSteeringModalLogic } from './sourceSteeringModalLogic'
+import { sourceHasLegacyPosture, sourceSteeringIsSet, sourceSteeringModalLogic } from './sourceSteeringModalLogic'
 
 const sourceConfig: SignalSourceConfig = {
     id: 'config-1',
@@ -13,7 +13,7 @@ const sourceConfig: SignalSourceConfig = {
     source_type: SignalSourceType.Ticket,
     enabled: true,
     // A key steering does not own, to prove saves merge rather than clobber.
-    config: { recording_filters: { events: [] }, steering: 'old rules' },
+    config: { recording_filters: { events: [] }, steering: 'old rules', default_not_actionable: true },
     created_at: '2026-08-01T00:00:00Z',
     updated_at: '2026-08-01T00:00:00Z',
     status: null,
@@ -54,11 +54,10 @@ describe('sourceSteeringModalLogic', () => {
         logic?.unmount()
     })
 
-    it('saves the whole config with trimmed steering keys merged in, keeping keys it does not own', async () => {
-        expect(logic.values.sourceSteering).toEqual({ steering: 'old rules', defaultNotActionable: false })
+    it('saves the whole config with trimmed steering merged in, keeping keys it does not own and dropping the retired posture flag', async () => {
+        expect(logic.values.sourceSteering).toEqual({ steering: 'old rules' })
 
         logic.actions.setSourceSteeringValue('steering', '  skip chores  ')
-        logic.actions.setSourceSteeringValue('defaultNotActionable', true)
         await expectLogic(logic, () => {
             logic.actions.submitSourceSteering()
         }).toDispatchActions(['submitSourceSteeringSuccess'])
@@ -68,7 +67,6 @@ describe('sourceSteeringModalLogic', () => {
                 config: {
                     recording_filters: { events: [] },
                     steering: 'skip chores',
-                    default_not_actionable: true,
                 },
             },
         ])
@@ -102,7 +100,6 @@ describe('sourceSteeringModalLogic', () => {
         expect(signalSourcesLogic.values.sourceConfigs?.[0]?.config).toEqual({
             recording_filters: { events: [] },
             steering: 'fresh rules',
-            default_not_actionable: false,
         })
         expect(signalSourcesLogic.values.sourceConfigs?.[0]?.status).toEqual('completed')
     })
@@ -111,13 +108,34 @@ describe('sourceSteeringModalLogic', () => {
         logic.unmount()
         const reloaded = {
             ...sourceConfig,
-            config: { ...sourceConfig.config, steering: 'saved rules', default_not_actionable: true },
+            config: { ...sourceConfig.config, steering: 'saved rules' },
             updated_at: '2026-08-02T00:00:00Z',
         }
         logic = sourceSteeringModalLogic({ sourceConfig: reloaded, onClose })
         logic.mount()
 
-        expect(logic.values.sourceSteering).toEqual({ steering: 'saved rules', defaultNotActionable: true })
+        expect(logic.values.sourceSteering).toEqual({ steering: 'saved rules' })
+    })
+
+    it('still counts the retired posture flag as steering, so a filtering source is never shown as unset', () => {
+        // The gate keeps honoring the flag, so a source carrying it alone must not read as
+        // "no guidance" — that would leave it filtering with nothing to see or clear.
+        const postureOnly = { ...sourceConfig, config: { default_not_actionable: true } }
+
+        expect(sourceSteeringIsSet(postureOnly)).toBe(true)
+        expect(sourceHasLegacyPosture(postureOnly)).toBe(true)
+        expect(sourceHasLegacyPosture({ ...sourceConfig, config: { steering: 'text only' } })).toBe(false)
+    })
+
+    it('appends an example on its own line, and marks it unfittable rather than crossing the cap', () => {
+        const [example] = logic.values.steeringExamples
+        expect(example.fits).toBe(true)
+        expect(example.result).toEqual(`old rules\n${example.line}`)
+
+        // A near-full field: appending would cross the cap, which would leave the form unsavable.
+        logic.actions.setSourceSteeringValue('steering', 'x'.repeat(SOURCE_STEERING_MAX_LENGTH - 5))
+
+        expect(logic.values.steeringExamples.every((e) => e.fits)).toBe(false)
     })
 
     it('rejects rules over the server cap without issuing a request', async () => {

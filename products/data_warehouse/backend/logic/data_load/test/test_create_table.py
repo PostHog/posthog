@@ -53,6 +53,7 @@ async def test_concurrent_materializations_share_one_backing_table(team: Team) -
     assert first_result.table.id == second_result.table.id
     assert saved_query.table_id == first_result.table.id
     assert table_count == 1
+    assert first_result.table.created_via == DataWarehouseTable.CreatedVia.MATERIALIZED_VIEW
 
 
 @pytest.mark.asyncio

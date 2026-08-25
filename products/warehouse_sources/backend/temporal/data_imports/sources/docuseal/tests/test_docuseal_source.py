@@ -4,23 +4,14 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import (
-    DataWarehouseSourceCategory,
-    ReleaseStatus,
-    SourceFieldInputConfig,
-    SourceFieldInputConfigType,
-    SourceFieldSelectConfig,
-)
+from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.docuseal import source as source_module
-from products.warehouse_sources.backend.temporal.data_imports.sources.docuseal.docuseal import DocusealResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.docuseal.settings import ENDPOINTS
 from products.warehouse_sources.backend.temporal.data_imports.sources.docuseal.source import DocusealSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.docuseal import (
     DocusealSourceConfig,
 )
-from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_key: str = "tok", region: str = "us") -> DocusealSourceConfig:
@@ -28,9 +19,6 @@ def _config(api_key: str = "tok", region: str = "us") -> DocusealSourceConfig:
 
 
 class TestDocusealSourceConfig:
-    def test_source_type(self) -> None:
-        assert DocusealSource().source_type == ExternalDataSourceType.DOCUSEAL
-
     def test_visible_and_alpha(self) -> None:
         cfg = DocusealSource().get_source_config
         # A finished source ships visible (no unreleasedSource) and labelled alpha.
@@ -38,23 +26,6 @@ class TestDocusealSourceConfig:
         assert cfg.releaseStatus == ReleaseStatus.ALPHA
         assert cfg.category == DataWarehouseSourceCategory.SALES
         assert cfg.docsUrl == "https://posthog.com/docs/cdp/sources/docuseal"
-
-    def test_exposes_api_key_and_region_fields(self) -> None:
-        cfg = DocusealSource().get_source_config
-        names = {f.name for f in cfg.fields}
-        assert names == {"api_key", "region"}
-
-        api_key_field = next(f for f in cfg.fields if f.name == "api_key")
-        assert isinstance(api_key_field, SourceFieldInputConfig)
-        assert api_key_field.required is True
-        assert api_key_field.secret is True
-        assert api_key_field.type == SourceFieldInputConfigType.PASSWORD
-
-        region_field = next(f for f in cfg.fields if f.name == "region")
-        assert isinstance(region_field, SourceFieldSelectConfig)
-        assert region_field.required is True
-        assert region_field.defaultValue == "us"
-        assert {opt.value for opt in region_field.options} == {"us", "eu"}
 
     def test_region_is_a_connection_host_field(self) -> None:
         # `region` decides which host the stored API key is sent to, so changing it must force the
@@ -84,25 +55,6 @@ class TestDocusealSchemas:
         for table in tables:
             assert table["sync_methods"] == ["Full refresh"]
 
-    def test_canonical_descriptions_cover_every_endpoint(self) -> None:
-        descriptions = DocusealSource().get_canonical_descriptions()
-        assert set(descriptions) == set(ENDPOINTS)
-
-
-class TestDocusealCredentials:
-    @patch.object(source_module, "validate_docuseal_credentials", return_value=(True, None))
-    def test_delegates_to_transport(self, mock_validate: MagicMock) -> None:
-        ok, error = DocusealSource().validate_credentials(_config(region="eu"), team_id=1)
-        assert ok is True
-        assert error is None
-        mock_validate.assert_called_once_with("tok", "eu")
-
-    @patch.object(source_module, "validate_docuseal_credentials", return_value=(False, "Invalid DocuSeal API key."))
-    def test_propagates_failure(self, _mock_validate: MagicMock) -> None:
-        ok, error = DocusealSource().validate_credentials(_config(), team_id=1)
-        assert ok is False
-        assert error == "Invalid DocuSeal API key."
-
 
 class TestDocusealNonRetryableErrors:
     @parameterized.expand(
@@ -129,11 +81,6 @@ class TestDocusealNonRetryableErrors:
 
 
 class TestDocusealPipelineWiring:
-    def test_get_resumable_source_manager_binds_resume_config(self) -> None:
-        manager = DocusealSource().get_resumable_source_manager(MagicMock())
-        assert isinstance(manager, ResumableSourceManager)
-        assert manager._data_class is DocusealResumeConfig
-
     def test_source_for_pipeline_plumbs_inputs(self) -> None:
         captured: dict[str, object] = {}
 

@@ -145,13 +145,11 @@ class DucklingBackfillConfig:
 2. Enable another team's backfill with the "Enable warehouse backfill for a team" admin
    action or the managed warehouse onboarding API. This creates the control-plane team row
    with backfill enabled. The discovery sensor will pick up the team on its next run.
-   The enablement flow also creates a
-   managed Postgres live-query connection with a distinct Duckgres reader for the team. Once the
-   warehouse is ready, background schema discovery exposes every table in the team's event/person,
-   data-import, team, and modeled-data namespaces in the SQL editor. Duckgres enforces read-only
-   access to those namespaces for both HogQL and raw SQL. Legacy teams that still use the shared
-   unsuffixed `events` and `persons` tables are not exposed because those tables contain rows for
-   multiple teams.
+   A new managed SQL-editor source uses short-lived `duckgres_service` credentials and appears as the built-in
+   `PostHog (Managed warehouse)` connection. Existing static and `project_reader` sources keep their current
+   authentication mode. The chooser prefers dynamic authentication, then a ready reader, and otherwise exposes
+   the canonical valid static source as an external connection. Reader provisioning and rotation remain separate
+   from this enablement flow.
 
 3. To trigger immediate historical backfill, reset the full backfill sensor cursor
 
@@ -189,6 +187,10 @@ If multiple partitions for the same team run concurrently, they may race to crea
 - **Dagster registration**: `posthog/dags/locations/data_stack.py`
 - **DuckgresServer model**: `products/managed_warehouse/backend/models.py`
 - **Control-plane team state**: `products/managed_warehouse/backend/cp_teams.py` and `products/managed_warehouse/backend/team_state.py`
+
+Backfill sensors only schedule teams with backfills enabled in a managed warehouse that reports `state: ready`.
+The sensor skips provisioning, failed, deleting, deleted, and resharding warehouses.
+If either control-plane listing is unavailable, the sensor tick schedules no new work and retries on its next tick.
 
 ## S3 Path Structure
 

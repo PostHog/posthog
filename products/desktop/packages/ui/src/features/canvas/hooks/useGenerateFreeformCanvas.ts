@@ -62,6 +62,12 @@ export function useGenerateFreeformCanvas(args: {
       name: string;
       templateId?: string;
       instruction: string;
+      // When set, the run fills ONE placement on a grid canvas (the agent
+      // follows the composing-grid-canvases skill instead of building-canvases).
+      placement?: { placementId: string; w: number; h: number };
+      // "grid" routes a whole-canvas run to the grid skill (edit the layout
+      // and its components) instead of freeform canvas authoring.
+      canvasKind?: "grid";
       // The composer's picks, when the surface exposes model/effort selectors.
       adapter?: Adapter;
       model?: string;
@@ -99,6 +105,8 @@ export function useGenerateFreeformCanvas(args: {
             name,
             templateId: opts.templateId,
             instruction,
+            placement: opts.placement,
+            canvasKind: opts.canvasKind,
             channelId,
             channelName,
             channelContext,
@@ -123,13 +131,18 @@ export function useGenerateFreeformCanvas(args: {
         }
 
         // Track this run so a toast (with a link back here) fires when it
-        // finishes, even after the user navigates to another canvas.
-        useCanvasGenerationTrackerStore.getState().track({
-          taskId: result.taskId,
-          dashboardId,
-          channelId,
-          name,
-        });
+        // finishes, even after the user navigates to another canvas. Placement
+        // fills are excluded: the completion toast judges the canvas's build
+        // health, and a grid canvas has no builds — the empty lifecycle would
+        // read as "finished with a failed build". The tile shows the progress.
+        if (!opts.placement && opts.canvasKind !== "grid") {
+          useCanvasGenerationTrackerStore.getState().track({
+            taskId: result.taskId,
+            dashboardId,
+            channelId,
+            name,
+          });
+        }
         // Refresh the workspace cache so the new cloud workspace row appears and
         // the task view resolves the cloud run instead of the repo-picker prompt.
         void queryClient.invalidateQueries({

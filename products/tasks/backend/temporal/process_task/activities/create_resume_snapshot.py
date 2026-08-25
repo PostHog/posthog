@@ -9,7 +9,6 @@ from posthog.temporal.common.utils import asyncify
 from products.tasks.backend.constants import (
     DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
     SNAPSHOT_KIND_DIRECTORY,
-    SNAPSHOT_KIND_FILESYSTEM,
     SnapshotKind,
 )
 from products.tasks.backend.exceptions import (
@@ -24,12 +23,6 @@ from products.tasks.backend.temporal.observability import emit_agent_log
 
 logger = structlog.get_logger(__name__)
 
-# Both callers (process_task and execute_sandbox workflows) give this activity a
-# 5-minute start_to_close budget; the Modal-side snapshot timeout must be tighter so
-# a slow snapshot surfaces as the classified SnapshotTimeoutError instead of Temporal
-# killing the attempt first.
-RESUME_SNAPSHOT_TIMEOUT_SECONDS = 4 * 60
-
 PENDING_USER_STATE_KEYS = [
     "pending_user_message",
     "pending_user_artifact_ids",
@@ -38,11 +31,12 @@ PENDING_USER_STATE_KEYS = [
 ]
 
 
-@dataclass
+@dataclass(frozen=True)
 class CreateResumeSnapshotInput:
     sandbox_id: str
     run_id: str
-    use_directory_snapshot: bool = False
+    # Retained for Temporal payload compatibility while existing workflows drain.
+    use_directory_snapshot: bool = True
     snapshot_mount_path: str = DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH
     reason: str = "teardown"
     allow_pruning: bool = True
@@ -66,7 +60,7 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
     API can look it up when resuming.
     """
     SandboxClass = get_sandbox_class()
-    snapshot_kind: SnapshotKind = SNAPSHOT_KIND_DIRECTORY if input.use_directory_snapshot else SNAPSHOT_KIND_FILESYSTEM
+    snapshot_kind: SnapshotKind = SNAPSHOT_KIND_DIRECTORY
     snapshot_mount_path = input.snapshot_mount_path or DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH
 
     logger.info(
@@ -125,15 +119,9 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
 
     outcome = "created"
     try:
-        if snapshot_kind == SNAPSHOT_KIND_DIRECTORY:
-            external_id = sandbox.create_directory_snapshot(snapshot_mount_path)
-        else:
-            external_id = sandbox.create_snapshot(timeout_seconds=RESUME_SNAPSHOT_TIMEOUT_SECONDS)
+        external_id = sandbox.create_directory_snapshot(snapshot_mount_path)
     except SnapshotFileLimitExceededError as e:
-        # Modal caps snapshots at 1M files and a directory snapshot of the workspace can exceed it
-        # once install trees and caches pile up. Only the directory snapshot has a mount path to
-        # shrink; a full filesystem snapshot does not, so it degrades to a fresh start.
-        if snapshot_kind != SNAPSHOT_KIND_DIRECTORY or not input.allow_pruning:
+        if not input.allow_pruning:
             outcome = "file_limit_exceeded"
             duration_ms = int((time.perf_counter() - started_at) * 1000)
             logger.warning(
@@ -246,13 +234,9 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
         updates = {
             "snapshot_external_id": external_id,
             "snapshot_kind": snapshot_kind,
+            "snapshot_mount_path": snapshot_mount_path,
         }
-        remove_keys: list[str] = [*PENDING_USER_STATE_KEYS]
-        if snapshot_kind == SNAPSHOT_KIND_DIRECTORY:
-            updates["snapshot_mount_path"] = snapshot_mount_path
-        else:
-            remove_keys.append("snapshot_mount_path")
-        TaskRun.update_state_atomic(input.run_id, updates=updates, remove_keys=remove_keys)
+        TaskRun.update_state_atomic(input.run_id, updates=updates, remove_keys=PENDING_USER_STATE_KEYS)
     except Exception as e:
         outcome = "persist_failed"
         duration_ms = int((time.perf_counter() - started_at) * 1000)
@@ -287,13 +271,13 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
         reason=input.reason,
         snapshot_kind=snapshot_kind,
         snapshot_external_id=external_id,
-        snapshot_mount_path=snapshot_mount_path if snapshot_kind == SNAPSHOT_KIND_DIRECTORY else None,
+        snapshot_mount_path=snapshot_mount_path,
         duration_ms=duration_ms,
     )
     emit_agent_log(input.run_id, "debug", f"Resume snapshot created ({input.reason}): {external_id}")
     return CreateResumeSnapshotOutput(
         external_id=external_id,
         snapshot_kind=snapshot_kind,
-        snapshot_mount_path=snapshot_mount_path if snapshot_kind == SNAPSHOT_KIND_DIRECTORY else None,
+        snapshot_mount_path=snapshot_mount_path,
         duration_ms=duration_ms,
     )

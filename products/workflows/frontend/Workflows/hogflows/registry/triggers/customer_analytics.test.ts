@@ -3,11 +3,15 @@ import { PropertyType } from '~/types'
 import {
     accountCustomPropertyChangedFilters,
     accountCustomPropertyFrequencyOptions,
+    accountRelationshipChangedFilters,
+    accountRelationshipFrequencyOptions,
     accountTagAddedFilters,
     customPropertyDisplayTypeToPropertyType,
     getAccountCustomPropertyChangedConditions,
     getAccountCustomPropertyValueFilters,
+    getAccountRelationshipChangeType,
     getSelectedPropertyNames,
+    getSelectedRelationshipNames,
     getSelectedTags,
 } from './customer_analytics'
 import { EventTriggerConfig, getRegisteredTriggerTypes } from './triggerTypeRegistry'
@@ -21,7 +25,7 @@ describe('customer analytics triggers', () => {
         return triggerType
     }
 
-    it.each(['account_tag_added', 'account_custom_property_changed'])(
+    it.each(['account_tag_added', 'account_custom_property_changed', 'account_relationship_changed'])(
         '%s buildConfig produces a config recognized by matchConfig',
         (value) => {
             const triggerType = getTriggerType(value)
@@ -29,11 +33,17 @@ describe('customer analytics triggers', () => {
         }
     )
 
-    it('the two account triggers do not claim each other configs', () => {
-        const tagTrigger = getTriggerType('account_tag_added')
-        const propertyTrigger = getTriggerType('account_custom_property_changed')
-        expect(propertyTrigger.matchConfig!(tagTrigger.buildConfig())).toBe(false)
-        expect(tagTrigger.matchConfig!(propertyTrigger.buildConfig())).toBe(false)
+    it("the account triggers do not claim each other's configs", () => {
+        const triggers = [
+            getTriggerType('account_tag_added'),
+            getTriggerType('account_custom_property_changed'),
+            getTriggerType('account_relationship_changed'),
+        ]
+        for (const trigger of triggers) {
+            for (const otherTrigger of triggers) {
+                expect(trigger.matchConfig!(otherTrigger.buildConfig())).toBe(trigger === otherTrigger)
+            }
+        }
     })
 
     it.each([
@@ -172,14 +182,87 @@ describe('customer analytics triggers', () => {
         expect(customPropertyDisplayTypeToPropertyType(displayType)).toBe(expected)
     })
 
+    it.each([
+        {
+            name: 'array value',
+            properties: [
+                { key: 'relationship_name', value: ['CSM', 'Account owner'], operator: 'exact', type: 'event' },
+            ],
+            expected: ['CSM', 'Account owner'],
+        },
+        {
+            name: 'scalar value',
+            properties: [{ key: 'relationship_name', value: 'CSM', operator: 'exact', type: 'event' }],
+            expected: ['CSM'],
+        },
+        { name: 'no relationship filter', properties: [], expected: [] },
+        {
+            name: 'non-string values',
+            properties: [{ key: 'relationship_name', value: [1, null], operator: 'exact', type: 'event' }],
+            expected: [],
+        },
+    ])('getSelectedRelationshipNames handles $name', ({ properties, expected }) => {
+        const config: EventTriggerConfig = { type: 'event', filters: { properties } }
+        expect(getSelectedRelationshipNames(config)).toEqual(expected)
+    })
+
+    it('omits the relationship filter when no relationships are selected', () => {
+        expect(accountRelationshipChangedFilters([]).properties).toEqual([])
+        expect(accountRelationshipChangedFilters(['CSM']).properties).toEqual([
+            { key: 'relationship_name', value: ['CSM'], operator: 'exact', type: 'event' },
+        ])
+    })
+
+    it('preserves the change type filter when the relationship selection changes', () => {
+        const changeTypeFilter = { key: 'change_type', value: 'assigned', operator: 'exact', type: 'event' }
+        const filters = accountRelationshipChangedFilters(['CSM'], {
+            properties: [changeTypeFilter],
+            filter_test_accounts: true,
+        })
+        const config: EventTriggerConfig = { type: 'event', filters }
+
+        expect(filters.properties).toEqual([
+            { key: 'relationship_name', value: ['CSM'], operator: 'exact', type: 'event' },
+            changeTypeFilter,
+        ])
+        expect(filters.filter_test_accounts).toBe(true)
+        expect(getAccountRelationshipChangeType(config)).toBe('assigned')
+    })
+
+    it('replaces the change type filter without changing the selected relationships', () => {
+        const filters = accountRelationshipChangedFilters(['CSM'], {}, 'unassigned')
+
+        expect(filters.properties).toEqual([
+            { key: 'relationship_name', value: ['CSM'], operator: 'exact', type: 'event' },
+            { key: 'change_type', value: 'unassigned', operator: 'exact', type: 'event' },
+        ])
+    })
+
+    it('clears the change type filter without changing the selected relationships', () => {
+        const filters = accountRelationshipChangedFilters(
+            ['CSM'],
+            {
+                properties: [{ key: 'change_type', value: 'assigned', operator: 'exact', type: 'event' }],
+            },
+            null
+        )
+
+        expect(filters.properties).toEqual([
+            { key: 'relationship_name', value: ['CSM'], operator: 'exact', type: 'event' },
+        ])
+    })
+
     // The hash templates are evaluated as Hog against the trigger event at runtime — a typo'd
     // property reference resolves to null for every event and masks all accounts as one.
-    it('frequency hashes key on the account and property from the trigger event', () => {
-        const maskingOptions = accountCustomPropertyFrequencyOptions.filter((option) => option.value !== null)
+    it.each([
+        { options: accountCustomPropertyFrequencyOptions, field: 'event.properties.property_name' },
+        { options: accountRelationshipFrequencyOptions, field: 'event.properties.relationship_name' },
+    ])('frequency hashes key on the account and changed field from the trigger event', ({ options, field }) => {
+        const maskingOptions = options.filter((option) => option.value !== null)
         expect(maskingOptions.length).toBeGreaterThan(0)
         for (const option of maskingOptions) {
             expect(option.value).toContain('event.properties.account_id')
-            expect(option.value).toContain('event.properties.property_name')
+            expect(option.value).toContain(field)
         }
     })
 })

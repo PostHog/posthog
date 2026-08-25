@@ -255,6 +255,7 @@ def build_agent_runtime_env_prefix(
     event_ingest_url: str | None = None,
     event_ingest_keep_stream_open: bool = False,
     rtk_enabled: bool = True,
+    peer_messaging: bool = False,
 ) -> str:
     env_vars = {
         "POSTHOG_CODE_INTERACTION_ORIGIN": interaction_origin,
@@ -275,6 +276,10 @@ def build_agent_runtime_env_prefix(
         # Set explicitly in both states: "0" opts the run out, "1" pins auto-detection on
         # even if a stale env value survives in a resumed sandbox.
         "POSTHOG_RTK": "1" if rtk_enabled else "0",
+        # Exposure gate for the peer-messaging tools (PR: agent peer messaging). Set in
+        # both states so a stale "1" in a resumed sandbox can't outlive a flag rollback;
+        # the peers endpoints re-check authorization server-side regardless.
+        "POSTHOG_AGENT_PEER_MESSAGING": "1" if peer_messaging else "0",
     }
     assignments = " ".join(
         f"{name}={shlex.quote(value)}" for name, value in env_vars.items() if value is not None and value != ""
@@ -433,6 +438,7 @@ class SandboxBase(ABC):
         github_token: str | None = "",
         shallow: bool = True,
         branch: str | None = None,
+        blobless: bool = False,
     ) -> ExecutionResult:
         if not self.is_running():
             raise RuntimeError("Sandbox not in running state.")
@@ -449,9 +455,9 @@ class SandboxBase(ABC):
 
         depth_flag = f" --depth {shlex.quote('1')}" if shallow else ""
         branch_flag = f" --branch {shlex.quote(branch)}" if branch else ""
-        # Skip blobs over 128kB during full clones — large test snapshots and auto-generated
-        # files get fetched on demand. Shallow clones are already small enough.
-        blob_filter = "" if shallow else " --filter=blob:limit=128k"
+        blob_filter = ""
+        if not shallow:
+            blob_filter = " --filter=blob:none" if blobless else " --filter=blob:limit=128k"
         clone_command = (
             f"rm -rf {shlex.quote(target_path)} && "
             f"mkdir -p {shlex.quote(org_path)} && "
@@ -515,6 +521,7 @@ class SandboxBase(ABC):
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
         rtk_enabled: bool = True,
+        peer_messaging: bool = False,
     ) -> None:
         """Start the agent-server HTTP server in the sandbox.
 
@@ -547,7 +554,22 @@ class SandboxBase(ABC):
     def read_agent_server_session_init_ms(self) -> int | None:
         return None
 
+    def read_agent_server_boot_phases_ms(self) -> dict[str, int]:
+        return {}
+
+    def read_agent_server_boot_metrics(self) -> tuple[int | None, dict[str, int]]:
+        return None, {}
+
+    def agent_server_health_url(self) -> str:
+        return "http://127.0.0.1:8080/health"
+
     def read_cpu_usage_usec(self) -> int | None:
+        return None
+
+    def start_cpu_billing_sampler(self) -> bool:
+        return False
+
+    def read_billed_cpu_usage_usec(self) -> int | None:
         return None
 
     def _read_health_session_init_ms(self, port: int) -> int | None:
@@ -558,6 +580,54 @@ class SandboxBase(ABC):
             return int(session_init_ms) if isinstance(session_init_ms, int | float) else None
         except Exception:
             return None
+
+    def _read_health_boot_metrics(self, port: int) -> tuple[int | None, dict[str, int]]:
+        try:
+            result = self.execute(f"curl -s --max-time 5 http://localhost:{port}/health", timeout_seconds=10)
+            payload = json.loads(result.stdout or "{}")
+            session_init_ms = payload.get("sessionInitMs")
+            raw_phases = payload.get("boot", {}).get("phasesMs", {})
+            allowed_phases = {
+                "context_fetch",
+                "acp_initialize",
+                "repository_ready",
+                "session_dependencies",
+                "session_create",
+            }
+            phases = (
+                {
+                    phase: max(0, int(duration))
+                    for phase, duration in raw_phases.items()
+                    if phase in allowed_phases and isinstance(duration, int | float)
+                }
+                if isinstance(raw_phases, dict)
+                else {}
+            )
+            return int(session_init_ms) if isinstance(session_init_ms, int | float) else None, phases
+        except Exception:
+            return None, {}
+
+    def _read_health_boot_phases_ms(self, port: int) -> dict[str, int]:
+        try:
+            result = self.execute(f"curl -s --max-time 5 http://localhost:{port}/health", timeout_seconds=10)
+            payload = json.loads(result.stdout or "{}")
+            raw_phases = payload.get("boot", {}).get("phasesMs", {})
+            allowed_phases = {
+                "context_fetch",
+                "acp_initialize",
+                "repository_ready",
+                "session_dependencies",
+                "session_create",
+            }
+            if not isinstance(raw_phases, dict):
+                return {}
+            return {
+                phase: max(0, int(duration))
+                for phase, duration in raw_phases.items()
+                if phase in allowed_phases and isinstance(duration, int | float)
+            }
+        except Exception:
+            return {}
 
     def __enter__(self) -> Self:
         return self

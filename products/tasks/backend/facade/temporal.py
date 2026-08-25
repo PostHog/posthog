@@ -7,6 +7,7 @@ metric config, and callers trigger a run via ``execute_task_processing_workflow`
 from ``facade/api.py`` so ``temporalio`` never lands on the light data-surface import path.
 """
 
+from products.tasks.backend.logic.services.workflow_dispatch import dispatch_task_processing_workflow
 from products.tasks.backend.temporal import ACTIVITIES, WORKFLOWS
 from products.tasks.backend.temporal.client import (
     execute_posthog_code_agent_relay_workflow,
@@ -36,6 +37,7 @@ __all__ = [
     "WORKFLOWS",
     "PostSlackUpdateInput",
     "ProcessTaskWorkflow",
+    "dispatch_task_processing_workflow",
     "execute_posthog_code_agent_relay_workflow",
     "execute_task_processing_workflow",
     "execute_task_processing_workflow_async",

@@ -24,6 +24,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import * as Haptics from "expo-haptics";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { UserSwitch } from "phosphor-react-native";
 import { useFeatureFlag } from "posthog-react-native";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -36,9 +37,11 @@ import {
 import { useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
 import { FloatingBackButton } from "@/components/FloatingBackButton";
+import { useUserQuery } from "@/features/auth";
 import { usePreferencesStore } from "@/features/preferences/stores/preferencesStore";
 import { CustomImageBadge } from "@/features/tasks/components/CustomImageBadge";
 import { FloatingTaskHeader } from "@/features/tasks/components/FloatingTaskHeader";
+import { HandoffTaskSheet } from "@/features/tasks/components/HandoffTaskSheet";
 import { PrDiffStatsBadge } from "@/features/tasks/components/PrDiffStatsBadge";
 import { PrStatusBadge } from "@/features/tasks/components/PrStatusBadge";
 import { StopRunButton } from "@/features/tasks/components/StopRunButton";
@@ -88,15 +91,8 @@ function getFirstParam(value?: string | string[]): string | undefined {
 }
 
 export default function TaskDetailScreen() {
-  const {
-    id: taskId,
-    fromAutomation,
-    automationName,
-    prompt: initialPrompt,
-  } = useLocalSearchParams<{
+  const { id: taskId, prompt: initialPrompt } = useLocalSearchParams<{
     id: string;
-    fromAutomation?: string;
-    automationName?: string;
     prompt?: string;
   }>();
   const router = useRouter();
@@ -111,6 +107,8 @@ export default function TaskDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retrying, setRetrying] = useState(false);
+  const [handoffOpen, setHandoffOpen] = useState(false);
+  const { data: currentUser } = useUserQuery();
 
   const {
     connectToTask,
@@ -739,6 +737,10 @@ export default function TaskDetailScreen() {
     [router],
   );
 
+  // Only the owner may hand a task off, matching the desktop menu gate.
+  const canHandoff =
+    !!task && currentUser != null && task.created_by?.id === currentUser.id;
+
   const prUrl = readPrUrls(task?.latest_run?.output)[0];
 
   const activityPhase = getSessionActivityPhase({ retrying, session });
@@ -760,13 +762,6 @@ export default function TaskDetailScreen() {
   // show — the user just submitted and seeing their own text + a connecting
   // indicator is friendlier than a blank spinner.
   const showLoading = (loading || isHistoryLoading) && !optimisticPrompt;
-  const showAutomationContext =
-    fromAutomation === "1" || task?.origin_product === "automation";
-  const automationContextLabel =
-    automationName ??
-    (task?.origin_product === "automation"
-      ? "This run was started from a task automation."
-      : null);
 
   // Haptic pulse when connecting/thinking indicators dismiss
   const prevWaiting = useRef(false);
@@ -803,6 +798,17 @@ export default function TaskDetailScreen() {
         rightSlot={
           <>
             {task ? <CustomImageBadge task={task} /> : null}
+            {canHandoff ? (
+              <Pressable
+                onPress={() => setHandoffOpen(true)}
+                hitSlop={8}
+                className="h-9 w-9 items-center justify-center rounded-full active:bg-gray-3"
+                accessibilityRole="button"
+                accessibilityLabel="Hand off task"
+              >
+                <UserSwitch size={20} color={themeColors.gray[12]} />
+              </Pressable>
+            ) : null}
             {canStopRun ? (
               <StopRunButton onPress={handleStopRun} />
             ) : prUrl ? (
@@ -815,19 +821,6 @@ export default function TaskDetailScreen() {
         }
       />
       <Animated.View className="flex-1" style={contentPosition}>
-        {showAutomationContext && automationContextLabel && (
-          <View
-            className="absolute inset-x-3 z-10 rounded-lg border border-accent-6 bg-accent-2 px-3 py-2"
-            style={{ top: (Platform.OS === "ios" ? 6 : insets.top) + 52 }}
-          >
-            <Text className="text-accent-11 text-xs">
-              {automationName
-                ? `Started from automation: ${automationName}`
-                : automationContextLabel}
-            </Text>
-          </View>
-        )}
-
         {/* Always render TaskSessionView so the FlatList can layout behind
             the loading overlay. This prevents the "flash of messages" when
             switching from loading spinner to rendered content. The FlatList
@@ -838,6 +831,7 @@ export default function TaskDetailScreen() {
         <TaskSessionView
           events={session?.events ?? []}
           taskId={taskId}
+          runId={task?.latest_run?.id}
           pendingPermissions={session?.pendingPermissions}
           isConnecting={isConnecting}
           isThinking={isThinking}
@@ -859,10 +853,7 @@ export default function TaskDetailScreen() {
           }
           contentContainerStyle={{
             paddingTop: 8,
-            paddingBottom:
-              (Platform.OS === "ios" ? 6 : insets.top) +
-              60 +
-              (showAutomationContext ? 44 : 0),
+            paddingBottom: (Platform.OS === "ios" ? 6 : insets.top) + 60,
           }}
         />
 
@@ -939,6 +930,17 @@ export default function TaskDetailScreen() {
           />
         </Animated.View>
       </Animated.View>
+      {task ? (
+        <HandoffTaskSheet
+          visible={handoffOpen}
+          task={task}
+          onClose={() => setHandoffOpen(false)}
+          onHandedOff={() => {
+            setHandoffOpen(false);
+            if (router.canGoBack()) router.back();
+          }}
+        />
+      ) : null}
     </View>
   );
 }

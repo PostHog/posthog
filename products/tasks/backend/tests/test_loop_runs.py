@@ -482,6 +482,30 @@ class TestFireLoopCreatesRun(LoopRunsTestCase):
 
     @parameterized.expand(
         [
+            ("repo_less_loop_gets_read_only_github", False, True),
+            ("repo_pinned_loop_uses_repository_integration", True, False),
+        ]
+    )
+    def test_fire_grants_github_read_access_only_to_repo_less_loops(self, _name, pin_repository, expected_flag):
+        repositories = []
+        if pin_repository:
+            integration = Integration.objects.create(team=self.team, kind="github", integration_id="12345", config={})
+            repositories = [{"github_integration_id": integration.id, "full_name": "acme/repo"}]
+        loop = self.create_loop(repositories=repositories)
+        trigger = self.create_trigger(loop)
+
+        result = fire_loop(loop, trigger, f"fire-{_name}", "rendered context")
+
+        self.assertTrue(result.created)
+        assert result.task_run_id is not None
+        task_run = TaskRun.objects.get(id=result.task_run_id)
+        if expected_flag:
+            self.assertIs(task_run.state["github_read_access"], True)
+        else:
+            self.assertNotIn("github_read_access", task_run.state)
+
+    @parameterized.expand(
+        [
             ("claude_default_resolves_to_sonnet_5", "claude", "", None, "claude-sonnet-5", None),
             ("codex_default_resolves_to_gpt5", "codex", "", None, "gpt-5", None),
             ("supported_effort_on_default_model_is_kept", "claude", "", "high", "claude-sonnet-5", "high"),
@@ -790,7 +814,13 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
             (
                 "update_context_only",
                 {"update_context": True},
-                ["channel-instructions-retrieve", "channel-instructions-update"],
+                [
+                    "loop-context-wiki-channel-resolve",
+                    "loop-context-wiki-page-retrieve",
+                    "loop-context-wiki-page-update",
+                    "loop-channel-instructions-retrieve",
+                    "loop-channel-instructions-update",
+                ],
             ),
             (
                 "canvas_only",
@@ -807,7 +837,11 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
                 {"update_context": True, "canvas_id": CANVAS_ID},
                 [
                     CANVAS_ID,
-                    "channel-instructions-retrieve",
+                    "loop-context-wiki-channel-resolve",
+                    "loop-context-wiki-page-retrieve",
+                    "loop-context-wiki-page-update",
+                    "loop-channel-instructions-retrieve",
+                    "loop-channel-instructions-update",
                     "canvas-source-retrieve",
                     "canvas-publish-create",
                     "expected_current_version_id",
@@ -850,7 +884,10 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
 
         self.assertIsInstance(scopes, list)
         if outputs.get("update_context"):
+            self.assertIn("task:read", scopes)
             self.assertIn("task:write", scopes)
+            self.assertIn("loop_context_internal:write", scopes)
+            self.assertNotIn("organization:write", scopes)
         if outputs.get("canvas_id"):
             self.assertIn("canvas:write", scopes)
             self.assertIn("canvas:read", scopes)
@@ -870,6 +907,19 @@ class TestFireLoopContextTarget(LoopRunsTestCase):
         task_run = TaskRun.objects.get(id=result.task_run_id)
         self.assertNotIn("living deliverables", task_run.state["pending_user_message"])
         self.assertEqual(scopes, "read_only")
+
+    def test_context_update_adds_loop_scope_to_full_preset(self):
+        loop = self.create_loop(
+            connectors={"posthog_mcp_scopes": "full"},
+            context_target=self.context_target(update_context=True),
+        )
+        trigger = self.create_trigger(loop)
+
+        _, scopes = self.fire_and_capture(loop, trigger)
+
+        self.assertIsInstance(scopes, list)
+        self.assertIn("loop_context_internal:write", scopes)
+        self.assertIn("task:write", scopes)
 
     def test_unattached_loop_sets_no_channel_and_no_publish_block(self):
         loop = self.create_loop()

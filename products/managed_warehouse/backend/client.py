@@ -45,20 +45,20 @@ def make_duckgres_conninfo(
 ) -> str:
     """Build a psycopg conninfo for a team's duckgres server.
 
-    Default (no ``service_credential``): the org-root username/password from
-    the stored ``DuckgresServer`` row — the transitional path used by the SQL
-    editor and materialization until they move to minted credentials.
+    Default (no ``service_credential``): use the username/password from the
+    stored ``DuckgresServer`` row. Materialization and internal warehouse
+    helpers inherit the permissions of that login.
 
     With ``service_credential``: connect with a CP-issued, org-scoped
     per-credential grant (``svc_…`` credential_id + secret), short-lived and
     disposable. This is what background jobs (dagster) should present; see
     ``products/managed_warehouse/backend/service_credentials.py``.
     Host/port/database/sslmode come ENTIRELY from the credential's
-    CP-issued ``connect`` block — this branch never reads the stored
-    ``DuckgresServer`` row (the row is being deleted as a host store).
+    CP-issued ``connect`` block, so this branch is independent of the stored
+    ``DuckgresServer`` row.
     Service credentials are only mintable for a provisioned production
-    warehouse, so dev-mode is rejected loudly rather than silently
-    downgraded to root.
+    warehouse, so dev-mode is rejected rather than silently using the
+    environment-configured login.
 
     ``application_name`` is forwarded to duckgres as a standard libpq startup
     param and echoed into its analytics events, so callers should pass a

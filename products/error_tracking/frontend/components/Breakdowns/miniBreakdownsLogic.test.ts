@@ -2,6 +2,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
 import type { ErrorEventType } from 'lib/components/Errors/types'
+import { BREAKDOWN_NULL_STRING_LABEL } from 'scenes/insights/utils'
 
 import { useMocks } from '~/mocks/jest'
 import type {
@@ -55,6 +56,22 @@ describe('miniBreakdownsLogic', () => {
         expect(breakdowns.values.responseError).toBeNull()
     })
 
+    it('limits the default breakdown query to the configured presets', async () => {
+        await expectLogic(breakdowns).toFinishAllListeners()
+
+        const query = jest.mocked(api.query).mock.calls.at(-1)?.[0] as ErrorTrackingBreakdownsQuery
+        expect(query.breakdownProperties).toEqual([
+            '$browser',
+            '$device_type',
+            '$os',
+            '$pathname',
+            '$user_id',
+            '$ip',
+            '$geoip_country_name',
+            '$geoip_city_name',
+        ])
+    })
+
     it('adds primitive properties from the selected event without duplicating configured breakdowns', async () => {
         const properties = {
             $browser: 'Chrome',
@@ -106,6 +123,21 @@ describe('miniBreakdownsLogic', () => {
         )
     })
 
+    it('hides breakdown properties without values after loading', () => {
+        expect(breakdowns.values.visibleBreakdownProperties).toEqual(BREAKDOWN_PRESETS)
+
+        breakdowns.actions.loadResponseSuccess({
+            results: {
+                $browser: { values: [{ value: 'Chrome', count: 2 }], total_count: 2 },
+                $os: { values: [{ value: BREAKDOWN_NULL_STRING_LABEL, count: 2 }], total_count: 2 },
+            },
+        })
+
+        expect(breakdowns.values.visibleBreakdownProperties).toEqual([
+            BREAKDOWN_PRESETS.find(({ property }) => property === '$browser'),
+        ])
+    })
+
     it('loads the expanded value set when opening breakdown details', async () => {
         await expectLogic(breakdowns).toFinishAllListeners()
         const breakdown = BREAKDOWN_PRESETS[0]
@@ -123,6 +155,30 @@ describe('miniBreakdownsLogic', () => {
 
         breakdowns.actions.closeBreakdownDetails()
         expect(breakdowns.values.selectedBreakdownProperty).toBeNull()
+    })
+
+    it('reloads breakdowns and details with the active property filters', async () => {
+        await expectLogic(breakdowns).toFinishAllListeners()
+        const queryMock = jest.mocked(api.query)
+        const previousBreakdownQueryCount = queryMock.mock.calls.filter(
+            ([query]) => query.kind === 'ErrorTrackingBreakdownsQuery'
+        ).length
+
+        await expectLogic(breakdowns, () => {
+            filters.actions.addPropertyFilter('$browser', 'Chrome')
+        }).toFinishAllListeners()
+
+        const breakdownQueries = queryMock.mock.calls
+            .map(([query]) => query)
+            .filter((query): query is ErrorTrackingBreakdownsQuery => query.kind === 'ErrorTrackingBreakdownsQuery')
+        expect(breakdownQueries).toHaveLength(previousBreakdownQueryCount + 1)
+        expect(breakdownQueries.at(-1)?.filterGroup).toEqual(filters.values.filterGroup)
+
+        await expectLogic(breakdowns, () => {
+            breakdowns.actions.openBreakdownDetails(BREAKDOWN_PRESETS[0])
+        }).toFinishAllListeners()
+        const detailsQuery = queryMock.mock.calls.at(-1)?.[0] as ErrorTrackingBreakdownsQuery
+        expect(detailsQuery.filterGroup).toEqual(filters.values.filterGroup)
     })
 
     it('discards details returned for a property that was superseded', async () => {

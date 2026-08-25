@@ -2,11 +2,12 @@ import clsx from 'clsx'
 import { BuiltLogic, LogicWrapper, useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
+import * as starPng from '@posthog/brand/hoggies/png/star'
 import { IconChevronDown, IconExternal, IconTrending, IconUndo, IconWarning } from '@posthog/icons'
 import { LemonSegmentedButton, LemonSelect, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { pngHoggie } from 'lib/brand/hoggies'
 import { getColorVar } from 'lib/colors'
-import { StarHog } from 'lib/components/hedgehogs'
 import { IntervalFilterStandalone } from 'lib/components/IntervalFilter'
 import { parseAliasToReadable } from 'lib/components/PathCleanFilters/PathCleanFilterItem'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -146,6 +147,8 @@ const buildOpenUrl = (
         return null
     }
 }
+
+const HedgehogStar = pngHoggie(starPng)
 
 const PathValueWithHoverLink = ({
     children,
@@ -676,6 +679,7 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
                 const dateRange = source?.dateRange
                 const breakdownBy = source?.breakdownBy
                 const value = record[0] ?? ''
+                const doPathCleaning = source?.doPathCleaning
 
                 return (
                     <div className="flex flex-row items-center justify-end">
@@ -686,9 +690,10 @@ export const webAnalyticsDataTableQueryContext: QueryContext = {
                             value={value}
                             properties={source?.properties}
                             filter_test_accounts={source?.filterTestAccounts}
+                            doPathCleaning={doPathCleaning}
                         />
                         <HeatmapButton breakdownBy={breakdownBy} value={value} />
-                        <ErrorTrackingButton breakdownBy={breakdownBy} value={value} />
+                        <ErrorTrackingButton breakdownBy={breakdownBy} value={value} doPathCleaning={doPathCleaning} />
                         <CreateSurveyButton value={value} />
                     </div>
                 )
@@ -1729,7 +1734,7 @@ const FrustrationMetricsEmptyState = (
             <div className="flex items-center gap-8 w-full justify-center">
                 <div>
                     <div className="w-40 lg:w-50 mx-auto mb-4 hidden md:block">
-                        <StarHog />
+                        <HedgehogStar />
                     </div>
                     <p>No frustrating pages found! Keep up the great work!</p>
                 </div>

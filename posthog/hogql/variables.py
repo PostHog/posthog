@@ -11,7 +11,7 @@ from posthog.hogql.visitor import CloningVisitor
 from posthog.models.team.team import Team
 from posthog.utils import relative_date_parse
 
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.models import InsightVariable
 
 T = TypeVar("T", bound=ast.Expr)
 

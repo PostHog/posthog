@@ -23,6 +23,8 @@ import type {
     HeatmapsEventsRetrieveParams,
     HeatmapsListParams,
     HeatmapsResponseApi,
+    LlmsTxtFetchRequestApi,
+    LlmsTxtFetchResponseApi,
     PaginatedWebAnalyticsFilterPresetListApi,
     PatchedSavedHeatmapRequestApi,
     PatchedWebAnalyticsFilterPresetApi,
@@ -30,6 +32,7 @@ import type {
     RecordInteractionRequestApi,
     RecordInteractionResponseApi,
     RecordVisitResponseApi,
+    SavedHeatmapCaptureRequestApi,
     SavedHeatmapListResponseApi,
     SavedHeatmapRequestApi,
     SavedListParams,
@@ -278,6 +281,43 @@ export const savedRegenerateCreate = async (
     })
 }
 
+export const getSavedCaptureCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/saved/capture/`
+}
+
+/**
+ * Persist screenshots captured client-side by the on-page toolbar as a completed screenshot heatmap. No headless render is enqueued: the toolbar runs in the user's authenticated browser, so this is the path for pages behind a login that Browserless cannot reach. Send one 'image'+'width', or 'images'+'widths' parallel arrays to store several viewport widths on one heatmap (the toolbar re-lays out the page at each width and captures it, matching the widths the server renders). The image bytes are stored and served only through the authenticated content endpoint. The heatmap's data URL is set to the captured URL.
+ */
+export const savedCaptureCreate = async (
+    projectId: string,
+    savedHeatmapCaptureRequestApi: SavedHeatmapCaptureRequestApi,
+    options?: RequestInit
+): Promise<HeatmapScreenshotResponseApi> => {
+    const formData = new FormData()
+    if (savedHeatmapCaptureRequestApi.image !== undefined) {
+        formData.append(`image`, savedHeatmapCaptureRequestApi.image)
+    }
+    if (savedHeatmapCaptureRequestApi.width !== undefined) {
+        formData.append(`width`, savedHeatmapCaptureRequestApi.width.toString())
+    }
+    if (savedHeatmapCaptureRequestApi.images !== undefined) {
+        savedHeatmapCaptureRequestApi.images.forEach((value) => formData.append(`images`, value))
+    }
+    if (savedHeatmapCaptureRequestApi.widths !== undefined) {
+        savedHeatmapCaptureRequestApi.widths.forEach((value) => formData.append(`widths`, value.toString()))
+    }
+    formData.append(`url`, savedHeatmapCaptureRequestApi.url)
+    if (savedHeatmapCaptureRequestApi.name !== undefined) {
+        formData.append(`name`, savedHeatmapCaptureRequestApi.name)
+    }
+
+    return apiMutator<HeatmapScreenshotResponseApi>(getSavedCaptureCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        body: formData,
+    })
+}
+
 export const getSavedPreflightCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/saved/preflight/`
 }
@@ -316,6 +356,27 @@ export const savedPrewarmCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(heatmapPrewarmRequestApi),
+    })
+}
+
+export const getWebAnalyticsFetchLlmsTxtUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/web_analytics/llms_txt/`
+}
+
+/**
+ * Loads an llms.txt file from a public URL for coverage analysis without saving it.
+ * @summary Load an llms.txt file
+ */
+export const webAnalyticsFetchLlmsTxt = async (
+    projectId: string,
+    llmsTxtFetchRequestApi: LlmsTxtFetchRequestApi,
+    options?: RequestInit
+): Promise<LlmsTxtFetchResponseApi> => {
+    return apiMutator<LlmsTxtFetchResponseApi>(getWebAnalyticsFetchLlmsTxtUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(llmsTxtFetchRequestApi),
     })
 }
 

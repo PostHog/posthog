@@ -51,6 +51,8 @@ class ThrottleContext:
     code_usage_billed: bool = False
     billing_period_start: str | None = None
     credits_exhausted: bool = False
+    # Set only for sandbox-run tokens; see AuthenticatedUser.sandbox_task_id.
+    sandbox_task_id: str | None = None
 
 
 @dataclass

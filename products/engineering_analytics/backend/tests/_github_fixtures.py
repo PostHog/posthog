@@ -1,8 +1,11 @@
 """GitHub source and warehouse-table fixtures shared across this product's test files."""
 
+import os
 import json
 import zlib
 import tempfile
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +31,18 @@ TEST_BUCKET = "test_storage_bucket-posthog.products.engineering_analytics.github
 # `myprefixgithub_*`, so the resolver and builders are proven against a name the old
 # hardcoded `github_*` constants would never have matched.
 GITHUB_SOURCE_PREFIX = "myprefix"
+
+
+@contextmanager
+def seeding_object_storage(test: BaseTest) -> Iterator[None]:
+    # Skipping locally keeps the suite usable without the dev stack; skipping in CI would drop every
+    # warehouse-backed assertion behind a green job, so there it raises.
+    try:
+        yield
+    except PermissionError as err:
+        if os.environ.get("CI"):
+            raise
+        test.skipTest(f"object storage unavailable: {err}")
 
 
 def create_github_source(
@@ -219,14 +234,13 @@ def _run_row(
 
 def create_github_warehouse_table(test: BaseTest, base_name: str, columns: dict, rows: list[dict[str, Any]]) -> str:
     # Returns the real table name (prefixed), which the builder is then told to read,
-    # proving build_query honors the resolved name instead of a hardcoded one. Skips the
-    # calling test when object storage is unreachable so the suite runs without the dev stack.
+    # proving build_query honors the resolved name instead of a hardcoded one.
     df = pd.DataFrame(rows, columns=list(columns.keys()))
     tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False)
     df.to_csv(tmp.name, index=False)
     tmp.close()
     test.addCleanup(Path(tmp.name).unlink, missing_ok=True)
-    try:
+    with seeding_object_storage(test):
         table, _source, _credential, _df, cleanup = create_data_warehouse_table_from_csv(
             csv_path=Path(tmp.name),
             table_name=base_name,
@@ -235,7 +249,5 @@ def create_github_warehouse_table(test: BaseTest, base_name: str, columns: dict,
             team=test.team,
             source_prefix=GITHUB_SOURCE_PREFIX,
         )
-    except PermissionError as err:
-        test.skipTest(f"object storage unavailable: {err}")
     test.addCleanup(cleanup)
     return table.name

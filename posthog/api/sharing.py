@@ -13,6 +13,7 @@ from django.views.decorators.clickjacking import xframe_options_exempt
 
 import jwt
 import structlog
+import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_field
 from pydantic import BaseModel
@@ -47,13 +48,6 @@ from posthog.rate_limit import (
     SharePasswordVolumeThrottle,
     SustainedRateThrottle,
 )
-from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
-from posthog.rbac.user_access_control import (
-    AccessControlLevel,
-    UserAccessControl,
-    UserAccessControlSerializerMixin,
-    access_level_satisfied_for_resource,
-)
 from posthog.scopes import APIScopeObject
 from posthog.security.url_validation import is_url_allowed
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
@@ -62,6 +56,15 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, render_template
 from posthog.views import preflight_check
 
+from products.access_control.backend.facade.user_access_control import (
+    AccessControlLevel,
+    UserAccessControl,
+    access_level_satisfied_for_resource,
+)
+from products.access_control.backend.presentation.access_control import (
+    AccessControlViewSetMixin,
+    UserAccessControlSerializerMixin,
+)
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.access import dashboard_access_method, record_dashboard_view
 from products.dashboards.backend.api.dashboard import DashboardSerializer
@@ -74,12 +77,12 @@ from products.exports.backend.models.exported_asset import (
     asset_for_token,
     get_content_response,
 )
+from products.feature_flags.backend.persisted_flags import get_dynamic_persisted_feature_flags
 from products.notebooks.backend.facade.content import extract_inline_query_nodes, filter_notebook_content_for_sharing
 from products.notebooks.backend.models import Notebook
 from products.notebooks.backend.presentation.views.notebook import NotebookSerializer
-from products.product_analytics.backend.api.insight import InsightSerializer
-from products.product_analytics.backend.models.insight import Insight, InsightViewed
-from products.product_analytics.backend.models.insight_variable import InsightVariable
+from products.product_analytics.backend.facade.models import Insight, InsightVariable, InsightViewed
+from products.product_analytics.backend.presentation.insight import InsightSerializer
 
 logger = structlog.get_logger(__name__)
 
@@ -318,7 +321,9 @@ def build_shared_app_context(team: Team, request: Request) -> dict[str, Any]:
         "suggested_users_with_access": None,
         "commit_sha": get_git_commit_short(),
         "livestream_host": settings.LIVESTREAM_HOST,
-        "persisted_feature_flags": settings.PERSISTED_FEATURE_FLAGS,
+        "persisted_feature_flags": get_dynamic_persisted_feature_flags(
+            posthoganalytics.feature_flag_definitions(), settings.PERSISTED_FEATURE_FLAGS
+        ),
         "anonymous": True,
     }
 

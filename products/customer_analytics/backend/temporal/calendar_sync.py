@@ -89,6 +89,7 @@ async def calendar_sync_collect_integrations_activity(
 
 def _run_calendar_sync(input: CalendarSyncInput) -> CalendarSyncOutput:
     # Deferred: the sync logic pulls requests/HogQL layers that don't belong in the sandbox.
+    from products.conversations.backend.facade import api as conversations  # noqa: PLC0415
     from products.customer_analytics.backend.logic.calendar_sync import (  # noqa: PLC0415
         CalendarSyncError,
         sync_calendar_integration,
@@ -96,7 +97,8 @@ def _run_calendar_sync(input: CalendarSyncInput) -> CalendarSyncOutput:
 
     try:
         counts = sync_calendar_integration(input.integration_id, input.team_id)
-    except CalendarSyncError as e:
+        conversations.sync_google_account_email(input.integration_id, input.team_id)
+    except (CalendarSyncError, conversations.GoogleAccountEmailSyncError) as e:
         # A dead refresh token can't heal by retrying; the user must reconnect.
         raise ApplicationError(str(e), non_retryable="refresh failed" in str(e).lower()) from e
     return CalendarSyncOutput(
