@@ -134,13 +134,13 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             response = self.client.get("/api/person/?search=someone")
         self.assertEqual(response.status_code, 499)
 
-    def test_search_still_raises_on_a_query_error_that_is_not_a_cancellation(self) -> None:
+    def test_search_still_fails_on_a_query_error_that_is_not_a_cancellation(self) -> None:
         with mock.patch(
             "posthog.hogql_queries.actors_query_runner.ActorsQueryRunner.calculate",
             side_effect=ServerException("Boom", code=999),
         ):
-            with self.assertRaises(ServerException):
-                self.client.get("/api/person/?search=someone")
+            response = self.client.get("/api/person/?search=someone")
+        self.assertEqual(response.status_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
     @snapshot_clickhouse_queries
