@@ -5,12 +5,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
 
-from ee.models.rbac.access_control import AccessControl
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
 
+from products.access_control.backend.models.access_control import AccessControl
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.node import Node
