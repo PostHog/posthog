@@ -7,7 +7,7 @@ from contextlib import ExitStack, contextmanager
 from django.conf import settings
 from django.db import OperationalError, connections, router, transaction
 from django.db.backends.base.base import BaseDatabaseWrapper
-from django.db.models import Case, IntegerField, Q, Value, When
+from django.db.models import Case, IntegerField, OuterRef, Q, Value, When
 from django.http import HttpResponse
 
 import structlog
@@ -22,10 +22,15 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
 
+from products.signals.backend.implementation_pr import pr_bearing_task_run_filter
 from products.signals.backend.models import InvalidStatusTransition, SignalReport
 from products.signals.backend.report_generation.resolve_reviewers import resolve_org_github_login_to_users
 from products.tasks.backend.constants import PR_LOOP_ENABLED_STATE_KEY
-from products.tasks.backend.facade.api import post_pr_created_thread_update, signal_workflow_completion
+from products.tasks.backend.facade.api import (
+    latest_task_run_pr_url_subquery,
+    post_pr_created_thread_update,
+    signal_workflow_completion,
+)
 from products.tasks.backend.facade.cancellation import cancel_task_run
 from products.tasks.backend.metrics import (
     GitHubWebhookAnalyticsEvent,
@@ -113,6 +118,14 @@ def find_task_run(
                 branch=branch,
                 state__wizard_head_branch__isnull=True,
             )
+            .annotate(
+                terminal_rank=Case(
+                    When(status__in=_TERMINAL_RUN_STATUSES, then=Value(1)),
+                    default=Value(0),
+                    output_field=IntegerField(),
+                )
+            )
+            .order_by("terminal_rank", "-created_at", "-id")
             .select_related(*TASK_RUN_SELECT_RELATED)
             .first()
         )
@@ -129,6 +142,14 @@ def find_task_run(
                 output__head_branches__contains=[head_branch],
                 state__wizard_head_branch__isnull=True,
             )
+            .annotate(
+                terminal_rank=Case(
+                    When(status__in=_TERMINAL_RUN_STATUSES, then=Value(1)),
+                    default=Value(0),
+                    output_field=IntegerField(),
+                )
+            )
+            .order_by("terminal_rank", "-created_at", "-id")
             .select_related(*TASK_RUN_SELECT_RELATED)
             .first()
         )
@@ -286,27 +307,22 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
         event_uuid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{pr_url}:{analytics_event}"))
         _capture_pr_event(payload, task_run, analytics_event, event_uuid)
 
-    if task_run and action == "closed" and merged:
+    if action == "closed" and merged:
         # Only trust the merge for the run that actually claims this PR URL. The pr_url backstop
         # above already covers branch-matched internal PRs, so requiring equality here keeps a
         # same-branch webhook for a different PR from marking this run's PR as merged.
-        if pr_url in claimed_pr_urls:
+        if task_run and pr_url in claimed_pr_urls:
             _record_run_pr_merged(task_run)
-        # Ungated on the pr_url match above: unlike the run-bookkeeping calls, this keys off
-        # task_id (reports_for_task_filter), not output.pr_url, so the same-branch trust rule
-        # doesn't apply — a merged PR resolves its report.
-        _transition_signal_reports_for_task(
-            task_run.task_id, pr_url, SignalReport.Status.RESOLVED, "github_pr_webhook_signal_report_resolved"
+        _transition_signal_reports_for_pr(
+            pr_url, SignalReport.Status.RESOLVED, "github_pr_webhook_signal_report_resolved"
         )
 
-    if task_run and action == "closed" and not merged:
+    if action == "closed" and not merged:
         # Same trust rule as the merge branch: only the run that claims this PR URL.
-        if pr_url in claimed_pr_urls:
+        if task_run and pr_url in claimed_pr_urls:
             _cancel_wizard_run_on_close(task_run)
-        # Ungated for the same reason as the merge branch's resolve call: a closed-unmerged PR
-        # archives (suppresses) its report so it leaves the inbox instead of lingering.
-        _transition_signal_reports_for_task(
-            task_run.task_id, pr_url, SignalReport.Status.SUPPRESSED, "github_pr_webhook_signal_report_archived"
+        _transition_signal_reports_for_pr(
+            pr_url, SignalReport.Status.SUPPRESSED, "github_pr_webhook_signal_report_archived"
         )
 
     return HttpResponse(status=200)
@@ -909,18 +925,21 @@ def _resolve_external_team(payload: dict) -> Team | None:
     return Team.objects.filter(pk=team_ids[0]).first()
 
 
-def _transition_signal_reports_for_task(
-    task_id: uuid.UUID, pr_url: str, target_status: SignalReport.Status, success_log_event: str
-) -> None:
-    """Transition signal reports linked to a task's PR to ``target_status``.
+def _transition_signal_reports_for_pr(pr_url: str, target_status: SignalReport.Status, success_log_event: str) -> None:
+    """Transition signal reports whose surfaced implementation PR matches ``pr_url``.
 
     Covers both PR outcomes: a merged PR resolves its reports, a closed-unmerged PR archives
     (suppresses) them so they leave the inbox instead of lingering as if work were still pending.
     Kept tolerant: a single bad transition should not fail the whole webhook, since GitHub retries
     5xx responses and we've already acknowledged the PR event.
     """
+    implementation_pr_url = latest_task_run_pr_url_subquery(
+        SignalReport.associated_task_runs_filter(OuterRef(OuterRef("id"))),
+        pr_bearing_task_run_filter(),
+    )
     reports = (
-        SignalReport.objects.filter(SignalReport.reports_for_task_filter(task_id))
+        SignalReport.objects.annotate(implementation_pr_url=implementation_pr_url)
+        .filter(implementation_pr_url=pr_url)
         .exclude(
             status__in=[
                 SignalReport.Status.RESOLVED,
@@ -946,6 +965,5 @@ def _transition_signal_reports_for_task(
         logger.info(
             success_log_event,
             report_id=str(report.id),
-            task_id=str(task_id),
             pr_url=pr_url,
         )
