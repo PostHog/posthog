@@ -239,9 +239,15 @@ const BRAINROT_PLAYLIST_IDS = [
   "PLSzOLzwLMqSM",
 ];
 const BRAINROT_EMBED_ORIGIN = "https://www.youtube-nocookie.com";
+// Player errors like 153 arrive as onError messages, but the widget can stay
+// silent when the embed document itself fails to load or boot. Silence after
+// load is the only renderer-visible signal of that failure.
+const BRAINROT_WIDGET_SILENCE_TIMEOUT_MS = 15_000;
 
 function brainrotEmbedUrl(playlistId: string): string {
-  return `${BRAINROT_EMBED_ORIGIN}/embed/videoseries?list=${playlistId}&enablejsapi=1&autoplay=1&mute=1&playsinline=1&rel=0`;
+  // loop=1 duplicates the setLoop postMessage call, so looping survives when
+  // the widget's postMessage channel is unavailable.
+  return `${BRAINROT_EMBED_ORIGIN}/embed/videoseries?list=${playlistId}&enablejsapi=1&autoplay=1&mute=1&playsinline=1&rel=0&loop=1`;
 }
 
 function pickBrainrotEmbedUrl(): string {
@@ -256,6 +262,8 @@ function BrainrotCell({ cellIndex }: { cellIndex: number }) {
   const clearCell = useCommandCenterStore((s) => s.clearCell);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const randomizedRef = useRef(false);
+  const errorTrackedRef = useRef(false);
+  const silenceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [loading, setLoading] = useState(true);
   // Lazy initializer so the playlist choice is made once per mount.
   const [embedUrl] = useState(pickBrainrotEmbedUrl);
@@ -276,13 +284,31 @@ function BrainrotCell({ cellIndex }: { cellIndex: number }) {
       if (event.origin !== BRAINROT_EMBED_ORIGIN) return;
       if (event.source !== iframeRef.current?.contentWindow) return;
       if (typeof event.data !== "string") return;
-      let message: { info?: { playlist?: unknown } };
+      let message: { event?: unknown; info?: unknown };
       try {
         message = JSON.parse(event.data);
       } catch {
         return;
       }
-      const playlist = message.info?.playlist;
+      if (silenceTimeoutRef.current) {
+        clearTimeout(silenceTimeoutRef.current);
+        silenceTimeoutRef.current = null;
+      }
+      if (message.event === "onError" && !errorTrackedRef.current) {
+        errorTrackedRef.current = true;
+        const code =
+          typeof message.info === "number"
+            ? message.info
+            : Number(message.info);
+        track(ANALYTICS_EVENTS.BRAINROT_PLAYER_ERROR, {
+          error_code: Number.isFinite(code) ? code : null,
+          reason: "player_error",
+        });
+      }
+      const playlist =
+        typeof message.info === "object" && message.info !== null
+          ? (message.info as { playlist?: unknown }).playlist
+          : undefined;
       if (
         randomizedRef.current ||
         !Array.isArray(playlist) ||
@@ -297,7 +323,13 @@ function BrainrotCell({ cellIndex }: { cellIndex: number }) {
       postToPlayer("setLoop", [true]);
     };
     window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
+    return () => {
+      window.removeEventListener("message", onMessage);
+      if (silenceTimeoutRef.current) {
+        clearTimeout(silenceTimeoutRef.current);
+        silenceTimeoutRef.current = null;
+      }
+    };
   }, [postToPlayer]);
 
   const handleLoad = useCallback(() => {
@@ -310,6 +342,16 @@ function BrainrotCell({ cellIndex }: { cellIndex: number }) {
       }),
       BRAINROT_EMBED_ORIGIN,
     );
+    if (silenceTimeoutRef.current) {
+      clearTimeout(silenceTimeoutRef.current);
+    }
+    silenceTimeoutRef.current = setTimeout(() => {
+      silenceTimeoutRef.current = null;
+      track(ANALYTICS_EVENTS.BRAINROT_PLAYER_ERROR, {
+        error_code: null,
+        reason: "no_widget_messages",
+      });
+    }, BRAINROT_WIDGET_SILENCE_TIMEOUT_MS);
   }, [cellIndex]);
 
   return (

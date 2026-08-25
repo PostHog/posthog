@@ -97,6 +97,12 @@ CHECKPOINT_INTERVAL_SECONDS = 30.0
 # that matters — the win comes from merging thousands of KB-sized batches, not from filling the cap.
 REWRITE_BUFFER_MAX_BYTES = DEFAULT_MAX_TABLE_BYTES // 2
 
+# Rows the coalescing buffer may hold before it commits. Deliberately not the scan batch size: one
+# number for both caps the buffer at a single batch, so nothing coalesces and every batch becomes its
+# own Delta commit. Each commit is a transaction-log write, so that puts a floor under throughput that
+# no table large enough to need repartitioning can finish above.
+REWRITE_BUFFER_MAX_ROWS = 50_000
+
 # Arrow's default 16-batch readahead keeps memory in flight that never reaches the coalescing buffer,
 # so no buffer budget bounds it. Fragment readahead is left at its default: serialising file reads
 # would cost the most on the many-small-files tables this module rewrites.
@@ -162,6 +168,19 @@ class RepartitionSupersededError(Exception):
     same table corrupt each other's temp `_delta_log` and defeat the swap's row-count verification.
     The schema row's `repartition_claim` is the fence: the newest claimant owns the table, and every
     destructive step re-checks the claim and raises this to make older attempts stand down.
+    """
+
+
+class RepartitionAttemptsExhausted(Exception):
+    """Every one of `MAX_REPARTITION_ATTEMPTS` rewrites was charged but none survived to record an
+    outcome, so the controller gives up and backs the table off to the daily cooldown.
+
+    Each attempt is charged before the rewrite runs and refunded on a clean stand-down (supersession,
+    cancellation, transient infra), so reaching the cap this way means every attempt was hard-killed
+    mid-run — worker OOM, activity timeout, or an eviction that didn't surface as a cancellation —
+    before it could fail cleanly or checkpoint progress. Terminal, and unlike a caught failure it
+    carries no underlying exception, so the give-up path constructs and captures this to keep the most
+    severe repartition outcome visible in error tracking rather than silently abandoned.
     """
 
 
@@ -912,7 +931,7 @@ async def _rewrite_into_temp(
         # buffer plus the batch in hand, which `REWRITE_BUFFER_MAX_BYTES` budgets for.
         table_bytes = table_payload_bytes(partitioned_table)
         if buffered and (
-            buffered_rows + partitioned_table.num_rows > batch_size
+            buffered_rows + partitioned_table.num_rows > REWRITE_BUFFER_MAX_ROWS
             or buffered_bytes + table_bytes > REWRITE_BUFFER_MAX_BYTES
         ):
             await flush()

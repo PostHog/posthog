@@ -1,16 +1,20 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   featureFlags: new Map<string, boolean>(),
   fullPath: "/",
+  /** The settled location, so a pick can tell "where I was" from "where I am". */
+  href: "/",
   navigate: vi.fn(),
   navigateToActivity: vi.fn(),
   navigateToSpaces: vi.fn(),
   navigateToChannel: vi.fn(),
   navigateToHome: vi.fn(),
   navigateToInbox: vi.fn(),
+  openSettings: vi.fn(),
+  openBrowserTab: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-router", () => ({
@@ -21,7 +25,10 @@ vi.mock("@tanstack/react-router", () => ({
   }) => select({ matches: [{ fullPath: mocks.fullPath }] }),
 }));
 vi.mock("@posthog/ui/router/routerRef", () => ({
-  getRouterOrNull: () => ({ navigate: mocks.navigate }),
+  getRouterOrNull: () => ({
+    navigate: mocks.navigate,
+    state: { resolvedLocation: { href: mocks.href } },
+  }),
 }));
 
 vi.mock("@posthog/ui/features/canvas/hooks/useTaskActivity", () => ({
@@ -34,6 +41,9 @@ vi.mock(
 vi.mock("@posthog/ui/features/feature-flags/useFeatureFlag", () => ({
   useFeatureFlag: (key: string) => mocks.featureFlags.get(key) ?? false,
 }));
+vi.mock("@posthog/ui/features/feature-flags/useSpacesTabs", () => ({
+  useSpacesTabs: () => true,
+}));
 vi.mock("@posthog/ui/features/canvas/hooks/useChannelsLayout", () => ({
   useChannelsLayout: () => true,
 }));
@@ -41,7 +51,17 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxAllReports", () => ({
   useInboxAllReports: () => ({ counts: { pulls: 0 } }),
 }));
 vi.mock("@posthog/ui/features/sidebar/components/ProjectSwitcher", () => ({
-  ProjectSwitcher: () => null,
+  ProjectSwitcher: () => (
+    <button type="button" aria-label="Project switcher">
+      Project switcher
+    </button>
+  ),
+}));
+vi.mock("@posthog/ui/features/browser-tabs/useOpenBrowserTab", () => ({
+  useOpenBrowserTab: () => mocks.openBrowserTab,
+}));
+vi.mock("@posthog/ui/features/settings/hooks/useOpenSettings", () => ({
+  openSettings: mocks.openSettings,
 }));
 vi.mock("@posthog/ui/router/navigationBridge", () => ({
   getCurrentMatches: () => [{ fullPath: mocks.fullPath }],
@@ -59,16 +79,50 @@ vi.mock("@posthog/ui/features/canvas/components/ActivityHoverCard", () => ({
   ActivityHoverCard: () => <div>Recent activity card</div>,
 }));
 
-import { DESKTOP_HOME_FLAG } from "@posthog/shared";
+import { browserTabsStore } from "@posthog/core/browser-tabs/browserTabsStore";
+import { DESKTOP_HOME_FLAG, type RailVisit } from "@posthog/shared";
 import {
   clearKeepListForRoute,
   shouldKeepListForRoute,
   useChannelPaneStore,
 } from "@posthog/ui/features/canvas/stores/channelPaneStore";
 import { useCurrentChannelStore } from "@posthog/ui/features/canvas/stores/currentChannelStore";
-import { useRailHistoryStore } from "@posthog/ui/features/canvas/stores/railHistoryStore";
 import { useSidebarStore } from "@posthog/ui/features/sidebar/sidebarStore";
 import { NavRail } from "./NavRail";
+
+it("stays above floating sidebar layers", () => {
+  render(<NavRail />);
+
+  expect(screen.getByTestId("nav-rail")).toHaveClass("z-[60]");
+});
+
+/**
+ * Seed where each destination was, as the ACTIVE TAB remembers it. Rail memory
+ * lives on the tab rather than the window, so a pick in one tab can never
+ * restore an href another tab established.
+ */
+function rememberVisits(lastByPane: Record<string, RailVisit>): void {
+  browserTabsStore.getState().setSnapshot({
+    windows: [{ id: "w1", isPrimary: true, bounds: null, activeTabId: "t1" }],
+    tabs: [
+      {
+        id: "t1",
+        windowId: "w1",
+        href: null,
+        viewState: { lastByPane },
+        dashboardId: null,
+        taskId: null,
+        channelId: null,
+        channelSection: null,
+        appView: null,
+        position: 1000,
+        scrollState: null,
+        createdAt: 0,
+        lastActiveAt: 0,
+      },
+    ],
+  });
+}
 
 describe("NavRail", () => {
   beforeEach(() => {
@@ -76,10 +130,11 @@ describe("NavRail", () => {
     mocks.featureFlags.clear();
     mocks.featureFlags.set(DESKTOP_HOME_FLAG, true);
     mocks.fullPath = "/";
+    mocks.href = "/";
     useSidebarStore.setState({ navItemOverrides: {}, navItemOrder: [] });
     useCurrentChannelStore.setState({ currentChannelId: null });
     useChannelPaneStore.setState({ pane: "channel" });
-    useRailHistoryStore.setState({ lastByPane: {} });
+    rememberVisits({});
     clearKeepListForRoute();
   });
 
@@ -91,12 +146,26 @@ describe("NavRail", () => {
     expect(screen.queryByLabelText("Home")).not.toBeInTheDocument();
   });
 
+  it("keeps Search directly above Settings at the bottom of the rail", () => {
+    render(<NavRail />);
+
+    const buttonLabels = screen
+      .getAllByRole("button")
+      .map((button) => button.getAttribute("aria-label"));
+
+    expect(buttonLabels.slice(-3)).toEqual([
+      "Search",
+      "Settings",
+      "Project switcher",
+    ]);
+  });
+
   // The route is the whole answer, so a destination can never be lit over a
   // screen that isn't it.
   it.each([
     ["/", "Home"],
     ["/activity", "Activity"],
-    ["/inbox/pulls/$reportId", "Inbox"],
+    ["/inbox/pulls/$reportId", "Self-driving"],
     ["/command-center", "Command Center"],
     ["/spaces", "Spaces"],
     ["/spaces/$channelId/loops", "Spaces"],
@@ -113,6 +182,25 @@ describe("NavRail", () => {
   });
 
   describe("with nothing remembered", () => {
+    it("opens a destination in a new tab on Cmd-click", () => {
+      render(<NavRail />);
+
+      fireEvent.click(screen.getByLabelText("Self-driving"), { metaKey: true });
+
+      expect(mocks.openBrowserTab).toHaveBeenCalledWith("/inbox");
+      expect(mocks.navigateToInbox).not.toHaveBeenCalled();
+      expect(mocks.navigate).not.toHaveBeenCalled();
+    });
+
+    it("keeps Settings in the current window on Cmd-click", () => {
+      render(<NavRail />);
+
+      fireEvent.click(screen.getByLabelText("Settings"), { metaKey: true });
+
+      expect(mocks.openSettings).toHaveBeenCalledOnce();
+      expect(mocks.openBrowserTab).not.toHaveBeenCalled();
+    });
+
     it("routes to Activity from a screen that has no column for it", async () => {
       const user = userEvent.setup();
       mocks.fullPath = "/inbox";
@@ -151,12 +239,11 @@ describe("NavRail", () => {
   describe("returning to where you were", () => {
     it("reopens the page the destination was left on", async () => {
       const user = userEvent.setup();
-      useRailHistoryStore.setState({
-        lastByPane: {
-          spaces: {
-            href: "/spaces/chan-1/loops",
-            spaces: { listOpen: false, spaceId: "chan-1" },
-          },
+      rememberVisits({
+        spaces: {
+          href: "/spaces/chan-1/loops",
+          listOpen: false,
+          spaceId: "chan-1",
         },
       });
       render(<NavRail />);
@@ -174,12 +261,11 @@ describe("NavRail", () => {
     // The sidebar pane is view state, so the href alone cannot bring it back.
     it("puts the space list back if that is what was on screen", async () => {
       const user = userEvent.setup();
-      useRailHistoryStore.setState({
-        lastByPane: {
-          spaces: {
-            href: "/spaces/chan-1/tasks/task-1",
-            spaces: { listOpen: true, spaceId: "chan-1" },
-          },
+      rememberVisits({
+        spaces: {
+          href: "/spaces/chan-1/tasks/task-1",
+          listOpen: true,
+          spaceId: "chan-1",
         },
       });
       render(<NavRail />);
@@ -196,10 +282,8 @@ describe("NavRail", () => {
       const user = userEvent.setup();
       mocks.fullPath = "/inbox";
       useChannelPaneStore.setState({ pane: "channel" });
-      useRailHistoryStore.setState({
-        lastByPane: {
-          spaces: { href: "/spaces", spaces: { listOpen: true } },
-        },
+      rememberVisits({
+        spaces: { href: "/spaces", listOpen: true },
       });
       render(<NavRail />);
 
@@ -211,12 +295,11 @@ describe("NavRail", () => {
     it("returns to the space pane when the list was not open", async () => {
       const user = userEvent.setup();
       useChannelPaneStore.setState({ pane: "list" });
-      useRailHistoryStore.setState({
-        lastByPane: {
-          spaces: {
-            href: "/spaces/chan-1",
-            spaces: { listOpen: false, spaceId: "chan-1" },
-          },
+      rememberVisits({
+        spaces: {
+          href: "/spaces/chan-1",
+          listOpen: false,
+          spaceId: "chan-1",
         },
       });
       render(<NavRail />);
@@ -226,18 +309,31 @@ describe("NavRail", () => {
       expect(useChannelPaneStore.getState().pane).toBe("channel");
     });
 
+    // A memory equal to the current page restores nothing, so the click would
+    // look dead and there would be no way off the page by rail.
+    it("goes to the root when the memory is the page we are on", async () => {
+      const user = userEvent.setup();
+      mocks.fullPath = "/activity";
+      mocks.href = "/activity";
+      rememberVisits({ home: { href: "/activity" } });
+      render(<NavRail />);
+
+      await user.click(screen.getByLabelText("Home"));
+
+      expect(mocks.navigateToHome).toHaveBeenCalledOnce();
+      expect(mocks.navigate).not.toHaveBeenCalled();
+    });
+
     it("remembers each destination separately", async () => {
       const user = userEvent.setup();
       mocks.fullPath = "/";
-      useRailHistoryStore.setState({
-        lastByPane: {
-          inbox: { href: "/inbox/pulls/42" },
-          loops: { href: "/loops/abc" },
-        },
+      rememberVisits({
+        inbox: { href: "/inbox/pulls/42" },
+        loops: { href: "/loops/abc" },
       });
       render(<NavRail />);
 
-      await user.click(screen.getByLabelText("Inbox"));
+      await user.click(screen.getByLabelText("Self-driving"));
 
       expect(mocks.navigate).toHaveBeenCalledWith({ href: "/inbox/pulls/42" });
       expect(mocks.navigateToInbox).not.toHaveBeenCalled();
@@ -249,13 +345,8 @@ describe("NavRail", () => {
       const user = userEvent.setup();
       mocks.fullPath = "/spaces/$channelId/loops";
       useCurrentChannelStore.setState({ currentChannelId: "chan-1" });
-      useRailHistoryStore.setState({
-        lastByPane: {
-          spaces: {
-            href: "/spaces/chan-1",
-            spaces: { listOpen: false, spaceId: "chan-1" },
-          },
-        },
+      rememberVisits({
+        spaces: { href: "/spaces/chan-1", listOpen: false, spaceId: "chan-1" },
       });
       render(<NavRail />);
 
@@ -271,12 +362,10 @@ describe("NavRail", () => {
     it("goes up to the index rather than restoring", async () => {
       const user = userEvent.setup();
       mocks.fullPath = "/inbox/pulls/$reportId";
-      useRailHistoryStore.setState({
-        lastByPane: { inbox: { href: "/inbox/pulls/42" } },
-      });
+      rememberVisits({ inbox: { href: "/inbox/pulls/42" } });
       render(<NavRail />);
 
-      await user.click(screen.getByLabelText("Inbox"));
+      await user.click(screen.getByLabelText("Self-driving"));
 
       expect(mocks.navigateToInbox).toHaveBeenCalledOnce();
       expect(mocks.navigate).not.toHaveBeenCalled();
@@ -312,7 +401,7 @@ describe("NavRail", () => {
     render(<NavRail />);
 
     expect(screen.queryByLabelText("Command Center")).not.toBeInTheDocument();
-    expect(screen.getByLabelText("Inbox")).toBeInTheDocument();
+    expect(screen.getByLabelText("Self-driving")).toBeInTheDocument();
   });
 
   it("keeps the column's own destinations when everything else is hidden", () => {
@@ -338,14 +427,16 @@ describe("NavRail", () => {
     });
     const { container } = render(<NavRail />);
 
-    const labels = [...container.querySelectorAll("button")].map((button) =>
-      button.getAttribute("aria-label"),
-    );
+    // Search leads the rail and is not a destination, so it sits outside the
+    // customizable order.
+    const labels = [...container.querySelectorAll("button")]
+      .map((button) => button.getAttribute("aria-label"))
+      .filter((label) => label !== "Search");
     expect(labels.slice(0, 5)).toEqual([
       "Home",
       "Spaces",
       "Command Center",
-      "Inbox",
+      "Self-driving",
       "Activity",
     ]);
   });

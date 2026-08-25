@@ -3227,6 +3227,10 @@ export interface CredentialApi {
  * * `Capterra` - Capterra
  * * `GooglePostmasterTools` - GooglePostmasterTools
  * * `Growi` - Growi
+ * * `Clarify` - Clarify
+ * * `DatoCMS` - DatoCMS
+ * * `WPSOffice` - WPSOffice
+ * * `TeraBox` - TeraBox
  */
 export type ExternalDataSourceTypeEnumApi =
     (typeof ExternalDataSourceTypeEnumApi)[keyof typeof ExternalDataSourceTypeEnumApi]
@@ -4539,6 +4543,10 @@ export const ExternalDataSourceTypeEnumApi = {
     Capterra: 'Capterra',
     GooglePostmasterTools: 'GooglePostmasterTools',
     Growi: 'Growi',
+    Clarify: 'Clarify',
+    DatoCMS: 'DatoCMS',
+    WPSOffice: 'WPSOffice',
+    TeraBox: 'TeraBox',
 } as const
 
 export interface SimpleExternalDataSourceSerializersApi {
