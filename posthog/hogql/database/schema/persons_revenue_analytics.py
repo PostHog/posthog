@@ -190,8 +190,10 @@ def _select_from_persons_revenue_analytics_table(context: HogQLContext) -> ast.S
             ast.Alias(alias="mrr", expr=ast.Call(name="sum", args=[ast.Field(chain=["mrr"])])),
         ],
         select_from=ast.JoinExpr(table=inner_query),
-        # A cast that fails yields NULL. Dropping those rows keeps unattributable revenue out of the
-        # table rather than pooling it under one key that looks like a person.
+        # The `person_id` cast returns NULL when the source id is not a UUID, so this drops that
+        # unattributable revenue. It does not catch a warehouse customer with no matching person,
+        # because the LEFT JOIN fills the non-nullable `persons.id` with the all-zeros UUID, which is
+        # a valid UUID that survives the cast and pools under one synthetic key.
         where=ast.Call(name="isNotNull", args=[ast.Field(chain=["person_id"])]),
         group_by=[ast.Field(chain=["person_id"])],
     )
