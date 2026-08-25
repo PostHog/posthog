@@ -39,7 +39,7 @@ function TracingAlertEditModalContent({
 }): JSX.Element {
     const logicProps = { alert, onSubmitSuccess: onClose }
     const { alertFormChanged, isAlertFormSubmitting } = useValues(tracingAlertFormLogic(logicProps))
-    const { snoozingAlertIds } = useValues(tracingAlertingLogic)
+    const { deletingAlertIds, snoozingAlertIds, togglingAlertIds } = useValues(tracingAlertingLogic)
     const { deleteAlert, toggleAlertEnabled, snoozeAlertUntil, unsnoozeAlert } = useActions(tracingAlertingLogic)
     const [activeTab, setActiveTab] = useState<'definition' | 'history'>('definition')
 
@@ -57,6 +57,7 @@ function TracingAlertEditModalContent({
                             type="secondary"
                             status="danger"
                             size="small"
+                            disabledReason={deletingAlertIds.has(alert.id) ? 'Deleting…' : undefined}
                             onClick={() => {
                                 LemonDialog.open({
                                     title: `Delete "${alert.name}"?`,
@@ -66,6 +67,7 @@ function TracingAlertEditModalContent({
                                         children: 'Delete',
                                         type: 'primary',
                                         status: 'danger',
+                                        disabledReason: deletingAlertIds.has(alert.id) ? 'Deleting…' : undefined,
                                         onClick: () => deleteAlert(alert.id, onClose),
                                     },
                                     secondaryButton: { children: 'Cancel' },
@@ -98,7 +100,9 @@ function TracingAlertEditModalContent({
                         disabledReason={
                             alert.state === TracingAlertConfigurationStateEnumApi.Broken
                                 ? 'Reset this alert to re-enable checks'
-                                : undefined
+                                : togglingAlertIds.has(alert.id)
+                                  ? 'Updating…'
+                                  : undefined
                         }
                         label="Enabled"
                         data-attr="tracing-alert-modal-toggle"

@@ -34,8 +34,15 @@ function formatThreshold(alert: TracingAlertConfigurationApi): string {
 }
 
 export function TracingAlertList(): JSX.Element {
-    const { alerts, alertsLoading, resettingAlertIds, snoozingAlertIds, createdByFilter } =
-        useValues(tracingAlertingLogic)
+    const {
+        alerts,
+        alertsLoading,
+        deletingAlertIds,
+        resettingAlertIds,
+        snoozingAlertIds,
+        togglingAlertIds,
+        createdByFilter,
+    } = useValues(tracingAlertingLogic)
     const {
         setCreatedByFilter,
         deleteAlert,
@@ -120,7 +127,9 @@ export function TracingAlertList(): JSX.Element {
                     disabledReason={
                         alert.state === TracingAlertConfigurationStateEnumApi.Broken
                             ? 'Reset this alert to re-enable checks'
-                            : undefined
+                            : togglingAlertIds.has(alert.id)
+                              ? 'Updating…'
+                              : undefined
                     }
                     data-attr="tracing-alert-row-toggle"
                 />
@@ -160,6 +169,7 @@ export function TracingAlertList(): JSX.Element {
                         label: 'Delete',
                         status: 'danger',
                         'data-attr': 'tracing-alert-row-delete',
+                        disabledReason: deletingAlertIds.has(alert.id) ? 'Deleting…' : undefined,
                         onClick: () => {
                             LemonDialog.open({
                                 title: `Delete "${alert.name}"?`,
@@ -168,6 +178,7 @@ export function TracingAlertList(): JSX.Element {
                                     children: 'Delete',
                                     type: 'primary',
                                     status: 'danger',
+                                    disabledReason: deletingAlertIds.has(alert.id) ? 'Deleting…' : undefined,
                                     onClick: () => deleteAlert(alert.id),
                                     'data-attr': 'tracing-alert-delete-confirm',
                                 },
