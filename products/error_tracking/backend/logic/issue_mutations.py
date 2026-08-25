@@ -16,6 +16,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.tasks.email import send_error_tracking_issue_assigned
 
+from products.access_control.backend.models.role import Role
 from products.cohorts.backend.models.cohort import Cohort
 from products.error_tracking.backend.logic import ErrorTrackingIssueNotFoundError, get_issue
 from products.error_tracking.backend.models import (
@@ -26,8 +27,6 @@ from products.error_tracking.backend.models import (
     sync_issues_to_clickhouse,
 )
 from products.error_tracking.backend.notifications import dispatch_issue_assigned_realtime
-
-from ee.models.rbac.role import Role
 
 
 class CohortNotFoundError(Exception):
