@@ -1048,6 +1048,8 @@ export namespace Schemas {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
@@ -1337,6 +1339,8 @@ export namespace Schemas {
     export interface AccountsTableQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore: boolean;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -2994,6 +2998,8 @@ export namespace Schemas {
     export interface ActorsPropertyTaxonomyQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -3035,6 +3041,8 @@ export namespace Schemas {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
@@ -3200,6 +3208,8 @@ export namespace Schemas {
       boxplot_data?: BoxPlotDatum[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Wether more breakdown values are available. */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
@@ -3744,6 +3754,8 @@ export namespace Schemas {
     export interface FunnelsQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -3844,6 +3856,8 @@ export namespace Schemas {
     export interface RetentionQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -4098,6 +4112,8 @@ export namespace Schemas {
     export interface PathsQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -4245,6 +4261,8 @@ export namespace Schemas {
     export interface PathsV2QueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -4290,6 +4308,8 @@ export namespace Schemas {
     export interface StickinessQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -4412,6 +4432,8 @@ export namespace Schemas {
     export interface LifecycleQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -4575,6 +4597,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -4668,6 +4692,8 @@ export namespace Schemas {
       dateTo?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -4801,6 +4827,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -5302,6 +5330,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Query explanation output */
       explain?: string[] | null;
       hasMore?: boolean | null;
@@ -5985,6 +6015,8 @@ export namespace Schemas {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
@@ -6014,6 +6046,8 @@ export namespace Schemas {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
@@ -6042,6 +6076,8 @@ export namespace Schemas {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
@@ -6073,6 +6109,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Query explanation output */
       explain?: string[] | null;
       hasMore?: boolean | null;
@@ -6108,6 +6146,8 @@ export namespace Schemas {
       dateTo?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -6133,6 +6173,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -6164,6 +6206,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -6192,6 +6236,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -6219,6 +6265,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -6258,6 +6306,8 @@ export namespace Schemas {
     export interface Response9 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -6286,6 +6336,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -6313,6 +6365,8 @@ export namespace Schemas {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
@@ -6350,6 +6404,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -6379,6 +6435,8 @@ export namespace Schemas {
     export interface Response13 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -6403,6 +6461,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -6576,6 +6636,8 @@ export namespace Schemas {
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -6626,6 +6688,8 @@ export namespace Schemas {
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -6758,6 +6822,8 @@ export namespace Schemas {
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -6784,6 +6850,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -6811,6 +6879,8 @@ export namespace Schemas {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
@@ -6840,6 +6910,8 @@ export namespace Schemas {
     export interface Response23 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore: boolean;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -6977,6 +7049,8 @@ export namespace Schemas {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
@@ -7069,6 +7143,8 @@ export namespace Schemas {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
@@ -7114,6 +7190,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -7180,6 +7258,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -7237,6 +7317,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -7344,6 +7426,8 @@ export namespace Schemas {
     export interface WebVitalsPathBreakdownQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -7427,6 +7511,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -7468,6 +7554,8 @@ export namespace Schemas {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
@@ -7669,6 +7757,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -7741,6 +7831,8 @@ export namespace Schemas {
     export interface MarketingAnalyticsAggregatedQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -7800,6 +7892,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -7902,6 +7996,8 @@ export namespace Schemas {
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -7967,6 +8063,8 @@ export namespace Schemas {
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -8078,6 +8176,8 @@ export namespace Schemas {
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -8131,6 +8231,8 @@ export namespace Schemas {
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -8173,6 +8275,8 @@ export namespace Schemas {
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -8252,6 +8356,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -8798,6 +8904,8 @@ export namespace Schemas {
       readonly types: readonly unknown[] | null;
       /** @nullable */
       readonly resolved_date_range: InsightResolvedDateRange;
+      /** @nullable */
+      readonly events_retention_applied: boolean | null;
       _create_in_folder?: string;
       readonly alerts: readonly unknown[];
       /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
@@ -14800,6 +14908,8 @@ export namespace Schemas {
     export interface CalendarHeatmapResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Wether more breakdown values are available. */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
@@ -28280,6 +28390,8 @@ export namespace Schemas {
     export interface DocumentSimilarityQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -29705,6 +29817,8 @@ export namespace Schemas {
     export interface EndpointsUsageOverviewQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -29757,6 +29871,8 @@ export namespace Schemas {
     export interface EndpointsUsageTrendsQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -30075,6 +30191,8 @@ export namespace Schemas {
     export interface ErrorTrackingBreakdownsQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -30260,6 +30378,8 @@ export namespace Schemas {
     export interface ErrorTrackingFingerprintProjectionQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -31168,6 +31288,8 @@ export namespace Schemas {
     export interface ErrorTrackingSimilarIssuesQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -32386,6 +32508,8 @@ export namespace Schemas {
     export interface EventTaxonomyQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -41771,6 +41895,8 @@ export namespace Schemas {
     export interface SessionsTimelineQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -41849,6 +41975,8 @@ export namespace Schemas {
       attributionWindowDays: number;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Whether the goal is revenue-bearing, which gates the value columns. */
       hasValue: boolean;
@@ -41940,6 +42068,8 @@ export namespace Schemas {
       attributionWindowDays: number;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Whether the goal is revenue-bearing, which gates the value column. */
       hasValue: boolean;
@@ -42020,6 +42150,8 @@ export namespace Schemas {
     export interface WebPageURLSearchQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -42103,6 +42235,8 @@ export namespace Schemas {
     export interface WebNotableChangesQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -42165,6 +42299,8 @@ export namespace Schemas {
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -42271,6 +42407,8 @@ export namespace Schemas {
       count: number;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -42320,6 +42458,8 @@ export namespace Schemas {
     export interface LogValuesQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -42451,6 +42591,8 @@ export namespace Schemas {
     export interface MetricsQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -42498,6 +42640,8 @@ export namespace Schemas {
     export interface TraceSpansQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -42557,6 +42701,8 @@ export namespace Schemas {
       compare?: AggregatedSpanRow[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -42615,6 +42761,8 @@ export namespace Schemas {
       compare?: SpanTreeNode[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -42675,6 +42823,8 @@ export namespace Schemas {
       compare?: AttributeBreakdownRow[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -42851,6 +43001,8 @@ export namespace Schemas {
     export interface RecordingsQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       has_next: boolean;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -42958,6 +43110,8 @@ export namespace Schemas {
     export interface VectorSearchQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -43023,6 +43177,8 @@ export namespace Schemas {
     export interface UsageMetricsQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -43068,6 +43224,8 @@ export namespace Schemas {
     export interface MCPToolCallBreakdownQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -43112,6 +43270,8 @@ export namespace Schemas {
     export interface MCPToolCallsAndErrorsQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -43158,6 +43318,8 @@ export namespace Schemas {
     export interface MCPHarnessBreakdownQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -43207,6 +43369,8 @@ export namespace Schemas {
     export interface MCPToolTopUsersQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -43255,6 +43419,8 @@ export namespace Schemas {
     export interface MCPToolFailuresQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -43305,6 +43471,8 @@ export namespace Schemas {
     export interface MCPToolFailureOccurrencesQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -43355,6 +43523,8 @@ export namespace Schemas {
     export interface MCPToolStatsQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -43401,6 +43571,8 @@ export namespace Schemas {
     export interface MCPToolDailyStatsQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -43452,6 +43624,8 @@ export namespace Schemas {
     export interface MCPToolQualityRowsQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -43496,6 +43670,8 @@ export namespace Schemas {
     export interface MCPToolQualityDailyStatsQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -43540,6 +43716,8 @@ export namespace Schemas {
     export interface MCPToolCategoryCountsQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -43577,6 +43755,8 @@ export namespace Schemas {
     export interface MCPToolCategoriesQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -43615,6 +43795,8 @@ export namespace Schemas {
     export interface MCPToolCategoryMapQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -43653,6 +43835,8 @@ export namespace Schemas {
     export interface MCPToolDescriptionsQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -43697,6 +43881,8 @@ export namespace Schemas {
     export interface MCPToolSampleIntentsQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -43745,6 +43931,8 @@ export namespace Schemas {
     export interface MCPToolNeighborsQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -60778,6 +60966,8 @@ export namespace Schemas {
       readonly types?: readonly unknown[] | null;
       /** @nullable */
       readonly resolved_date_range?: PatchedInsightResolvedDateRange;
+      /** @nullable */
+      readonly events_retention_applied?: boolean | null;
       _create_in_folder?: string;
       readonly alerts?: readonly unknown[];
       /** Resolved dashboard and tile filter layers used to explain filter precedence in the UI. */
@@ -67735,6 +67925,8 @@ export namespace Schemas {
     export interface PropertyValuesQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -68426,6 +68618,8 @@ export namespace Schemas {
     export interface TeamTaxonomyQueryResponse {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -68511,6 +68705,8 @@ export namespace Schemas {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
@@ -68540,6 +68736,8 @@ export namespace Schemas {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
@@ -68567,6 +68765,8 @@ export namespace Schemas {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
@@ -68595,6 +68795,8 @@ export namespace Schemas {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
@@ -68634,6 +68836,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative6 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -68668,6 +68872,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Query explanation output */
       explain?: string[] | null;
       hasMore?: boolean | null;
@@ -68721,6 +68927,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -68748,6 +68956,8 @@ export namespace Schemas {
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -68773,6 +68983,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative13 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -68798,6 +69010,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative14 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -68823,6 +69037,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative15 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -68846,6 +69062,8 @@ export namespace Schemas {
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -68956,6 +69174,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative21 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -68983,6 +69203,8 @@ export namespace Schemas {
       dateTo?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -69008,6 +69230,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -69039,6 +69263,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -69067,6 +69293,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -69094,6 +69322,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -69122,6 +69352,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative27 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -69149,6 +69381,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative28 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -69182,6 +69416,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative30 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -69207,6 +69443,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -69236,6 +69474,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative32 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -69263,6 +69503,8 @@ export namespace Schemas {
       attributionWindowDays: number;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Whether the goal is revenue-bearing, which gates the value columns. */
       hasValue: boolean;
@@ -69300,6 +69542,8 @@ export namespace Schemas {
       attributionWindowDays: number;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Whether the goal is revenue-bearing, which gates the value column. */
       hasValue: boolean;
@@ -69330,6 +69574,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -69358,6 +69604,8 @@ export namespace Schemas {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
@@ -69387,6 +69635,8 @@ export namespace Schemas {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
@@ -69415,6 +69665,8 @@ export namespace Schemas {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
@@ -69446,6 +69698,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Query explanation output */
       explain?: string[] | null;
       hasMore?: boolean | null;
@@ -69481,6 +69735,8 @@ export namespace Schemas {
       dateTo?: string | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -69506,6 +69762,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -69537,6 +69795,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -69565,6 +69825,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -69592,6 +69854,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -69620,6 +69884,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative45 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -69648,6 +69914,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -69675,6 +69943,8 @@ export namespace Schemas {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
@@ -69702,6 +69972,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -69731,6 +70003,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative49 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -69755,6 +70029,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -69783,6 +70059,8 @@ export namespace Schemas {
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -69852,6 +70130,8 @@ export namespace Schemas {
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -69878,6 +70158,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -69905,6 +70187,8 @@ export namespace Schemas {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
@@ -69934,6 +70218,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative59 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore: boolean;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -69965,6 +70251,8 @@ export namespace Schemas {
       boxplot_data?: BoxPlotDatum[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Wether more breakdown values are available. */
       hasMore?: boolean | null;
       /** Generated HogQL query. */
@@ -69989,6 +70277,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative61 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70013,6 +70303,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative62 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70035,6 +70327,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative63 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70057,6 +70351,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative64 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70081,6 +70377,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative65 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70104,6 +70402,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -70137,6 +70437,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative69 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       has_next: boolean;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -70163,6 +70465,8 @@ export namespace Schemas {
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -70191,6 +70495,8 @@ export namespace Schemas {
       count: number;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70213,6 +70519,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative72 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70235,6 +70543,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative73 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70257,6 +70567,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative74 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -70286,6 +70598,8 @@ export namespace Schemas {
       compare?: AggregatedSpanRow[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70310,6 +70624,8 @@ export namespace Schemas {
       compare?: SpanTreeNode[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70334,6 +70650,8 @@ export namespace Schemas {
       compare?: AttributeBreakdownRow[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70362,6 +70680,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative79 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -70387,6 +70707,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative80 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -70412,6 +70734,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative81 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70435,6 +70759,8 @@ export namespace Schemas {
       columns?: string[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -70475,6 +70801,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative86 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70497,6 +70825,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative87 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70520,6 +70850,8 @@ export namespace Schemas {
       columns: unknown[];
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql: string;
@@ -70549,6 +70881,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative89 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore: boolean;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -70577,6 +70911,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative90 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70600,6 +70936,8 @@ export namespace Schemas {
       columns?: unknown[] | null;
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       hasMore?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
@@ -70628,6 +70966,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative92 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70650,6 +70990,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative93 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70672,6 +71014,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative94 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70694,6 +71038,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative95 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70716,6 +71062,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative96 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70738,6 +71086,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative97 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70760,6 +71110,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative98 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70782,6 +71134,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative99 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70805,6 +71159,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative100 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70827,6 +71183,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative101 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70849,6 +71207,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative102 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70871,6 +71231,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative103 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70893,6 +71255,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative104 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70915,6 +71279,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative105 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70937,6 +71303,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative106 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70959,6 +71327,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative107 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -70981,6 +71351,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative108 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
@@ -71003,6 +71375,8 @@ export namespace Schemas {
     export interface QueryResponseAlternative109 {
       /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
       error?: string | null;
+      /** True when the events data retention floor narrowed this query's events scans, so results exclude events older than the team's retention window. Set server-side where the floor is applied. */
+      events_retention_applied?: boolean | null;
       /** Generated HogQL query. */
       hogql?: string | null;
       /** Modifiers used when performing the query */
