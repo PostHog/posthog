@@ -1474,3 +1474,19 @@ class WebhookSignatureAuthentication(authentication.BaseAuthentication):
 
     def authenticate_header(self, request: Request) -> str:
         return "WebhookSignature"
+
+
+# services/mcp sends this user agent on its API calls (USER_AGENT in its
+# oauth-constants.ts). Keep the two in sync. A client controls its own user agent, so
+# this match applies MCP policy to the normal MCP pathway only. It does not stop a
+# hostile key holder. The same credential keeps its full scopes under a different user
+# agent. A future change can reduce the credential's scopes when the token is created.
+MCP_USER_AGENT_MARKER = "posthog/mcp-server"
+
+
+def is_mcp_request(request: Union[HttpRequest, Request]) -> bool:
+    """Returns True when a token-authenticated request comes through the MCP server."""
+    authenticator = getattr(request, "successful_authenticator", None)
+    if isinstance(authenticator, PersonalAPIKeyAuthentication | OAuthAccessTokenAuthentication):
+        return MCP_USER_AGENT_MARKER in (request.headers.get("User-Agent") or "")
+    return False

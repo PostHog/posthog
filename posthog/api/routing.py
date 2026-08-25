@@ -34,6 +34,7 @@ from posthog.models.user import User
 from posthog.permissions import (
     AccessControlPermission,
     APIScopePermission,
+    MCPAccessPermission,
     OrganizationMemberPermissions,
     SharingTokenPermission,
     TeamMemberAccessPermission,
@@ -43,8 +44,6 @@ from posthog.products import is_product_module
 from posthog.rbac.user_access_control import UserAccessControl
 from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
-
-from products.access_control.backend.presentation.permissions import MCPAccessPermission
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet

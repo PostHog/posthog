@@ -4,51 +4,21 @@
 server. Reads work. Writes are denied. The cap applies to every member, including admins.
 Access through the app and direct API use are not affected.
 
-The class `MCPAccessPermission` in presentation/permissions.py is the first consumer. The
-access-control facade's `decide()` can read this module later, to apply the same cap to
-object-level decisions.
+This module is the decision point. It takes domain facts and returns a verdict. It does
+not read requests: `posthog.auth.is_mcp_request` classifies the pathway, and enforcement
+points such as `MCPAccessPermission` in posthog/permissions.py gather the facts and apply
+the verdict. The access-control facade's `decide()` can call this later, to apply the
+same cap to object-level decisions.
 """
 
-from typing import Any, Protocol
-
-from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization
 
-# services/mcp sends this user agent on its API calls (USER_AGENT in its
-# oauth-constants.ts). Keep the two in sync. A client controls its own user agent, so
-# this match applies the policy to the normal MCP pathway only. It does not stop a
-# hostile key holder. The same credential keeps its full scopes under a different user
-# agent. A future change can reduce the credential's scopes when the token is created.
-MCP_USER_AGENT_MARKER = "posthog/mcp-server"
 
-
-class RequestLike(Protocol):
-    """This protocol lists the request attributes this module reads. It is structural
-    because the import-linter contract bans direct DRF imports from facade modules.
-    Indirect DRF use (posthog.auth) is allowed by the same contract."""
-
-    # A read-only property, not an attribute: HttpRequest.headers is a cached_property,
-    # and mypy rejects a read-only descriptor where a protocol declares a settable member.
-    @property
-    def headers(self) -> Any: ...
-
-
-def is_mcp_request(request: RequestLike) -> bool:
-    """Returns True when a token-authenticated request comes through the MCP server."""
-    authenticator = getattr(request, "successful_authenticator", None)
-    if isinstance(authenticator, PersonalAPIKeyAuthentication | OAuthAccessTokenAuthentication):
-        return MCP_USER_AGENT_MARKER in (request.headers.get("User-Agent") or "")
-    return False
-
-
-def mcp_access_denial_for_request(request: RequestLike, organization: Organization, writes: bool) -> str | None:
-    """Makes the MCP read-only decision for one request. Returns a denial message for the
-    user when the organization restricts MCP access and the action writes. Returns None
-    to allow the request."""
-    if not writes:
-        return None
-    if not is_mcp_request(request):
+def mcp_access_denial(organization: Organization, *, is_mcp: bool, writes: bool) -> str | None:
+    """Makes the MCP read-only decision. Returns a denial message for the user when the
+    organization restricts MCP access and the action writes. Returns None to allow."""
+    if not writes or not is_mcp:
         return None
     if not organization.mcp_access_read_only:
         return None

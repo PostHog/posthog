@@ -2,11 +2,10 @@ from posthog.test.base import APIBaseTest
 
 from parameterized import parameterized
 
+from posthog.auth import MCP_USER_AGENT_MARKER
 from posthog.constants import AvailableFeature
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-
-from products.access_control.backend.facade.mcp_access import MCP_USER_AGENT_MARKER
 
 
 class TestMCPReadOnlyEnforcement(APIBaseTest):

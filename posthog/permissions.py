@@ -25,6 +25,7 @@ from posthog.auth import (
     SharingAccessTokenAuthentication,
     SharingPasswordProtectedAuthentication,
     TeamSecretTokenAuthentication,
+    is_mcp_request,
 )
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
@@ -42,6 +43,8 @@ from posthog.scopes import (
 )
 from posthog.session.reauth import sensitive_action_reference, step_up_required
 from posthog.utils import get_can_create_org
+
+from products.access_control.backend.facade.mcp_access import mcp_access_denial
 
 CREATE_ACTIONS = ["create", "update"]
 
@@ -855,6 +858,44 @@ class APIScopePermission(ScopeBasePermission):
                 )
         except OrganizationMembership.DoesNotExist:
             return
+
+
+class MCPAccessPermission(ScopeBasePermission):
+    """Denies write actions through the MCP server when the organization restricts it.
+
+    An independent vote in the stack: DRF combines permission classes with AND semantics,
+    so a `*`-scoped token that passes `APIScopePermission` is still capped here. Runs after
+    the membership permissions, so non-members get the generic denial. Subclasses
+    ScopeBasePermission only for `_get_required_scopes`, so it derives an action's read or
+    write nature the same way `APIScopePermission` does."""
+
+    def has_permission(self, request, view) -> bool:
+        # Cheap exit first. Almost every request is not MCP. The check is two isinstance
+        # checks and one header read, with no query.
+        if not is_mcp_request(request):
+            return True
+
+        if getattr(view, "scope_object", None) is None:
+            return True
+        try:
+            organization = get_organization_from_view(view)
+        except ValueError:
+            return True
+
+        required_scopes = self._get_required_scopes(request, view)
+        if required_scopes is None:
+            # An unclassified action (custom action without required_scopes, or INTERNAL).
+            # On the default stack APIScopePermission already rejects token auth for these.
+            # A dangerously_get_permissions chain can omit APIScopePermission, so fall back
+            # to the HTTP method and treat every non-safe method as a write.
+            writes = request.method not in SAFE_METHODS
+        else:
+            writes = any(scope.endswith(":write") for scope in required_scopes)
+        denial = mcp_access_denial(organization, is_mcp=True, writes=writes)
+        if denial is not None:
+            self.message = denial
+            return False
+        return True
 
 
 class AccessControlPermission(ScopeBasePermission):

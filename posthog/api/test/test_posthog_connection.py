@@ -76,10 +76,9 @@ class TestPostHogConnectionForward:
         assert mock_request.call_args[1]["allow_redirects"] is False
 
     def test_forward_propagates_mcp_origin_to_the_target(self, client: HttpClient):
+        from posthog.auth import MCP_USER_AGENT_MARKER
         from posthog.models.personal_api_key import PersonalAPIKey
         from posthog.models.utils import generate_random_token_personal, hash_key_value
-
-        from products.access_control.backend.facade.mcp_access import MCP_USER_AGENT_MARKER
 
         key_value = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="mcp", user=self.user, secure_value=hash_key_value(key_value), scopes=["*"])
