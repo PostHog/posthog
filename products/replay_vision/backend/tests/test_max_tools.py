@@ -12,6 +12,7 @@ from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized
 
 from posthog.models.team import Team
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 import products.replay_vision.backend.max_tools as max_tools_module
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -561,7 +562,25 @@ class TestReplayVisionChargeConfirmation(BaseTest):
         assert "AI analysis" in content
 
 
-class TestScanReplayVisionSessionsScannerLimit(BaseTest):
+class _AllSessionsWatchableMixin:
+    """Scans filter out sessions with no replay data before starting. These tests name sessions that
+    were never ingested, so treat every one as present; each test is about what happens after that."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._batch_exists_patcher = patch.object(
+            SessionReplayEvents,
+            "batch_exists",
+            side_effect=lambda session_ids, team: dict.fromkeys(session_ids, True),
+        )
+        self._batch_exists_patcher.start()
+
+    def tearDown(self) -> None:
+        self._batch_exists_patcher.stop()
+        super().tearDown()
+
+
+class TestScanReplayVisionSessionsScannerLimit(_AllSessionsWatchableMixin, BaseTest):
     """A capped scanner's skips have to be explained to the user and counted, like bulk_observe does."""
 
     def _tool(self) -> ScanReplayVisionSessionsTool:
@@ -843,7 +862,7 @@ class TestReplayVisionToolAuthorization(BaseTest):
         assert artifact["error"] == "invalid_config"
 
 
-class TestReplayVisionApprovalFlowEndToEnd(BaseTest):
+class TestReplayVisionApprovalFlowEndToEnd(_AllSessionsWatchableMixin, BaseTest):
     """Through `_arun_with_context`, the entry point the agent actually calls.
 
     Every other test here calls `_arun_impl` directly, which skips the approval machinery entirely, so

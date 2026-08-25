@@ -21,13 +21,18 @@ export default meta
 
 type Story = StoryObj<typeof ReplayVisionScanWidget>
 
-function observation(sessionId: string, status: string, modelOutput?: Record<string, unknown>): Record<string, any> {
+function observation(
+    sessionId: string,
+    status: string,
+    modelOutput?: Record<string, unknown>,
+    errorReason = 'no_recording:No replay metadata found'
+): Record<string, any> {
     return {
         id: `obs-${sessionId}`,
         scanner_id: SCAN_ID,
         session_id: sessionId,
         status,
-        error_reason: status === 'ineligible' ? 'too_short:the recording is under five seconds long' : '',
+        error_reason: status === 'ineligible' ? errorReason : '',
         scanner_result: modelOutput ? { model_output: modelOutput, signals_count: 0 } : null,
     }
 }
@@ -81,7 +86,7 @@ export const WithSkipped: Story = {
                 scanId={SCAN_ID}
                 sessionIds={[SESSION_A]}
                 skipped={[
-                    { sessionId: SESSION_B, reason: 'skipped_quota' },
+                    { sessionId: SESSION_B, reason: 'no_replay_data' },
                     { sessionId: SESSION_C, reason: 'skipped_quota' },
                 ]}
             />

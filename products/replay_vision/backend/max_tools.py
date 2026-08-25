@@ -792,6 +792,10 @@ def _scan_summary(started: int, results: list[dict[str, str]]) -> str:
         )
     if counts.get("skipped_limit"):
         parts.append(f"{counts['skipped_limit']} were skipped: too many scans already running.")
+    if counts.get("no_replay_data"):
+        parts.append(
+            f"{counts['no_replay_data']} were skipped: no replay data is saved for them, so there is nothing to watch."
+        )
     if counts.get("failed"):
         parts.append(f"{counts['failed']} failed to start.")
     if started:
@@ -930,10 +934,14 @@ class ScanReplayVisionSessionsTool(ReplayVisionGatesMixin, MaxTool):
             model=DEFAULT_SCAN_MODEL,
         )
         if scan.scanner is None:
-            return (
-                "Nothing started: this project's monthly Replay Vision credits are used up.",
-                {"error": "quota_exhausted"},
-            )
+            # No scanner was minted, so there is no id to read results through. Key off the outcomes
+            # rather than naming quota: a batch with no watchable recording in it lands here too, and
+            # telling that user their credits ran out sends them to the wrong place.
+            outcomes = {result["scan_outcome"] for result in scan.results}
+            return _scan_summary(scan.started, scan.results), {
+                "error": "no_replay_data" if outcomes == {"no_replay_data"} else "quota_exhausted",
+                "results": scan.results,
+            }
         return _scan_summary(scan.started, scan.results), {"scan_id": str(scan.scanner.id), "results": scan.results}
 
 

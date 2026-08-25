@@ -17,6 +17,7 @@ from django.db import IntegrityError, transaction
 
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 
 from products.replay_vision.backend.billing import observation_credits_for_model
 from products.replay_vision.backend.enqueue_claims import (
@@ -129,6 +130,34 @@ def finished_sessions(scanner: ReplayScanner, session_ids: list[str]) -> frozens
     )
 
 
+def sessions_without_replay_data(*, team: Team, session_ids: list[str]) -> frozenset[str]:
+    """Sessions in the batch ClickHouse holds no replay for.
+
+    A scan on one of these can only fail: `fetch_session_events` reads the metadata back and raises
+    `IneligibleSessionError` the moment it finds none. Answering the question here, in one batched
+    lookup, keeps such a session from taking a scan slot and a credit on its way to that failure.
+    """
+    if not session_ids:
+        return frozenset()
+    found = SessionReplayEvents().batch_exists(session_ids, team)
+    return frozenset(session_id for session_id in session_ids if not found.get(session_id, False))
+
+
+def _merge_ineligible(
+    *, session_ids: list[str], ineligible: frozenset[str], eligible_results: list[dict[str, str]]
+) -> list[dict[str, str]]:
+    """Splice the sessions we never tried back into the caller's order.
+
+    `eligible_results` is in the same relative order as the eligible ids, so walking both together
+    restores the batch the caller passed rather than reordering it around the filter.
+    """
+    remaining = iter(eligible_results)
+    return [
+        {"session_id": session_id, "scan_outcome": "no_replay_data"} if session_id in ineligible else next(remaining)
+        for session_id in session_ids
+    ]
+
+
 def start_observations(
     *,
     scanner: ReplayScanner,
@@ -200,13 +229,16 @@ def scan_existing_scanner(
     *, scanner: ReplayScanner, session_ids: list[str], user: User
 ) -> tuple[int, list[dict[str, str]]]:
     """Point a saved scanner at named sessions."""
-    return start_observations(
+    ineligible = sessions_without_replay_data(team=scanner.team, session_ids=session_ids)
+    eligible = [session_id for session_id in session_ids if session_id not in ineligible]
+    started, results = start_observations(
         scanner=scanner,
-        session_ids=session_ids,
+        session_ids=eligible,
         user=user,
         headroom=scan_headroom(team=scanner.team, model=scanner.model, scanner=scanner),
-        finished=finished_sessions(scanner, session_ids),
+        finished=finished_sessions(scanner, eligible),
     )
+    return started, _merge_ineligible(session_ids=session_ids, ineligible=ineligible, eligible_results=results)
 
 
 def run_inline_scan(
@@ -229,17 +261,23 @@ def run_inline_scan(
     config_error = scanner_config_error(scanner_type, scanner_config)
     if config_error is not None:
         raise ValueError(config_error)
+    ineligible = sessions_without_replay_data(team=team, session_ids=session_ids)
+    eligible = [session_id for session_id in session_ids if session_id not in ineligible]
     key = inline_scan_key(scanner_type=scanner_type, scanner_config=scanner_config, model=model)
     scanner = find_inline_scanner(team=team, key=key)
     headroom = scan_headroom(team=team, model=model, scanner=scanner)
     if scanner is None:
-        # Mint only once something can actually start, so an org with no headroom doesn't leave a
-        # scanner behind for every question it was unable to answer.
-        if headroom.max_starts <= 0:
+        # Mint only once something can actually start. Otherwise an org with no headroom, or a batch
+        # with nothing watchable in it, leaves a scanner behind for a question it could not answer.
+        if headroom.max_starts <= 0 or not eligible:
             return InlineScanResult(
                 scanner=None,
                 started=0,
-                results=[{"session_id": s, "scan_outcome": headroom.skip_reason} for s in session_ids],
+                results=_merge_ineligible(
+                    session_ids=session_ids,
+                    ineligible=ineligible,
+                    eligible_results=[{"session_id": s, "scan_outcome": headroom.skip_reason} for s in eligible],
+                ),
             )
         scanner = create_inline_scanner(
             team=team,
@@ -251,12 +289,16 @@ def run_inline_scan(
         # A scanner that did not exist a statement ago has no observations to have settled.
         finished: frozenset[str] = frozenset()
     else:
-        finished = finished_sessions(scanner, session_ids)
+        finished = finished_sessions(scanner, eligible)
 
     started, results = start_observations(
-        scanner=scanner, session_ids=session_ids, user=user, headroom=headroom, finished=finished
+        scanner=scanner, session_ids=eligible, user=user, headroom=headroom, finished=finished
     )
-    return InlineScanResult(scanner=scanner, started=started, results=results)
+    return InlineScanResult(
+        scanner=scanner,
+        started=started,
+        results=_merge_ineligible(session_ids=session_ids, ineligible=ineligible, eligible_results=results),
+    )
 
 
 class RetryOutcome(Enum):

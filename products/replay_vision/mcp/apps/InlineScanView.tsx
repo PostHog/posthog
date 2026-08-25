@@ -22,6 +22,7 @@ const outcomeLabel: Record<string, string> = {
     skipped_limit: 'Skipped, too many running',
     skipped_quota: 'Skipped, out of credits',
     skipped_scanner_limit: 'Skipped, scanner limit',
+    no_replay_data: 'Skipped, no recording',
     failed: 'Failed to start',
 }
 
@@ -32,6 +33,7 @@ const outcomeVariant: Record<string, 'success' | 'destructive' | 'warning' | 'de
     skipped_limit: 'warning',
     skipped_quota: 'warning',
     skipped_scanner_limit: 'warning',
+    no_replay_data: 'warning',
     failed: 'destructive',
 }
 

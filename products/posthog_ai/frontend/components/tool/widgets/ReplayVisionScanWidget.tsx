@@ -5,12 +5,7 @@ import { LemonBanner, Link, Spinner } from '@posthog/lemon-ui'
 import { urls } from 'scenes/urls'
 
 import type { ReplayObservationApi } from 'products/replay_vision/frontend/generated/api.schemas'
-import {
-    readErrorMessage,
-    readReasoning,
-    readSummary,
-    readTitle,
-} from 'products/replay_vision/frontend/utils/observation'
+import { readErrorKind, readReasoning, readSummary, readTitle } from 'products/replay_vision/frontend/utils/observation'
 
 import { replayVisionScanWidgetLogic } from './replayVisionScanWidgetLogic'
 
@@ -25,7 +20,25 @@ const SKIP_MESSAGES: Record<string, string> = {
     skipped_quota: "this project's monthly Replay Vision credits are used up",
     skipped_scanner_limit: 'this scanner reached its own credit limit',
     skipped_limit: 'too many scans were already running',
+    no_replay_data: 'no replay data was saved',
     failed: 'the scan could not be started',
+}
+
+// Keyed on the `error_reason` kind, never the message stored beside it: that half is written for us and
+// reads as internal text in a chat bubble. Kinds come from `products/replay_vision/backend/error_kinds.py`.
+const FAILURE_MESSAGES: Record<string, string> = {
+    no_recording: 'No replay data was saved for it.',
+    no_snapshots: 'It has no video to watch yet. Try again in a few minutes.',
+    no_events: 'It has no events recorded against it.',
+    too_short: 'It is too short to watch.',
+    too_long: 'It is too long to watch.',
+    too_inactive: 'It has too little activity to watch.',
+    provider_transient: 'The AI provider was unavailable. Try again.',
+    provider_rejected: 'The AI provider could not process it.',
+    rasterization_failed: 'It could not be rendered for the AI to watch.',
+    validation_failed: 'The scan did not return a usable result.',
+    infra_transient: 'PostHog was at capacity. Try again.',
+    orphaned: 'The scan stopped before it finished. Try again.',
 }
 
 export function ReplayVisionScanWidget({ scanId, sessionIds, skipped }: ReplayVisionScanWidgetProps): JSX.Element {
@@ -90,10 +103,12 @@ function ObservationRow({ observation }: { observation: ReplayObservationApi }):
     }
 
     if (observation.status !== 'succeeded') {
-        const reason = readErrorMessage(observation)
+        const detail = FAILURE_MESSAGES[readErrorKind(observation) ?? '']
         return (
             <div className="px-3 py-2 text-sm">
-                <p className="m-0 text-secondary">Could not watch this recording{reason ? `: ${reason}` : '.'}</p>
+                <p className="m-0 text-secondary">
+                    {['Could not watch this recording.', detail].filter(Boolean).join(' ')}
+                </p>
             </div>
         )
     }

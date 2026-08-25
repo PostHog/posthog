@@ -1,4 +1,5 @@
 import json
+from collections import Counter
 from typing import Any, NoReturn, cast
 from uuid import UUID
 
@@ -944,6 +945,7 @@ class BulkObserveResultSerializer(serializers.Serializer):
             ("skipped_limit", "Skipped, in-flight limit reached"),
             ("skipped_quota", "Skipped, the org's credit quota for this period was reached"),
             ("skipped_scanner_limit", "Skipped, scanner's own credit limit reached"),
+            ("no_replay_data", "Skipped, no replay data is stored for this session"),
             ("failed", "Failed to start"),
         ],
         help_text=(
@@ -953,7 +955,8 @@ class BulkObserveResultSerializer(serializers.Serializer):
             "it back, or use the retry action to run it again); 'skipped_limit' - the in-flight cap was "
             "reached before this session; 'skipped_quota' - the org's credit quota for this period would "
             "be exceeded; 'skipped_scanner_limit' - this scanner's own credit limit would be exceeded; "
-            "'failed' - the workflow failed to start."
+            "'no_replay_data' - no recording is stored for this session, so there is nothing to watch and "
+            "nothing was charged; 'failed' - the workflow failed to start."
         ),
     )
 
@@ -1717,6 +1720,18 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         )
         if scan.scanner is None:
             # Nothing started and nothing already existed, so there is no id to read results through.
+            # Still reported: a scan that starts nothing is the outcome worth counting, and leaving it
+            # silent is what made the failure rate unreadable from product analytics.
+            self._report_inline_scan_requested(
+                user=user,
+                scanner=None,
+                scanner_type=scanner_type,
+                model=model,
+                requested=len(session_ids),
+                started=0,
+                results=scan.results,
+                request=request,
+            )
             # Key off the outcomes: the in-flight cap can bind here too, and that is not exhaustion.
             if any(result["scan_outcome"] == "skipped_quota" for result in scan.results):
                 self._report_quota_exhausted(None, "inline")
@@ -1726,17 +1741,14 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             )
         scanner, started, results = scan.scanner, scan.started, scan.results
 
-        report_user_action(
-            user,
-            "replay_vision_inline_scan_requested",
-            {
-                "scan_id": str(scanner.id),
-                "scanner_type": scanner.scanner_type,
-                "model": scanner.model,
-                "requested": len(session_ids),
-                "started": started,
-            },
-            team=self.team,
+        self._report_inline_scan_requested(
+            user=user,
+            scanner=scanner,
+            scanner_type=scanner_type,
+            model=model,
+            requested=len(session_ids),
+            started=started,
+            results=results,
             request=request,
         )
         if any(result["scan_outcome"] == "skipped_quota" for result in results):
@@ -1744,6 +1756,40 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
         return Response(
             InlineScanResponseSerializer({"scan_id": scanner.id, "started": started, "results": results}).data,
             status=status.HTTP_202_ACCEPTED,
+        )
+
+    def _report_inline_scan_requested(
+        self,
+        *,
+        user: User,
+        scanner: ReplayScanner | None,
+        scanner_type: ScannerType,
+        model: str,
+        requested: int,
+        started: int,
+        results: list[dict[str, str]],
+        request: Request,
+    ) -> None:
+        """An inline scan was asked for, and what came of each session in it.
+
+        `scanner` is None when nothing could start and none existed, which is exactly the case worth
+        seeing. `scan_outcomes` carries the per-outcome counts so a query can read one outcome out of
+        the batch, e.g. `properties.scan_outcomes.no_replay_data`.
+        """
+        report_user_action(
+            user,
+            "replay_vision_inline_scan_requested",
+            {
+                "scan_id": str(scanner.id) if scanner is not None else None,
+                "scanner_type": scanner.scanner_type if scanner is not None else scanner_type,
+                "model": scanner.model if scanner is not None else model,
+                "requested": requested,
+                "started": started,
+                "skipped_count": len(results) - started,
+                "scan_outcomes": dict(Counter(result["scan_outcome"] for result in results)),
+            },
+            team=self.team,
+            request=request,
         )
 
     def _report_quota_exhausted(self, scanner: ReplayScanner | None, trigger: str) -> None:
