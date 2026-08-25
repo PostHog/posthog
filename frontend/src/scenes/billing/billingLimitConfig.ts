@@ -4,10 +4,10 @@ export const MAX_BILLING_LIMIT: number = 50000
 
 export const POSTHOG_CODE_USAGE_PRODUCT_KEY = 'posthog_code_usage'
 export const REPLAY_VISION_PRODUCT_KEY = 'replay_vision'
-export const STARTUP_PROGRAM_BILLING_LIMIT_MAX_BY_PRODUCT: Record<string, number> = {
+export const STARTUP_PROGRAM_BILLING_LIMIT_MAX_BY_PRODUCT = {
     [POSTHOG_CODE_USAGE_PRODUCT_KEY]: 500,
     [REPLAY_VISION_PRODUCT_KEY]: 3000,
-}
+} as const satisfies Record<string, number>
 
 export type BillingLimitConfig = {
     max: number

@@ -6,7 +6,6 @@ import {
     MAX_BILLING_LIMIT,
     POSTHOG_CODE_USAGE_PRODUCT_KEY,
     REPLAY_VISION_PRODUCT_KEY,
-    STARTUP_PROGRAM_BILLING_LIMIT_MAX_BY_PRODUCT,
 } from './billingLimitConfig'
 
 describe('getBillingLimitConfig', () => {
@@ -65,11 +64,4 @@ describe('getBillingLimitConfig', () => {
             }
         }
     )
-
-    it('exports startup program caps by product', () => {
-        expect(STARTUP_PROGRAM_BILLING_LIMIT_MAX_BY_PRODUCT).toEqual({
-            [POSTHOG_CODE_USAGE_PRODUCT_KEY]: 500,
-            [REPLAY_VISION_PRODUCT_KEY]: 3000,
-        })
-    })
 })

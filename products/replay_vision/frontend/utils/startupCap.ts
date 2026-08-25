@@ -8,9 +8,9 @@ import type { BillingType } from '~/types'
 import type { VisionQuotaApi } from '../generated/api.schemas'
 import { CREDITS_PER_DOLLAR } from './credits'
 
-/** Billing enforces this same ceiling server-side, in dollars. */
 const STARTUP_PROGRAM_BILLING_LIMIT_MAX = STARTUP_PROGRAM_BILLING_LIMIT_MAX_BY_PRODUCT[REPLAY_VISION_PRODUCT_KEY]
 
+/** Billing enforces this same ceiling server-side, in dollars. */
 export const STARTUP_CAP_CREDITS: number = STARTUP_PROGRAM_BILLING_LIMIT_MAX * CREDITS_PER_DOLLAR
 
 export const STARTUP_CAP_EXPLANATION = `Startup credits are shared across all PostHog products, so the startup program caps Replay vision spend at $${STARTUP_PROGRAM_BILLING_LIMIT_MAX.toLocaleString()} per month.`
