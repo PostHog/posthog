@@ -204,7 +204,7 @@ function ScheduleStatusTag({ scheduledChange }: { scheduledChange: ScheduledChan
                 text: 'Needs approval',
                 tooltip: 'This change will be skipped if it is not approved before the scheduled time.',
             }
-        } else if (denied) {
+        } else if (denied && is_recurring) {
             // A denied request on a recurring schedule is not terminal: the sweep skips the next
             // occurrence and requests a fresh approval for the one after, so the row stays active
             // but the tag must not read as a plain "Recurring" that will run.

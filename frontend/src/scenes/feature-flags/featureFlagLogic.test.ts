@@ -1986,6 +1986,13 @@ describe('featureFlagLogic', () => {
                                     recurrence_interval: RecurrenceInterval.Daily,
                                     change_request: { id: 'cr-4', state: ScheduledChangeRequestState.Expired },
                                 }),
+                                // An executed row pins how denied rows interleave with real history:
+                                // executed first, never-executed denied rows after.
+                                makeScheduledChange({
+                                    id: 5,
+                                    scheduled_at: '2025-12-01T00:00:00Z',
+                                    executed_at: '2025-12-01T00:00:00Z',
+                                }),
                             ],
                         },
                     ],
@@ -1997,8 +2004,32 @@ describe('featureFlagLogic', () => {
 
             await expectLogic(logic).toMatchValues({
                 activeSchedules: [partial({ id: 3 }), partial({ id: 4 })],
-                completedSchedules: [partial({ id: 2 }), partial({ id: 1 })],
+                completedSchedules: [partial({ id: 5 }), partial({ id: 2 }), partial({ id: 1 })],
             })
+        })
+
+        it.each([
+            {
+                name: 'gated create toasts pending approval',
+                change_request: { id: 'cr-toast', state: ScheduledChangeRequestState.Pending },
+                expectedMessage:
+                    'Change scheduled - pending approval. It will be skipped if not approved before the scheduled time.',
+            },
+            {
+                name: 'ungated create toasts plain success',
+                change_request: null,
+                expectedMessage: 'Change scheduled successfully',
+            },
+        ])('$name', async ({ change_request, expectedMessage }) => {
+            useMocks({ get: { [schedulesUrl]: () => [200, { results: [] }] } })
+            // The success listener reports to eventUsageLogic, but featureFlagLogic does not mount it via connect().
+            eventUsageLogic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.createScheduledChangeSuccess(makeScheduledChange({ change_request }))
+            }).toFinishAllListeners()
+
+            expect(lemonToast.success).toHaveBeenCalledWith(expectedMessage)
         })
 
         it('orders completed changes most-recent first', async () => {

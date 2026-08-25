@@ -247,6 +247,8 @@ describe('FeatureFlagSchedule', () => {
                 expect(await screen.findByText(expectedTag)).toBeInTheDocument()
                 expect(screen.getByText('Active & upcoming')).toBeInTheDocument()
                 expect(screen.queryByText(/^History \(/)).not.toBeInTheDocument()
+                // The link is the way to unblock a stalled recurring schedule.
+                expect(screen.getByText('View approval request')).toBeInTheDocument()
             }
         )
 

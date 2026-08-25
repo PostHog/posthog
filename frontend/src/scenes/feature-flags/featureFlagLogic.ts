@@ -3416,8 +3416,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
 
             // Create the enable schedule first
+            let enableSchedule: ScheduledChangeType
             try {
-                await api.featureFlags.createScheduledChange(currentProjectId, {
+                enableSchedule = await api.featureFlags.createScheduledChange(currentProjectId, {
                     ...basePayload,
                     payload: { operation: ScheduledChangeOperationType.UpdateStatus, value: true },
                     cron_expression: enableCron,
@@ -3429,8 +3430,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
 
             // Create the disable schedule
+            let disableSchedule: ScheduledChangeType
             try {
-                await api.featureFlags.createScheduledChange(currentProjectId, {
+                disableSchedule = await api.featureFlags.createScheduledChange(currentProjectId, {
                     ...basePayload,
                     payload: { operation: ScheduledChangeOperationType.UpdateStatus, value: false },
                     cron_expression: disableCron,
@@ -3446,7 +3448,16 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             }
 
             // Both succeeded
-            lemonToast.success('Paired schedules created')
+            const pairIsPendingApproval = [enableSchedule, disableSchedule].some(
+                (schedule) => schedule?.change_request?.state === ScheduledChangeRequestState.Pending
+            )
+            if (pairIsPendingApproval) {
+                lemonToast.success(
+                    'Paired schedules created - pending approval. Schedules that are not approved before their scheduled time will be skipped.'
+                )
+            } else {
+                lemonToast.success('Paired schedules created')
+            }
             resetScheduleForm()
             eventUsageLogic.actions.reportFeatureFlagScheduleSuccess()
         },
