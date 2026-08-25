@@ -803,7 +803,11 @@ class TestWorkflowTaskCreateSerializer(SimpleTestCase):
         assert field in serializer.errors
 
     @parameterized.expand(
-        [("prompt", {"prompt": "look into the alert"}), ("scout", {"scout": "signals-scout-general"})]
+        [
+            ("prompt", {"prompt": "look into the alert"}),
+            ("scout", {"scout": "signals-scout-general"}),
+            ("scout_with_null_prompt", {"scout": "signals-scout-general", "prompt": None}),
+        ]
     )
     def test_accepts_a_minimal_request(self, _name: str, body: dict) -> None:
         serializer = WorkflowTaskCreateSerializer(data=body)

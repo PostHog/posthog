@@ -20,7 +20,11 @@ if (empty(inputs.prompt) and empty(inputs.scout)) {
   throw Error('Instructions or a scout are required')
 }
 
-let payload := { 'prompt': inputs.prompt, 'event': event }
+let payload := { 'event': event }
+
+if (not empty(inputs.prompt)) {
+  payload.prompt := inputs.prompt
+}
 
 if (not empty(inputs.scout)) {
   payload.scout := inputs.scout

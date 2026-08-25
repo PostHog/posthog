@@ -94,13 +94,18 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
         max_length=200,
         required=False,
         allow_blank=True,
+        allow_null=True,
         help_text=(
             "Name of a scout in this project. When set, the step runs that scout instead of creating a "
             "task, and the task fields are ignored."
         ),
     )
+    # The step sends whichever of these two the author left empty as null, not as an absent key.
     prompt = serializers.CharField(
-        required=False, allow_blank=True, help_text="Instructions for the agent. Required unless a scout is named."
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        help_text="Instructions for the agent. Required unless a scout is named.",
     )
     event = serializers.DictField(
         required=False,

@@ -166,7 +166,6 @@ describe('posthog create task template', () => {
 
         expect(params.url).toMatch(/\/api\/projects\/1\/workflow_tasks\/$/)
         expect(parseJSON(params.body!)).toEqual({
-            prompt: '',
             scout: 'signals-scout-error-tracking',
             posthog_mcp_scopes: 'read_only',
             max_parallel_tasks: 5,
