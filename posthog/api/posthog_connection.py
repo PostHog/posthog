@@ -36,7 +36,6 @@ from posthog.auth import (
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
     SessionAuthentication,
-    is_mcp_request,
 )
 from posthog.models.integration import POSTHOG_CONNECT_KIND, Integration, OauthIntegration, posthog_connect_base_url
 from posthog.permissions import get_authenticator_scopes
@@ -158,18 +157,19 @@ def _forward_through_connection(
     *,
     query: dict[str, Any] | None = None,
     data: Any = None,
-    mcp_origin: bool = False,
 ) -> ForwardResult:
     """Replay one request against the connected project, injecting the connection's token.
 
-    `mcp_origin` marks the outbound request with the MCP user agent. The target
-    organization then applies its MCP read-only policy to writes that an MCP client
-    started through this connection."""
+    The outbound request always carries the MCP user agent, so the target organization
+    applies its MCP read-only policy to any write forwarded through a connection. The
+    target-metadata read below is a GET, which the policy always allows."""
     token = _connection_access_token(integration)
     base = posthog_connect_base_url(integration.config.get("region"))
-    headers = {"Authorization": f"Bearer {token}", CONNECTION_MARKER_HEADER: "1"}
-    if mcp_origin:
-        headers["User-Agent"] = f"posthog-connection; {MCP_USER_AGENT_MARKER}"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        CONNECTION_MARKER_HEADER: "1",
+        "User-Agent": f"posthog-connection; {MCP_USER_AGENT_MARKER}",
+    }
 
     raw = bytearray()
     timed_out = False
@@ -331,7 +331,6 @@ class PostHogConnectionViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             _validate_target_path(payload["path"]),
             query=payload.get("query"),
             data=payload.get("data"),
-            mcp_origin=is_mcp_request(request),
         )
         body = {"status": result.status, "data": result.data}
         # A failure on this side is mirrored as the outer status too, so a caller that only reads the
