@@ -127,9 +127,26 @@ The target repo is public, so a failed publish must not leave anything behind:
 - Content becomes public at the branch write, before the pull request that moderates it. Confirming
   that with the user is a UI concern, and it gates enabling the flag rather than shipping this code.
 
-Errors surface as `400` (invalid payload), `404` (unknown skill), `502` (GitHub refused a step), or
-`503` when the instance has no `COMMUNITY_SKILLS_GITHUB_INSTALLATION_ID` configured. The 503 is the
-fail-safe that keeps publishing off until the GitHub App is installed.
+### Who can publish
+
+Publishing a skill is restricted to that skill's own owners (`LLMSkillOwner`), on top of the access
+`AccessControlPermission` already requires. `CommunityPublishOwnerPermission` enforces it.
+
+The action writes the skill into a public repository, so it asks for a stronger claim on the skill
+than editing it does, and that claim has to be per skill. `AccessControlPermission.has_permission`
+passes a member holding an object-level grant on any one skill, and the `name/<slug>` actions load
+whichever skill the URL names, so edit access alone reaches every skill in the project.
+
+A skill with no current owners is publishable by nobody, and answers `403`. Owners leave the set when
+a member loses project access, and a skill can be created with an explicit empty owner list, so the
+alternative is a fallback to edit access for exactly the skills that have nobody to answer for them.
+Adding an owner is the remedy. There is no exemption for project or organization admins; an admin who
+wants to publish adds themselves as an owner first.
+
+Errors surface as `400` (invalid payload), `403` (the requester does not own the skill, or it has no
+owners), `404` (unknown skill), `502` (GitHub refused a step), or `503` when the instance has no
+publisher App configured. The 503 is the fail-safe that keeps publishing off until the GitHub App is
+installed.
 
 The three are kept apart on purpose, because each sends the publisher somewhere different. The skill
 is rendered before GitHub is touched, so a skill that has to be edited answers `400` even while the
