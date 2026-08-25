@@ -127,10 +127,14 @@ def _detail_blocks(summary: DigestSummary) -> list[dict]:
 
 
 def _build_fallback_text(summary: DigestSummary) -> str:
-    """Plain text for the thread's notification preview and for clients that ignore blocks."""
+    """Plain text for the thread's notification preview and for clients that ignore blocks.
+
+    The lead line stays out of it. A notification shows the first few words, and spending them on
+    the same sentence every morning pushes the change itself out of view.
+    """
     # The top-level `text` fallback is parsed for mentions too, so escape it the same way.
     lines = [_escape_mrkdwn(pr.summary) for pr in summary.prs]
-    return "\n".join([_THREAD_LEAD, *lines]) if lines else "No merged PRs worth a mention."
+    return "\n".join(lines) or "No merged PRs worth a mention."
 
 
 def _post_message(
