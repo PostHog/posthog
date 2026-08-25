@@ -18,6 +18,7 @@ from products.slack_app.backend.services.slack_messages import (
     RunFooter,
     app_home_url,
     context_block,
+    flatten_object_tags,
     fork_menu_actions_block,
     fork_menu_element,
     normalize_labeled_mentions_to_bare,
@@ -66,6 +67,15 @@ def _split_markdown_text(text: str, limit: int = _MARKDOWN_CHUNK_LIMIT) -> list[
     if remaining:
         pieces.append(remaining)
     return pieces
+
+
+def _markdown_text_pieces(text: str) -> list[str]:
+    """Prepare agent prose for `markdown_text` stream chunks.
+
+    Object tags go first because Slack renders none of them, then labeled mentions become
+    bare ones so an echoed ping notifies, then the result is split to fit a chunk.
+    """
+    return _split_markdown_text(flatten_object_tags(normalize_labeled_mentions_to_bare(text)))
 
 
 def _task_update_chunk(
@@ -335,7 +345,7 @@ class SlackThreadHandler:
         if first_task_id and first_task_title:
             chunks.append(_task_update_chunk(first_task_id, first_task_title, "in_progress", first_task_details))
         if first_markdown_text:
-            for piece in _split_markdown_text(normalize_labeled_mentions_to_bare(first_markdown_text)):
+            for piece in _markdown_text_pieces(first_markdown_text):
                 chunks.append({"type": "markdown_text", "text": piece})
         if not chunks:
             return None
@@ -375,7 +385,7 @@ class SlackThreadHandler:
                 continue
             chunks.append(_task_update_chunk(str(task_id), str(title), str(status), t.get("details")))
         if markdown_text:
-            for piece in _split_markdown_text(normalize_labeled_mentions_to_bare(markdown_text)):
+            for piece in _markdown_text_pieces(markdown_text):
                 chunks.append({"type": "markdown_text", "text": piece})
         if not chunks:
             return
@@ -409,7 +419,7 @@ class SlackThreadHandler:
                 _task_update_chunk(complete_task_id, complete_task_title, "complete", complete_task_details)
             )
         if final_markdown:
-            for piece in _split_markdown_text(normalize_labeled_mentions_to_bare(final_markdown)):
+            for piece in _markdown_text_pieces(final_markdown):
                 final_chunks.append({"type": "markdown_text", "text": piece})
         if self.context.mentioning_slack_user_id:
             # Newlines keep the mention off the tail of the last streamed prose chunk.

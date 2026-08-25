@@ -150,6 +150,88 @@ def normalize_labeled_mentions_to_bare(text: str) -> str:
     return _RE_LABELED_USER_MENTION.sub(r"<@\1>", text)
 
 
+# Object tags are the agent's way of citing a PostHog object inline:
+# `<insight id="9pQx3">checkout funnel</insight>`, `<hogql label="signups today">SELECT …</hogql>`,
+# `<replay id="…" display="block"/>`. The desktop app turns them into chips and chart cards.
+# Slack has no renderer for them, so the markup reaches the reader as literal text.
+# Kinds and aliases mirror `OBJECT_KINDS` in
+# products/desktop/packages/core/src/inbox/objectTags.ts — an unlisted tag name stays literal,
+# the same way the desktop parser leaves it alone.
+_OBJECT_TAG_KINDS = frozenset(
+    {
+        "insight",
+        "hogql",
+        "dashboard",
+        "error",
+        "replay",
+        "flag",
+        "experiment",
+        "survey",
+        "ticket",
+        "trace",
+        "eval",
+        "event",
+        "cohort",
+        "action",
+        "person",
+        "session-replay",
+        "recording",
+        "feature-flag",
+        "feature_flag",
+        "sql",
+    }
+)
+_RE_OBJECT_TAG = re.compile(r"<([a-z][\w-]*)((?:\s+[a-z][\w-]*\s*=\s*\"[^\"]*\")*)\s*(?:/>|>([\s\S]*?)</\1\s*>)")
+_RE_OBJECT_TAG_ATTR = re.compile(r"([a-z][\w-]*)\s*=\s*\"([^\"]*)\"")
+# Fenced blocks and inline code spans, so a tag quoted as an example keeps its markup. Triple
+# backticks are matched before the single-backtick form so a fence isn't split at its inner
+# backticks.
+_RE_CODE_SEGMENT = re.compile(r"(```[\s\S]*?```|`[^`\n]*`)")
+_XML_ATTR_ENTITIES = (("&quot;", '"'), ("&apos;", "'"), ("&lt;", "<"), ("&gt;", ">"), ("&amp;", "&"))
+
+
+def _unescape_xml_attr(value: str) -> str:
+    for entity, char in _XML_ATTR_ENTITIES:
+        value = value.replace(entity, char)
+    return value
+
+
+def _object_tag_replacement(match: re.Match[str]) -> str:
+    kind = match.group(1)
+    if kind not in _OBJECT_TAG_KINDS:
+        return match.group(0)
+
+    attrs = {name: _unescape_xml_attr(value) for name, value in _RE_OBJECT_TAG_ATTR.findall(match.group(2) or "")}
+    body = (match.group(3) or "").strip()
+    # A `hogql` body is the SQL itself, which is the chip's payload rather than something to
+    # read, so only its label survives. Every other kind carries its display text in the body.
+    label = attrs.get("title", "").strip() or (attrs.get("label", "").strip() if kind in ("hogql", "sql") else body)
+    # No label leaves nothing worth reading — a bare id or a block chart's query — so the tag goes.
+    return label
+
+
+def flatten_object_tags(text: str) -> str:
+    """Reduce PostHog object tags to the text a Slack reader can act on.
+
+    `<insight id="9pQx3">checkout funnel</insight>` becomes `checkout funnel`, and a tag with
+    no display text at all (`<replay id="…" display="block"/>`) drops out. Slack renders none
+    of these tags, so leaving them in place puts raw markup in front of the reader. The same
+    reply still renders as chips and charts in the desktop app, which reads the agent's
+    original text rather than this one.
+
+    A tag split across two streamed chunks is left alone: the pattern only matches a complete
+    tag, so half of one stays literal until both halves arrive in the same string.
+    """
+    if not text:
+        return text
+    # ``re.split`` with a capturing group yields alternating text/code segments; the odd
+    # (code) segments pass through untouched.
+    return "".join(
+        segment if index % 2 else _RE_OBJECT_TAG.sub(_object_tag_replacement, segment)
+        for index, segment in enumerate(_RE_CODE_SEGMENT.split(text))
+    )
+
+
 def flatten_block_text(node: Any) -> list[str]:
     """Best-effort plain-text extraction from a Slack block-kit subtree.
 

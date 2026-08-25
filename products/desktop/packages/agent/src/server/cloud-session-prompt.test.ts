@@ -28,24 +28,4 @@ describe("buildCloudSessionSystemPrompt", () => {
       text.indexOf("Cloud task instructions."),
     );
   });
-
-  it.each([
-    ["a desktop run", undefined, true],
-    ["an inbox report run", "signal_report", true],
-    ["a Slack run", "slack", false],
-    ["a PostHog AI run", "posthog_ai", false],
-  ])(
-    "teaches the object-tag vocabulary to %s: %s",
-    (_name, interactionOrigin, expected) => {
-      const prompt = buildCloudSessionSystemPrompt(
-        "Cloud task instructions.",
-        undefined,
-        interactionOrigin,
-      );
-      const text = typeof prompt === "string" ? prompt : prompt.append;
-
-      expect(text.includes(RICH_OUTPUT_TAGS_PROMPT)).toBe(expected);
-      expect(text).toContain(PRODUCT_ENGINEER_PROMPT);
-    },
-  );
 });

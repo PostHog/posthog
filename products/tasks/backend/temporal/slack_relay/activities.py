@@ -8,6 +8,7 @@ from temporalio import activity
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 
+from products.slack_app.backend.services.slack_messages import flatten_object_tags
 from products.tasks.backend.logic.services.living_artifacts import (
     deliver_pending_slack_file_artifacts,
     has_pending_slack_file_artifacts,
@@ -90,11 +91,13 @@ def _markdown_to_slack_mrkdwn(text: str) -> str:
 
     Misplaced link markers (e.g. ``**<url**>``), bare URLs wrapped in emphasis
     (e.g. ``**https://example.com**``), and "approximately" tildes (e.g. ``~$36k``)
-    are normalized first so the converter sees well-formed input.
+    are normalized first so the converter sees well-formed input. PostHog object
+    tags are flattened to their display text, because Slack renders none of them.
     """
     if not text:
         return text
-    repaired = _neutralize_approx_tildes(_wrap_bare_urls_in_emphasis(_repair_link_trailing_markers(text)))
+    flattened = flatten_object_tags(text)
+    repaired = _neutralize_approx_tildes(_wrap_bare_urls_in_emphasis(_repair_link_trailing_markers(flattened)))
     return _CONVERTER.convert(_tables_to_fenced_code_blocks(repaired))
 
 

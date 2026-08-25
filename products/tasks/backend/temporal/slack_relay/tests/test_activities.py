@@ -634,6 +634,13 @@ class TestMarkdownToSlackMrkdwn(unittest.TestCase):
             ),
             ("plain_text_unchanged", "Hello world", "Hello world"),
             ("inline_code_preserved", "Use `git commit`", "Use `git commit`"),
+            # Object tags render as chips in the desktop app and as raw markup in Slack, so
+            # the relay flattens them to the label before the converter runs.
+            (
+                "object_tag_flattened_to_its_label",
+                'The <insight id="9pQx3">checkout funnel</insight> dropped',
+                "The checkout funnel dropped",
+            ),
         ]
     )
     def test_inline_conversions(self, _name, markdown, expected):

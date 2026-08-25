@@ -10,20 +10,6 @@ export const RICH_OUTPUT_TAGS_PROMPT = `Embed the PostHog objects behind your co
 - Full-size chart, for any numeric or time-series answer (always prefer this over a markdown table): a saved insight \`<insight id="9pQx3" display="block"/>\` or a query \`<hogql display="block" title="Daily active users, last 7 days" caption="optional context">SELECT ...</hogql>\`. The chart executes live on every view. Include the time range in the title, and keep blank lines out of the SQL body.
 - Recording card: \`<replay id="<session_id>" display="block"/>\` renders the recording's details with a link into PostHog's player. Use it when a specific session is the evidence.`;
 
-/**
- * Interaction origins whose replies are read in the PostHog Desktop app, the only
- * surface that renders object tags. An unset origin is a desktop-launched run;
- * `signal_report` is an inbox report, also read in the desktop. Every other origin
- * gets plain markdown, where a tag arrives as literal `<hogql>` text.
- */
-const DESKTOP_RENDERED_ORIGINS = new Set(["signal_report"]);
-
-export function surfaceRendersObjectTags(
-  interactionOrigin: string | null | undefined,
-): boolean {
-  return !interactionOrigin || DESKTOP_RENDERED_ORIGINS.has(interactionOrigin);
-}
-
 export function appendRichOutputPrompt(prompt: string): string {
   if (prompt.includes(RICH_OUTPUT_TAGS_PROMPT)) {
     return prompt;
