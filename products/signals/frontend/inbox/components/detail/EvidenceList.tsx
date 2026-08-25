@@ -13,11 +13,6 @@ import {
     SignalSourceGroup,
 } from '../../utils/signalGrouping'
 
-/**
- * A report's Evidence body: flat cards while the set is small, grouped by source line
- * (product + type) with per-group counts and a "Show all" expander once it isn't.
- * Mirrors desktop's `SignalsList`.
- */
 export function EvidenceList({ signals }: { signals: SignalNode[] }): JSX.Element {
     if (!shouldGroupSignals(signals)) {
         return (

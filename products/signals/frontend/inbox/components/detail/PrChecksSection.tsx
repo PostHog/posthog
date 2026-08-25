@@ -134,20 +134,83 @@ export function PrChecksSection({ report }: { report: SignalReport }): JSX.Eleme
         },
         { failure: 0, cancelled: 0, pending: 0, stale: 0, success: 0, neutral: 0 }
     )
+
+    let sectionKey = 'checks-loaded'
+    if (prChecks === null) {
+        sectionKey = 'checks-loading'
+    } else if (prChecksError) {
+        sectionKey = 'checks-error'
+    }
+
+    let sectionContent: JSX.Element
+    if (prChecksError) {
+        sectionContent = (
+            <div className="rounded border border-danger bg-danger-highlight px-3 py-2.5 text-sm text-danger">
+                {prChecksError}
+            </div>
+        )
+    } else if (prChecks === null) {
+        sectionContent = (
+            <div className="overflow-hidden rounded border border-primary bg-surface-primary">
+                <LemonSkeleton className="h-10 w-full rounded-none" />
+                <LemonSkeleton className="h-10 w-full rounded-none border-t border-primary" />
+                <LemonSkeleton className="h-10 w-full rounded-none border-t border-primary" />
+            </div>
+        )
+    } else {
+        sectionContent = (
+            <ul className="m-0 max-h-96 overflow-y-auto rounded border border-primary bg-surface-primary p-0 list-none divide-y divide-border">
+                {sorted.map(({ check, variant }, i) => {
+                    const meta = VARIANT_META[variant]
+                    const row = (
+                        <>
+                            <span
+                                className={`flex shrink-0 items-center [&_svg]:size-[1.125rem] ${meta.iconClassName}`}
+                                aria-hidden
+                            >
+                                {meta.icon}
+                            </span>
+                            <span
+                                className="min-w-0 flex-1 truncate text-sm font-medium text-primary"
+                                title={check.name}
+                            >
+                                {check.name}
+                            </span>
+                            <span className="shrink-0 text-xs text-tertiary transition-colors group-hover:text-secondary">
+                                {meta.label}
+                            </span>
+                            {check.url && (
+                                <IconExternal className="size-3.5 shrink-0 text-tertiary opacity-60 transition-opacity group-hover:opacity-100" />
+                            )}
+                        </>
+                    )
+
+                    return (
+                        <li key={`${check.name}-${i}`}>
+                            {check.url ? (
+                                <Link
+                                    to={check.url}
+                                    target="_blank"
+                                    className="group flex min-w-0 items-center gap-2.5 px-3 py-2.5 text-primary no-underline transition-colors hover:bg-fill-highlight-50 hover:text-primary focus-visible:bg-fill-highlight-50"
+                                >
+                                    {row}
+                                </Link>
+                            ) : (
+                                <span className="group flex min-w-0 items-center gap-2.5 px-3 py-2.5">{row}</span>
+                            )}
+                        </li>
+                    )
+                })}
+            </ul>
+        )
+    }
+
     return (
         <DetailSection
-            // `DetailSection` reads `defaultCollapsed` only on mount. This section mounts while
-            // `prChecks` is still null (skeleton), when the collapse default computes to false,
-            // so remount once the checks resolve to let the settled default take effect. A polling
-            // error after an all-green load keeps the last checks (so the key would otherwise stay
-            // `checks-loaded` and the collapsed body would hide the error) — key it separately so the
-            // remount reopens the section to show the banner, then collapses again once a poll succeeds.
-            key={prChecks === null ? 'checks-loading' : prChecksError ? 'checks-error' : 'checks-loaded'}
+            key={sectionKey}
             icon={<IconCheckCircle />}
             title="CI checks"
             collapsible
-            // The per-variant summary line carries the verdict, so the per-check matrix stays folded
-            // even with failures — expanding it is the reader's choice. Errors stay expanded to show why.
             defaultCollapsed={sorted.length > 0 && !prChecksError}
             meta={
                 sorted.length > 0 ? (
@@ -159,60 +222,7 @@ export function PrChecksSection({ report }: { report: SignalReport }): JSX.Eleme
                 ) : undefined
             }
         >
-            {prChecksError ? (
-                <div className="rounded border border-danger bg-danger-highlight px-3 py-2.5 text-sm text-danger">
-                    {prChecksError}
-                </div>
-            ) : prChecks === null ? (
-                <div className="overflow-hidden rounded border border-primary bg-surface-primary">
-                    <LemonSkeleton className="h-10 w-full rounded-none" />
-                    <LemonSkeleton className="h-10 w-full rounded-none border-t border-primary" />
-                    <LemonSkeleton className="h-10 w-full rounded-none border-t border-primary" />
-                </div>
-            ) : (
-                <ul className="m-0 max-h-96 overflow-y-auto rounded border border-primary bg-surface-primary p-0 list-none divide-y divide-border">
-                    {sorted.map(({ check, variant }, i) => {
-                        const meta = VARIANT_META[variant]
-                        const row = (
-                            <>
-                                <span
-                                    className={`flex shrink-0 items-center [&_svg]:size-[1.125rem] ${meta.iconClassName}`}
-                                    aria-hidden
-                                >
-                                    {meta.icon}
-                                </span>
-                                <span
-                                    className="min-w-0 flex-1 truncate text-sm font-medium text-primary"
-                                    title={check.name}
-                                >
-                                    {check.name}
-                                </span>
-                                <span className="shrink-0 text-xs text-tertiary transition-colors group-hover:text-secondary">
-                                    {meta.label}
-                                </span>
-                                {check.url && (
-                                    <IconExternal className="size-3.5 shrink-0 text-tertiary opacity-60 transition-opacity group-hover:opacity-100" />
-                                )}
-                            </>
-                        )
-                        return (
-                            <li key={`${check.name}-${i}`}>
-                                {check.url ? (
-                                    <Link
-                                        to={check.url}
-                                        target="_blank"
-                                        className="group flex min-w-0 items-center gap-2.5 px-3 py-2.5 text-primary no-underline transition-colors hover:bg-fill-highlight-50 hover:text-primary focus-visible:bg-fill-highlight-50"
-                                    >
-                                        {row}
-                                    </Link>
-                                ) : (
-                                    <span className="group flex min-w-0 items-center gap-2.5 px-3 py-2.5">{row}</span>
-                                )}
-                            </li>
-                        )
-                    })}
-                </ul>
-            )}
+            {sectionContent}
         </DetailSection>
     )
 }

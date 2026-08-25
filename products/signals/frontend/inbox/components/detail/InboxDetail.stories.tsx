@@ -145,8 +145,6 @@ export const ReportMinimal: Story = {
     ),
 }
 
-// Past `FLAT_SIGNALS_MAX` the Evidence section groups by source line with per-group counts
-// and a "Show all" expander per group.
 export const ReportGroupedEvidence: Story = {
     decorators: [
         mswDecorator({

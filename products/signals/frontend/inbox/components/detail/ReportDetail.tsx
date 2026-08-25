@@ -99,13 +99,11 @@ function ReportDetailMeta({
     scoutSkillName?: string | null
 }): JSX.Element {
     const hasSource = hasKnownSourceProduct(report.source_products)
-    // "Ready" is the resting state of everything in the list — it earns no badge; the exceptions do.
     const showStatus =
         report.status !== SignalReportStatus.READY &&
         !isStatusRedundantWithActionability(report.status, report.actionability)
 
     const stats: ReactNode[] = []
-    // Priority as muted metadata, not a colored monogram: it should inform, not shout.
     if (report.priority) {
         stats.push(
             <Tooltip title={priorityExplanation || undefined}>
@@ -402,8 +400,6 @@ export function InboxDetailFrame({
                 </div>
 
                 <div className="flex flex-col min-w-0 gap-5">
-                    {/* Pull request (when present) first, then reviewers and evidence. The run/activity
-                    machinery stays on the Runs surface — a report reads as a brief, not a pipeline. */}
                     {children}
                     <SuggestedReviewersSection report={report} />
                     {hasEvidence && (
@@ -446,7 +442,6 @@ export function InboxDetailFrame({
                     {backOverride ? 'Back' : INBOX_TAB_LABEL[tab]}
                 </LemonButton>
                 <div className="flex flex-col gap-3 @2xl:flex-row @2xl:items-start @2xl:justify-between @2xl:gap-4">
-                    {/* The title carries the page; priority and everything else collapse into the meta line. */}
                     <div className="flex items-start gap-3 min-w-0 @2xl:flex-1">
                         <div className="flex flex-col gap-2 min-w-0">
                             <h1 className="min-w-0 m-0 break-words text-xl font-bold leading-tight tracking-tight">

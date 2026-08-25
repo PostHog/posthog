@@ -10,15 +10,6 @@ import { prettifyScoutSkillName } from '../../../utils/scoutRunsWindow'
 import { SignalReportPriorityBadge } from '../../badges/SignalReportPriorityBadge'
 import { SignalReportStatusBadge } from '../../badges/SignalReportStatusBadge'
 
-/**
- * One report a scout touched through the report channel (`emit_report` / `edit_report`).
- *
- * Deliberately shaped like the inbox list card — same priority-first layout, humanized title
- * treatment, and summary headline — because it points at the same object. It stays a separate
- * component rather than reusing `ReportCard`: that card carries archive/restore affordances and a
- * PR-vs-report split this surface has no use for, and it adds how the *scout* touched the report,
- * which the inbox card has no concept of.
- */
 export function ScoutReportCard({
     report,
     action,

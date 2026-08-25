@@ -244,20 +244,20 @@ function ReviewerRow({
         />
     )
 
-    // The suggestion's commit-sha evidence stays out of the row: a reviewer is a person to ping,
-    // not a research trail. The "why them" reasoning still reaches whoever wants it via the tooltip.
     const reason = reviewer.reason ?? reviewer.relevant_commits[0]?.reason ?? null
+    let tooltipTitle: string | undefined
+    if (!reviewer.user) {
+        tooltipTitle = `${displayName} hasn't connected their GitHub account to PostHog. Ask them to do so in Settings!`
+    } else if (reason) {
+        tooltipTitle = reason
+    } else if (githubUrl) {
+        tooltipTitle = `@${reviewer.github_login} on GitHub`
+    }
 
     return (
         <div className="group flex items-center justify-between gap-2 rounded px-1.5 py-1">
             {/* no row hover: the row isn't clickable, only the remove button is */}
-            <Tooltip
-                title={
-                    reviewer.user
-                        ? (reason ?? (githubUrl ? `@${reviewer.github_login} on GitHub` : undefined))
-                        : `${displayName} hasn't connected their GitHub account to PostHog. Ask them to do so in Settings!`
-                }
-            >
+            <Tooltip title={tooltipTitle}>
                 <span className={!reviewer.user ? 'min-w-0 opacity-75' : 'min-w-0'}>
                     {/* The GitHub handle's link is merged into the name: clicking it opens the
                         reviewer's GitHub profile, flagged by the external-link icon. */}
