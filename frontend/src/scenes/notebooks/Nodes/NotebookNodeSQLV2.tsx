@@ -13,6 +13,7 @@ import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/s
 import { ChartDisplayType } from '~/types'
 
 import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
+import { NotebookCellOutputHeader } from './components/NotebookCellOutputHeader'
 import { NotebookDataframeTable } from './components/NotebookDataframeTable'
 import { getCellLabel } from './components/NotebookNodeTitle'
 import { NotebookRunDownstreamBanner } from './components/NotebookRunDownstreamBanner'
@@ -238,16 +239,16 @@ const Component = ({
     return (
         <div data-attr="notebook-node-sql-v2" className="flex h-full min-h-0 flex-col">
             <div
-                className="flex min-h-0 flex-1 flex-col gap-2"
+                className="flex min-h-0 flex-1 flex-col"
                 onMouseDown={(event) => event.stopPropagation()}
                 onDragStart={(event) => event.stopPropagation()}
             >
                 {isStale ? (
-                    <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
+                    <div className="shrink-0 pb-2" onClick={(event) => event.stopPropagation()}>
                         <NotebookStaleCellBanner />
                     </div>
                 ) : staleDownstreamCount > 0 && !isChainRunning ? (
-                    <div className="shrink-0" onClick={(event) => event.stopPropagation()}>
+                    <div className="shrink-0 pb-2" onClick={(event) => event.stopPropagation()}>
                         <NotebookRunDownstreamBanner
                             count={staleDownstreamCount}
                             onRun={() => runStaleChain(notebookLogic.values.content ?? null, nodeId)}
@@ -256,13 +257,13 @@ const Component = ({
                     </div>
                 ) : null}
                 {isRunning && pendingKernelStart ? (
-                    <div className="shrink-0 px-2 pt-1 text-xs text-muted">Starting compute sandbox…</div>
+                    <div className="shrink-0 px-2 pt-1 pb-2 text-xs text-muted">Starting compute sandbox…</div>
                 ) : null}
                 {runError ? (
                     <div className="p-2 text-xs font-mono text-danger whitespace-pre-wrap">{runError}</div>
                 ) : dataframeResult && cachedResults ? (
                     <>
-                        <div className="shrink-0 px-2 pt-1" onClick={(event) => event.stopPropagation()}>
+                        <NotebookCellOutputHeader>
                             <LemonTabs
                                 size="small"
                                 activeKey={activeTab}
@@ -275,13 +276,15 @@ const Component = ({
                                             : attributes.height
                                     updateAttributes({ outputTab: tab, height })
                                 }}
-                                barClassName="mb-0"
+                                // The strip already carries the bottom border, and the bar draws
+                                // its own as a ::before, so two 1px lines stack without this.
+                                barClassName="mb-0 before:hidden"
                                 tabs={[
                                     { key: OutputTab.Results, label: 'Results' },
                                     { key: OutputTab.Visualization, label: 'Visualization' },
                                 ]}
                             />
-                        </div>
+                        </NotebookCellOutputHeader>
                         {activeTab === OutputTab.Results ? (
                             <div className="min-h-0 flex-1 overflow-y-auto">
                                 <NotebookDataframeTable
@@ -309,7 +312,7 @@ const Component = ({
                             </div>
                         ) : (
                             <div
-                                className="px-2 pb-2 flex min-h-0 flex-1 flex-col overflow-hidden"
+                                className="px-2 py-2 flex min-h-0 flex-1 flex-col overflow-hidden"
                                 onClick={(event) => event.stopPropagation()}
                             >
                                 <Query
