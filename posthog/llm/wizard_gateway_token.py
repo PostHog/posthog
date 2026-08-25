@@ -25,11 +25,8 @@ _MINT_TIMEOUT_SECONDS = 10
 
 # The gateway refuses a TTL outside these bounds with a 400, so clamp locally: a
 # misconfigured setting should not turn every mint into a 503.
-# Deliberately far above the gateway's own 60s floor. A run's holders capture the
-# bearer once (the agent subprocess at spawn, the triage provider at boot) and
-# cannot re-resolve, so a token must outlive the whole run, and the CLI refuses
-# anything under two minutes outright. Clamping to the gateway's floor would turn
-# a misconfigured knob into mid-run 401s instead of the fallback the clamp is for.
+# Far above the gateway's own 60s floor: a run's holders capture the bearer once
+# and cannot re-resolve, so a token must outlive the whole run.
 _MIN_TTL_SECONDS = 3600
 _MAX_TTL_SECONDS = 86400
 

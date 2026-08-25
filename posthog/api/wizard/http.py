@@ -435,8 +435,8 @@ class SetupWizardViewSet(viewsets.ViewSet):
             raise AuthenticationFailed("Invalid access token.")
 
         access_token = authenticator.access_token
-        # llm_gateway:read is an internal scope stamped on every sandbox and agent
-        # token, so only the wizard's own OAuth application may mint.
+        # llm_gateway:read is on every sandbox and agent token, so the scope alone
+        # cannot identify the wizard.
         application = getattr(access_token, "application", None)
         client_id = getattr(application, "client_id", None)
         if not client_id or client_id not in settings.WIZARD_GATEWAY_CLIENT_IDS:
@@ -455,14 +455,11 @@ class SetupWizardViewSet(viewsets.ViewSet):
             raise exceptions.ValidationError("Access token must be scoped to exactly one team.")
         team = Team.objects.select_related("organization").filter(id=scoped_team_ids[0]).first()
         if team is None:
-            # Not 404: the CLI reads that as "not rolled out" and downgrades to
-            # the legacy posture. A team that vanished is an authorization
-            # failure, not a rollout state.
+            # 404 means "not rolled out" to the CLI, which downgrades to legacy.
             WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="team_missing").inc()
             raise exceptions.PermissionDenied(ERROR_PROJECT_NOT_FOUND)
 
-        # scoped_teams is frozen at consent, so re-check what it cannot see: the user
-        # is still active, still a member, and still has project access.
+        # scoped_teams is frozen at consent, so re-check what it cannot see.
         if not oauth_credential_authorized(access_token, team):
             WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="unauthorized").inc()
             raise exceptions.PermissionDenied("Access token is no longer authorized for this project.")
@@ -479,18 +476,15 @@ class SetupWizardViewSet(viewsets.ViewSet):
             WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="not_rolled_out").inc()
             raise exceptions.NotFound("Wizard gateway tokens are not rolled out for this organization.")
 
-        # The caller names its program; the configured set decides whether it may be
-        # pinned. Refusing keeps every pinned node one that carries a budget.
+        # Refusing keeps every pinned node one that carries a budget.
         product = wizard_product_node(request.data.get("program") if isinstance(request.data, dict) else None)
         if product is None:
-            # 404, not 400: the CLI falls back only on 404, and a program this
-            # deploy has not been told about should keep running on the legacy
-            # gateway rather than failing. It still cannot mint.
+            # The CLI falls back only on 404, so an unlisted program keeps running
+            # on legacy instead of dying. It still cannot mint.
             WIZARD_GATEWAY_TOKEN_REQUESTS_TOTAL.labels(outcome="program_unknown").inc()
             raise exceptions.NotFound("Unrecognized wizard program.")
-        # Immediately before the mint, after every gate above: a refused request
-        # spends nothing, and the reservation is atomic so parallel requests
-        # cannot all pass the same free slot.
+        # After every gate and before the mint: a refused request spends nothing,
+        # and the reservation is atomic so parallel requests cannot share a slot.
         reserve_wizard_mint(request, self)
         try:
             minted = mint_wizard_gateway_token(obo=str(team.organization_id), user=distinct_id, product=product)
@@ -506,8 +500,7 @@ class SetupWizardViewSet(viewsets.ViewSet):
                 "expires_at": minted["expires_at"],
                 "cap_usd": minted.get("cap_usd"),
                 "gateway_url": wizard_gateway_base_url(),
-                # Rides the CLI's run-metadata blob so dashboards keep a team
-                # breakdown next to the org-level obo attribution.
+                # Keeps a team breakdown beside the org-level obo attribution.
                 "team_id": team.id,
             },
             status=status.HTTP_201_CREATED,

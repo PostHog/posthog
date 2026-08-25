@@ -17,8 +17,8 @@ MINT_SETTINGS = {
     "WIZARD_GATEWAY_URL": "https://ai-gateway.us.posthog.com",
     "WIZARD_GATEWAY_MINT_KEY": "phs_wizard_secret",
     "WIZARD_GATEWAY_CLIENT_IDS": ["wizard-client-id"],
-    # Deliberately not _DEFAULT_CAP_USD: equal values would make the
-    # honored-setting and fell-back-to-default assertions indistinguishable.
+    # Not _DEFAULT_CAP_USD: equal values make the honored-setting and fell-back
+    # assertions indistinguishable.
     "WIZARD_GATEWAY_TOKEN_CAP_USD": "25",
     "WIZARD_GATEWAY_TOKEN_TTL_SECONDS": 86400,
     "WIZARD_GATEWAY_PROGRAM_IDS": ["integration"],
@@ -72,8 +72,6 @@ class TestMintWizardGatewayToken:
 
     @override_settings(WIZARD_GATEWAY_TOKEN_TTL_SECONDS=172800)
     def test_ttl_clamped_to_gateway_ceiling(self):
-        # The gateway 400s a TTL over 24h; an over-set knob must not make every
-        # mint fail.
         minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
         with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post:
             mint_wizard_gateway_token(obo="org_1", user="user_1")
@@ -81,9 +79,6 @@ class TestMintWizardGatewayToken:
 
     @override_settings(WIZARD_GATEWAY_TOKEN_TTL_SECONDS=5)
     def test_ttl_clamped_to_a_ttl_that_outlives_a_run(self):
-        # Not the gateway's own 60s floor: a run's holders capture the bearer once
-        # and cannot re-resolve, so a token clamped to the gateway minimum would
-        # 401 mid-run rather than falling back.
         minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
         with patch("posthog.llm.wizard_gateway_token.requests.post", return_value=_Response(201, minted)) as post:
             mint_wizard_gateway_token(obo="org_1", user="user_1")
@@ -152,8 +147,6 @@ class TestMintWizardGatewayToken:
         ],
     )
     def test_out_of_contract_cap_falls_back_to_the_default(self, configured):
-        # The gateway 400s any of these, and a 400 becomes a 503 for every
-        # wizard run, so a bad knob must not reach it.
         minted = {"token": "phe_x", "expires_at": "2026-08-22T00:00:00Z"}
         with override_settings(WIZARD_GATEWAY_TOKEN_CAP_USD=configured):
             with patch(
@@ -212,8 +205,6 @@ class TestWizardProductNode:
 
     @override_settings(WIZARD_GATEWAY_PROGRAM_IDS=["integration"])
     def test_an_unknown_program_is_refused(self):
-        # No fold to a generic node: that would bill a new program as plain wizard
-        # spend and leave the program with no budget of its own, silently.
         assert wizard_product_node("../../etc") is None
         assert wizard_product_node("not-a-program") is None
         assert wizard_product_node("") is None

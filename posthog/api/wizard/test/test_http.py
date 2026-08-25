@@ -705,8 +705,6 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
         assert body["expires_at"] == self.MINTED["expires_at"]
         assert body["gateway_url"] == "https://ai-gateway.us.posthog.com"
         assert body["team_id"] == self.team.id
-        # The mint pins obo to the org, user to the acting identity, and the product
-        # to the run's program.
         assert mock_mint.call_args.kwargs == {
             "obo": str(self.team.organization_id),
             "user": str(self.user.distinct_id),
@@ -731,8 +729,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     @patch("posthog.api.wizard.http.oauth_credential_authorized", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
     def test_token_from_another_application_is_401(self, mock_authentication, mock_authorized):
-        # llm_gateway:read is an internal scope carried by every sandbox and agent
-        # token, so the scope alone must not admit a mint.
+        # llm_gateway:read is on every sandbox and agent token.
         self._mock_oauth(mock_authentication, client_id="sandbox-client-id")
         response = self.client.post(self.GATEWAY_TOKEN_URL, headers={"authorization": "Bearer pha_test"})
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
@@ -741,8 +738,7 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
     def test_revoked_project_access_is_403(self, mock_authentication, mock_flag, mock_authorized):
-        # scoped_teams is frozen at consent; losing membership or project access
-        # must stop the mint.
+        # scoped_teams is frozen at consent.
         self._mock_oauth(mock_authentication)
         response = self.client.post(self.GATEWAY_TOKEN_URL, headers={"authorization": "Bearer pha_test"})
         assert response.status_code == status.HTTP_403_FORBIDDEN
@@ -784,14 +780,10 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
     def test_unlisted_program_is_refused(self, mock_authentication, mock_flag, mock_authorized, mock_mint):
-        # The allowlist is authoritative. Folding an unlisted program into a generic
-        # node would bill it as plain wizard spend and leave it unbudgeted.
         self._mock_oauth(mock_authentication)
         response = self.client.post(
             self.GATEWAY_TOKEN_URL, {"program": "invented"}, headers={"authorization": "Bearer pha_test"}
         )
-        # 404, not 400: the CLI falls back only on 404, so an unlisted program keeps
-        # running on the legacy gateway instead of having its run killed.
         assert response.status_code == status.HTTP_404_NOT_FOUND
         mock_mint.assert_not_called()
 
@@ -800,7 +792,6 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     @patch("posthog.api.wizard.http.posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.api.wizard.http.OAuthAccessTokenAuthentication")
     def test_missing_program_is_refused(self, mock_authentication, mock_flag, mock_authorized, mock_mint):
-        # A CLI that names no program cannot mint: there is no node to pin it to.
         self._mock_oauth(mock_authentication)
         response = self.client.post(self.GATEWAY_TOKEN_URL, headers={"authorization": "Bearer pha_test"})
         assert response.status_code == status.HTTP_404_NOT_FOUND
@@ -813,8 +804,8 @@ class SetupWizardGatewayTokenTests(APIBaseTest):
     def test_a_non_string_program_is_refused_not_a_500(
         self, mock_authentication, mock_flag, mock_authorized, mock_mint
     ):
-        # The value is caller JSON: an unhashable one would raise on the set
-        # membership, from inside a throttle that runs before authentication.
+        # An unhashable value raises on the set membership, inside a throttle that
+        # runs before authentication.
         self._mock_oauth(mock_authentication)
         response = self.client.post(
             self.GATEWAY_TOKEN_URL,
