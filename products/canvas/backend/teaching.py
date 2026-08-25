@@ -1,8 +1,8 @@
 """Seed the teaching-tour canvas desktop onboarding points new users at.
 
 The tour is a self-demonstrating canvas: it teaches spaces, the agent, space
-context, and canvases, and its last stop runs a live query so reading about
-canvases is also watching one work. Seeded once per team into the general
+context, Self-driving, and canvases, and its last stop runs a live query so
+reading about canvases is also watching one work. Seeded once per team into the general
 space when the first onboarding session starts, through the same publish
 pipeline as any other canvas (a real source version with declared
 capabilities, plus a queued build), like ``welcome.seed_home_canvas``.
@@ -28,13 +28,13 @@ TEACHING_CANVAS_NAME = "Start here"
 RESERVED_TEMPLATE_IDS = frozenset({TEACHING_CANVAS_TEMPLATE_ID})
 
 TEACHING_CANVAS_DESCRIPTION = (
-    "A short tour of PostHog Desktop for new users: spaces, the agent, space context, and canvases."
+    "A short tour of PostHog Desktop for new users: spaces, the agent, space context, Self-driving, and canvases."
 )
 
 TEACHING_CANVAS_CONTEXT = (
     "This canvas is an onboarding tour for new PostHog Desktop users. It explains spaces, "
-    "the agent, space context, and canvases, and shows a live unique-users chart. If you "
-    "edit it, keep it short and plain."
+    "the agent, space context, Self-driving, and canvases, and shows a live unique-users "
+    "chart. If you edit it, keep it short and plain."
 )
 
 TEACHING_CANVAS_CODE = """\
@@ -56,7 +56,7 @@ import {
   Skeleton,
   Text,
 } from "@posthog/quill";
-import { ArrowLeft, ArrowRight, Bot, BookOpen, Check, Hash, LayoutDashboard, PartyPopper } from "lucide-react";
+import { ArrowLeft, ArrowRight, Bot, BookOpen, Check, Hash, LayoutDashboard, PartyPopper, Radar } from "lucide-react";
 import dayjs from "dayjs";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
@@ -68,7 +68,7 @@ const TOPICS = [
     tagline: "Where work happens with your team",
     body: [
       "A space is a shared feed of work. #general is open to everyone in your workspace, and your personal space is only yours.",
-      "Each space collects the tasks you start there, the reports PostHog writes into it, and its own context and canvases.",
+      "Each space collects the tasks you start there, plus its own context and canvases.",
     ],
     prompts: ["What happened in this project this week?"],
   },
@@ -93,6 +93,17 @@ const TOPICS = [
       "Open a space's context page to read or edit it. Anything you correct there sticks for every future task.",
     ],
     prompts: ["Update this space's context with what my company does."],
+  },
+  {
+    id: "self-driving",
+    icon: Radar,
+    title: "Self-driving",
+    tagline: "PostHog watches for problems on its own",
+    body: [
+      "PostHog watches this project for things like errors, failing health checks, support tickets and metric swings. When something looks wrong, it writes up what it found and what it would do about it.",
+      "Those write-ups go to Self-driving in the left sidebar, not into a space feed. Some arrive with a pull request already open for you to review.",
+    ],
+    prompts: ["What's waiting for me in Self-driving?"],
   },
   {
     id: "canvases",
@@ -265,7 +276,7 @@ function HomeView({ onOpen, seen, seenCount, allSeen }) {
           <Heading size="2xl" render={<h1 />}>
             How PostHog Desktop works
           </Heading>
-          <Text variant="muted">A quick tour in four stops. Pick one.</Text>
+          <Text variant="muted">A quick tour in five stops. Pick one.</Text>
         </div>
         <div className="mt-1 flex shrink-0 flex-col items-end gap-1.5">
           {allSeen ? (

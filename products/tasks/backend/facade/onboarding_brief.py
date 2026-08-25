@@ -2,6 +2,7 @@ from collections.abc import Sequence
 
 from posthog.dataclasses import frozen
 
+from products.signals.backend.facade.api import InboxReportSummary
 from products.tasks.backend.facade.domain_research import DomainResearch
 from products.tasks.backend.facade.onboarding_canvas import TEACHING_CANVAS_NAME, TeachingCanvas
 
@@ -40,6 +41,7 @@ class OnboardingFacts:
     research: DomainResearch | None = None
     has_events: bool = False
     signal_reports_waiting: int = 0
+    reports_to_offer: tuple[InboxReportSummary, ...] = ()
     sources_enabled: tuple[str, ...] = ()
     sources_watching: tuple[str, ...] = ()
     sources_newly_enabled: bool = False
@@ -82,7 +84,7 @@ def _joining_brief(facts: OnboardingFacts) -> list[str]:
 
 
 def _findings_line(facts: OnboardingFacts) -> str:
-    return f"Say that {facts.signal_reports_waiting} findings are waiting in #general."
+    return f"Say that {facts.signal_reports_waiting} findings are waiting in Self-driving."
 
 
 def _status_line(facts: OnboardingFacts) -> str | None:
@@ -99,12 +101,12 @@ def _status_line(facts: OnboardingFacts) -> str | None:
             return None
         return (
             f"Tell them PostHog is now watching this project for {watching}. Name every one of "
-            "those. Say anything it finds gets written up here in #general."
+            "those. Say anything it finds gets written up in Self-driving."
         )
     enabled = prose_list(facts.sources_enabled, limit=_NAMED_SOURCE_LIMIT)
     if not enabled:
         return None
-    return f"Tell them PostHog is already watching {enabled}, and writes up anything it finds here in #general."
+    return f"Tell them PostHog is already watching {enabled}, and writes up anything it finds in Self-driving."
 
 
 def _offer_line(facts: OnboardingFacts) -> str | None:
@@ -157,6 +159,28 @@ def build_opening_brief(facts: OnboardingFacts) -> list[str]:
     return brief
 
 
+def self_driving_line(reports: Sequence[InboxReportSummary]) -> str:
+    """Where findings actually live, and the button that opens them.
+
+    Reports are named with their ids so the agent can offer one directly rather than send someone
+    looking. They are a snapshot from session start, which the line says, because a report can be
+    archived or resolved before the agent gets around to offering it.
+    """
+    line = (
+        "Findings do not land in this space's feed. They land in Self-driving, the inbox in the "
+        "left sidebar. Never tell them to look for a finding in a space. When findings come up, "
+        "offer a `show_actions` `open_inbox` button instead of describing where to look. That "
+        "button opens Self-driving on its own, or one report when you pass `report_id`."
+    )
+    if not reports:
+        return line
+    named = "; ".join(f"`report_id` {report.report_id} is {report.title}" for report in reports)
+    return (
+        f"{line} These were waiting when this session started: {named}. Offer one by name when it "
+        "matches what they tell you, rather than listing them all."
+    )
+
+
 def teaching_canvas_line(teaching: TeachingCanvas) -> str:
     return (
         f'A canvas named "{TEACHING_CANVAS_NAME}" is pinned in this space: a short tour of how '
@@ -170,6 +194,7 @@ def teaching_canvas_line(teaching: TeachingCanvas) -> str:
 def build_followup(facts: OnboardingFacts, teaching: TeachingCanvas | None = None) -> list[str]:
     followup = [] if facts.org_has_context else [SAVE_CONTEXT]
     followup.append(HAS_DATA if facts.has_events else NO_DATA_YET)
+    followup.append(self_driving_line(facts.reports_to_offer))
     if teaching is not None:
         followup.append(teaching_canvas_line(teaching))
     return followup

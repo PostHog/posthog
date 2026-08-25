@@ -262,6 +262,37 @@ def visible_report_count(team_id: int) -> int:
     return SignalReport.objects.filter(team_id=team_id, first_visible_at__isnull=False).count()
 
 
+@dataclasses.dataclass(frozen=True)
+class InboxReportSummary:
+    """One report, named well enough for an agent to offer it by id."""
+
+    report_id: str
+    title: str
+
+
+_REPORT_TITLE_LIMIT = 120
+
+
+def recent_inbox_reports(team_id: int, limit: int = 3) -> list[InboxReportSummary]:
+    """The newest reports still sitting in the team's inbox, newest first.
+
+    Archived and deleted reports are left out: they are the ones a reader can no longer act on.
+    A report with no title yet is skipped rather than offered as a blank row.
+    """
+    rows = (
+        SignalReport.objects.filter(team_id=team_id, first_visible_at__isnull=False)
+        .exclude(status__in=(SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED))
+        .exclude(title__isnull=True)
+        .exclude(title="")
+        .order_by("-first_visible_at")
+        .values_list("id", "title")[:limit]
+    )
+    return [
+        InboxReportSummary(report_id=str(report_id), title=" ".join((title or "").split())[:_REPORT_TITLE_LIMIT])
+        for report_id, title in rows
+    ]
+
+
 def has_enabled_source(team_id: int) -> bool:
     """True once the team has at least one enabled signal source — i.e. there's something to respond to.
 
