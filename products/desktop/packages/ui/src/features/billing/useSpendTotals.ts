@@ -11,6 +11,7 @@ import {
   utcDayIso,
 } from "@posthog/core/billing/spendLimits";
 import { useOptionalAuthenticatedClient } from "@posthog/ui/features/auth/authClient";
+import { AUTH_SCOPED_QUERY_META } from "@posthog/ui/features/auth/useCurrentUser";
 import { useSpendAnalysisEnabled } from "@posthog/ui/features/usage/useSpendAnalysisEnabled";
 import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
@@ -67,6 +68,9 @@ export function useSpendTotals(): SpendSnapshot | null {
     refetchInterval: POLL_INTERVAL_MS,
     staleTime: 60_000,
     retry: false,
+    // Personal billing data: drop it on any auth transition so a new account
+    // never reads the previous one's spend from the shared cache key.
+    meta: AUTH_SCOPED_QUERY_META,
   });
   const days = query.data?.by_day?.items;
   return useMemo(() => {
