@@ -62926,6 +62926,15 @@ export namespace Schemas {
       scopes?: string[];
     }
 
+    export interface PatchedProxyRecordUpdate {
+      /**
+         * HTTPS URL that requests to the proxy domain root redirect to, or null to disable the redirect.
+         * @maxLength 1024
+         * @nullable
+         */
+      root_redirect_url?: string | null;
+    }
+
     /**
      * Request body for editing a review comment's markdown body.
      */
@@ -67922,6 +67931,11 @@ export namespace Schemas {
       domain: string;
       /** The CNAME target to add as a DNS record for your domain. Point your domain's CNAME to this value. */
       readonly target_cname: string;
+      /**
+         * HTTPS URL that requests to the proxy domain root redirect to, or null when disabled.
+         * @nullable
+         */
+      readonly root_redirect_url: string | null;
       /** Current provisioning status. Values: waiting (DNS verification pending), issuing (SSL certificate being issued), valid (proxy is live and working), warning (proxy has issues but is operational), erroring (proxy setup failed), deleting (removal in progress), timed_out (DNS verification timed out).
        *
        * * `waiting` - Waiting

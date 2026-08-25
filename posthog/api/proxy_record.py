@@ -1,12 +1,14 @@
 import time
 import asyncio
 import hashlib
+from urllib.parse import urlparse
 
 from django.conf import settings
 from django.core.cache import cache
 
+import requests
 import posthoganalytics
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_serializer
 from rest_framework import serializers, status
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -24,6 +26,12 @@ from posthog.models.proxy_record import is_valid_proxy_domain
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.proxy_service import CreateManagedProxyInputs, DeleteManagedProxyInputs
+from posthog.temporal.proxy_service.cloudflare import (
+    CloudflareAPIError,
+    get_custom_hostname_by_domain,
+    update_custom_hostname_metadata,
+)
+from posthog.temporal.proxy_service.common import is_cloudflare_proxy_by_cname
 
 
 def generate_target_cname(organization_id, domain) -> str:
@@ -58,6 +66,7 @@ class ProxyRecordSerializer(serializers.ModelSerializer):
             "id",
             "domain",
             "target_cname",
+            "root_redirect_url",
             "status",
             "message",
             "created_at",
@@ -73,6 +82,11 @@ class ProxyRecordSerializer(serializers.ModelSerializer):
     target_cname = serializers.CharField(
         read_only=True,
         help_text="The CNAME target to add as a DNS record for your domain. Point your domain's CNAME to this value.",
+    )
+    root_redirect_url = serializers.URLField(
+        read_only=True,
+        allow_null=True,
+        help_text="HTTPS URL that requests to the proxy domain root redirect to, or null when disabled.",
     )
     status = serializers.ChoiceField(
         choices=ProxyRecord.Status.choices,
@@ -106,6 +120,33 @@ class ProxyRecordSerializer(serializers.ModelSerializer):
         return value
 
 
+class ProxyRecordUpdateSerializer(serializers.Serializer):
+    root_redirect_url = serializers.URLField(
+        allow_blank=True,
+        allow_null=True,
+        max_length=1024,
+        required=True,
+        help_text="HTTPS URL that requests to the proxy domain root redirect to, or null to disable the redirect.",
+    )
+
+    def validate_root_redirect_url(self, value: str | None) -> str | None:
+        if not value:
+            return None
+
+        parsed_url = urlparse(value)
+        if parsed_url.scheme != "https":
+            raise serializers.ValidationError("Enter a URL that starts with https://.")
+        if parsed_url.username or parsed_url.password:
+            raise serializers.ValidationError("The redirect URL cannot include credentials.")
+
+        record = self.context["record"]
+        if parsed_url.hostname and parsed_url.hostname.lower() == record.domain.lower():
+            raise serializers.ValidationError("The redirect URL cannot point to the managed proxy domain.")
+
+        return value
+
+
+@extend_schema_serializer(many=False)
 class ProxyRecordListResponseSerializer(serializers.Serializer):
     results = ProxyRecordSerializer(many=True)
     max_proxy_records = serializers.IntegerField(
@@ -184,14 +225,14 @@ class DiagnosticReportSerializer(serializers.Serializer):
     checks = DiagnosticCheckResultSerializer(many=True, help_text="Per-check results in execution order.")
 
 
-@extend_schema(tags=["reverse_proxy"], extensions={"x-product": "proxy_records"})
+@extend_schema(tags=["reverse_proxy"], extensions={"x-product": "platform_features"})
 class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     scope_object = "organization"
     serializer_class = ProxyRecordSerializer
     permission_classes = [OrganizationAdminWritePermissions, TimeSensitiveActionPermission]
     queryset = ProxyRecord.objects.order_by("-created_at")
     pagination_class = None
-    http_method_names = ["get", "post", "delete"]
+    http_method_names = ["get", "post", "patch", "delete"]
 
     DEFAULT_MAX_PROXY_RECORDS = 2
 
@@ -208,7 +249,7 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
     @extend_schema(
         description="List all reverse proxies configured for the organization. "
         "Returns proxy records along with the maximum number allowed by the current plan.",
-        responses={200: ProxyRecordListResponseSerializer},
+        responses={200: ProxyRecordListResponseSerializer(many=False)},
     )
     def list(self, request, *args, **kwargs):
         queryset = self.organization.proxy_records.order_by("-created_at")
@@ -231,6 +272,47 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
             raise NotFound()
         serializer = self.get_serializer(record)
         return Response(serializer.data)
+
+    @extend_schema(
+        description="Set or clear the HTTPS redirect for requests to the managed proxy domain root.",
+        request=ProxyRecordUpdateSerializer,
+        responses={200: ProxyRecordSerializer},
+    )
+    def partial_update(self, request, *args, pk=None, **kwargs):
+        try:
+            record = self.organization.proxy_records.get(id=pk)
+        except ProxyRecord.DoesNotExist:
+            raise NotFound()
+
+        if not is_cloudflare_proxy_by_cname(record.target_cname):
+            return Response(
+                {"detail": "Root redirects are only available for Cloudflare-managed proxies."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = ProxyRecordUpdateSerializer(data=request.data, context={"record": record})
+        serializer.is_valid(raise_exception=True)
+        root_redirect_url = serializer.validated_data["root_redirect_url"]
+
+        try:
+            hostname = get_custom_hostname_by_domain(record.domain)
+            if hostname is None:
+                return Response(
+                    {"detail": "Cloudflare could not find this managed proxy hostname."},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
+            update_custom_hostname_metadata(hostname, {"root_redirect_url": root_redirect_url or ""})
+        except (CloudflareAPIError, requests.RequestException) as error:
+            capture_exception(error, {"domain": record.domain, "proxy_record_id": str(record.id)})
+            return Response(
+                {"detail": "Cloudflare could not update the root redirect. Please try again."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        record.root_redirect_url = root_redirect_url
+        record.save(update_fields=["root_redirect_url", "updated_at"])
+        _capture_proxy_event(request, record, "root redirect updated")
+        return Response(ProxyRecordSerializer(record).data)
 
     @extend_schema(
         description="Create a new managed reverse proxy. "

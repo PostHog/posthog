@@ -21,6 +21,11 @@ const mockProxyRecord = (overrides: Partial<ProxyRecord> = {}): ProxyRecord => (
     domain: 't.example.com',
     status: 'valid',
     target_cname: 'proxy.posthog.com',
+    root_redirect_url: null,
+    message: null,
+    created_at: '2026-08-24T00:00:00Z',
+    updated_at: '2026-08-24T00:00:00Z',
+    created_by: 1,
     ...overrides,
 })
 
@@ -132,5 +137,34 @@ describe('proxyLogic — shouldShowCloudflareOptIn', () => {
             cloudflareOptInAcknowledged: true,
             shouldShowCloudflareOptIn: false,
         })
+    })
+})
+
+describe('proxyLogic — root redirect', () => {
+    it('updates the record from the PATCH response', async () => {
+        const record = mockProxyRecord()
+        const updatedRecord = mockProxyRecord({ root_redirect_url: 'https://www.example.com/' })
+        useMocks({
+            get: {
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records/`]: proxyRecordsResponse([record]),
+            },
+            patch: {
+                [`/api/organizations/${MOCK_ORGANIZATION_ID}/proxy_records/${record.id}/`]: updatedRecord,
+            },
+        })
+        initKeaTests()
+        organizationLogic.mount()
+
+        const logic = proxyLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        await expectLogic(logic, () => {
+            logic.actions.updateRootRedirect({ id: record.id, rootRedirectUrl: 'https://www.example.com/' })
+        })
+            .toDispatchActions(['updateRootRedirectSuccess'])
+            .toMatchValues({ proxyRecords: [updatedRecord] })
+
+        logic.unmount()
     })
 })
