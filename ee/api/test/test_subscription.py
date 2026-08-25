@@ -2172,6 +2172,11 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
         generated_hogql = "SELECT count() FROM events"
         # The safe error message on a failed step is query-derived too, so it is scrubbed with the diagnostics.
         scrubbed_error_message = "Unable to resolve field 'adoption_rate'"
+        query_failure_error = {
+            "type": "AIReportQueryFailure",
+            "code": "hogql_resolution_error",
+            "message": scrubbed_error_message,
+        }
         content_snapshot: dict = {"insights": [{"id": 1, "name": "Secret", "query_results": [[1, 2, 3]]}]}
         if is_ai:
             # AI deliveries also persist the rendered report and per-step query diagnostics; the
@@ -2200,6 +2205,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             content_snapshot=content_snapshot,
             change_summary="Signups up 20% week over week",
             recipient_results=[{"recipient": "ai@posthog.com", "status": "success"}],
+            error=query_failure_error if is_ai else None,
         )
         if restrict:
             self._restrict_query_access()
@@ -2218,6 +2224,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             assert data[AI_REPORT_DIAGNOSTICS_KEY] is None
             assert generated_hogql not in str(data)
             assert scrubbed_error_message not in str(data)
+            assert data["error"] == {"type": "AIReportQueryFailure", "message": "The report could not be computed."}
             # The prompt is user-authored (not query-derived) and already readable on the parent
             # subscription, so it stays visible even for a query-restricted caller.
             assert data[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Weekly growth recap"
@@ -2234,6 +2241,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
             assert row[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Weekly growth recap"
             assert generated_hogql not in str(row)
             assert scrubbed_error_message not in str(row)
+            assert row["error"] == {"type": "AIReportQueryFailure", "message": "The report could not be computed."}
         else:
             assert data["content_snapshot"]["insights"][0]["name"] == "Secret"
             assert data["change_summary"] == "Signups up 20% week over week"
@@ -2245,6 +2253,7 @@ class TestSubscriptionDeliveryAPI(APILicensedTest):
                 # The safe error message on the failed step is part of the query-access debugging surface.
                 assert data[AI_REPORT_DIAGNOSTICS_KEY][1]["human_readable_error"] == scrubbed_error_message
                 assert data[AI_REPORT_PROMPT_SNAPSHOT_KEY] == "Weekly growth recap"
+                assert data["error"] == query_failure_error
                 # The typed fields are the contract: the report must not be shipped twice, so the
                 # AI keys are stripped from content_snapshot (the non-AI scaffold stays intact).
                 assert AI_REPORT_SNAPSHOT_KEY not in data["content_snapshot"]

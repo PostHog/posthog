@@ -1445,6 +1445,11 @@ class AIReportQueryDiagnosticSerializer(serializers.Serializer):
 
 
 class SubscriptionDeliverySerializer(serializers.ModelSerializer):
+    AI_REPORT_QUERY_FAILURE = "AIReportQueryFailure"
+    AI_REPORT_SCRUBBED_ERROR = {
+        "type": AI_REPORT_QUERY_FAILURE,
+        "message": "The report could not be computed.",
+    }
     # Delivery fields that embed the query-derived AI report, mapped to the value each returns when
     # scrubbed for a caller without query access (content_snapshot is a non-null object, the rest
     # nullable). Single source of truth — keep in sync when adding AI-derived delivery fields.
@@ -1555,6 +1560,8 @@ class SubscriptionDeliverySerializer(serializers.ModelSerializer):
         # user-authored and already readable on the subscription, so it is deliberately not scrubbed.
         if self.context.get("hide_ai_report"):
             data.update(self.AI_REPORT_SCRUBBED)
+            if isinstance(data.get("error"), dict) and data["error"].get("type") == self.AI_REPORT_QUERY_FAILURE:
+                data["error"] = self.AI_REPORT_SCRUBBED_ERROR
             return data
         # The AI report now ships via the typed ai_report / ai_report_diagnostics / ai_report_prompt
         # fields, so drop the same keys from content_snapshot to avoid shipping the report twice.
