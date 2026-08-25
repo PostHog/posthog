@@ -539,6 +539,12 @@ class TracingAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if created_by:
                 queryset = queryset.filter(created_by__uuid=created_by)
 
+        if self.action in ("destroy", "events"):
+            # Neither action serializes the alert through TracingAlertConfigurationSerializer
+            # (destroy re-fetches its own locked instance; events only filters by alert id),
+            # so the state-timeline annotations and prefetch below would be pure waste here.
+            return TracingAlertConfiguration.objects.for_team(self.team_id).order_by("-created_at")
+
         latest_error = (
             TracingAlertEvent.objects.filter(
                 alert=OuterRef("pk"),
