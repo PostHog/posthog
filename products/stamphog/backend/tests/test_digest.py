@@ -7,7 +7,7 @@ import pytest
 from freezegun import freeze_time
 from unittest.mock import MagicMock, patch
 
-from django.db import OperationalError, transaction
+from django.db import OperationalError
 from django.db.models import QuerySet
 from django.utils import timezone
 
@@ -164,33 +164,34 @@ def testreclaim_stale_pending_runs(team, slack_ts, expect_status, expect_prs_lin
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 def test_proof_of_post_persists_metadata_for_reclaim(team) -> None:
-    # Worker death between Slack accepting the message and the completion transaction: the reclaim
-    # sweeper finalizes from persisted state only, so the proof-of-post write must already carry
-    # pr_count/summary — or the finalized run keeps zeros while its PRs stay linked.
+    # Worker death between Slack accepting the message and the completion write: the reclaim sweeper
+    # finalizes from persisted state only, so the proof-of-post write must already carry
+    # pr_count/summary, or the finalized run keeps zeros while its PRs stay linked.
+    #
+    # The crash goes in at the thread post, which is the last call before the completion write.
+    # An earlier version raised on the second transaction.atomic call; the completion write is no
+    # longer wrapped in one, so that injection stopped firing and the test passed on the ordinary
+    # path without ever entering the window it names.
     with team_scope(team.id):
         _seed_prs(team.id, pr_count=2)
-
-    real_atomic = transaction.atomic
-    atomic_calls = {"n": 0}
-
-    def _dying_atomic(*args: Any, **kwargs: Any):
-        # Call 1 is the claim transaction; call 2 is the completion transaction — the crash window
-        # under test sits right after the proof-of-post write, before the completion commits.
-        atomic_calls["n"] += 1
-        if atomic_calls["n"] == 2:
-            raise RuntimeError("worker died before the completion transaction")
-        return real_atomic(*args, **kwargs)
 
     with (
         patch("products.stamphog.backend.logic.digest_runs.summarize_merged_prs", side_effect=_summary),
         patch("products.stamphog.backend.logic.digest_runs.post_digest_lead", return_value="1234.5"),
-        patch("products.stamphog.backend.logic.digest_runs.transaction.atomic", side_effect=_dying_atomic),
+        patch(
+            "products.stamphog.backend.logic.digest_runs.post_digest_details",
+            side_effect=RuntimeError("worker died before the completion write"),
+        ),
     ):
         # send_team_digests contains each audience's failure, so the crash is read off the run state
         # rather than raised out of the task.
         _run_digests(team.id)
 
     with team_scope(team.id):
+        stranded = DigestRun.objects.for_team(team.id).get()
+        # The window this test exists for: Slack has the message, the run does not say so yet.
+        assert stranded.status == DigestRunStatus.PENDING
+        assert stranded.slack_message_ts == "1234.5"
         DigestRun.objects.for_team(team.id).update(
             created_at=timezone.now() - timedelta(minutes=STALE_PENDING_RUN_MINUTES + 5)
         )
