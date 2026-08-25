@@ -79,9 +79,15 @@ STAMPHOG_GITHUB_APP_SLUG = get_from_env("STAMPHOG_GITHUB_APP_SLUG", "")
 # PyPI, the LLM gateway host, the PostHog capture host). Comma-separated; an ops escape hatch for
 # when a legitimate dependency host is missing — never a way to open the sandbox wide.
 STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS = get_list(get_from_env("STAMPHOG_SANDBOX_EXTRA_EGRESS_DOMAINS", ""))
-# Installation id of the GitHub App on the PostHog/community-skills repo, used by the in-product
-# "Publish to community" flow to open skill PRs. Empty (the default) disables publishing → the
-# endpoint returns 503 and the UI falls back to the manual-PR path.
+# The in-product "Publish to community" flow runs as its own dedicated GitHub App, installed on the
+# PostHog/community-skills repo alone. It does not fall back to the core GITHUB_APP_* App above,
+# which is installed across the whole PostHog org: a dedicated App cannot reach another repository
+# whatever the publish path asks it for. One App serves every region, so the client id and the
+# installation id below hold the same value everywhere, and only the private key is per-region.
+COMMUNITY_SKILLS_GITHUB_APP_CLIENT_ID = get_from_env("COMMUNITY_SKILLS_GITHUB_APP_CLIENT_ID", "")
+COMMUNITY_SKILLS_GITHUB_APP_PRIVATE_KEY = get_from_env("COMMUNITY_SKILLS_GITHUB_APP_PRIVATE_KEY", "")
+# Installation id of that App on the PostHog/community-skills repo. Empty (the default) disables
+# publishing → the endpoint returns 503 and the UI falls back to the manual-PR path.
 COMMUNITY_SKILLS_GITHUB_INSTALLATION_ID = get_from_env("COMMUNITY_SKILLS_GITHUB_INSTALLATION_ID", "")
 # Bare repo name (no owner prefix) — the owner is the App installation's account. Defaults to the
 # PostHog/community-skills repo. Publish-only: the hourly catalog sync reads its registry from the
