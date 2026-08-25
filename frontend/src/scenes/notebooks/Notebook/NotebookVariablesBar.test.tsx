@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, within } from '@testing-library/react'
 
-import { NotebookVariable, getNotebookVariableErrors } from './notebookVariables'
+import { MAX_NOTEBOOK_VARIABLES, NotebookVariable, getNotebookVariableErrors } from './notebookVariables'
 import { NotebookVariablesPanel } from './NotebookVariablesBar'
 
 describe('NotebookVariablesPanel', () => {
@@ -80,6 +80,19 @@ describe('NotebookVariablesPanel', () => {
         fireEvent.click(panel.getByLabelText('Remove country', { selector: 'button' }))
 
         expect(onChange).toHaveBeenCalledWith([days])
+    })
+
+    it('stops offering to add past the limit', () => {
+        // The API rejects an eleventh variable, so the bar must not let someone type one and
+        // then lose the save.
+        const many = Array.from({ length: MAX_NOTEBOOK_VARIABLES }, (_, index) => ({
+            name: `v${index}`,
+            type: 'string' as const,
+            value: '',
+        }))
+        const { panel } = renderPanel(many)
+
+        expect(panel.getByText('Add variable').closest('button')?.getAttribute('aria-disabled')).toEqual('true')
     })
 
     it('a read-only notebook cannot change a value', () => {

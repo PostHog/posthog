@@ -9,6 +9,8 @@ import { LemonCalendarSelectInput } from 'lib/lemon-ui/LemonCalendar/LemonCalend
 
 import { notebookLogic } from './notebookLogic'
 import {
+    MAX_NOTEBOOK_VARIABLES,
+    MAX_NOTEBOOK_VARIABLE_VALUE_CHARS,
     NOTEBOOK_VARIABLE_TYPES,
     NotebookVariable,
     NotebookVariableType,
@@ -83,6 +85,7 @@ function NotebookVariableValueInput({
             size="small"
             fullWidth
             disabled={disabled}
+            maxLength={MAX_NOTEBOOK_VARIABLE_VALUE_CHARS}
             value={typeof variable.value === 'string' ? variable.value : ''}
             onChange={(value) => onChange(value)}
         />
@@ -189,7 +192,13 @@ export function NotebookVariablesPanel({
                     size="small"
                     type="secondary"
                     icon={<IconPlus />}
-                    disabledReason={disabled ? 'This notebook is read-only' : undefined}
+                    disabledReason={
+                        disabled
+                            ? 'This notebook is read-only'
+                            : variables.length >= MAX_NOTEBOOK_VARIABLES
+                              ? `A notebook can have up to ${MAX_NOTEBOOK_VARIABLES} variables`
+                              : undefined
+                    }
                     onClick={() => onChange([...variables, { name: '', type: 'string', value: '' }])}
                 >
                     Add variable

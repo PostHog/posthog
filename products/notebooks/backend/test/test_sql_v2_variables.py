@@ -1,3 +1,4 @@
+import time
 from zoneinfo import ZoneInfo
 
 from django.test import SimpleTestCase
@@ -118,6 +119,38 @@ class TestSubstituteDuckdbVariables(SimpleTestCase):
     def test_a_query_without_placeholders_is_returned_verbatim(self):
         code = "select * from py_df"
         self.assertEqual(substitute_duckdb_variables(code, [COUNTRY]), (code, {}))
+
+    @parameterized.expand(
+        [
+            # An unterminated literal swallows the rest of the input, exactly as a lexer reads
+            # it. The query is malformed either way; what matters is that no value goes in.
+            ("unterminated_dollar_quote", "select $tag$ {country}"),
+            ("unterminated_string", "select ' {country}"),
+            ("unterminated_block_comment", "select /* {country}"),
+            # Backslash escapes apply inside E'…', so the quote here does not close the string.
+            ("escaped_quote_in_e_string", "select E'\\' {country}"),
+        ]
+    )
+    def test_an_unterminated_region_keeps_the_placeholder_literal(self, _name: str, code: str) -> None:
+        rewritten, params = substitute_duckdb_variables(code, [COUNTRY])
+        self.assertEqual(rewritten, code)
+        self.assertEqual(params, {})
+
+    def test_a_numbered_parameter_is_not_read_as_a_dollar_quote(self):
+        # `$1$2` is two positional parameters; reading it as an opener would swallow the query.
+        code = "select $1, $2, {country}"
+        rewritten, params = substitute_duckdb_variables(code, [COUNTRY])
+        self.assertEqual(rewritten, "select $1, $2, $country")
+        self.assertEqual(params, {"country": "US"})
+
+    def test_many_unmatched_dollar_openers_stay_linear(self):
+        # Matching `$tag$…$tag$` with a backreference rescans the tail once per unmatched
+        # opener, which a single 20 MB request turns into hours of CPU. The margin here is
+        # three orders of magnitude: the linear scan does this in milliseconds.
+        code = " ".join(f"$tag{index}$" for index in range(200_000)) + " {country}"
+        started = time.monotonic()
+        substitute_duckdb_variables(code, [COUNTRY])
+        self.assertLess(time.monotonic() - started, 2.0)
 
     def test_an_undeclared_name_raises(self):
         with self.assertRaises(NotebookVariableError):

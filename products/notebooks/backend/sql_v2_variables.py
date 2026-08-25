@@ -125,33 +125,89 @@ def substitute_hogql_variables(code: str, variables: list[NotebookVariable]) -> 
     return print_prepared_ast(substituted, context=HogQLContext(team_id=None), dialect="hogql")
 
 
-# DuckDB lexical regions a `{name}` inside is text, not a placeholder. Matched in one pass so
-# the scanner can skip whole regions: single-quoted strings (with `''` escape and the `E'...'`
-# backslash form), double-quoted identifiers, dollar-quoted strings (`$tag$…$tag$`, tag
-# optional), line comments and block comments. Dollar quoting is the one the naive scan missed:
-# it makes every character between the tags literal, including a quote, so a value spliced
-# there could close the literal and run as SQL.
-_DUCKDB_SKIP_REGION = re.compile(
-    r"""
-      [eE]'(?:[^'\\]|\\.|'')*'      # E'...' — backslash escapes allowed
-    | '(?:[^']|'')*'                  # '...'  — '' is the only escape
-    | "(?:[^"]|"")*"                  # "..."  — quoted identifier
-    | \$(?P<tag>[A-Za-z_][A-Za-z0-9_]*|)\$.*?\$(?P=tag)\$   # $tag$...$tag$ and $$...$$
-    | --[^\n]*                        # line comment
-    | /\*.*?\*/                        # block comment
-    """,
-    re.DOTALL | re.VERBOSE,
-)
+_TAG_CHARS = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_")
+
+
+def _skip_delimited(code: str, start: int, quote: str, backslash_escapes: bool) -> int:
+    """Index just past the `quote`-delimited run beginning at `start`.
+
+    Doubling the quote escapes it. An unterminated run reaches the end of the input, which is
+    what a lexer does with it — the query is malformed either way, and treating the remainder
+    as literal keeps a value out of it.
+    """
+    index = start + 1
+    length = len(code)
+    while index < length:
+        char = code[index]
+        if backslash_escapes and char == "\\":
+            index += 2
+            continue
+        if char == quote:
+            if index + 1 < length and code[index + 1] == quote:
+                index += 2
+                continue
+            return index + 1
+        index += 1
+    return length
+
+
+def _skip_dollar_quoted(code: str, start: int) -> int | None:
+    """Index just past the dollar-quoted run at `start`, or None if one does not begin there.
+
+    `$tag$…$tag$` and `$$…$$` make every character between the tags literal, including a
+    quote. A bare `$name` with no closing `$` is a parameter, not an opener.
+    """
+    index = start + 1
+    length = len(code)
+    while index < length and code[index] in _TAG_CHARS:
+        index += 1
+    if index >= length or code[index] != "$":
+        return None
+    tag = code[start : index + 1]
+    # A tag cannot start with a digit, so `$1$` is two parameters rather than an opener.
+    if len(tag) > 2 and tag[1].isdigit():
+        return None
+    close = code.find(tag, index + 1)
+    # Unterminated: the rest of the input is inside the literal. Returning the end also keeps
+    # this scan linear — a query full of unmatched openers can never re-scan the tail per tag.
+    return length if close == -1 else close + len(tag)
 
 
 def _executable_placeholders(code: str) -> Iterator[re.Match[str]]:
-    """Yield each `{name}` that sits in executable SQL, skipping literals and comments."""
-    cursor = 0
-    for region in _DUCKDB_SKIP_REGION.finditer(code):
-        if region.start() > cursor:
-            yield from _BARE_PLACEHOLDER.finditer(code, cursor, region.start())
-        cursor = max(cursor, region.end())
-    yield from _BARE_PLACEHOLDER.finditer(code, cursor, len(code))
+    """Yield each `{name}` that sits in executable SQL, skipping literals and comments.
+
+    Hand-rolled rather than one regex: matching `$tag$…$tag$` with a backreference makes the
+    engine rescan the tail once per unmatched opener, which is quadratic in the input and
+    reachable from a single request. Here every character is visited a bounded number of
+    times — each skip either jumps past a closed region or runs to the end.
+    """
+    index = 0
+    length = len(code)
+    while index < length:
+        char = code[index]
+        if char == "'" or char == '"':
+            index = _skip_delimited(code, index, char, backslash_escapes=False)
+        elif char in "eE" and index + 1 < length and code[index + 1] == "'":
+            # E'…' takes backslash escapes, so a `\'` inside it does not close the string.
+            index = _skip_delimited(code, index + 1, "'", backslash_escapes=True)
+        elif char == "$":
+            region_end = _skip_dollar_quoted(code, index)
+            index = index + 1 if region_end is None else region_end
+        elif code.startswith("--", index):
+            newline = code.find("\n", index)
+            index = length if newline == -1 else newline + 1
+        elif code.startswith("/*", index):
+            closing = code.find("*/", index + 2)
+            index = length if closing == -1 else closing + 2
+        elif char == "{":
+            placeholder = _BARE_PLACEHOLDER.match(code, index)
+            if placeholder is None:
+                index += 1
+            else:
+                yield placeholder
+                index = placeholder.end()
+        else:
+            index += 1
 
 
 def substitute_duckdb_variables(

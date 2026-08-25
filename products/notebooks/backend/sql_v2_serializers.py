@@ -32,12 +32,13 @@ class NotebookSQLV2RefSerializer(serializers.Serializer):
     )
 
 
-# A notebook is authored by hand, so these are far above real use and only bound the abuse
-# case: values ride a Temporal payload (~2 MiB hard limit) to the kernel, and a placeholder
-# repeated across a query multiplies the value into the SQL the engine receives.
-MAX_VARIABLES_PER_NOTEBOOK = 100
+# A notebook is authored by hand, so these sit just above real use: a person types a handful
+# of named values, not a data set. Keeping them tight also bounds the abuse case — values ride
+# a Temporal payload (~2 MiB hard limit) to the kernel, and one placeholder repeated across a
+# query multiplies its value into the SQL the engine receives.
+MAX_VARIABLES_PER_NOTEBOOK = 10
 MAX_VARIABLE_NAME_CHARS = 200
-MAX_VARIABLE_VALUE_CHARS = 10_000
+MAX_VARIABLE_VALUE_CHARS = 1_000
 
 
 class NotebookVariableSerializer(serializers.Serializer):

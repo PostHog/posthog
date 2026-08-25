@@ -7,6 +7,11 @@ export type NotebookVariableType = 'string' | 'number' | 'boolean' | 'date'
 
 export const NOTEBOOK_VARIABLE_TYPES: NotebookVariableType[] = ['string', 'number', 'boolean', 'date']
 
+/** Mirrors MAX_VARIABLES_PER_NOTEBOOK / MAX_VARIABLE_VALUE_CHARS in sql_v2_serializers.py,
+ * so the bar stops at the limit instead of letting a save fail. */
+export const MAX_NOTEBOOK_VARIABLES = 10
+export const MAX_NOTEBOOK_VARIABLE_VALUE_CHARS = 1000
+
 export type NotebookVariableValue = string | number | boolean | null
 
 export type NotebookVariable = {
