@@ -6309,23 +6309,22 @@ export class PostHogAPIClient {
   ): Promise<unknown> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/ai_gateway/@me/spend_limit/${suffix}`;
-    const response = await this.api.fetcher.fetch({
-      method,
-      url: new URL(`${this.api.baseUrl}${urlPath}`),
-      path: urlPath,
-      ...(body ? { overrides: { body: JSON.stringify(body) } } : {}),
-    });
-    if (!response.ok) {
-      const detail = (await response.json().catch(() => ({}))) as {
-        detail?: unknown;
-      };
+    // The shared fetcher throws `Failed request: [<status>] <json-body>` for any
+    // non-2xx, so unwrap that into the endpoint's clean message rather than
+    // surfacing the raw string in the settings toast.
+    try {
+      const response = await this.api.fetcher.fetch({
+        method,
+        url: new URL(`${this.api.baseUrl}${urlPath}`),
+        path: urlPath,
+        ...(body ? { overrides: { body: JSON.stringify(body) } } : {}),
+      });
+      return await response.json();
+    } catch (error) {
       throw new Error(
-        typeof detail.detail === "string"
-          ? detail.detail
-          : `Spend limit request failed: ${response.status}`,
+        extractRequestErrorMessage(error, "Couldn't update your spend limit."),
       );
     }
-    return response.json();
   }
 
   /**
