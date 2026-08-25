@@ -182,7 +182,7 @@ export interface logsViewerFiltersLogicActions {
         value: string
     }
     focusFilter: (target: LogsFilterTarget | null) => {
-        target: LogsFilterTarget | null
+        target: FacetFilterTarget | null
     }
     setDateRange: (dateRange: DateRange) => {
         dateRange: DateRange

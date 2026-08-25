@@ -1,11 +1,21 @@
+import { deepEqual as equal } from 'fast-equals'
+
 import { taxonomicFilterTypeToPropertyFilterType } from 'lib/components/PropertyFilters/utils'
 import {
     hasRecentContext,
     isCompleteRecentPropertyFilter,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { TaxonomicFilterGroup, TaxonomicFilterValue } from 'lib/components/TaxonomicFilter/types'
+import { uniqueBy } from 'lib/utils/arrays'
 
 import { PropertyFilterType, PropertyFilterValue, PropertyOperator, UniversalFiltersGroup } from '~/types'
+
+import {
+    EQUALITY_OPERATORS,
+    FacetFilterTarget,
+    filterValues,
+    isSameFilterTarget,
+} from 'products/logs/frontend/components/LogsViewer/FacetRail/facetFilters'
 
 /**
  * Reconciling a newly picked filter with the filters the logs bar already holds.
@@ -29,16 +39,7 @@ interface ReconcilableFilter {
 }
 
 /** The attribute a filter applies to. Two filters reconcile only when both parts match. */
-export interface LogsFilterTarget {
-    type: PropertyFilterType
-    key: string
-}
-
-// Equality operators carry a value list, so two of them on one attribute and polarity are really one
-// filter with more values (`IN` / `NOT IN`). Every other operator (icontains, regex, ranges) is an
-// independent predicate that ANDs with its neighbours — two `message icontains` filters mean "matches
-// both substrings" — so those are left alone apart from exact duplicates.
-const MERGEABLE_OPERATORS: PropertyOperator[] = [PropertyOperator.Exact, PropertyOperator.IsNot]
+export type LogsFilterTarget = FacetFilterTarget
 
 const OPPOSITE_OPERATOR: Partial<Record<PropertyOperator, PropertyOperator>> = {
     [PropertyOperator.Exact]: PropertyOperator.IsNot,
@@ -60,42 +61,36 @@ export function filterTarget(entry: FilterEntry): LogsFilterTarget | null {
 }
 
 function isSameTarget(entry: FilterEntry, target: LogsFilterTarget): boolean {
-    const entryTarget = filterTarget(entry)
-    return entryTarget !== null && entryTarget.type === target.type && entryTarget.key === target.key
+    return isSameFilterTarget(filterTarget(entry), target)
 }
 
 /**
- * Index of the filter on `target` a new selection should reuse, or -1.
+ * The applied filter a new selection on `target` should reuse, named by the target it is stored
+ * under, or null when there is none.
  *
  * Only an equality filter counts. Two `message icontains` filters are a legitimate AND, so picking
- * that attribute again means adding one, not editing the one already there.
+ * that attribute again means adding one, not editing the one already there. The reconciled target
+ * comes back rather than the caller's, because the two can name different types for one key.
  */
-export function indexOfFilterOn(values: FilterEntry[], target: LogsFilterTarget | null): number {
+export function appliedEqualityTarget(values: FilterEntry[], target: LogsFilterTarget | null): LogsFilterTarget | null {
     if (!target) {
-        return -1
+        return null
     }
     const reconciled = reconcileTarget(values, target)
-    return values.findIndex((entry) => {
+    const applied = values.some((entry) => {
         const filter = asFilter(entry)
         return (
             filter !== null &&
             isSameTarget(entry, reconciled) &&
             filter.operator !== undefined &&
-            MERGEABLE_OPERATORS.includes(filter.operator)
+            EQUALITY_OPERATORS.includes(filter.operator)
         )
     })
-}
-
-function filterValues(filter: ReconcilableFilter): unknown[] {
-    const value = filter.value
-    if (Array.isArray(value)) {
-        return value
-    }
-    return value != null && value !== '' ? [value] : []
+    return applied ? reconciled : null
 }
 
 // Values are compared as strings because that is what the picker and the URL round-trip them as, but
-// the stored value keeps its own type: merging into a numeric filter must not rewrite it to strings.
+// the stored value keeps its own type (see filterValues).
 function valueKey(value: unknown): string {
     return String(value)
 }
@@ -114,22 +109,24 @@ function withValues(filter: ReconcilableFilter, values: unknown[]): FilterEntry 
  */
 export function mergeFilterIntoValues(values: FilterEntry[], incoming: FilterEntry): FilterEntry[] {
     const filter = asFilter(incoming)
-    const target = filter ? reconcileTarget(values, { type: filter.type, key: String(filter.key) }) : null
-    const operator = filter?.operator
+    if (!filter) {
+        // A nested group names no attribute, so there is nothing to reconcile it against.
+        return [...values, incoming]
+    }
+    const target = reconcileTarget(values, { type: filter.type, key: String(filter.key) })
+    const operator = filter.operator
 
-    if (!filter || !target || !operator || !MERGEABLE_OPERATORS.includes(operator)) {
-        const alreadyThere =
-            filter !== null &&
-            values.some((entry) => {
-                const existing = asFilter(entry)
-                return (
-                    existing !== null &&
-                    isSameTarget(entry, target as LogsFilterTarget) &&
-                    existing.operator === operator &&
-                    JSON.stringify(filterValues(existing).map(valueKey)) ===
-                        JSON.stringify(filterValues(filter).map(valueKey))
-                )
-            })
+    if (!operator || !EQUALITY_OPERATORS.includes(operator)) {
+        const incomingKeys = filterValues(filter).map(valueKey)
+        const alreadyThere = values.some((entry) => {
+            const existing = asFilter(entry)
+            return (
+                existing !== null &&
+                isSameTarget(entry, target) &&
+                existing.operator === operator &&
+                equal(filterValues(existing).map(valueKey), incomingKeys)
+            )
+        })
         return alreadyThere ? values : [...values, incoming]
     }
 
@@ -140,6 +137,7 @@ export function mergeFilterIntoValues(values: FilterEntry[], incoming: FilterEnt
         return [...values, incoming]
     }
 
+    const incomingKeys = incomingValues.map(valueKey)
     let mergedIntoExisting = false
     const reconciled = values
         .map((entry): FilterEntry | null => {
@@ -149,15 +147,9 @@ export function mergeFilterIntoValues(values: FilterEntry[], incoming: FilterEnt
             }
             if (existing.operator === operator) {
                 mergedIntoExisting = true
-                const existingValues = filterValues(existing)
-                const existingKeys = existingValues.map(valueKey)
-                return withValues(existing, [
-                    ...existingValues,
-                    ...incomingValues.filter((v) => !existingKeys.includes(valueKey(v))),
-                ])
+                return withValues(existing, uniqueBy([...filterValues(existing), ...incomingValues], valueKey))
             }
             if (existing.operator === OPPOSITE_OPERATOR[operator]) {
-                const incomingKeys = incomingValues.map(valueKey)
                 const remaining = filterValues(existing).filter((v) => !incomingKeys.includes(valueKey(v)))
                 return remaining.length > 0 ? withValues(existing, remaining) : null
             }
@@ -263,6 +255,6 @@ export function logsSelection(
     }
     // The applied filter's own target, not the one derived from the group: the bar matches chips by
     // target, and the derived type can disagree with the applied one (see reconcileTarget).
-    const matched = filterTarget(values[indexOfFilterOn(values, target)] ?? null)
+    const matched = appliedEqualityTarget(values, target)
     return matched ? { kind: 'focus', target: matched } : { kind: 'new' }
 }

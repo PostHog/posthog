@@ -30,6 +30,7 @@ import {
 } from '~/types'
 
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
+import { isSameFilterTarget } from 'products/logs/frontend/components/LogsViewer/FacetRail/facetFilters'
 import {
     filterTarget,
     logsSelection,
@@ -242,13 +243,7 @@ const FilterGroupValues = ({
     return (
         <>
             {filterGroup.values.map((filterOrGroup, index) => {
-                const target = filterTarget(filterOrGroup)
-                const isFocused =
-                    focusable &&
-                    focusedFilter !== null &&
-                    target !== null &&
-                    target.type === focusedFilter.type &&
-                    target.key === focusedFilter.key
+                const isFocused = focusable && isSameFilterTarget(filterTarget(filterOrGroup), focusedFilter)
                 return isUniversalGroupFilterLike(filterOrGroup) ? (
                     <UniversalFilters.Group index={index} key={index} group={filterOrGroup}>
                         <FilterGroupValues allowInitiallyOpen={allowInitiallyOpen} />
@@ -262,7 +257,15 @@ const FilterGroupValues = ({
                         onChange={(value) => replaceGroupValue(index, value)}
                         initiallyOpen={allowInitiallyOpen && filterOrGroup.type != PropertyFilterType.HogQL}
                         open={isFocused ? true : undefined}
-                        onOpenChange={isFocused ? (next) => (next ? undefined : focusFilter(null)) : undefined}
+                        onOpenChange={
+                            isFocused
+                                ? (next) => {
+                                      if (!next) {
+                                          focusFilter(null)
+                                      }
+                                  }
+                                : undefined
+                        }
                     />
                 )
             })}

@@ -2,7 +2,8 @@ import { TaxonomicFilterGroup, TaxonomicFilterGroupType } from 'lib/components/T
 
 import { PropertyFilterType, PropertyOperator, UniversalFiltersGroup } from '~/types'
 
-import { indexOfFilterOn, logsSelection, mergeFilterIntoValues, selectionTarget } from './logsFilterAdd'
+import { LogsFilterTarget } from './logsFilterAdd'
+import { appliedEqualityTarget, logsSelection, mergeFilterIntoValues, selectionTarget } from './logsFilterAdd'
 
 const LOGS_GROUP = { name: 'Logs', type: TaxonomicFilterGroupType.Logs } as TaxonomicFilterGroup
 const LOG_ATTRIBUTES_GROUP = {
@@ -20,6 +21,15 @@ const attributeFilter = (key: string, operator: PropertyOperator, value?: string
 
 const resourceFilter = (key: string, operator: PropertyOperator, value?: string | string[]): FilterEntry =>
     ({ key, type: PropertyFilterType.LogResourceAttribute, operator, value }) as FilterEntry
+
+/** Applies a pick that must reconcile, failing loudly if the decision came out as something else. */
+const applyPick = (values: FilterEntry[], group: TaxonomicFilterGroup, item: Record<string, any>): FilterEntry[] => {
+    const selection = logsSelection(values, group, 'service_name', item)
+    if (selection.kind !== 'merge') {
+        throw new Error(`expected a merge, got ${selection.kind}`)
+    }
+    return mergeFilterIntoValues(values, selection.filter)
+}
 
 describe('logsFilterAdd', () => {
     describe('mergeFilterIntoValues', () => {
@@ -130,99 +140,41 @@ describe('logsFilterAdd', () => {
         })
     })
 
-    describe('indexOfFilterOn', () => {
+    describe('appliedEqualityTarget', () => {
         const values = [
             logFilter('message', PropertyOperator.IContains, 'timeout'),
             logFilter('service_name', PropertyOperator.IsNot, ['api']),
         ]
 
-        it.each<[string, PropertyFilterType, string, number]>([
-            ['the equality filter on that attribute', PropertyFilterType.Log, 'service_name', 1],
+        it.each<[string, PropertyFilterType, string, LogsFilterTarget | null]>([
+            [
+                'the equality filter on that attribute',
+                PropertyFilterType.Log,
+                'service_name',
+                { key: 'service_name', type: PropertyFilterType.Log },
+            ],
             [
                 'a log attribute pick matching the column of that name',
                 PropertyFilterType.LogAttribute,
                 'service_name',
-                1,
+                { key: 'service_name', type: PropertyFilterType.Log },
             ],
             [
                 'no match for a resource attribute of that name',
                 PropertyFilterType.LogResourceAttribute,
                 'service_name',
-                -1,
+                null,
             ],
-            ['no match for another key', PropertyFilterType.Log, 'severity_level', -1],
+            ['no match for another key', PropertyFilterType.Log, 'severity_level', null],
+            // A contains filter is an independent predicate, so picking that attribute again adds one
+            // rather than editing the filter already there.
+            ['no match for a contains filter', PropertyFilterType.Log, 'message', null],
         ])('finds %s', (_, type, key, expected) => {
-            expect(indexOfFilterOn(values, { type, key })).toEqual(expected)
+            expect(appliedEqualityTarget(values, { type, key })).toEqual(expected)
         })
 
-        // A contains filter is an independent predicate, so picking that attribute again adds one
-        // rather than editing the filter already there.
-        it('does not reuse a filter whose operator is not an equality', () => {
-            expect(
-                indexOfFilterOn([logFilter('message', PropertyOperator.IContains, 'timeout')], {
-                    type: PropertyFilterType.Log,
-                    key: 'message',
-                })
-            ).toEqual(-1)
-        })
-
-        it('returns -1 when the selection maps to no attribute', () => {
-            expect(indexOfFilterOn(values, null)).toEqual(-1)
-        })
-    })
-
-    // Which branch a dropdown item takes is the whole fix: a recent carrying a complete filter has to
-    // reconcile, and a bare key on an already-filtered attribute has to reuse that filter.
-    describe('logsSelection', () => {
-        const recentItem = (propertyFilter: unknown): Record<string, any> => ({
-            name: 'service_name',
-            propertyFilterType: PropertyFilterType.Log,
-            _recentContext: { sourceGroupType: TaxonomicFilterGroupType.Logs, propertyFilter },
-        })
-        const standing = [logFilter('service_name', PropertyOperator.IsNot, ['api'])]
-
-        it('merges a recent that carries a complete filter', () => {
-            const complete = {
-                key: 'service_name',
-                type: PropertyFilterType.Log,
-                operator: PropertyOperator.Exact,
-                value: ['api'],
-            }
-
-            expect(logsSelection(standing, LOGS_GROUP, 'service_name', recentItem(complete))).toEqual({
-                kind: 'merge',
-                filter: complete,
-            })
-        })
-
-        it('treats a recent with no value as a bare key, since there is nothing to merge', () => {
-            const bare = { key: 'service_name', type: PropertyFilterType.Log, operator: PropertyOperator.Exact }
-
-            expect(logsSelection(standing, LOGS_GROUP, 'service_name', recentItem(bare))).toEqual({
-                kind: 'focus',
-                target: { key: 'service_name', type: PropertyFilterType.Log },
-            })
-        })
-
-        it("routes the Logs group's free-text item to the caller that builds and records it", () => {
-            const item = { key: 'message', value: 'timeout', propertyFilterType: PropertyFilterType.Log }
-
-            expect(logsSelection([], LOGS_GROUP, 'message', item)).toEqual({ kind: 'valueItem' })
-        })
-
-        it('focuses the filter already on the picked attribute', () => {
-            const item = { name: 'service_name', propertyFilterType: PropertyFilterType.Log }
-
-            expect(logsSelection(standing, LOGS_GROUP, 'service_name', item)).toEqual({
-                kind: 'focus',
-                target: { key: 'service_name', type: PropertyFilterType.Log },
-            })
-        })
-
-        it('adds a new filter when that attribute has none', () => {
-            const item = { name: 'level', propertyFilterType: PropertyFilterType.LogAttribute }
-
-            expect(logsSelection(standing, LOG_ATTRIBUTES_GROUP, 'level', item)).toEqual({ kind: 'new' })
+        it('returns null when the selection maps to no attribute', () => {
+            expect(appliedEqualityTarget(values, null)).toBeNull()
         })
     })
 
@@ -243,13 +195,8 @@ describe('logsFilterAdd', () => {
         })
         const applied = (operator: PropertyOperator): FilterEntry =>
             ({ key: 'service_name', type: PropertyFilterType.Log, operator, value: ['posthog-db-1'] }) as FilterEntry
-        const applyRecent = (values: FilterEntry[], item: Record<string, any>): FilterEntry[] => {
-            const selection = logsSelection(values, LOG_ATTRIBUTES_GROUP, 'service_name', item)
-            if (selection.kind !== 'merge') {
-                throw new Error(`expected a merge, got ${selection.kind}`)
-            }
-            return mergeFilterIntoValues(values, selection.filter)
-        }
+        const applyRecent = (values: FilterEntry[], item: Record<string, any>): FilterEntry[] =>
+            applyPick(values, LOG_ATTRIBUTES_GROUP, item)
 
         it.each<[string, PropertyOperator, PropertyOperator]>([
             ['an applied = replaced by a picked ≠', PropertyOperator.Exact, PropertyOperator.IsNot],
@@ -318,25 +265,11 @@ describe('logsFilterAdd', () => {
             matchedValue: 'posthog-web',
         }
 
-        it('reconciles the matched value against the applied filter', () => {
-            const applied = [logFilter('service_name', PropertyOperator.IsNot, ['posthog-web'])]
-            const selection = logsSelection(applied, LOG_ATTRIBUTES_GROUP, 'service_name', valueRow)
-            if (selection.kind !== 'merge') {
-                throw new Error(`expected a merge, got ${selection.kind}`)
-            }
-
-            expect(mergeFilterIntoValues(applied, selection.filter)).toEqual([
-                logFilter('service_name', PropertyOperator.Exact, ['posthog-web']),
-            ])
-        })
-
-        it('adds the matched value when the attribute has no filter yet', () => {
-            const selection = logsSelection([], LOG_ATTRIBUTES_GROUP, 'service_name', valueRow)
-            if (selection.kind !== 'merge') {
-                throw new Error(`expected a merge, got ${selection.kind}`)
-            }
-
-            expect(mergeFilterIntoValues([], selection.filter)).toEqual([
+        it.each<[string, FilterEntry[]]>([
+            ['against the applied filter', [logFilter('service_name', PropertyOperator.IsNot, ['posthog-web'])]],
+            ['when the attribute has no filter yet', []],
+        ])('reconciles the matched value %s', (_, applied) => {
+            expect(applyPick(applied, LOG_ATTRIBUTES_GROUP, valueRow)).toEqual([
                 logFilter('service_name', PropertyOperator.Exact, ['posthog-web']),
             ])
         })
