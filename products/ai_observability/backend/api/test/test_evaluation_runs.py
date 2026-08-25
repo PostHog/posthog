@@ -17,7 +17,7 @@ from posthog.models.user import User
 
 from ee.models.rbac.access_control import AccessControl
 
-from ...api.evaluation_runs import EVALUATION_TARGET_MISMATCH_CODE, _evaluation_workflow_prefix
+from ...api.evaluation_runs import _evaluation_workflow_prefix
 from ...models.evaluations import Evaluation
 
 
@@ -237,8 +237,10 @@ class TestEvaluationRunViewSet(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         body = response.json()
         assert target in body["detail"]
-        # The code is what a caller keys off to tell this refusal apart from a malformed request.
-        assert body["code"] == EVALUATION_TARGET_MISMATCH_CODE
+        # Spelled out rather than compared against the constant, which would move with it. A caller
+        # keys off this string to tell the refusal apart from a malformed request, so changing it
+        # breaks them and should fail here.
+        assert body["code"] == "evaluation_target_mismatch"
 
     def test_create_evaluation_run_missing_params(self):
         """Test creating evaluation run with missing parameters"""
