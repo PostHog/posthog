@@ -1864,6 +1864,10 @@ class TestPrinter(BaseTest):
             "quantile(0.5, 2)(event)",
             "Aggregation 'quantile' expects 1 parameter, found 2",
         )
+        self._assert_expr_error(
+            "toStartOfMonth(timestamp)(1)",
+            "Function 'toStartOfMonth' expects 0 parameters, found 1",
+        )
         self._assert_expr_error("sparkline()", "Function 'sparkline' expects 1 argument, found 0")
         self._assert_expr_error("hamburger(event)", "Unsupported function call 'hamburger(...)'")
         self._assert_expr_error("mad(event)", "Unsupported function call 'mad(...)'")
@@ -3004,6 +3008,25 @@ class TestPrinter(BaseTest):
         # through the Alias to resolve the already-a-datetime overload.
         printed = self._expr("toDateTime(properties.dt_prop AS d)")
         self.assertEqual(printed.count("parseDateTime64BestEffortOrNull"), 1, printed)
+
+    @parameterized.expand(
+        [
+            ("toStartOfYear",),
+            ("toStartOfISOYear",),
+            ("toStartOfQuarter",),
+            ("toStartOfMonth",),
+            ("toLastDayOfMonth",),
+            ("toMonday",),
+            ("toStartOfWeek",),
+        ]
+    )
+    def test_to_datetime_wrapping_date_function_converts_not_reparses(self, fn: str):
+        # These functions return a Date, so an outer toDateTime must convert it.
+        # Without a Date signature the printer string-parses the Date, which
+        # ClickHouse rejects at runtime.
+        printed = self._expr(f"toDateTime({fn}(timestamp))")
+        self.assertIn(f"toDateTime({fn}(", printed)
+        self.assertNotIn("parseDateTime64BestEffortOrNull", printed)
 
     def test_window_functions(self):
         self.assertEqual(

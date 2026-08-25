@@ -39,9 +39,30 @@ DATETIME_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ((DateTimeType(), IntervalType(), DateTimeType()), DateTimeType()),
         ],
     ),
-    "toStartOfYear": HogQLFunctionMeta("toStartOfYear", 1, 1),
-    "toStartOfISOYear": HogQLFunctionMeta("toStartOfISOYear", 1, 1),
-    "toStartOfQuarter": HogQLFunctionMeta("toStartOfQuarter", 1, 1),
+    "toStartOfYear": HogQLFunctionMeta(
+        "toStartOfYear",
+        1,
+        1,
+        signatures=[
+            ((UnknownType(),), DateType()),
+        ],
+    ),
+    "toStartOfISOYear": HogQLFunctionMeta(
+        "toStartOfISOYear",
+        1,
+        1,
+        signatures=[
+            ((UnknownType(),), DateType()),
+        ],
+    ),
+    "toStartOfQuarter": HogQLFunctionMeta(
+        "toStartOfQuarter",
+        1,
+        1,
+        signatures=[
+            ((UnknownType(),), DateType()),
+        ],
+    ),
     "toStartOfMonth": HogQLFunctionMeta(
         "toStartOfMonth",
         1,
@@ -50,8 +71,22 @@ DATETIME_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
             ((UnknownType(),), DateType()),
         ],
     ),
-    "toLastDayOfMonth": HogQLFunctionMeta("toLastDayOfMonth", 1, 1),
-    "toMonday": HogQLFunctionMeta("toMonday", 1, 1),
+    "toLastDayOfMonth": HogQLFunctionMeta(
+        "toLastDayOfMonth",
+        1,
+        1,
+        signatures=[
+            ((UnknownType(),), DateType()),
+        ],
+    ),
+    "toMonday": HogQLFunctionMeta(
+        "toMonday",
+        1,
+        1,
+        signatures=[
+            ((UnknownType(),), DateType()),
+        ],
+    ),
     "toStartOfWeek": HogQLFunctionMeta(
         "toStartOfWeek",
         1,

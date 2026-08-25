@@ -1089,9 +1089,7 @@ class BasePrinter(Visitor[str]):
                 node.name,
             )
 
-            if func_meta.min_params:
-                if node.params is None:
-                    raise QueryError(f"Function '{node.name}' requires parameters in addition to arguments")
+            if node.params is not None:
                 validate_function_args(
                     node.params,
                     func_meta.min_params,
@@ -1099,6 +1097,8 @@ class BasePrinter(Visitor[str]):
                     node.name,
                     argument_term="parameter",
                 )
+            elif func_meta.min_params:
+                raise QueryError(f"Function '{node.name}' requires parameters in addition to arguments")
 
             return self._render_function_call(node, func_meta)
         elif func_meta := find_hogql_posthog_function(node.name):
