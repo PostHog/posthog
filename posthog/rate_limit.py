@@ -613,6 +613,19 @@ class LogsAnomalyScanSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "60/hour"
 
 
+# Series band charts read a 6-week window of the logs_volume_buckets rollup — a few orders of
+# magnitude cheaper than the anomaly scan above, but still a browse surface that fires on every
+# service pick, so a team bucket keeps a click-happy session from stacking ClickHouse reads.
+class LogsSeriesBandsBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "logs_series_bands_burst"
+    rate = "30/minute"
+
+
+class LogsSeriesBandsSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "logs_series_bands_sustained"
+    rate = "600/hour"
+
+
 # The experiment session-bucket endpoint scans every session in an experiment's recent run
 # window rather than a known id list, so one call is heavier than a session-context batch. Same
 # project-wide bucketing and same session-authenticated caller as those, at a lower rate: the UI

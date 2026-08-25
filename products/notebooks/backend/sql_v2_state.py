@@ -16,6 +16,7 @@ from typing import Any
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
+from products.notebooks.backend.facade.contracts import NotebookCellLimitExceeded
 from products.notebooks.backend.models import NotebookNodeRun
 from products.notebooks.backend.python_analysis import analyze_python_globals
 from products.notebooks.backend.sql_v2_references import _TableReferenceCollector, resolve_sql_v2_references
@@ -26,6 +27,14 @@ from products.notebooks.backend.util import (
 )
 
 _CELL_TAGS = {"SQLV2": "sql", "PythonV2": "python", "Query": "saved_insight"}
+
+# The most cells one notebook may hold. A cell is the expensive unit: a SQL or Python cell is a
+# ClickHouse query or a sandbox execution, and the MCP tools let an agent add one and run it in
+# the same call, in a loop, with nothing between it and storage. Counted the way `extract_cells`
+# counts, so this ceiling and what the API reports as a cell are the same number.
+MAX_NOTEBOOK_CELLS = 50
+
+__all__ = ["NotebookCellLimitExceeded"]
 _DATAFRAME_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _CODE_PREVIEW_CHARS = 8_000
 
@@ -66,6 +75,22 @@ def extract_cells(content: Any) -> list[NotebookCellState]:
             )
         )
     return cells
+
+
+def validate_cell_count(previous_content: Any, next_content: Any) -> None:
+    """Refuse a save that grows a notebook past the cell ceiling.
+
+    Only growth is refused. A notebook already over the ceiling — written before this existed,
+    or by a path that predates it — stays editable, so its owner can delete cells down instead
+    of finding every save rejected. A save that leaves the count unchanged always passes.
+    """
+    next_count = len(extract_cells(next_content))
+    if next_count <= MAX_NOTEBOOK_CELLS or next_count <= len(extract_cells(previous_content)):
+        return
+    raise NotebookCellLimitExceeded(
+        f"This notebook is at its limit of {MAX_NOTEBOOK_CELLS} cells. "
+        "Delete a cell before adding another, or start a new notebook for the next step."
+    )
 
 
 def _referenced_names(cell: NotebookCellState, candidates: set[str]) -> set[str]:

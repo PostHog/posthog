@@ -8,7 +8,6 @@ return serialized responses. No business logic here.
 from functools import cached_property
 from typing import Any
 from urllib.parse import quote
-from uuid import UUID
 
 from django.conf import settings
 from django.core import signing
@@ -42,8 +41,6 @@ from ..facade.github import (
     user_can_access_installation,
 )
 from .serializers import (
-    DigestChannelSerializer,
-    DigestChannelWriteSerializer,
     DigestRunSerializer,
     PullRequestSerializer,
     ReviewRunSerializer,
@@ -124,10 +121,10 @@ class _StamphogTeamScopedViewSet(TeamAndOrgViewSetMixin):
         return resolve_effective_team_id(self.team_id)
 
     def get_serializer_context(self) -> dict[str, Any]:
-        # The mixin sets context["team_id"] to the RAW url team, but serializers validate team-scoped
-        # lookups (e.g. DigestChannel.slack_integration_id) against it. stamphog rows canonicalize to the
-        # parent team on save, so those lookups must target the canonical team the row is stored under —
-        # a child-environment request would otherwise validate against the wrong team's integrations.
+        # The mixin sets context["team_id"] to the RAW url team, but a serializer validating a
+        # team-scoped lookup reads it. stamphog rows canonicalize to the parent team on save, so
+        # those lookups must target the canonical team the row is stored under: a child-environment
+        # request would otherwise validate against the wrong team's rows.
         context = super().get_serializer_context()
         context["team_id"] = self.canonical_team_id
         return context
@@ -187,7 +184,6 @@ class StamphogRepoConfigViewSet(_StamphogTeamScopedViewSet, viewsets.GenericView
         return Response(self.get_serializer(config).data)
 
     @extend_schema(request=StamphogRepoConfigWriteSerializer, responses={200: StamphogRepoConfigSerializer})
-    @extend_schema(request=DigestChannelWriteSerializer, responses={200: DigestChannelSerializer})
     def partial_update(self, request: Request, pk: str | None = None, **kwargs) -> Response:
         return self.update(request, pk=pk, partial=True, **kwargs)
 
@@ -487,74 +483,11 @@ class PullRequestViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
         return self.get_paginated_response(self.get_serializer(page, many=True).data)
 
 
-class DigestChannelViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
-    """Per-audience Slack destinations for the daily merged-PR digest."""
-
-    scope_object = "stamphog"
-    serializer_class = DigestChannelSerializer
-
-    def _get_or_404(self, pk: str | None) -> contracts.DigestChannelDTO:
-        channel = facade_api.get_digest_channel(self.canonical_team_id, str(pk))
-        if channel is None:
-            raise NotFound()
-        return channel
-
-    def list(self, request: Request, **kwargs) -> Response:
-        channels = facade_api.list_digest_channels(self.canonical_team_id)
-        page = self.paginate_queryset(channels)
-        return self.get_paginated_response(self.get_serializer(page, many=True).data)
-
-    def retrieve(self, request: Request, pk: str | None = None, **kwargs) -> Response:
-        return Response(self.get_serializer(self._get_or_404(pk)).data)
-
-    @extend_schema(request=DigestChannelWriteSerializer, responses={201: DigestChannelSerializer})
-    def create(self, request: Request, **kwargs) -> Response:
-        serializer = DigestChannelWriteSerializer(data=request.data, context=self.get_serializer_context())
-        serializer.is_valid(raise_exception=True)
-        try:
-            channel = facade_api.create_digest_channel(self.canonical_team_id, **serializer.validated_data)
-        except contracts.DuplicateAudienceError:
-            raise ValidationError({"audience_key": "A digest channel for this audience already exists."})
-        return Response(self.get_serializer(channel).data, status=201)
-
-    @extend_schema(request=DigestChannelWriteSerializer, responses={200: DigestChannelSerializer})
-    def update(self, request: Request, pk: str | None = None, **kwargs) -> Response:
-        self._get_or_404(pk)
-        serializer = DigestChannelWriteSerializer(
-            data=request.data,
-            partial=kwargs.get("partial", False),
-            partial_update=True,
-            context=self.get_serializer_context(),
-        )
-        serializer.is_valid(raise_exception=True)
-        channel = facade_api.update_digest_channel(self.canonical_team_id, str(pk), **serializer.validated_data)
-        return Response(self.get_serializer(channel).data)
-
-    def partial_update(self, request: Request, pk: str | None = None, **kwargs) -> Response:
-        return self.update(request, pk=pk, partial=True, **kwargs)
-
-    def destroy(self, request: Request, pk: str | None = None, **kwargs) -> Response:
-        self._get_or_404(pk)
-        facade_api.disable_digest_channel(self.canonical_team_id, str(pk))
-        return Response(status=204)
-
-
 class DigestRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
-    """Read-only history of posted (or attempted) digests, filterable by digest channel."""
+    """Read-only history of posted (or attempted) digests, filterable by Slack channel."""
 
     scope_object = "stamphog"
     serializer_class = DigestRunSerializer
-
-    def _digest_runs(self) -> facade_api.LazyDTOList[contracts.DigestRunDTO] | None:
-        """The team's digest runs under the request's filter, or None if it is unparseable."""
-        digest_channel = self.request.query_params.get("digest_channel")
-        channel_id = None
-        if digest_channel:
-            try:
-                channel_id = UUID(digest_channel)
-            except ValueError:
-                return None
-        return facade_api.list_digest_runs(self.canonical_team_id, digest_channel_id=channel_id)
 
     def retrieve(self, request: Request, pk: str | None = None, **kwargs) -> Response:
         digest_run = facade_api.get_digest_run(self.canonical_team_id, str(pk))
@@ -565,16 +498,16 @@ class DigestRunViewSet(_StamphogTeamScopedViewSet, viewsets.GenericViewSet):
     @extend_schema(
         parameters=[
             OpenApiParameter(
-                "digest_channel",
-                OpenApiTypes.UUID,
+                "slack_channel_id",
+                OpenApiTypes.STR,
                 OpenApiParameter.QUERY,
                 required=False,
-                description="Filter by digest channel ID.",
+                description="Filter by the Slack channel the digest was posted to, e.g. 'C012AB3CD'.",
             ),
         ],
         responses={200: DigestRunSerializer(many=True)},
     )
     def list(self, request: Request, **kwargs) -> Response:
-        digest_runs = self._digest_runs()
-        page = self.paginate_queryset(digest_runs if digest_runs is not None else [])
-        return self.get_paginated_response(self.get_serializer(page, many=True).data)
+        slack_channel_id = request.query_params.get("slack_channel_id") or None
+        runs = facade_api.list_digest_runs(self.canonical_team_id, slack_channel_id=slack_channel_id)
+        return self.get_paginated_response(self.get_serializer(self.paginate_queryset(runs), many=True).data)
